@@ -319,6 +319,7 @@ export default function AgentStudio() {
   const [operationStartedAt, setOperationStartedAt] = useState(0);
   const [operationElapsed, setOperationElapsed] = useState(0);
   const [videoApiKey, setVideoApiKey] = useState(() => window.localStorage.getItem('presentator.magicHourApiKey') || '');
+  const [selectedFilter, setSelectedFilter] = useState('');
   const cancelledRef = useRef(false);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);

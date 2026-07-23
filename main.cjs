@@ -128,7 +128,23 @@ function mobileBridgeSource() {
     };
     const api = {
       isMobileRemote: true,
-      getPathForFile: file => file?.path || '',
+      getPathForFile: file => file?.__mobilePath || file?.path || '',
+      uploadMobileFile: async file => {
+        if (!file || typeof file.arrayBuffer !== 'function') throw new Error('Select the file again.');
+        const response = await fetch('/api/mobile-upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-Presentator-Mobile-Token': token,
+            'X-Presentator-File-Name': encodeURIComponent(file.name || 'mobile-upload.bin')
+          },
+          body: file
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || 'Mobile upload failed');
+        Object.defineProperty(file, '__mobilePath', { value: payload.filePath, configurable: true });
+        return payload;
+      },
       onMobileLinkUpdated: () => () => {}, offMobileLinkUpdated: () => {},
       onPresentatorAgentProgress: () => () => {}, offPresentatorAgentProgress: () => {},
       onRhymeSongProgress: () => () => {},
@@ -177,6 +193,44 @@ function startMobileHttpServer() {
         if (requestUrl.pathname === '/mobile-bridge.js') {
           res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
           res.end(mobileBridgeSource());
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-upload' && req.method === 'POST') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' }));
+            return;
+          }
+          let originalName = 'mobile-upload.bin';
+          try { originalName = decodeURIComponent(String(req.headers['x-presentator-file-name'] || originalName)); } catch (_) {}
+          const safeName = path.basename(originalName).replace(/[^\w.\- ()]/g, '_').slice(0, 160) || 'mobile-upload.bin';
+          const uploadDir = path.join(ROOT, 'temp', 'mobile-uploads');
+          fs.mkdirSync(uploadDir, { recursive: true });
+          const filePath = path.join(uploadDir, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safeName}`);
+          const output = fs.createWriteStream(filePath, { flags: 'wx' });
+          let total = 0;
+          let failed = false;
+          req.on('data', chunk => {
+            total += chunk.length;
+            if (total > 2 * 1024 * 1024 * 1024) {
+              failed = true;
+              req.destroy(new Error('Mobile upload exceeds the 2 GB limit.'));
+            }
+          });
+          req.pipe(output);
+          output.on('finish', () => {
+            if (failed) return;
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify({ ok: true, filePath, fileName: safeName, size: total }));
+          });
+          const fail = error => {
+            if (res.headersSent || res.writableEnded) return;
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: error.message || 'Mobile upload failed.' }));
+          };
+          req.on('error', fail);
+          output.on('error', fail);
           return;
         }
         if (requestUrl.pathname === '/api/mobile-rpc' && req.method === 'POST') {

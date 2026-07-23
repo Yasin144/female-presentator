@@ -375,10 +375,22 @@ export default function CaptionBurner({ onClose }: Props) {
     return { filePath: '', fileName };
   }, []);
 
-  const addFiles = (files: File[], opts: { language?: Language; autoStart?: boolean } = {}) => {
+  const addFiles = async (files: File[], opts: { language?: Language; autoStart?: boolean } = {}) => {
     setError(null);
     const language = opts.language || S.language;
-    const validFiles = files.filter(f => f.type.startsWith('video/')).map(f => ({
+    const selectedVideos = files.filter(f => f.type.startsWith('video/'));
+    const api = electronApi();
+    if (api?.isMobileRemote && api?.uploadMobileFile) {
+      try {
+        for (const file of selectedVideos) {
+          await api.uploadMobileFile(file);
+        }
+      } catch (error: any) {
+        setError(`Mobile upload failed: ${String(error?.message || error)}. Select the video again and keep this page open until upload completes.`);
+        return;
+      }
+    }
+    const validFiles = selectedVideos.map(f => ({
       id: uid(),
       video: { name: f.name, mimeType: f.type, file: f },
       status: 'idle' as const,
