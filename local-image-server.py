@@ -25,6 +25,9 @@ pipeline = None
 pipeline_lock = threading.Lock()
 generating = False
 last_error = ""
+generation_stage = "idle"
+generation_step = 0
+generation_total_steps = 8
 
 
 class ImageRequest(BaseModel):
@@ -74,16 +77,23 @@ def health():
         "model": MODEL_ID,
         "modelReady": pipeline is not None,
         "generating": generating,
+        "stage": generation_stage,
+        "step": generation_step,
+        "totalSteps": generation_total_steps,
+        "percent": round((generation_step / max(1, generation_total_steps)) * 100),
         "lastError": last_error,
     }
 
 
 @app.post("/api/generate-image")
 def generate_image(request: ImageRequest):
-    global generating, last_error, pipeline
+    global generating, last_error, pipeline, generation_stage, generation_step, generation_total_steps
     if generating:
         raise HTTPException(status_code=409, detail="Image generation is already running.")
     generating = True
+    generation_stage = "loading_model"
+    generation_step = 0
+    generation_total_steps = 8
     started = time.perf_counter()
     try:
         pipe = load_pipeline()
@@ -96,6 +106,12 @@ def generate_image(request: ImageRequest):
             "realistic fine textures, professional cinematic lighting, balanced color grading, "
             "clean composition, presentation-ready, 16:9 widescreen, no text, no watermark"
         )
+        generation_stage = "diffusion"
+
+        def report_step(step, _timestep, _latents):
+            global generation_step
+            generation_step = min(generation_total_steps, int(step) + 1)
+
         result = pipe(
             prompt=prompt,
             negative_prompt=request.negativePrompt.strip() or None,
@@ -105,12 +121,16 @@ def generate_image(request: ImageRequest):
             width=(request.width // 8) * 8,
             height=(request.height // 8) * 8,
             generator=generator,
+            callback=report_step,
+            callback_steps=1,
         )
+        generation_stage = "upscaling_4k"
         file_name = f"presentator-{int(time.time())}-{uuid.uuid4().hex[:8]}.png"
         output_path = OUTPUT_DIR / file_name
         image = result.images[0]
         image = image.resize((request.outputWidth, request.outputHeight), Image.Resampling.LANCZOS)
         image = image.filter(ImageFilter.UnsharpMask(radius=1.35, percent=125, threshold=3))
+        generation_stage = "saving"
         image.save(output_path, format="PNG", optimize=True)
         last_error = ""
         return {
@@ -129,6 +149,8 @@ def generate_image(request: ImageRequest):
         raise HTTPException(status_code=500, detail=last_error)
     finally:
         generating = False
+        generation_stage = "idle"
+        generation_step = 0
         pipeline = None
         gc.collect()
 

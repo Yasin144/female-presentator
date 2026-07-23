@@ -15,7 +15,9 @@ def main():
     if not mobile_url or not mobile_url.startswith('http'):
         return
 
-    message = f"📱 Presentator 4G/5G Mobile Link:\n{mobile_url}\n\n🏠 Home Wi-Fi Link:\nhttp://192.168.29.161:5173"
+    wifi_url = sys.argv[2].strip() if len(sys.argv) > 2 else "http://192.168.29.161:8433"
+    phone_number = sys.argv[3].strip() if len(sys.argv) > 3 else "917386726193"
+    message = f"📱 Presentator 4G/5G Mobile Link:\n{mobile_url}\n\n🏠 Home Wi-Fi Link:\n{wifi_url}"
 
     # 1. Instant Push Notification to Phone via ntfy.sh (Zero login, 0ms latency)
     try:
@@ -28,12 +30,10 @@ def main():
     # 2. Native WhatsApp URI + pygetwindow Auto Focus + PyAutoGUI Auto Send
     try:
         encoded_text = urllib.parse.quote(message)
-        wa_app_url = f"whatsapp://send?phone=917386726193&text={encoded_text}"
-        wa_web_url = f"https://api.whatsapp.com/send?phone=917386726193&text={encoded_text}"
+        wa_app_url = f"whatsapp://send?phone={phone_number}&text={encoded_text}"
 
         if sys.platform == 'win32':
             os.system(f'start "" "{wa_app_url}"')
-            os.system(f'start "" "{wa_web_url}"')
             
             time.sleep(3.5)
 
@@ -67,7 +67,7 @@ w.SendKeys "~"
                 f.write(vbs_code)
             subprocess.run(['cscript', '//nologo', vbs_file], capture_output=True)
 
-            print("[Auto-Send] WhatsApp pygetwindow auto-send completed for 7386726193")
+            print(f"[Auto-Send] WhatsApp auto-send completed for {phone_number}")
     except Exception as e:
         print("[Auto-Send] WhatsApp error:", e)
 

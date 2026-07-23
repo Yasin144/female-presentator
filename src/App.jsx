@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import InputPanel from './components/InputPanel';
 import StagePanel from './components/StagePanel';
 import ErrorCheckerApp from './components/ErrorChecker/ErrorCheckerApp';
@@ -103,10 +103,18 @@ function applyToTextarea(vals) {
 
 function App() {
   const [panelOpen, setPanelOpen]       = useState(false);
-  const [captionOpen, setCaptionOpen]   = useState(false);
+  const [captionOpen, setCaptionOpen]   = useState(() => {
+    if (!window.electronAPI?.isMobileRemote) return false;
+    try { return JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').caption === true; }
+    catch (_) { return false; }
+  });
   const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
-  const [currentModule, setCurrentModule] = useState('presentator'); // presentator | errorChecker | presentation | agent | rhyme | director | exporter
+  const [currentModule, setCurrentModule] = useState(() => {
+    if (!window.electronAPI?.isMobileRemote) return 'presentator';
+    try { return JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').module || 'presentator'; }
+    catch (_) { return 'presentator'; }
+  }); // presentator | errorChecker | presentation | agent | rhyme | director | exporter
   const [hideHeader, setHideHeader]     = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -119,6 +127,49 @@ function App() {
   });
   const [copiedNotice, setCopiedNotice] = useState('');
   const [tunnelSecs, setTunnelSecs] = useState(0);
+  const mobileHistoryApplying = useRef(false);
+  const mobileHistoryReady = useRef(false);
+
+  // Make Android/iOS browser Back navigate inside the mobile app. At the
+  // Presentator home screen a guard entry prevents Back from closing the app.
+  useEffect(() => {
+    if (!window.electronAPI?.isMobileRemote) return undefined;
+    const homeState = { ppMobileView: true, module: 'presentator', caption: false };
+    window.history.replaceState(homeState, '', window.location.href);
+    const restoredState = { ppMobileView: true, module: currentModule, caption: captionOpen };
+    const restoredIsHome = currentModule === 'presentator' && !captionOpen;
+    window.history.pushState(restoredIsHome ? { ...homeState, ppMobileGuard: true } : restoredState, '', window.location.href);
+    mobileHistoryReady.current = true;
+
+    const onMobileBack = (event) => {
+      const state = event.state;
+      if (!state?.ppMobileView) {
+        window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
+        return;
+      }
+      mobileHistoryApplying.current = true;
+      setCaptionOpen(Boolean(state.caption));
+      setCurrentModule(state.module || 'presentator');
+      if ((state.module || 'presentator') === 'presentator' && !state.caption && !state.ppMobileGuard) {
+        window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
+      }
+      queueMicrotask(() => { mobileHistoryApplying.current = false; });
+    };
+    window.addEventListener('popstate', onMobileBack);
+    return () => window.removeEventListener('popstate', onMobileBack);
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.isMobileRemote || !mobileHistoryReady.current) return;
+    try {
+      localStorage.setItem('presentator.mobileView', JSON.stringify({ module: currentModule, caption: captionOpen }));
+    } catch (_) {}
+    if (mobileHistoryApplying.current) return;
+    const next = { ppMobileView: true, module: currentModule, caption: captionOpen };
+    const current = window.history.state || {};
+    if (current.module === next.module && Boolean(current.caption) === next.caption) return;
+    window.history.pushState(next, '', window.location.href);
+  }, [currentModule, captionOpen]);
 
   useEffect(() => {
     let timer;
@@ -387,6 +438,23 @@ function App() {
 
   return (
     <>
+      {window.electronAPI?.isMobileRemote && (captionOpen || currentModule !== 'presentator') && (
+        <button
+          type="button"
+          onClick={() => window.history.back()}
+          aria-label="Go back"
+          title="Back"
+          style={{
+            position: 'fixed', left: 14, bottom: 18, zIndex: 20000,
+            minWidth: 52, height: 46, padding: '0 15px', borderRadius: 23,
+            border: '1px solid rgba(255,255,255,0.22)',
+            background: 'rgba(9,13,22,0.94)', color: '#fff',
+            fontSize: 22, fontWeight: 900, cursor: 'pointer',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(12px)'
+          }}
+        >←</button>
+      )}
       {/* ── Top Navigation Bar (Hidden when Caption Burner is full-screen or presenting) ── */}
       {!captionOpen && !hideHeader && (
         <header className="app-topbar" style={{

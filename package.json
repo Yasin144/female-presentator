@@ -46,6 +46,7 @@
         "jspdf": "^4.2.1",
         "jspdf-autotable": "^5.0.7",
         "jszip": "^3.10.1",
+        "localtunnel": "^2.0.2",
         "magic-hour": "^0.70.0",
         "pdfjs-dist": "^5.4.149",
         "react": "^19.2.5",

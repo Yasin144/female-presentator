@@ -20,8 +20,17 @@ const fs         = require('fs');
 const http       = require('http');
 const os         = require('os');
 const crypto     = require('crypto');
+const dns        = require('dns');
+const zlib       = require('zlib');
 const { jsonrepair } = require('jsonrepair');
 const { Client: MagicHourClient } = require('magic-hour');
+const localtunnel = require('localtunnel');
+const mobileIpcHandlers = new Map();
+const originalIpcHandle = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, listener) => {
+  mobileIpcHandlers.set(channel, listener);
+  return originalIpcHandle(channel, listener);
+};
 
 function findFFmpegExecutable() {
   const candidates = [
@@ -78,6 +87,237 @@ const PRESENTATOR_FAST_MODEL = 'qwen3.5:0.8b';
 const OLLAMA_PORT = 11434;
 const activeAgentControllers = new Map();
 let activeImageGenerationRequests = 0;
+const MOBILE_HTTP_PORT = 8433;
+const MOBILE_WHATSAPP_NUMBER = '917386726193';
+let mobileHttpServer = null;
+let mobileTunnelProcess = null;
+let mobileTunnelStarting = null;
+let lastSentMobileUrl = '';
+// Prefer the built-in-SSH fallback while Cloudflare quick-tunnel DNS is failing.
+// A successful future Cloudflare health path can reset this counter.
+let mobileCloudflareFailures = 2;
+const mobileAccessToken = crypto.randomBytes(24).toString('hex');
+
+function getMobileMethodMap() {
+  try {
+    const source = fs.readFileSync(path.join(ROOT, 'preload.cjs'), 'utf8');
+    const expression = /(\w+)\s*:\s*(?:\([^)]*\)|\w+)\s*=>\s*\r?\n?\s*ipcRenderer\.invoke\(\s*['\"]([^'\"]+)/g;
+    const methods = {};
+    let match;
+    while ((match = expression.exec(source))) methods[match[1]] = match[2];
+    return methods;
+  } catch (_) { return {}; }
+}
+
+function mobileBridgeSource() {
+  const methods = JSON.stringify(getMobileMethodMap());
+  return `(() => {
+    const methods = ${methods};
+    const query = new URLSearchParams(location.search);
+    const supplied = query.get('mobileToken');
+    if (supplied) localStorage.setItem('presentator.mobileToken', supplied);
+    const token = supplied || localStorage.getItem('presentator.mobileToken') || '';
+    const invoke = async (method, args) => {
+      const response = await fetch('/api/mobile-rpc', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Presentator-Mobile-Token': token },
+        body: JSON.stringify({ method, args })
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Mobile bridge request failed');
+      return payload.result;
+    };
+    const api = {
+      isMobileRemote: true,
+      getPathForFile: file => file?.path || '',
+      onMobileLinkUpdated: () => () => {}, offMobileLinkUpdated: () => {},
+      onPresentatorAgentProgress: () => () => {}, offPresentatorAgentProgress: () => {},
+      onRhymeSongProgress: () => () => {},
+      onMyExporterProgress: () => () => {}, offMyExporterProgress: () => {},
+      onServerStatus: () => () => {},
+    };
+    for (const [method, channel] of Object.entries(methods)) api[method] = (...args) => invoke(channel, args);
+    window.electronAPI = api;
+  })();`;
+}
+
+function getMobileWifiIp() {
+  for (const records of Object.values(os.networkInterfaces())) {
+    for (const record of records || []) {
+      if (record.family === 'IPv4' && !record.internal && !record.address.startsWith('169.254.')) return record.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
+function saveMobileLinkState(mobileUrl = '', extra = {}) {
+  const data = {
+    wifiUrl: `http://${getMobileWifiIp()}:${MOBILE_HTTP_PORT}`,
+    mobileUrl,
+    active: Boolean(mobileUrl),
+    updatedAt: new Date().toISOString(),
+    ...extra,
+  };
+  for (const file of [path.join(ROOT, 'temp', 'active-mobile-link.json'), path.join(ROOT, 'public', 'mobile-link.json')]) {
+    try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8'); } catch (_) {}
+  }
+  for (const window of BrowserWindow.getAllWindows()) {
+    try { window.webContents.send('mobile-link-updated', data); } catch (_) {}
+  }
+  return data;
+}
+
+function startMobileHttpServer() {
+  if (mobileHttpServer?.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const rendererRoot = path.join(ROOT, 'renderer-dist');
+    const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.woff2': 'font/woff2' };
+    mobileHttpServer = http.createServer((req, res) => {
+      try {
+        const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${MOBILE_HTTP_PORT}`);
+        if (requestUrl.pathname === '/mobile-bridge.js') {
+          res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
+          res.end(mobileBridgeSource());
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-rpc' && req.method === 'POST') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
+          let body = '';
+          req.on('data', chunk => { if (body.length < 50 * 1024 * 1024) body += chunk; });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const handler = mobileIpcHandlers.get(String(payload.method || ''));
+              if (!handler) throw new Error(`Mobile method is unavailable: ${payload.method || 'unknown'}`);
+              const desktopWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+              const sender = desktopWindow?.webContents;
+              if (!sender) throw new Error('Desktop window is not ready.');
+              const result = await handler({ sender }, ...(Array.isArray(payload.args) ? payload.args : []));
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ ok: true, result }));
+            } catch (error) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: error.message })); }
+          });
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-link' || requestUrl.pathname === '/mobile-link.json') {
+          const data = saveMobileLinkState(lastSentMobileUrl);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(data));
+          return;
+        }
+        const requested = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, '');
+        let filePath = path.resolve(rendererRoot, requested || 'index.html');
+        if (!filePath.toLowerCase().startsWith(rendererRoot.toLowerCase() + path.sep) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) filePath = path.join(rendererRoot, 'index.html');
+        const contentType = mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+        if (path.basename(filePath).toLowerCase() === 'index.html') {
+          const html = fs.readFileSync(filePath, 'utf8').replace('</head>', '<script src="/mobile-bridge.js"></script></head>');
+          res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }); res.end(html);
+        } else {
+          const extension = path.extname(filePath).toLowerCase();
+          const compressible = ['.js', '.css', '.json', '.svg', '.html'].includes(extension);
+          const acceptsGzip = /\bgzip\b/i.test(String(req.headers['accept-encoding'] || ''));
+          const headers = {
+            'Content-Type': contentType,
+            'Cache-Control': requested.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+            'Vary': 'Accept-Encoding',
+          };
+          if (compressible && acceptsGzip) {
+            headers['Content-Encoding'] = 'gzip';
+            res.writeHead(200, headers);
+            fs.createReadStream(filePath).pipe(zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED })).pipe(res);
+          } else {
+            res.writeHead(200, headers);
+            fs.createReadStream(filePath).pipe(res);
+          }
+        }
+      } catch (error) { res.writeHead(500); res.end(error.message); }
+    });
+    mobileHttpServer.once('error', reject);
+    mobileHttpServer.listen(MOBILE_HTTP_PORT, '0.0.0.0', () => { console.log(`[Mobile Link] HTTP server active on ${MOBILE_HTTP_PORT}`); resolve(); });
+  });
+}
+
+function autoSendMobileLinkToWhatsApp(mobileUrl, wifiUrl) {
+  const script = path.join(ROOT, 'scripts', 'auto_send_whatsapp.py');
+  if (!fs.existsSync(script)) return;
+  const child = spawn('python', [script, mobileUrl, wifiUrl, MOBILE_WHATSAPP_NUMBER], { cwd: ROOT, windowsHide: true, detached: false, stdio: 'ignore' });
+  child.on('error', error => console.error('[Mobile Link] WhatsApp sender failed:', error.message));
+}
+
+async function waitForPublicTunnelDns(publicUrl, timeoutMs = 45000) {
+  const host = new URL(publicUrl).hostname;
+  const resolver = new dns.promises.Resolver();
+  resolver.setServers(['1.1.1.1', '8.8.8.8']);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const addresses = await resolver.resolve4(host);
+      if (addresses?.length) return true;
+    } catch (_) {}
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  return false;
+}
+
+async function startMobileAppTunnelService(forceRefresh = false) {
+  if (mobileTunnelStarting) return mobileTunnelStarting;
+  mobileTunnelStarting = (async () => {
+    await startMobileHttpServer();
+    if (forceRefresh && mobileTunnelProcess) {
+      try {
+        if (typeof mobileTunnelProcess.close === 'function') mobileTunnelProcess.close();
+        else if (typeof mobileTunnelProcess.kill === 'function') mobileTunnelProcess.kill();
+      } catch (_) {}
+      mobileTunnelProcess = null;
+    }
+    if (mobileTunnelProcess) return;
+    saveMobileLinkState('', { status: 'starting' });
+    const cloudflaredPath = 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
+    try {
+      if (!fs.existsSync(cloudflaredPath)) throw new Error('Cloudflare Tunnel is not installed.');
+      const cloudflared = spawn(cloudflaredPath, ['tunnel', '--url', `http://127.0.0.1:${MOBILE_HTTP_PORT}`, '--no-autoupdate', '--protocol', 'http2'], {
+        cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const publicUrl = await new Promise((resolve, reject) => {
+        let output = '';
+        const timer = setTimeout(() => reject(new Error('Cloudflare Quick Tunnel startup timed out.')), 35000);
+        const inspect = chunk => {
+          output += String(chunk || '');
+          const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+          if (match) { clearTimeout(timer); resolve(match[0]); }
+        };
+        cloudflared.stdout.on('data', inspect);
+        cloudflared.stderr.on('data', inspect);
+        cloudflared.once('error', error => { clearTimeout(timer); reject(error); });
+        cloudflared.once('exit', code => { if (!/trycloudflare\.com/i.test(output)) { clearTimeout(timer); reject(new Error(`Cloudflare exited (${code}).`)); } });
+      });
+      mobileTunnelProcess = cloudflared;
+      lastSentMobileUrl = `${publicUrl}/?mobileToken=${mobileAccessToken}`;
+      const data = saveMobileLinkState(lastSentMobileUrl, { status: 'active', verified: true, provider: 'Cloudflare Quick Tunnel' });
+      autoSendMobileLinkToWhatsApp(lastSentMobileUrl, data.wifiUrl);
+      cloudflared.once('exit', () => {
+        if (mobileTunnelProcess !== cloudflared) return;
+        mobileTunnelProcess = null;
+        saveMobileLinkState('', { status: 'inactive', provider: 'Cloudflare Quick Tunnel' });
+        if (!isQuitting) setTimeout(() => startMobileAppTunnelService(false).catch(() => {}), 3000);
+      });
+    } catch (cloudflareError) {
+      console.error('[Mobile Link] Cloudflare unavailable, using LocalTunnel:', cloudflareError.message);
+      const tunnel = await localtunnel({ port: MOBILE_HTTP_PORT, local_host: '127.0.0.1' });
+      mobileTunnelProcess = tunnel;
+      lastSentMobileUrl = `${tunnel.url}/?mobileToken=${mobileAccessToken}`;
+      const data = saveMobileLinkState(lastSentMobileUrl, { status: 'active', verified: true, provider: 'LocalTunnel fallback' });
+      autoSendMobileLinkToWhatsApp(lastSentMobileUrl, data.wifiUrl);
+      tunnel.on('error', error => saveMobileLinkState('', { status: 'error', error: error.message }));
+      tunnel.on('close', () => {
+        if (mobileTunnelProcess === tunnel) mobileTunnelProcess = null;
+        saveMobileLinkState('', { status: 'inactive', provider: 'LocalTunnel fallback' });
+        if (!isQuitting) setTimeout(() => startMobileAppTunnelService(false).catch(() => {}), 3000);
+      });
+    }
+  })();
+  try { await mobileTunnelStarting; } finally { mobileTunnelStarting = null; }
+}
 const PRESENTATOR_AGENT_FORMAT = {
   type: 'object',
   properties: {
@@ -730,22 +970,16 @@ function killAll() {
   }
   try {
     if (mobileTunnelProcess) {
-      mobileTunnelProcess.kill();
+      if (typeof mobileTunnelProcess.close === 'function') mobileTunnelProcess.close();
+      else killProcessTree(mobileTunnelProcess);
       mobileTunnelProcess = null;
     }
   } catch (_) {}
   try {
-    if (process.platform === 'win32') {
-      const { execSync } = require('child_process');
-      execSync('taskkill /F /IM cloudflared.exe /T', { stdio: 'ignore' });
-    }
+    if (mobileHttpServer) mobileHttpServer.close();
+    mobileHttpServer = null;
   } catch (_) {}
-  try {
-    const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
-    const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
-    if (fs.existsSync(linkFile)) fs.unlinkSync(linkFile);
-    if (fs.existsSync(pubFile)) fs.unlinkSync(pubFile);
-  } catch (_) {}
+  saveMobileLinkState('', { status: 'inactive', stoppedAt: new Date().toISOString() });
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Ping a TCP port to check health Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -3970,7 +4204,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
 
   ipcMain.handle('generate-mobile-link', async () => {
     console.log('[Mobile Tunnel] Generate/Refresh requested via IPC...');
-    startMobileAppTunnelService(5173);
+    startMobileAppTunnelService(false).catch(error => console.error('[Mobile Tunnel] Refresh failed:', error.message));
     return { status: 'requested' };
   });
 
@@ -3986,7 +4220,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
       }
       return '192.168.29.161';
     };
-    let data = { wifiUrl: `http://${getWifiIp()}:8433`, mobileUrl: ``, updatedAt: new Date().toISOString() };
+    let data = { wifiUrl: `http://${getWifiIp()}:${MOBILE_HTTP_PORT}`, mobileUrl: ``, updatedAt: new Date().toISOString() };
     if (fs.existsSync(linkFile)) {
       try { data = JSON.parse(fs.readFileSync(linkFile, 'utf8')); } catch (_) {}
     } else if (fs.existsSync(pubFile)) {
@@ -4059,6 +4293,12 @@ ipcMain.handle('open-file', async (event, filePath) => {
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ App lifecycle Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.whenReady().then(async () => {
+  // Recover cleanly even after power loss or a force-killed Electron process.
+  // A prior trycloudflare URL must never be advertised as active on a new launch.
+  saveMobileLinkState('', { status: 'starting', recoveredAt: new Date().toISOString() });
+  if (process.platform === 'win32') {
+    await new Promise(resolve => execFile('taskkill.exe', ['/F', '/IM', 'cloudflared.exe', '/T'], { windowsHide: true, timeout: 10000 }, () => resolve()));
+  }
   // Register app:// protocol Ã¢â‚¬â€ maps every request to D:\voice\
   // This fixes absolute-path script loading (/script.js Ã¢â€ â€™ D:\voice\script.js)
   protocol.handle('app', (request) => {
@@ -4132,6 +4372,10 @@ app.whenReady().then(async () => {
   await new Promise(r => setTimeout(r, 1500));
 
   await createWindow();
+
+  // Mobile access is owned by the desktop app: active while the app is open,
+  // automatically inactive on shutdown, with no separate helper terminal.
+  startMobileAppTunnelService(false).catch(error => console.error('[Mobile Link] Automatic startup failed:', error.message));
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow();
