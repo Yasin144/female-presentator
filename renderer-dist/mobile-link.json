@@ -1,5 +1,9 @@
 {
-  "wifiUrl": "http://192.168.29.161:5173",
-  "mobileUrl": "https://heart-encoding-linux-takes.trycloudflare.com",
-  "updatedAt": "2026-07-27T10:40:16.566Z"
+  "wifiUrl": "http://192.168.29.161:8433",
+  "mobileUrl": "https://plane-lite-macro-adipex.trycloudflare.com/?mobileToken=ce7a39c25235a681c6bb48b1aac5c5d3bbc4fa4ef45d259f",
+  "active": true,
+  "updatedAt": "2026-07-27T10:48:34.496Z",
+  "status": "active",
+  "verified": true,
+  "provider": "Cloudflare Quick Tunnel"
 }

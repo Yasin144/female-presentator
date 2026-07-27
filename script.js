@@ -14521,38 +14521,82 @@ function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIn
   return getBaseTextStyle().color || "#ffffff";
 }
 
+function isCharInActiveWord(fullText, charRef, exactCharCountFloat) {
+  if (!fullText || !Number.isFinite(exactCharCountFloat) || exactCharCountFloat < 0) {
+    return false;
+  }
+  let cursorIndex = Math.floor(exactCharCountFloat);
+  if (cursorIndex >= fullText.length) {
+    cursorIndex = fullText.length - 1;
+  }
+  if (cursorIndex < 0) return false;
+
+  if (/[\s,.!?:;=]/.test(fullText[cursorIndex]) && cursorIndex > 0 && /\S/.test(fullText[cursorIndex - 1])) {
+    cursorIndex -= 1;
+  }
+
+  if (/[\s=]/.test(fullText[cursorIndex])) {
+    return false;
+  }
+
+  let wordStart = cursorIndex;
+  while (wordStart > 0 && /\S/.test(fullText[wordStart - 1])) {
+    wordStart--;
+  }
+
+  let wordEnd = cursorIndex;
+  while (wordEnd < fullText.length - 1 && /\S/.test(fullText[wordEnd + 1])) {
+    wordEnd++;
+  }
+
+  while (wordStart < wordEnd && /[=>\s]/.test(fullText[wordStart])) {
+    wordStart++;
+  }
+  while (wordEnd > wordStart && /[,.!?:;]/.test(fullText[wordEnd])) {
+    wordEnd--;
+  }
+
+  return charRef >= wordStart && charRef <= wordEnd;
+}
+
 function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIndex, fontSize) {
   const text = segment.text || "";
   let cursorX = x;
-  // Glossary segments carry textStartIndex (position in state.text) so alpha fading
-  // uses the exact sync position instead of drawnCharCount, giving smooth per-char
-  // fade-in in both templates without column-offset misalignment.
   const hasTextIndex = segment.textStartIndex !== undefined && Number.isFinite(segment.textStartIndex);
   const isAnimating = state.speaking && state.exactCharCountFloat !== undefined;
-  // Butter fade: each character glides in over 2 char-widths of the speech cursor
-  // — silky smooth reveal that flows with the voice, no abrupt pop-in.
   const FADE_RANGE = 2.0;
 
   const graphemes = getGraphemes(text);
   let charOffset = 0;
+  const fullText = String(state.displayedText || state.text || "");
+
   for (let index = 0; index < graphemes.length; index += 1) {
     const character = graphemes[index];
     const characterWidth = ctx.measureText(character).width;
     const globalCharIndex = (state.drawnCharCount || 0);
 
-    ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
+    const charRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
+    const inActiveWord = state.speaking && isCharInActiveWord(fullText, charRef, state.exactCharCountFloat);
 
-    if (isAnimating) {
-      const charRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
+    if (inActiveWord) {
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 230, 0, 0.28)";
+      ctx.fillRect(cursorX - 1, y - fontSize * 0.82, characterWidth + 2, fontSize * 1.15);
+      ctx.restore();
+
+      ctx.fillStyle = "#ffe600";
+      ctx.globalAlpha = 1.0;
+      ctx.shadowColor = "rgba(255, 230, 0, 0.95)";
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 0;
+    } else if (isAnimating) {
+      ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
       const rawAlpha = clamp((state.exactCharCountFloat - charRef) / FADE_RANGE, 0, 1);
-      // Smoothstep S-curve: slow start → fast mid → slow finish — butter smooth, no pop
       const easedAlpha = rawAlpha * rawAlpha * (3 - 2 * rawAlpha);
       ctx.globalAlpha = easedAlpha;
 
       const glowRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
       const distFromCursor = Math.abs(glowRef - state.exactCharCountFloat);
-      // Wide glow trail: chars within 2 char-widths of the cursor shimmer with a
-      // flowing blue-white typewriter-light wash as the voice moves through them.
       if (distFromCursor < 2.0 && easedAlpha > 0.01 && easedAlpha < 0.99) {
         const glowStrength = clamp(1 - distFromCursor / 2.0, 0, 1);
         const glowOpacity = Math.round(glowStrength * 72);
@@ -14565,6 +14609,7 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
         ctx.shadowOffsetY = 1;
       }
     } else {
+      ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
       ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
       ctx.shadowBlur = 6;
       ctx.shadowOffsetY = 1;
@@ -14574,9 +14619,7 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 
     ctx.globalAlpha = 1.0;
     state.drawnCharCount = (state.drawnCharCount || 0) + character.length;
-    // letter spacing: em units → pixels relative to current font size
     const _lsPx = (state.displayStyle?.canvasLetterSpacing ?? 0) * fontSize;
-    // KV gap: after the separator character (':' or '='), inject a visual gap
     const _isSep = state.displayStyle?.kvMode && window._kvState &&
       (character === ":" || character === "=");
     const _kvGap = _isSep ? Math.round(fontSize * 0.35) : 0;
