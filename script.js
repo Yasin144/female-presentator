@@ -14521,44 +14521,6 @@ function getAnimatedTeachingTextColor(segmentColor, rowText, rowIndex, segmentIn
   return getBaseTextStyle().color || "#ffffff";
 }
 
-function isCharInActiveWord(fullText, charRef, exactCharCountFloat) {
-  if (!fullText || !Number.isFinite(exactCharCountFloat) || exactCharCountFloat < 0) {
-    return false;
-  }
-  let cursorIndex = Math.floor(exactCharCountFloat);
-  if (cursorIndex >= fullText.length) {
-    cursorIndex = fullText.length - 1;
-  }
-  if (cursorIndex < 0) return false;
-
-  if (/[\s,.!?:;=]/.test(fullText[cursorIndex]) && cursorIndex > 0 && /\S/.test(fullText[cursorIndex - 1])) {
-    cursorIndex -= 1;
-  }
-
-  if (/[\s=]/.test(fullText[cursorIndex])) {
-    return false;
-  }
-
-  let wordStart = cursorIndex;
-  while (wordStart > 0 && /\S/.test(fullText[wordStart - 1])) {
-    wordStart--;
-  }
-
-  let wordEnd = cursorIndex;
-  while (wordEnd < fullText.length - 1 && /\S/.test(fullText[wordEnd + 1])) {
-    wordEnd++;
-  }
-
-  while (wordStart < wordEnd && /[=>\s]/.test(fullText[wordStart])) {
-    wordStart++;
-  }
-  while (wordEnd > wordStart && /[,.!?:;]/.test(fullText[wordEnd])) {
-    wordEnd--;
-  }
-
-  return charRef >= wordStart && charRef <= wordEnd;
-}
-
 function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIndex, fontSize) {
   const text = segment.text || "";
   let cursorX = x;
@@ -14568,29 +14530,15 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 
   const graphemes = getGraphemes(text);
   let charOffset = 0;
-  const fullText = String(state.displayedText || state.text || "");
-
   for (let index = 0; index < graphemes.length; index += 1) {
     const character = graphemes[index];
     const characterWidth = ctx.measureText(character).width;
     const globalCharIndex = (state.drawnCharCount || 0);
 
-    const charRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
-    const inActiveWord = state.speaking && isCharInActiveWord(fullText, charRef, state.exactCharCountFloat);
+    ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
 
-    if (inActiveWord) {
-      ctx.save();
-      ctx.fillStyle = "rgba(255, 230, 0, 0.28)";
-      ctx.fillRect(cursorX - 1, y - fontSize * 0.82, characterWidth + 2, fontSize * 1.15);
-      ctx.restore();
-
-      ctx.fillStyle = "#ffe600";
-      ctx.globalAlpha = 1.0;
-      ctx.shadowColor = "rgba(255, 230, 0, 0.95)";
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetY = 0;
-    } else if (isAnimating) {
-      ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
+    if (isAnimating) {
+      const charRef = hasTextIndex ? (segment.textStartIndex + charOffset) : globalCharIndex;
       const rawAlpha = clamp((state.exactCharCountFloat - charRef) / FADE_RANGE, 0, 1);
       const easedAlpha = rawAlpha * rawAlpha * (3 - 2 * rawAlpha);
       ctx.globalAlpha = easedAlpha;
@@ -14609,7 +14557,6 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
         ctx.shadowOffsetY = 1;
       }
     } else {
-      ctx.fillStyle = getAnimatedTeachingTextColor(segment.style.color, rowText, rowIndex, segmentIndex, index);
       ctx.shadowColor = "rgba(8, 30, 39, 0.24)";
       ctx.shadowBlur = 6;
       ctx.shadowOffsetY = 1;
@@ -16104,12 +16051,18 @@ async function recordStartingTitlePreroll(durationMs = EXPORT_TITLE_PREROLL_MS, 
   state.speaking = true;
   state.activeAudio = null;
   armStartingTitleBadge({ immediate: false });
+
+  const stepMs = 1000 / Math.max(1, captureRate || 30);
+  const totalFrames = Math.max(1, Math.round(safeDurationMs / stepMs));
   const startedAt = performance.now();
-  while ((performance.now() - startedAt) < safeDurationMs) {
+
+  for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
     drawScene(0.12);
     requestExportVideoFrame();
-    await waitForNextPaint();
-    await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+
+    const targetNextMs = startedAt + ((frameIndex + 1) * stepMs);
+    const waitMs = Math.max(1, Math.round(targetNextMs - performance.now()));
+    await new Promise(resolve => setTimeout(resolve, waitMs));
   }
   state.speaking = false;
 }
@@ -16129,17 +16082,21 @@ async function recordTitleIntroForExport(titleDurationMs = 0, captureRate = 30) 
     state.displayedText = "";
     state.exactCharCountFloat = 0;
     if (state.titleAnim?.startedAt && !state.titleAnim.exitStartedAt && !state.titleAnim.exitDone) {
-      // Hold badge visible until narration speaking begins — only if exit not already armed
       state.titleAnim.holdUntilSpeaking = true;
     }
 
+    const stepMs = 1000 / Math.max(1, captureRate || 30);
+    const totalFrames = Math.max(1, Math.round(holdDurationMs / stepMs));
     const startedAt = performance.now();
-    while ((performance.now() - startedAt) < holdDurationMs) {
+
+    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
       markSceneDirty();
       drawScene(0.12);
       requestExportVideoFrame();
-      await waitForNextPaint();
-      await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+
+      const targetNextMs = startedAt + ((frameIndex + 1) * stepMs);
+      const waitMs = Math.max(1, Math.round(targetNextMs - performance.now()));
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
   } finally {
     state.titleIntroActive = false;
@@ -16197,21 +16154,23 @@ async function recordEndingTitleOutro(durationMs = EXPORT_TITLE_OUTRO_MS, captur
   state.exactCharCountFloat = String(state.text || "").length;
   state.contentScrollOffset = 0;
   syncLessonPlaybackProgressUi(1, true);
-  // Allow badge to exit naturally — do NOT reset exitStartedAt.
-  // If exit already started or done, leave it. Only clear holdUntilSpeaking
-  // so the draw loop can arm the exit if it hasn't started yet.
+
   if (state.titleAnim?.startedAt && !state.titleAnim.exitDone) {
     state.titleAnim.holdUntilSpeaking = false;
-    // Do NOT touch exitStartedAt here — it may already be running
   }
 
+  const stepMs = 1000 / Math.max(1, captureRate || 30);
+  const totalFrames = Math.max(1, Math.round(safeDurationMs / stepMs));
   const startedAt = performance.now();
-  while ((performance.now() - startedAt) < safeDurationMs) {
+
+  for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
     markSceneDirty();
     drawScene(0.12);
     requestExportVideoFrame();
-    await waitForNextPaint();
-    await delay(Math.max(16, Math.round(1000 / Math.max(1, captureRate || 30))));
+
+    const targetNextMs = startedAt + ((frameIndex + 1) * stepMs);
+    const waitMs = Math.max(1, Math.round(targetNextMs - performance.now()));
+    await new Promise(resolve => setTimeout(resolve, waitMs));
   }
 }
 
@@ -19018,8 +18977,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   );
   const segmentDurationMs = Math.max(1, segmentEndMs - segmentStartMs);
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
-  let lastDisplayedLength = 0;
-  let lastDisplayedAdvanceProgress = 0;
+  const stepMs = 1000 / frameRate;
+  let frameIndex = 0;
   const exportLoopStartMs = performance.now();
 
   if (exportSnapshot) {
@@ -19032,14 +18991,11 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     armStageVideoStartDelay(STAGE_VIDEO_START_DELAY_MS, { useExportTimeline: true });
   }
   syncLessonPlaybackProgressUi(0, true);
-  drawScene(0.12);
-  requestExportVideoFrame();
 
   while (true) {
-    const realElapsedMs = performance.now() - exportLoopStartMs;
     const elapsedMs = Math.min(
       segmentEndMs,
-      segmentStartMs + (realElapsedMs * renderSpeedMultiplier)
+      segmentStartMs + (frameIndex * stepMs * renderSpeedMultiplier)
     );
     state.exportCapture.elapsedMs = elapsedMs;
 
@@ -19101,19 +19057,18 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       updateTaskProgressUi(0.26 + (progress * 0.54), true, { mirrorStage: true });
     }
     state.mouthOpen = syncFrame.mouthActive ? getFallbackMouth(syncFrame.speechElapsedMs) : 0.12;
-    // NOTE: captionOverlay is intentionally NOT updated here during export.
-    // Stale captions from a prior caption-studio session must not leak into
-    // the main video export. Use Caption Studio → Export to burn captions.
+
     drawScene(state.mouthOpen);
     requestExportVideoFrame();
-    await waitForNextPaint();
 
     if (segmentProgress >= 1 || progress >= 1) {
       break;
     }
 
-    // Per-frame sleep so the browser can process paint/rAF — real elapsed time is tracked via performance.now()
-    await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.round(1000 / frameRate))));
+    frameIndex += 1;
+    const targetNextMs = exportLoopStartMs + (frameIndex * stepMs);
+    const waitMs = Math.max(1, Math.round(targetNextMs - performance.now()));
+    await new Promise(resolve => setTimeout(resolve, waitMs));
   }
 
   if (timelineText) {
