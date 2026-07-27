@@ -22885,9 +22885,7 @@ async function exportVideo(options = {}) {
       const titleNarration = await createTitleNarrationForVoice(getSelectedEdgeExportVoice(), {
         skipPreparedExportSchedule: true
       });
-      exportTitleNarrationBlob = titleNarration?.blob
-        ? await trimAudioBlobSilence(titleNarration.blob, { keepMs: 120 })
-        : null;
+      exportTitleNarrationBlob = titleNarration?.blob || null;
       exportTitleNarrationDurationMs = titleNarration?.durationMs || 0;
       if (exportTitleNarrationBlob) {
         exportTitleNarrationDurationMs = Math.max(1000, await measureNarrationBlobDurationMs(exportTitleNarrationBlob));
@@ -22897,7 +22895,6 @@ async function exportVideo(options = {}) {
         timeoutMs: getLongNarrationRequestTimeoutMs(exportText),
         skipPreparedExportSchedule: true
       });
-      exportNarrationBlob = await trimAudioBlobSilence(exportNarrationBlob, { keepMs: 140 });
       exportNarrationDurationMs = Math.max(
         1000,
         await measureNarrationBlobDurationMs(exportNarrationBlob)
@@ -23242,6 +23239,9 @@ async function exportVideo(options = {}) {
           { text: "title-narration", gapAfterMs: 0 },
           { text: "title-to-context-gap", gapAfterMs: 0 }
         );
+      } else {
+        titleIntroBlobs.push(createSilentWavBlob(TITLE_TO_CONTEXT_GAP_MS));
+        titleIntroChunks.push({ text: "title-to-context-gap", gapAfterMs: 0 });
       }
       titleIntroBlobs.push(audioBlob);
       titleIntroChunks.push({ text: "lesson-narration", gapAfterMs: 0 });
