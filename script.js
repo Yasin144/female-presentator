@@ -8681,20 +8681,10 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
       return { rows, fontSize: size, rowHeight, totalHeight };
     }
 
-    const pageBottomMargin = Math.max(60, Math.round(size * 1.5));
-    const usableHeight = Math.max(300, maxHeight - pageBottomMargin);
-    const maxRowsPerCol = Math.min(10, Math.max(5, Math.floor(usableHeight / rowHeight)));
-    const MAX_COLS_PER_PAGE = Math.min(4, Math.max(2, Math.floor((maxWidth + 40) / 320)));
-
-    const layoutFlow = state.displayStyle?.layoutFlow || "col";
-    const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
-    const useMultiCol = layoutFlow !== "row" && estLineCount > maxRowsPerCol;
-
-    const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
-    const colGap = numCols > 1 ? 40 : 0;
-    const wrapWidth = numCols > 1
-      ? Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols)
-      : maxWidth;
+    const useMultiCol = false;
+    const numCols = 1;
+    const colGap = 0;
+    const wrapWidth = maxWidth;
 
     const rawRows = [];
     safeLines.forEach((line, index) => {
@@ -13840,20 +13830,10 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
       return { rows, fontSize: size, rowHeight, totalHeight };
     }
 
-    const pageBottomMargin = Math.max(60, Math.round(size * 1.5));
-    const usableHeight = Math.max(300, maxHeight - pageBottomMargin);
-    const maxRowsPerCol = Math.min(10, Math.max(5, Math.floor(usableHeight / rowHeight)));
-    const MAX_COLS_PER_PAGE = Math.min(4, Math.max(2, Math.floor((maxWidth + 40) / 320)));
-
-    const layoutFlow = state.displayStyle?.layoutFlow || "col";
-    const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
-    const useMultiCol = layoutFlow !== "row" && estLineCount > maxRowsPerCol;
-
-    const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
-    const colGap = numCols > 1 ? 40 : 0;
-    const wrapWidth = numCols > 1
-      ? Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols)
-      : maxWidth;
+    const useMultiCol = false;
+    const numCols = 1;
+    const colGap = 0;
+    const wrapWidth = maxWidth;
 
     const rawRows = [];
     safeLines.forEach((line, index) => {
