@@ -18977,7 +18977,6 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   let lastDisplayedLength = 0;
   let lastDisplayedAdvanceProgress = 0;
-  let virtualElapsedMs = 0;
   const exportLoopStartMs = performance.now();
 
   if (exportSnapshot) {
@@ -18994,9 +18993,10 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   requestExportVideoFrame();
 
   while (true) {
+    const realElapsedMs = performance.now() - exportLoopStartMs;
     const elapsedMs = Math.min(
       segmentEndMs,
-      segmentStartMs + (virtualElapsedMs * renderSpeedMultiplier)
+      segmentStartMs + (realElapsedMs * renderSpeedMultiplier)
     );
     state.exportCapture.elapsedMs = elapsedMs;
 
@@ -19069,11 +19069,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       break;
     }
 
-    // Deterministic Frame Stepping with Throttling for MediaRecorder timestamps.
-    virtualElapsedMs += (1000 / frameRate);
-    const nextFrameTargetMs = exportLoopStartMs + virtualElapsedMs;
-    const waitMs = Math.max(1, nextFrameTargetMs - performance.now());
-    await new Promise(resolve => setTimeout(resolve, waitMs));
+    // Per-frame sleep so the browser can process paint/rAF — real elapsed time is tracked via performance.now()
+    await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.round(1000 / frameRate))));
   }
 
   if (timelineText) {
