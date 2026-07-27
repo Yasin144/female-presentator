@@ -8759,11 +8759,7 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
     return { rows, fontSize: size, rowHeight, totalHeight };
   };
 
-  let layout = buildLayout(fontSize);
-  while (layout.totalHeight > maxHeight && fontSize > 16) {
-    fontSize = Math.max(16, fontSize - 2);
-    layout = buildLayout(fontSize);
-  }
+  const layout = buildLayout(fontSize);
 
   return layout;
 }
@@ -13908,12 +13904,7 @@ rows.push(...rawRows);
     return { rows, fontSize: size, rowHeight, totalHeight };
   };
 
-  let layout = buildLayout(fontSize);
-  const minFitFontSize = preserveFormatting ? 11 : (hasImages ? 14 : 12);
-  while (layout.totalHeight > maxHeight && fontSize > minFitFontSize) {
-    fontSize -= 1;
-    layout = buildLayout(fontSize);
-  }
+  const layout = buildLayout(fontSize);
 
   return layout;
 }
