@@ -8734,9 +8734,36 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
       });
 
       if (index < safeLines.length - 1) {
-        rows.push({ spacer: true, height: groupGap });
+        rawRows.push({ spacer: true, height: groupGap });
       }
     });
+
+    const textOnlyRows = rawRows.filter(r => !r.spacer);
+    if (useMultiCol && textOnlyRows.length > maxRowsPerCol) {
+      const availableWidthPerCol = Math.max(200, (maxWidth - (numCols - 1) * colGap) / numCols);
+      const itemsPerCol = maxRowsPerCol;
+
+      textOnlyRows.forEach((row, textIndex) => {
+        const itemsPerPage = itemsPerCol * numCols;
+        const pageIndex = Math.floor(textIndex / itemsPerPage);
+        const indexOnPage = textIndex % itemsPerPage;
+        const colIndex = Math.floor(indexOnPage / itemsPerCol);
+        const rowInCol = indexOnPage % itemsPerCol;
+
+        row.colIndex = colIndex;
+        row.colXOffset = colIndex * (availableWidthPerCol + colGap);
+        row.colYOffset = rowInCol * rowHeight;
+        row.columnWidth = availableWidthPerCol;
+        row.pageIndex = pageIndex;
+
+        rows.push(row);
+      });
+
+      const maxColRows = Math.min(itemsPerCol, textOnlyRows.length);
+      const totalHeight = maxColRows * rowHeight;
+      return { rows, fontSize: size, rowHeight, totalHeight };
+    }
+    rows.push(...rawRows);
 
     const totalHeight = rows.reduce((sum, row) => sum + (row.spacer ? row.height : rowHeight), 0);
     return { rows, fontSize: size, rowHeight, totalHeight };
@@ -12777,7 +12804,20 @@ function splitStyledToken(ctxRef, token, maxWidth, fontSize) {
 }
 
 function splitPureInputCells(line = "") {
-  return String(line).split(/\t+| {2,}/).filter((cell) => cell.length > 0);
+  const raw = String(line ?? "").trim();
+  if (!raw) return [];
+  const arrowMatches = raw.match(/=>/g);
+  if (arrowMatches && arrowMatches.length > 1) {
+    return raw.split(/(?=\s*=>)/).map((s) => s.trim()).filter(Boolean);
+  }
+  if (/\t+| {2,}/.test(raw)) {
+    return raw.split(/\t+| {2,}/).map((s) => s.trim()).filter(Boolean);
+  }
+  const commaParts = raw.split(/,\s*/);
+  if (commaParts.length >= 3 && !/[.!?]$/.test(raw)) {
+    return commaParts.map((s, idx) => (idx < commaParts.length - 1 ? s + "," : s).trim()).filter(Boolean);
+  }
+  return [raw];
 }
 
 function normalizeGlossaryChunk(text = "") {
@@ -13656,7 +13696,8 @@ function buildPureInputRows(ctxRef, line, maxWidth, fontSize) {
     return [];
   }
 
-  if (!/\t| {2,}/.test(rawLine)) {
+  const cells = splitPureInputCells(rawLine);
+  if (!cells.length || cells.length === 1) {
     const styledRuns = getStyledTextRuns(rawLine, baseStyle).map((run) => ({
       ...run,
       text: run.text
@@ -13668,62 +13709,32 @@ function buildPureInputRows(ctxRef, line, maxWidth, fontSize) {
     }));
   }
 
-  const cells = splitPureInputCells(rawLine);
-  if (!cells.length) {
-    return [];
-  }
-
   const rows = [];
-  const columnGap = Math.max(24, Math.round(fontSize * 1.35));
-  let currentSegments = [];
-  let currentWidth = 0;
+  const colCount = cells.length;
+  const uniformColWidth = Math.max(140, Math.floor(maxWidth / colCount));
+  const currentSegments = [];
 
-  const commitRow = () => {
-    if (!currentSegments.length) {
-      return;
-    }
-
-    rows.push({
-      segments: currentSegments,
-      bullet: false
-    });
-    currentSegments = [];
-    currentWidth = 0;
-  };
-
-  cells.forEach((cell) => {
-    const safeCell = String(cell ?? "");
-    if (!safeCell) {
-      return;
-    }
+  cells.forEach((cell, cellIndex) => {
+    const safeCell = String(cell ?? "").trim();
+    if (!safeCell) return;
 
     const segmentStyle = getResolvedTextStyle(baseStyle, getBaseTextStyle());
-    const segmentWidth = measureStyledRuns(ctxRef, [{ text: safeCell, style: segmentStyle }], fontSize);
-
-    if (segmentWidth > maxWidth) {
-      commitRow();
-      wrapStyledRuns(ctxRef, [{ text: safeCell, style: segmentStyle }], maxWidth, fontSize, { preserveEdges: true }).forEach((wrappedRow) => {
-        rows.push({
-          segments: wrappedRow,
-          bullet: false
-        });
-      });
-      return;
-    }
-
-    if (currentSegments.length && currentWidth + segmentWidth > maxWidth) {
-      commitRow();
-    }
+    const targetXOffset = cellIndex * uniformColWidth;
 
     currentSegments.push({
       text: safeCell,
       style: segmentStyle,
-      columnOffset: currentWidth
+      columnOffset: targetXOffset
     });
-    currentWidth += segmentWidth + columnGap;
   });
 
-  commitRow();
+  if (currentSegments.length) {
+    rows.push({
+      segments: currentSegments,
+      bullet: false
+    });
+  }
+
   return rows;
 }
 

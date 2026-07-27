@@ -1,8 +1,9 @@
 {
   "wifiUrl": "http://192.168.29.161:8433",
-  "mobileUrl": "",
-  "active": false,
-  "updatedAt": "2026-07-27T10:01:07.131Z",
-  "status": "inactive",
-  "stoppedAt": "2026-07-27T10:01:07.117Z"
+  "mobileUrl": "https://priced-his-furnished-dates.trycloudflare.com/?mobileToken=2a1cce1b7db61e25ea4aef1931b4c5c6fd14fa254c9d6dff",
+  "active": true,
+  "updatedAt": "2026-07-27T10:08:33.191Z",
+  "status": "active",
+  "verified": true,
+  "provider": "Cloudflare Quick Tunnel"
 }
