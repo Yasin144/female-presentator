@@ -1419,6 +1419,7 @@ const state = {
     caseMode: "original",
     textAlign: "left",
     contextModel: "classic",
+    layoutFlow: "col",
     kvMode: false,
     kvKeyColor: "#facc15",
     kvValueColor: "#ffffff",
@@ -7117,6 +7118,15 @@ function getVoiceSpecificPreviewRate(voicePreference, playbackRate = getLessonPl
   return baseRate;
 }
 
+function getPdfCurrentStagePage() {
+  const presentationPages = getPdfPresentationPages();
+  if (!presentationPages.length) {
+    return null;
+  }
+
+  return presentationPages[clamp(state.previewPageIndex, 0, presentationPages.length - 1)] || null;
+}
+
 function getSceneRenderIntervalMs() {
   // When exporting, use export rate. When actively speaking/animating, use live rate.
   // When idle (nothing happening), throttle to IDLE rate to reduce CPU/GPU heat.
@@ -8635,18 +8645,8 @@ async function presentPdf() {
   showPdfScreen("context");
   await playSlide();
 }
-
 function isPdfPresentationMode() {
   return state.presentationMode === "pdf" && state.pdf.pages.length > 0;
-}
-
-function getPdfCurrentStagePage() {
-  const presentationPages = getPdfPresentationPages();
-  if (!presentationPages.length) {
-    return null;
-  }
-
-  return presentationPages[clamp(state.previewPageIndex, 0, presentationPages.length - 1)] || null;
 }
 
 function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder = true, options = {}) {
@@ -8681,15 +8681,30 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
       return { rows, fontSize: size, rowHeight, totalHeight };
     }
 
+    const pageBottomMargin = Math.max(60, Math.round(size * 1.5));
+    const usableHeight = Math.max(300, maxHeight - pageBottomMargin);
+    const maxRowsPerCol = Math.min(10, Math.max(5, Math.floor(usableHeight / rowHeight)));
+    const MAX_COLS_PER_PAGE = Math.min(4, Math.max(2, Math.floor((maxWidth + 40) / 320)));
+
+    const layoutFlow = state.displayStyle?.layoutFlow || "col";
+    const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
+    const useMultiCol = !preserveFormatting && layoutFlow !== "row" && estLineCount > maxRowsPerCol;
+
+    const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
+    const colGap = numCols > 1 ? 40 : 0;
+    const wrapWidth = numCols > 1
+      ? Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols)
+      : maxWidth;
+
+    const rawRows = [];
     safeLines.forEach((line, index) => {
       if (preserveFormatting) {
         const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
         if (!pureRows.length) {
-          rows.push({ spacer: true, height: rowHeight });
+          rawRows.push({ spacer: true, height: rowHeight });
           return;
         }
-
-        rows.push(...pureRows);
+        rawRows.push(...pureRows);
         return;
       }
 
@@ -13814,15 +13829,30 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
       return { rows, fontSize: size, rowHeight, totalHeight };
     }
 
+    const pageBottomMargin = Math.max(60, Math.round(size * 1.5));
+    const usableHeight = Math.max(300, maxHeight - pageBottomMargin);
+    const maxRowsPerCol = Math.min(10, Math.max(5, Math.floor(usableHeight / rowHeight)));
+    const MAX_COLS_PER_PAGE = Math.min(4, Math.max(2, Math.floor((maxWidth + 40) / 320)));
+
+    const layoutFlow = state.displayStyle?.layoutFlow || "col";
+    const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
+    const useMultiCol = !preserveFormatting && layoutFlow !== "row" && estLineCount > maxRowsPerCol;
+
+    const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
+    const colGap = numCols > 1 ? 40 : 0;
+    const wrapWidth = numCols > 1
+      ? Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols)
+      : maxWidth;
+
+    const rawRows = [];
     safeLines.forEach((line, index) => {
       if (preserveFormatting) {
         const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
         if (!pureRows.length) {
-          rows.push({ spacer: true, height: rowHeight });
+          rawRows.push({ spacer: true, height: rowHeight });
           return;
         }
-
-        rows.push(...pureRows);
+        rawRows.push(...pureRows);
         return;
       }
 
@@ -13843,19 +13873,46 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
         ...run,
         text: applyDisplayCase(run.text)
       }));
-      const wrapped = wrapStyledRuns(ctx, styledRuns, maxWidth - (bulletMatch ? 28 : 0), size, {
+      const lineWrapWidth = wrapWidth - (bulletMatch ? 28 : 0);
+      const wrapped = wrapStyledRuns(ctx, styledRuns, lineWrapWidth, size, {
         preserveEdges: true
       });
 
       wrapped.forEach((row, rowIndex) => {
-        rows.push({ segments: row, bullet: Boolean(bulletMatch) && rowIndex === 0 });
+        rawRows.push({ segments: row, bullet: Boolean(bulletMatch) && rowIndex === 0 });
       });
 
       if (index < safeLines.length - 1) {
-        rows.push({ spacer: true, height: groupGap });
+        rawRows.push({ spacer: true, height: groupGap });
       }
     });
 
+    const textOnlyRows = rawRows.filter(r => !r.spacer);
+    if (useMultiCol && textOnlyRows.length > maxRowsPerCol) {
+      const availableWidthPerCol = Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols);
+      const itemsPerCol = Math.min(maxRowsPerCol, Math.max(1, Math.ceil(textOnlyRows.length / numCols)));
+
+      textOnlyRows.forEach((row, textIndex) => {
+        const itemsPerPage = itemsPerCol * numCols;
+        const pageIndex = Math.floor(textIndex / itemsPerPage);
+        const indexOnPage = textIndex % itemsPerPage;
+        const colIndex = Math.floor(indexOnPage / itemsPerCol);
+        const rowInCol = indexOnPage % itemsPerCol;
+
+        row.colIndex = colIndex;
+        row.colXOffset = colIndex * (availableWidthPerCol + colGap);
+        row.colYOffset = rowInCol * rowHeight;
+        row.columnWidth = availableWidthPerCol;
+        row.pageIndex = pageIndex;
+
+        rows.push(row);
+      });
+
+      const maxColRows = Math.min(itemsPerCol, textOnlyRows.length);
+      const totalHeight = maxColRows * rowHeight;
+      return { rows, fontSize: size, rowHeight, totalHeight };
+    }
+rows.push(...rawRows);
     const totalHeight = rows.reduce((sum, row) => sum + (row.spacer ? row.height : rowHeight), 0);
     return { rows, fontSize: size, rowHeight, totalHeight };
   };
@@ -13871,6 +13928,32 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
 }
 
 function paginateLayout(layout, maxHeight) {
+  const hasPageIndexes = (layout?.rows || []).some((r) => r?.pageIndex !== undefined);
+  if (hasPageIndexes) {
+    const pageMap = new Map();
+    (layout?.rows || []).forEach((row) => {
+      const pIdx = row.pageIndex !== undefined ? row.pageIndex : 0;
+      if (!pageMap.has(pIdx)) {
+        pageMap.set(pIdx, []);
+      }
+      pageMap.get(pIdx).push(row);
+    });
+
+    const pages = [];
+    const sortedPageIndices = Array.from(pageMap.keys()).sort((a, b) => a - b);
+    sortedPageIndices.forEach((pIdx) => {
+      const rowsOnPage = pageMap.get(pIdx);
+      const maxY = rowsOnPage.reduce((max, r) => Math.max(max, (r.colYOffset !== undefined ? r.colYOffset : 0) + (r.spacer ? r.height : layout.rowHeight)), 0);
+      pages.push({
+        rows: rowsOnPage,
+        totalHeight: maxY,
+        fontSize: layout.fontSize,
+        rowHeight: layout.rowHeight
+      });
+    });
+    return pages.length ? pages : [{ rows: [], totalHeight: 0, fontSize: layout.fontSize, rowHeight: layout.rowHeight }];
+  }
+
   const pages = [];
   let currentRows = [];
   let currentHeight = 0;
@@ -17141,13 +17224,29 @@ function drawScene(mouthOpen = 0.12) {
 
   (currentPage?.rows || []).forEach((row, rowIndex) => {
     if (row.spacer) {
-      y += row.height;
+      if (row.colYOffset === undefined) y += row.height;
       return;
     }
 
     const rowText = row.segments.map((segment) => segment.text).join("");
     const rowWidth = measureStyledRuns(ctx, row.segments, currentFontSize);
     const bulletIndent = row.bullet ? 18 : 0;
+
+    // ── Position & Multi-Column Offset ──────────────────────────────────
+    const isColRow = row.colYOffset !== undefined && row.colXOffset !== undefined;
+    const rowY = isColRow ? (contentArea.y + contentPaddingY + row.colYOffset) : y;
+    const baseContentX = isColRow ? (contentArea.x + contentPaddingX + row.colXOffset) : (contentArea.x + contentPaddingX);
+    const availColWidth = isColRow ? (row.columnWidth || contentArea.width) : contentArea.width;
+
+    // ── Alignment offset ───────────────────────────────────────────────────
+    let alignOffsetX = 0;
+    if (_stageTextAlign === "center") {
+      alignOffsetX = Math.max(0, (availColWidth - rowWidth - bulletIndent) / 2);
+    } else if (_stageTextAlign === "right") {
+      alignOffsetX = Math.max(0, availColWidth - rowWidth - bulletIndent - contentPaddingX * 2);
+    }
+
+    const rowStartX = baseContentX + bulletIndent + alignOffsetX;
 
     // ── Key-Value mode: set up per-row colon/equals tracking ────────────────────
     if (_kvModeOn) {
@@ -17181,16 +17280,7 @@ function drawScene(mouthOpen = 0.12) {
       window._kvState = null;
     }
 
-    // ── Alignment offset ───────────────────────────────────────────────────
-    let alignOffsetX = 0;
-    if (_stageTextAlign === "center") {
-      alignOffsetX = Math.max(0, (contentArea.width - rowWidth - bulletIndent) / 2);
-    } else if (_stageTextAlign === "right") {
-      alignOffsetX = Math.max(0, contentArea.width - rowWidth - bulletIndent - contentPaddingX * 2);
-    }
-
-    const rowStartX = contentArea.x + contentPaddingX + bulletIndent + alignOffsetX;
-
+    // ── Alignment offset ───────
     if (row.bullet) {
       ctx.beginPath();
       ctx.arc(contentArea.x + contentPaddingX + alignOffsetX + 6, y + Math.round(currentFontSize * 0.42), 6, 0, Math.PI * 2);
@@ -25805,6 +25895,31 @@ clearSelectedStyleBtn.addEventListener("click", clearSelectedTextStyle);
     const el2 = document.getElementById("alignmentModelStatus");
     if (el2) el2.textContent = text;
   }
+
+  function syncStageLayoutFlowBtns(flow) {
+    const curFlow = flow || state.displayStyle?.layoutFlow || "col";
+    ["stageLayoutColBtn", "stageLayoutRowBtn"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const btnFlow = id === "stageLayoutColBtn" ? "col" : "row";
+      btn.classList.toggle("stage-align-active", btnFlow === curFlow);
+      btn.setAttribute("aria-pressed", String(btnFlow === curFlow));
+    });
+  }
+
+  // ── Stage Layout Flow buttons (Cols / Rows) ────────────────────────────
+  ["stageLayoutColBtn", "stageLayoutRowBtn"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const flow = id === "stageLayoutColBtn" ? "col" : "row";
+      updateDisplayStyle({ layoutFlow: flow });
+      syncStageLayoutFlowBtns(flow);
+      setStageStatus(`Layout flow set to ${flow === "col" ? "Columns (Widescreen Multi-Column)" : "Rows (Single Column Vertical)"}.`);
+      invalidateDrawSceneLayoutCache && invalidateDrawSceneLayoutCache();
+      drawScene(state.mouthOpen);
+    });
+  });
 
   // ── Stage Alignment buttons ─────────────────────────────────────────────
   ["stageAlignLeftBtn","stageAlignCenterBtn","stageAlignRightBtn"].forEach((id) => {

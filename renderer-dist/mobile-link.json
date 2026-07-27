@@ -1,0 +1,9 @@
+{
+  "wifiUrl": "http://192.168.29.161:8433",
+  "mobileUrl": "https://astrology-genre-oecd-contractors.trycloudflare.com/?mobileToken=7cae78582c534124df5187a1f84da196b8ab5eeab50462c2",
+  "active": true,
+  "updatedAt": "2026-07-27T09:14:04.361Z",
+  "status": "active",
+  "verified": true,
+  "provider": "Cloudflare Quick Tunnel"
+}
