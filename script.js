@@ -18977,6 +18977,8 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   );
   const segmentDurationMs = Math.max(1, segmentEndMs - segmentStartMs);
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+  let lastDisplayedLength = 0;
+  let lastDisplayedAdvanceProgress = 0;
   const stepMs = 1000 / frameRate;
   let frameIndex = 0;
   const exportLoopStartMs = performance.now();
