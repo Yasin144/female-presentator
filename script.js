@@ -13683,46 +13683,36 @@ function buildPureInputRows(ctxRef, line, maxWidth, fontSize) {
   }
 
   const cells = splitPureInputCells(rawLine);
-  if (!cells.length || cells.length === 1) {
-    const styledRuns = getStyledTextRuns(rawLine, baseStyle).map((run) => ({
-      ...run,
-      text: run.text
-    }));
 
-    return wrapStyledRuns(ctxRef, styledRuns, maxWidth, fontSize, { preserveEdges: true }).map((row) => ({
-      segments: row,
-      bullet: false
-    }));
+  // If multiple => items on one line, expand each into its OWN row (one per line)
+  if (cells.length > 1) {
+    const rows = [];
+    cells.forEach((cell) => {
+      const safeCell = String(cell ?? "").trim();
+      if (!safeCell) return;
+      const styledRuns = getStyledTextRuns(safeCell, baseStyle).map((run) => ({
+        ...run,
+        text: run.text
+      }));
+      wrapStyledRuns(ctxRef, styledRuns, maxWidth, fontSize, { preserveEdges: true }).forEach((row) => {
+        rows.push({ segments: row, bullet: false });
+      });
+    });
+    return rows;
   }
 
-  const rows = [];
-  const colCount = cells.length;
-  const uniformColWidth = Math.max(140, Math.floor(maxWidth / colCount));
-  const currentSegments = [];
+  // Single item — render as-is
+  const styledRuns = getStyledTextRuns(rawLine, baseStyle).map((run) => ({
+    ...run,
+    text: run.text
+  }));
 
-  cells.forEach((cell, cellIndex) => {
-    const safeCell = String(cell ?? "").trim();
-    if (!safeCell) return;
-
-    const segmentStyle = getResolvedTextStyle(baseStyle, getBaseTextStyle());
-    const targetXOffset = cellIndex * uniformColWidth;
-
-    currentSegments.push({
-      text: safeCell,
-      style: segmentStyle,
-      columnOffset: targetXOffset
-    });
-  });
-
-  if (currentSegments.length) {
-    rows.push({
-      segments: currentSegments,
-      bullet: false
-    });
-  }
-
-  return rows;
+  return wrapStyledRuns(ctxRef, styledRuns, maxWidth, fontSize, { preserveEdges: true }).map((row) => ({
+    segments: row,
+    bullet: false
+  }));
 }
+
 
 function wrapStyledRuns(ctxRef, runs, maxWidth, fontSize, options = {}) {
   const rows = [];
