@@ -8688,7 +8688,7 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
 
     const layoutFlow = state.displayStyle?.layoutFlow || "col";
     const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
-    const useMultiCol = !preserveFormatting && layoutFlow !== "row" && estLineCount > maxRowsPerCol;
+    const useMultiCol = layoutFlow !== "row" && estLineCount > maxRowsPerCol;
 
     const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
     const colGap = numCols > 1 ? 40 : 0;
@@ -8699,7 +8699,7 @@ function getContentLayoutWithMetrics(lines, maxWidth, maxHeight, usePlaceholder 
     const rawRows = [];
     safeLines.forEach((line, index) => {
       if (preserveFormatting) {
-        const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
+        const pureRows = buildPureInputRows(ctx, line, wrapWidth, size);
         if (!pureRows.length) {
           rawRows.push({ spacer: true, height: rowHeight });
           return;
@@ -13836,7 +13836,7 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
 
     const layoutFlow = state.displayStyle?.layoutFlow || "col";
     const estLineCount = safeLines.filter(l => String(l || "").trim().length > 0).length;
-    const useMultiCol = !preserveFormatting && layoutFlow !== "row" && estLineCount > maxRowsPerCol;
+    const useMultiCol = layoutFlow !== "row" && estLineCount > maxRowsPerCol;
 
     const numCols = useMultiCol ? Math.min(MAX_COLS_PER_PAGE, Math.ceil(estLineCount / maxRowsPerCol)) : 1;
     const colGap = numCols > 1 ? 40 : 0;
@@ -13847,7 +13847,7 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
     const rawRows = [];
     safeLines.forEach((line, index) => {
       if (preserveFormatting) {
-        const pureRows = buildPureInputRows(ctx, line, maxWidth, size);
+        const pureRows = buildPureInputRows(ctx, line, wrapWidth, size);
         if (!pureRows.length) {
           rawRows.push({ spacer: true, height: rowHeight });
           return;
@@ -13890,7 +13890,7 @@ function getContentLayout(lines, maxWidth, maxHeight, usePlaceholder = true, opt
     const textOnlyRows = rawRows.filter(r => !r.spacer);
     if (useMultiCol && textOnlyRows.length > maxRowsPerCol) {
       const availableWidthPerCol = Math.max(280, (maxWidth - (numCols - 1) * colGap) / numCols);
-      const itemsPerCol = Math.min(maxRowsPerCol, Math.max(1, Math.ceil(textOnlyRows.length / numCols)));
+      const itemsPerCol = maxRowsPerCol;
 
       textOnlyRows.forEach((row, textIndex) => {
         const itemsPerPage = itemsPerCol * numCols;
