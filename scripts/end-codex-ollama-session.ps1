@@ -17,7 +17,7 @@ Get-Process -Name "ollama", "codex" -ErrorAction SilentlyContinue | ForEach-Obje
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# 3. Clean up config.toml and enforce model = gpt-5.6-sol (notify-free & BOM-free)
+# 3. Clean up config.toml, enforce model = gpt-5.6-sol, and add thread fallback entry
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $configPath) {
     $content = [System.IO.File]::ReadAllText($configPath)
@@ -30,9 +30,13 @@ if (Test-Path $configPath) {
         if (-not ($cleaned -match "(?m)^model\s*=")) {
             $cleaned = "model = `"gpt-5.6-sol`"`nmodel_reasoning_effort = `"low`"`n" + $cleaned
         }
+        # Add fallback for past threads so they load seamlessly
+        if (-not ($cleaned -match "\[model_providers\.ollama-launch-codex-app\]")) {
+            $cleaned = $cleaned.Trim() + "`n`n[model_providers.ollama-launch-codex-app]`nname = `"OpenAI`"`nbase_url = `"https://api.openai.com/v1/`"`n"
+        }
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($configPath, $cleaned.Trim(), $utf8NoBom)
-        Write-Host "✅ Restored gpt-5.6-sol in config.toml (BOM-free & notify-free)" -ForegroundColor Green
+        Write-Host "✅ Restored gpt-5.6-sol & legacy thread fallback in config.toml" -ForegroundColor Green
     }
 }
 
@@ -48,5 +52,5 @@ Write-Host "🚀 Relaunching native Codex..." -ForegroundColor Cyan
 Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App" -ErrorAction SilentlyContinue
 
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "✨ NATIVE CODEX (gpt-5.6-sol) RESTORED & READY!" -ForegroundColor Green
+Write-Host "✨ NATIVE CODEX (gpt-5.6-sol) RESTORED & THREADS FIXED!" -ForegroundColor Green
 Write-Host "==============================================" -ForegroundColor Cyan
