@@ -9,7 +9,7 @@ Get-Process -Name "ollama", "codex" -ErrorAction SilentlyContinue | ForEach-Obje
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Clean up config.toml and set model back to gpt-5.6-sol
+# 2. Clean up config.toml and enforce model = gpt-5.6-sol
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $configPath) {
     $content = Get-Content $configPath -Raw
@@ -24,7 +24,7 @@ if (Test-Path $configPath) {
         }
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($configPath, $cleaned.Trim(), $utf8NoBom)
-        Write-Host "✅ Restored gpt-5.6-sol in config.toml (BOM-free)" -ForegroundColor Green
+        Write-Host "✅ Restored gpt-5.6-sol in config.toml (BOM-free & notify-free)" -ForegroundColor Green
     }
 }
 
@@ -40,5 +40,5 @@ Write-Host "🚀 Relaunching native Codex..." -ForegroundColor Cyan
 Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App" -ErrorAction SilentlyContinue
 
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "✨ NATIVE CODEX (gpt-5.6-sol) RESTORED SUCCESSFULLY!" -ForegroundColor Green
+Write-Host "✨ NATIVE CODEX (gpt-5.6-sol) RESTORED & READY!" -ForegroundColor Green
 Write-Host "==============================================" -ForegroundColor Cyan
