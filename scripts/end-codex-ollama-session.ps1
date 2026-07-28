@@ -13,12 +13,15 @@ Get-Process -Name "ollama", "codex" -ErrorAction SilentlyContinue | ForEach-Obje
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $configPath) {
     $content = Get-Content $configPath -Raw
-    $cleaned = $content -replace "(?m)^model_provider\s*=.*$", "" `
-                        -replace "(?m)^model_catalog_json\s*=.*$", "" `
-                        -replace "(?m)^model\s*=\s*`"qwen.*`"$", "" `
-                        -replace "(?ms)\[model_providers\.ollama[^\]]*\].*?(?=\n\[|\Z)", ""
-    Set-Content -Path $configPath -Value $cleaned.Trim() -Encoding UTF8
-    Write-Host "✅ Cleared Ollama configurations from config.toml" -ForegroundColor Green
+    if ($content) {
+        $cleaned = $content -replace "(?m)^model_provider\s*=.*$", "" `
+                            -replace "(?m)^model_catalog_json\s*=.*$", "" `
+                            -replace "(?m)^model\s*=\s*`"qwen.*`"$", "" `
+                            -replace "(?ms)\[model_providers\.ollama[^\]]*\].*?(?=\n\[|\Z)", ""
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($configPath, $cleaned.Trim(), $utf8NoBom)
+        Write-Host "✅ Cleared Ollama configurations from config.toml (BOM-free)" -ForegroundColor Green
+    }
 }
 
 # 3. Disable local ollama model JSON
