@@ -3,13 +3,21 @@ Write-Host "==============================================" -ForegroundColor Cya
 Write-Host "🛑 TERMINATING CODEX & OLLAMA SESSIONS..." -ForegroundColor Yellow
 Write-Host "==============================================" -ForegroundColor Cyan
 
-# 1. Kill running codex and ollama processes
+# 1. Run official Ollama restore if available
+try {
+    Write-Host "Running official Ollama restore..." -ForegroundColor Yellow
+    ollama launch codex-app --restore --yes | Out-Null
+} catch {
+    Write-Host "Ollama CLI restore skipped or not required." -ForegroundColor Gray
+}
+
+# 2. Kill running codex and ollama processes to release locks
 Get-Process -Name "ollama", "codex" -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "Stopping process: $($_.ProcessName) (PID: $($_.Id))..." -ForegroundColor DarkYellow
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Clean up config.toml and enforce model = gpt-5.6-sol (notify-free & BOM-free)
+# 3. Clean up config.toml and enforce model = gpt-5.6-sol (notify-free & BOM-free)
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $configPath) {
     $content = [System.IO.File]::ReadAllText($configPath)
@@ -28,14 +36,14 @@ if (Test-Path $configPath) {
     }
 }
 
-# 3. Disable local ollama model JSON
+# 4. Disable local ollama model JSON
 $ollamaJson = Join-Path $env:USERPROFILE ".codex\ollama-launch-models.json"
 if (Test-Path $ollamaJson) {
     Rename-Item -Path $ollamaJson -NewName "ollama-launch-models.json.bak" -Force -ErrorAction SilentlyContinue
     Write-Host "✅ Renamed ollama-launch-models.json to .bak" -ForegroundColor Green
 }
 
-# 4. Relaunch Codex cleanly
+# 5. Relaunch Codex cleanly
 Write-Host "🚀 Relaunching native Codex..." -ForegroundColor Cyan
 Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App" -ErrorAction SilentlyContinue
 
