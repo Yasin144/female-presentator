@@ -17,10 +17,11 @@ if (Test-Path $configPath) {
         $cleaned = $content -replace "(?m)^model_provider\s*=.*$", "" `
                             -replace "(?m)^model_catalog_json\s*=.*$", "" `
                             -replace "(?m)^model\s*=\s*`"qwen.*`"$", "" `
+                            -replace "(?m)^notify\s*=.*$", "" `
                             -replace "(?ms)\[model_providers\.ollama[^\]]*\].*?(?=\n\[|\Z)", ""
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($configPath, $cleaned.Trim(), $utf8NoBom)
-        Write-Host "✅ Cleared Ollama configurations from config.toml (BOM-free)" -ForegroundColor Green
+        Write-Host "✅ Cleared Ollama & notify configurations from config.toml (BOM-free)" -ForegroundColor Green
     }
 }
 
