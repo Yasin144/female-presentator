@@ -620,6 +620,41 @@ export default function MyExporter({ active = true }) {
     setScenes([]); setMediaLibrary([]); setAudioTracks([]); setCaptions([]); setTextOverlays([]); setMusic(null); setWatermark(DEFAULT_LOGO); setWatermarkEnabled(false); setPlaybackMode('continuous'); setSelectedId(''); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedTextId(''); setPlayheadTime(0); setResult(null); setProjectName('Untitled Project'); setProjectPath('Not saved yet'); setWarning(''); localStorage.removeItem(PROJECT_KEY); setProgress({ pct: 0, phase: 'New project ready' });
   };
 
+  const resetExporter = () => {
+    if (captioning || exporting) {
+      setWarning('Stop the current caption or export process before resetting My Exporter.');
+      return;
+    }
+    if (!window.confirm('Reset My Exporter? This clears all loaded media, timeline clips, audio, captions, text, logos, settings, previews and project tabs. Saved files on your computer will not be deleted.')) return;
+    try { preview.current?.pause?.(); } catch (_) {}
+    try { audioPreview.current?.pause?.(); } catch (_) {}
+    try { audioSelectionPreview.current?.pause?.(); } catch (_) {}
+    setScenes([]); setMediaLibrary([]); setAudioTracks([]); setCaptions([]); setTextOverlays([]);
+    setMusic(null); setWatermark(DEFAULT_LOGO); setWatermarkEnabled(false);
+    setSettings({ ...DEFAULT_SETTINGS });
+    setTrackStates({ videoLocked: false, audioLocked: false, audioMuted: false, captionsLocked: false, captionsMuted: false });
+    setPlaybackMode('continuous'); setCaptionLanguage('auto'); setVoiceLanguage('hi'); setDetectedCaptionLanguage('');
+    setSelectedId(''); setSelectedIds([]); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedTextId('');
+    setEditingCaptionId(''); setDraggingId(''); setContextMenu(null); setAudioClipboard(null); setSceneClipboard(null);
+    setAudioSelection(null); setAudioCutSelectionModeId(''); setDetectedStutters([]);
+    setCaptionEditorOpen(false); setStutterCutterOpen(false); setCaptionSampleVisible(true);
+    setPlayheadTime(0); setIsPreviewPlaying(false); setResult(null); setSafeGuides(false); setAdvancedMode(false);
+    setTimelineZoom(1); setSnapEnabled(true); setRippleEnabled(true); setPreviewLarge(false);
+    setTimelineExpanded(false); setExpandedTimelineTrack(''); setOpenSidePanel(''); setAssetTab('Media');
+    setCropSource(null); setCropRect({ x: 0, y: 0, width: 100, height: 100 }); setCropPartCount(1);
+    setCropParts([{ start: 0, end: 0 }]); setCropParallelExports(2); setLayoutPickerOpen(false); setLayoutMode('default');
+    setProjectName('Untitled Project'); setProjectPath('Not saved yet');
+    const workspaceId = uid();
+    setWorkspaceTabs([{ id: workspaceId, name: 'Project 1', data: null }]); setActiveWorkspaceId(workspaceId);
+    historyRef.current = []; historyIndexRef.current = -1; setHistoryVersion(value => value + 1);
+    try {
+      localStorage.removeItem(PROJECT_KEY);
+      localStorage.removeItem('mx-clipboard-scenes');
+      localStorage.removeItem('mx-layout-mode');
+    } catch (_) {}
+    setWarning(''); setProgress({ pct: 0, phase: 'My Exporter reset complete. Everything is clear.' });
+  };
+
   const deleteProject = async () => {
     if (!window.confirm(`Delete project “${projectName}”? This clears the editor${projectPath !== 'Not saved yet' ? ' and deletes the saved project file' : ''}.`)) return;
     if (projectPath !== 'Not saved yet' && typeof window.electronAPI?.myExporterDeleteProject === 'function') {
@@ -2694,7 +2729,7 @@ export default function MyExporter({ active = true }) {
       <header className="mx-header">
         <div className="mx-project-identity"><span className="mx-kicker">Pattan Studio</span><h1>My Exporter</h1><small className="mx-project-name">{projectName}</small><small className="mx-project-path" title={projectPath}>{projectPath}</small></div>
         <div className="mx-header-meta"><span>{scenes.length} scenes</span><span>{formatTime(totalDuration)}</span><span>{settings.resolution.toUpperCase()}</span></div>
-        <div className="mx-header-actions"><button onClick={newProject}>New</button><button onClick={() => projectInput.current?.click()}>Open</button><button onClick={saveProject}>Save Project</button><button className="mx-delete-project" onClick={deleteProject}>Delete Project</button><button onClick={() => setAdvancedMode(value => !value)}>{advancedMode ? 'Simple View' : 'Advanced Tools'}</button><button onClick={syncBySerialNumber} disabled={!mediaLibrary.length}>↕ Serial Sync</button><button onClick={pickMedia}>+ Add Media</button><div className="mx-export-dropdown-container"><button className="mx-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}% Exporting` : 'Export Video ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div></div>
+        <div className="mx-header-actions"><button onClick={newProject}>New</button><button onClick={() => projectInput.current?.click()}>Open</button><button onClick={saveProject}>Save Project</button><button className="mx-delete-project" onClick={deleteProject}>Delete Project</button><button className="mx-reset-exporter" onClick={resetExporter} disabled={captioning || exporting}>Reset All</button><button onClick={() => setAdvancedMode(value => !value)}>{advancedMode ? 'Simple View' : 'Advanced Tools'}</button><button onClick={syncBySerialNumber} disabled={!mediaLibrary.length}>↕ Serial Sync</button><button onClick={pickMedia}>+ Add Media</button><div className="mx-export-dropdown-container"><button className="mx-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}% Exporting` : 'Export Video ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div></div>
       </header>
       <div className="mx-project-tabs"><strong>Projects</strong>{workspaceTabs.map(tab => <button key={tab.id} className={tab.id === activeWorkspaceId ? 'active' : ''} disabled={captioning || exporting} onClick={() => switchWorkspace(tab.id)}>{tab.id === activeWorkspaceId ? projectName : tab.name}</button>)}<button className="mx-add-project-tab" disabled={captioning || exporting} onClick={addWorkspace}>+ New Project Tab</button><span>{captioning || exporting ? 'Current project is processing; other projects remain protected.' : 'Each tab has separate media, captions, logos, text and settings.'}</span></div>
 
@@ -2715,6 +2750,7 @@ export default function MyExporter({ active = true }) {
           <button title="Open project" onClick={() => projectInput.current?.click()}><b>▱</b><span>Open</span></button>
           <button title="Save project" onClick={saveProject}><b>▣</b><span>Save</span></button>
           <button className="danger" title="Delete project" onClick={deleteProject}><b>⌫</b><span>Delete</span></button>
+          <button className="danger" title="Reset and clear everything in My Exporter" onClick={resetExporter} disabled={captioning || exporting}><b>↺</b><span>Reset</span></button>
           <button title="Switch simple or advanced tools" onClick={() => setAdvancedMode(value => !value)}><b>⚙</b><span>{advancedMode ? 'Simple' : 'Tools'}</span></button>
           <button title="Add every media file to the timeline in serial-number order" onClick={syncBySerialNumber} disabled={!mediaLibrary.length}><b>↕</b><span>Serial</span></button>
           <button title="Import videos or images" onClick={pickMedia}><b>⊕</b><span>Import</span></button>

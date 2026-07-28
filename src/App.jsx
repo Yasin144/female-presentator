@@ -1,16 +1,17 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import InputPanel from './components/InputPanel';
 import StagePanel from './components/StagePanel';
-import ErrorCheckerApp from './components/ErrorChecker/ErrorCheckerApp';
-import PresentationApp from './components/Presentation/PresentationApp';
 import AgentStudio from './components/AgentStudio/AgentStudio';
 import DirectorStudio from './components/Director/DirectorStudio';
 import MyExporter from './components/MyExporter/MyExporter';
 import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
+import OllamaTools from './components/OllamaTools/OllamaTools';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
+const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'director', 'exporter', 'ai-tools']);
+const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'presentator';
 
 class CaptionErrorBoundary extends React.Component {
   constructor(props) {
@@ -112,9 +113,9 @@ function App() {
   const [style, setStyle]               = useState(loadStyle);
   const [currentModule, setCurrentModule] = useState(() => {
     if (!window.electronAPI?.isMobileRemote) return 'presentator';
-    try { return JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').module || 'presentator'; }
+    try { return normalizeModule(JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').module); }
     catch (_) { return 'presentator'; }
-  }); // presentator | errorChecker | presentation | agent | rhyme | director | exporter
+  }); // presentator | agent | rhyme | director | exporter
   const [hideHeader, setHideHeader]     = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,6 +128,8 @@ function App() {
   });
   const [copiedNotice, setCopiedNotice] = useState('');
   const [tunnelSecs, setTunnelSecs] = useState(0);
+  const [whatsAppAutoSend, setWhatsAppAutoSend] = useState(true);
+  const [whatsAppSwitchBusy, setWhatsAppSwitchBusy] = useState(false);
   const mobileHistoryApplying = useRef(false);
   const mobileHistoryReady = useRef(false);
 
@@ -149,11 +152,11 @@ function App() {
       }
       mobileHistoryApplying.current = true;
       setCaptionOpen(Boolean(state.caption));
-      setCurrentModule(state.module || 'presentator');
-      if ((state.module || 'presentator') === 'presentator' && !state.caption && !state.ppMobileGuard) {
+      const restoredModule = normalizeModule(state.module);
+      setCurrentModule(restoredModule);
+      if (restoredModule === 'presentator' && !state.caption && !state.ppMobileGuard) {
         window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
       }
-      queueMicrotask(() => { mobileHistoryApplying.current = false; });
     };
     window.addEventListener('popstate', onMobileBack);
     return () => window.removeEventListener('popstate', onMobileBack);
@@ -164,12 +167,27 @@ function App() {
     try {
       localStorage.setItem('presentator.mobileView', JSON.stringify({ module: currentModule, caption: captionOpen }));
     } catch (_) {}
-    if (mobileHistoryApplying.current) return;
+    // Consume exactly one state update caused by popstate. Clearing this flag in
+    // a microtask was too early: React's effect ran afterwards and pushed the
+    // state we had just navigated away from, making Back highlight one module
+    // while another workspace remained visible.
+    if (mobileHistoryApplying.current) {
+      mobileHistoryApplying.current = false;
+      return;
+    }
     const next = { ppMobileView: true, module: currentModule, caption: captionOpen };
     const current = window.history.state || {};
     if (current.module === next.module && Boolean(current.caption) === next.caption) return;
     window.history.pushState(next, '', window.location.href);
   }, [currentModule, captionOpen]);
+
+  useEffect(() => {
+    window.electronAPI?.getWhatsAppAutoSend?.()
+      .then(result => {
+        if (result?.ok) setWhatsAppAutoSend(Boolean(result.enabled));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let timer;
@@ -250,8 +268,6 @@ function App() {
   const commands = useMemo(() => [
     // NAVIGATION
     { id: 'nav-presentator', category: '🧭 Navigation', title: 'Go to Presentator', desc: 'Switch to main lesson presentation engine', action: () => { setCaptionOpen(false); setCurrentModule('presentator'); } },
-    { id: 'nav-checker', category: '🧭 Navigation', title: 'Go to Checker', desc: 'Perform AI script consistency & error check', action: () => { setCaptionOpen(false); setCurrentModule('errorChecker'); } },
-    { id: 'nav-presentation', category: '🧭 Navigation', title: 'Go to Presentation Mode', desc: 'Run presenter view with slide transitions', action: () => { setCaptionOpen(false); setCurrentModule('presentation'); } },
     { id: 'nav-agent', category: '🧭 Navigation', title: 'Go to Super Agent Studio', desc: 'Interact with AI agent tools & diagnostics', action: () => { setCaptionOpen(false); setCurrentModule('agent'); } },
     { id: 'nav-rhyme', category: '🧭 Navigation', title: 'Go to Rhyme Generator', desc: 'Create 30-second preschool lyrics and music', action: () => { setCaptionOpen(false); setCurrentModule('rhyme'); } },
     { id: 'nav-director', category: '🧭 Navigation', title: 'Go to AI Director', desc: 'Assemble projects & timeline templates', action: () => { setCaptionOpen(false); setCurrentModule('director'); } },
@@ -481,32 +497,45 @@ function App() {
               type="button"
               onClick={() => setMobileModalOpen(true)}
               style={{
-                background: mobileLinkData.mobileUrl 
-                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(14, 165, 233, 0.25))'
-                  : 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(245, 158, 11, 0.25))',
-                border: mobileLinkData.mobileUrl ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(248, 113, 113, 0.5)',
-                borderRadius: '8px',
-                padding: '4px 10px',
+                width: 30, height: 30, padding: 0,
+                background: mobileLinkData.mobileUrl ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.10)',
+                border: mobileLinkData.mobileUrl ? '1px solid rgba(52,211,153,.38)' : '1px solid rgba(248,113,113,.35)',
+                borderRadius: '50%',
                 color: mobileLinkData.mobileUrl ? '#6ee7b7' : '#fca5a5',
-                fontSize: '11px',
-                fontWeight: 800,
+                fontSize: 13,
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: mobileLinkData.mobileUrl ? '0 0 12px rgba(16, 185, 129, 0.3)' : '0 0 12px rgba(239, 68, 68, 0.3)'
+                display: 'grid', placeItems: 'center',
+                boxShadow: mobileLinkData.mobileUrl ? '0 0 8px rgba(16,185,129,.18)' : '0 0 8px rgba(239,68,68,.18)'
               }}
-              title="View & Copy Mobile Link (4G/5G & Wi-Fi)"
+              title="Link status"
+              aria-label={mobileLinkData.mobileUrl ? 'Link active' : `Link inactive after ${tunnelSecs} seconds`}
             >
-              <span>📱</span> Mobile Link: {mobileLinkData.mobileUrl ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#34d399', fontWeight: 900 }}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></span> ACTIVE
-                </span>
-              ) : (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#f87171', fontWeight: 900 }}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 8px #ef4444' }}></span> INACTIVE ({tunnelSecs}s)
-                </span>
-              )}
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: mobileLinkData.mobileUrl ? '#10b981' : '#ef4444', boxShadow: `0 0 7px ${mobileLinkData.mobileUrl ? '#10b981' : '#ef4444'}` }} />
+            </button>
+            <button
+              type="button"
+              disabled={whatsAppSwitchBusy}
+              onClick={async () => {
+                const next = !whatsAppAutoSend;
+                setWhatsAppSwitchBusy(true);
+                try {
+                  const result = await window.electronAPI?.setWhatsAppAutoSend?.(next);
+                  if (result?.ok) setWhatsAppAutoSend(Boolean(result.enabled));
+                } finally {
+                  setWhatsAppSwitchBusy(false);
+                }
+              }}
+              title="Alerts"
+              aria-label={whatsAppAutoSend ? 'Process alerts enabled' : 'Process alerts disabled'}
+              style={{
+                width: 30, height: 30, padding: 0, borderRadius: '50%',
+                border: `1px solid ${whatsAppAutoSend ? 'rgba(37,211,102,.5)' : 'rgba(255,255,255,.15)'}`,
+                background: whatsAppAutoSend ? 'rgba(37,211,102,.14)' : 'rgba(255,255,255,.05)',
+                color: whatsAppAutoSend ? '#86efac' : 'rgba(255,255,255,.48)',
+                fontSize: 12, fontWeight: 900, cursor: whatsAppSwitchBusy ? 'wait' : 'pointer'
+              }}
+            >
+              {whatsAppAutoSend ? '◉' : '○'}
             </button>
             <button 
               onClick={() => setCommandPaletteOpen(true)}
@@ -548,42 +577,6 @@ function App() {
                 fontFamily: "system-ui"
               }}
             >Presentator</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'errorChecker'}
-              onClick={() => setCurrentModule('errorChecker')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '20px',
-                border: 'none',
-                background: currentModule === 'errorChecker' ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'transparent',
-                color: currentModule === 'errorChecker' ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: currentModule === 'errorChecker' ? '0 4px 12px rgba(99,102,241,0.25)' : 'none',
-                fontFamily: "system-ui"
-              }}
-            >Checker</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'presentation'}
-              onClick={() => setCurrentModule('presentation')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '20px',
-                border: 'none',
-                background: currentModule === 'presentation' ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'transparent',
-                color: currentModule === 'presentation' ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: currentModule === 'presentation' ? '0 4px 12px rgba(99,102,241,0.25)' : 'none',
-                fontFamily: "system-ui"
-              }}
-            >Presentation</button>
             <button
               className="app-nav-button"
               data-active={currentModule === 'agent'}
@@ -642,6 +635,19 @@ function App() {
                 fontFamily: 'system-ui'
               }}
             >My Exporter</button>
+            <button
+              className="app-nav-button"
+              data-active={currentModule === 'ai-tools'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('ai-tools'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'ai-tools' ? 'linear-gradient(135deg,#6ee7b7,#22d3ee)' : 'transparent',
+                color: currentModule === 'ai-tools' ? '#031713' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'ai-tools' ? '0 4px 12px rgba(34,211,238,0.25)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >AI Tools</button>
           </div>
           <div style={{ width: '12px' }}></div>
         </header>
@@ -799,22 +805,19 @@ function App() {
           >🎬</button>
         </div>
 
-        {/* ── Error Checker UI ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'errorChecker') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
-          <ModuleErrorBoundary moduleName="Error Checker">
-            <ErrorCheckerApp />
-          </ModuleErrorBoundary>
-        </div>
-
-        {/* ── Presentation UI ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'presentation') ? 'block' : 'none', height: '100%', paddingTop: (!captionOpen && !hideHeader) ? '50px' : 0, boxSizing: 'border-box' }}>
-          <ModuleErrorBoundary moduleName="Presentation">
-            <PresentationApp active={!captionOpen && currentModule === 'presentation'} />
-          </ModuleErrorBoundary>
-        </div>
-
         {/* ── Standalone Super Agent Studio ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none', height: '100%', paddingTop: '50px', boxSizing: 'border-box' }}>
+        <div style={{
+          display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none',
+          position: 'fixed',
+          top: '50px',
+          right: 0,
+          bottom: 0,
+          left: 0,
+          height: 'auto',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+          zIndex: 20
+        }}>
           <ModuleErrorBoundary moduleName="Super Agent">
             <AgentStudio />
           </ModuleErrorBoundary>
@@ -833,7 +836,6 @@ function App() {
             <DirectorStudio
               onSendToPresentator={sendDirectorProjectToPresentator}
               onOpenCaptions={() => setCaptionOpen(true)}
-              onOpenPresentation={() => setCurrentModule('presentation')}
               onOpenExporter={() => { setCaptionOpen(false); setCurrentModule('exporter'); }}
             />
           </ModuleErrorBoundary>
@@ -851,6 +853,11 @@ function App() {
         <div style={{ display: (!captionOpen && currentModule === 'exporter') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="My Exporter">
             <MyExporter active={!captionOpen && currentModule === 'exporter'} />
+          </ModuleErrorBoundary>
+        </div>
+        <div style={{ display: (!captionOpen && currentModule === 'ai-tools') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="AI Tools">
+            <OllamaTools />
           </ModuleErrorBoundary>
         </div>
       </div>

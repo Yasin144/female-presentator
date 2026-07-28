@@ -26,6 +26,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
 
+  getOllamaLaunchStatus: () =>
+    ipcRenderer.invoke('get-ollama-launch-status'),
+
+  launchOllamaTool: (tool) =>
+    ipcRenderer.invoke('launch-ollama-tool', tool),
+  openOllamaUpdate: () =>
+    ipcRenderer.invoke('open-ollama-update'),
+  restoreCodexApp: () =>
+    ipcRenderer.invoke('restore-codex-app'),
+  endOllamaToolSession: (tool) =>
+    ipcRenderer.invoke('end-ollama-tool-session', tool),
+  endAllOllamaToolSessions: () =>
+    ipcRenderer.invoke('end-all-ollama-tool-sessions'),
+
   // Get live mobile link
   getMobileLink: () =>
     ipcRenderer.invoke('get-mobile-link'),
@@ -33,6 +47,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Generate / refresh mobile link
   generateMobileLink: () =>
     ipcRenderer.invoke('generate-mobile-link'),
+
+  getWhatsAppAutoSend: () =>
+    ipcRenderer.invoke('get-whatsapp-auto-send'),
+
+  setWhatsAppAutoSend: (enabled) =>
+    ipcRenderer.invoke('set-whatsapp-auto-send', enabled),
 
   // Live mobile link real-time event
   onMobileLinkUpdated: (callback) => {
@@ -51,6 +71,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('presentator-agent-cancel'),
   presentatorAgentStopProcess: () =>
     ipcRenderer.invoke('presentator-agent-stop-process'),
+  presentatorAgentHermesStatus: () =>
+    ipcRenderer.invoke('presentator-agent-hermes-status'),
+  presentatorAgentHermesImprove: (payload) =>
+    ipcRenderer.invoke('presentator-agent-hermes-improve', payload),
 
   onPresentatorAgentProgress: (callback) => {
     const handler = (_, data) => callback(data);
@@ -339,6 +363,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   shutdownComputer: (opts) =>
     ipcRenderer.invoke('shutdown-computer-after-export', opts),
+  cancelComputerShutdown: () =>
+    ipcRenderer.invoke('cancel-computer-shutdown'),
 
   // Open a file with the OS default handler (e.g. play a burned video in media player)
   openFile: (filePath) =>

@@ -11,13 +11,20 @@ import pygetwindow as gw
 def main():
     if len(sys.argv) < 2:
         return
-    mobile_url = sys.argv[1].strip()
-    if not mobile_url or not mobile_url.startswith('http'):
-        return
-
-    wifi_url = sys.argv[2].strip() if len(sys.argv) > 2 else "http://192.168.29.161:8433"
-    phone_number = sys.argv[3].strip() if len(sys.argv) > 3 else "917386726193"
-    message = f"📱 Presentator 4G/5G Mobile Link:\n{mobile_url}\n\n🏠 Home Wi-Fi Link:\n{wifi_url}"
+    if sys.argv[1] == "--message":
+        if len(sys.argv) < 3:
+            return
+        message = sys.argv[2].strip()
+        phone_number = sys.argv[3].strip() if len(sys.argv) > 3 else "917386726193"
+        if not message:
+            return
+    else:
+        mobile_url = sys.argv[1].strip()
+        if not mobile_url or not mobile_url.startswith('http'):
+            return
+        wifi_url = sys.argv[2].strip() if len(sys.argv) > 2 else "http://192.168.29.161:8433"
+        phone_number = sys.argv[3].strip() if len(sys.argv) > 3 else "917386726193"
+        message = f"📱 Presentator 4G/5G Mobile Link:\n{mobile_url}\n\n🏠 Home Wi-Fi Link:\n{wifi_url}"
 
     # 1. Instant Push Notification to Phone via ntfy.sh (Zero login, 0ms latency)
     try:

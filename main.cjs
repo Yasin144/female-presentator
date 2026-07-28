@@ -86,6 +86,8 @@ const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
 const PRESENTATOR_FAST_MODEL = 'qwen3.5:0.8b';
 const OLLAMA_PORT = 11434;
 const activeAgentControllers = new Map();
+const activeHermesProcesses = new Map();
+const activeOllamaToolProcesses = new Map();
 let activeImageGenerationRequests = 0;
 const MOBILE_HTTP_PORT = 8433;
 const MOBILE_WHATSAPP_NUMBER = '917386726193';
@@ -93,10 +95,28 @@ let mobileHttpServer = null;
 let mobileTunnelProcess = null;
 let mobileTunnelStarting = null;
 let lastSentMobileUrl = '';
+let mobileRhymeJob = null;
 // Prefer the built-in-SSH fallback while Cloudflare quick-tunnel DNS is failing.
 // A successful future Cloudflare health path can reset this counter.
 let mobileCloudflareFailures = 2;
 const mobileAccessToken = crypto.randomBytes(24).toString('hex');
+
+function getMobilePreferences() {
+  try {
+    const file = path.join(app.getPath('userData'), 'mobile-preferences.json');
+    return { whatsappAutoSend: true, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  } catch (_) {
+    return { whatsappAutoSend: true };
+  }
+}
+
+function saveMobilePreferences(next) {
+  const file = path.join(app.getPath('userData'), 'mobile-preferences.json');
+  const preferences = { ...getMobilePreferences(), ...next };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(preferences, null, 2), 'utf8');
+  return preferences;
+}
 
 function getMobileMethodMap() {
   try {
@@ -126,6 +146,7 @@ function mobileBridgeSource() {
       if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Mobile bridge request failed');
       return payload.result;
     };
+    const rhymeProgressHandlers = new Set();
     const api = {
       isMobileRemote: true,
       getPathForFile: file => file?.__mobilePath || file?.path || '',
@@ -147,11 +168,39 @@ function mobileBridgeSource() {
       },
       onMobileLinkUpdated: () => () => {}, offMobileLinkUpdated: () => {},
       onPresentatorAgentProgress: () => () => {}, offPresentatorAgentProgress: () => {},
-      onRhymeSongProgress: () => () => {},
+      onRhymeSongProgress: callback => {
+        if (typeof callback === 'function') rhymeProgressHandlers.add(callback);
+        return () => rhymeProgressHandlers.delete(callback);
+      },
       onMyExporterProgress: () => () => {}, offMyExporterProgress: () => {},
       onServerStatus: () => () => {},
     };
     for (const [method, channel] of Object.entries(methods)) api[method] = (...args) => invoke(channel, args);
+    api.generateRhymeSong = async payload => {
+      const started = await fetch('/api/mobile-rhyme-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Presentator-Mobile-Token': token },
+        body: JSON.stringify({ payload })
+      }).then(async response => {
+        const body = await response.json();
+        if (!response.ok || !body.ok) throw new Error(body.error || 'Could not start mobile rhyme generation');
+        return body;
+      });
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const response = await fetch('/api/mobile-rhyme-status?id=' + encodeURIComponent(started.jobId), {
+          headers: { 'X-Presentator-Mobile-Token': token },
+          cache: 'no-store'
+        });
+        const job = await response.json();
+        if (!response.ok || !job.ok) throw new Error(job.error || 'Could not read rhyme progress');
+        if (job.progress) for (const callback of rhymeProgressHandlers) {
+          try { callback(job.progress); } catch (_) {}
+        }
+        if (job.status === 'completed') return job.result;
+        if (job.status === 'failed') throw new Error(job.error || 'Rhyme generation failed');
+      }
+    };
     window.electronAPI = api;
   })();`;
 }
@@ -233,6 +282,76 @@ function startMobileHttpServer() {
           output.on('error', fail);
           return;
         }
+        if (requestUrl.pathname === '/api/mobile-rhyme-start' && req.method === 'POST') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' }));
+            return;
+          }
+          let body = '';
+          req.on('data', chunk => { if (body.length < 2 * 1024 * 1024) body += chunk; });
+          req.on('end', () => {
+            try {
+              if (mobileRhymeJob?.status === 'running') throw new Error('A rhyme is already generating. Keep this page open to monitor it.');
+              const handler = mobileIpcHandlers.get('generate-rhyme-song');
+              if (!handler) throw new Error('Rhyme generator is not ready.');
+              const request = JSON.parse(body || '{}');
+              const desktopWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+              if (!desktopWindow) throw new Error('Desktop app is not ready.');
+              const jobId = crypto.randomUUID();
+              mobileRhymeJob = {
+                id: jobId,
+                status: 'running',
+                startedAt: Date.now(),
+                progress: { pct: 1, phase: 'Starting ACE-Step', detail: 'Desktop generation started', elapsedSeconds: 0 },
+                result: null,
+                error: '',
+              };
+              const sender = {
+                send: (channel, data) => {
+                  if (channel === 'rhyme-song-progress' && mobileRhymeJob?.id === jobId) mobileRhymeJob.progress = data;
+                  try { desktopWindow.webContents.send(channel, data); } catch (_) {}
+                },
+              };
+              Promise.resolve(handler({ sender }, request.payload || {}))
+                .then(result => {
+                  if (mobileRhymeJob?.id !== jobId) return;
+                  mobileRhymeJob.result = result;
+                  mobileRhymeJob.status = result?.ok ? 'completed' : 'failed';
+                  mobileRhymeJob.error = result?.ok ? '' : String(result?.error || 'Rhyme generation failed');
+                })
+                .catch(error => {
+                  if (mobileRhymeJob?.id !== jobId) return;
+                  mobileRhymeJob.status = 'failed';
+                  mobileRhymeJob.error = error.message;
+                });
+              res.writeHead(202, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ ok: true, jobId }));
+            } catch (error) {
+              res.writeHead(409, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: error.message }));
+            }
+          });
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-rhyme-status' && req.method === 'GET') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' }));
+            return;
+          }
+          const jobId = String(requestUrl.searchParams.get('id') || '');
+          if (!mobileRhymeJob || mobileRhymeJob.id !== jobId) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Rhyme job was not found.' }));
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: true, ...mobileRhymeJob }));
+          return;
+        }
         if (requestUrl.pathname === '/api/mobile-rpc' && req.method === 'POST') {
           const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
           if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
@@ -260,8 +379,23 @@ function startMobileHttpServer() {
           return;
         }
         const requested = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, '');
-        let filePath = path.resolve(rendererRoot, requested || 'index.html');
-        if (!filePath.toLowerCase().startsWith(rendererRoot.toLowerCase() + path.sep) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) filePath = path.join(rendererRoot, 'index.html');
+        const bundledRootAssets = new Set([
+          'logo-data.js',
+          'script.js',
+          'caption-script.js',
+          'default-intro-optimized.mp4',
+          'default-intro.mp4',
+          'INTRO.mp4',
+        ]);
+        const isBundledRootAsset = bundledRootAssets.has(requested);
+        let filePath = isBundledRootAsset
+          ? path.join(ROOT, requested)
+          : path.resolve(rendererRoot, requested || 'index.html');
+        if (
+          (!isBundledRootAsset && !filePath.toLowerCase().startsWith(rendererRoot.toLowerCase() + path.sep))
+          || !fs.existsSync(filePath)
+          || fs.statSync(filePath).isDirectory()
+        ) filePath = path.join(rendererRoot, 'index.html');
         const contentType = mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
         if (path.basename(filePath).toLowerCase() === 'index.html') {
           const html = fs.readFileSync(filePath, 'utf8').replace('</head>', '<script src="/mobile-bridge.js"></script></head>');
@@ -292,10 +426,56 @@ function startMobileHttpServer() {
 }
 
 function autoSendMobileLinkToWhatsApp(mobileUrl, wifiUrl) {
+  if (!getMobilePreferences().whatsappAutoSend) {
+    console.log('[Mobile Link] WhatsApp auto-send is OFF; tunnel remains active and running work is untouched.');
+    return;
+  }
   const script = path.join(ROOT, 'scripts', 'auto_send_whatsapp.py');
   if (!fs.existsSync(script)) return;
   const child = spawn('python', [script, mobileUrl, wifiUrl, MOBILE_WHATSAPP_NUMBER], { cwd: ROOT, windowsHide: true, detached: false, stdio: 'ignore' });
   child.on('error', error => console.error('[Mobile Link] WhatsApp sender failed:', error.message));
+}
+
+const recentWhatsAppProcessAlerts = new Map();
+function sendProcessWhatsAppAlert({ status, processName, fileName = '', error = '' }) {
+  if (!getMobilePreferences().whatsappAutoSend) return;
+  const safeProcess = String(processName || 'Process').replace(/[\r\n]+/g, ' ').trim().slice(0, 100);
+  const safeFile = String(fileName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 180);
+  const safeError = String(error || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 600);
+  const message = status === 'failed'
+    ? `PATTAN ❌\nPROCESS: ${safeProcess}\nERROR: ${safeError || 'Unknown failure'}`
+    : `PATTAN ✅\nPROCESS: ${safeProcess}\nFILE: ${safeFile || 'Saved output'}`;
+  const signature = `${status}|${safeProcess}|${safeFile}|${safeError}`;
+  const now = Date.now();
+  if (now - Number(recentWhatsAppProcessAlerts.get(signature) || 0) < 15000) return;
+  recentWhatsAppProcessAlerts.set(signature, now);
+  for (const [key, sentAt] of recentWhatsAppProcessAlerts) {
+    if (now - sentAt > 5 * 60 * 1000) recentWhatsAppProcessAlerts.delete(key);
+  }
+  const script = path.join(ROOT, 'scripts', 'auto_send_whatsapp.py');
+  if (!fs.existsSync(script)) return;
+  const child = spawn('python', [script, '--message', message, MOBILE_WHATSAPP_NUMBER], {
+    cwd: ROOT, windowsHide: true, detached: false, stdio: 'ignore',
+  });
+  child.on('error', alertError => console.error('[Process Alert] WhatsApp sender failed:', alertError.message));
+}
+
+function processAlertFromNotification(title, body) {
+  const safeTitle = String(title || '').trim();
+  const safeBody = String(body || '').trim();
+  const failed = /\b(fail(?:ed|ure)?|error|warning)\b/i.test(`${safeTitle} ${safeBody}`);
+  const completed = /\b(complete(?:d)?|ready|saved|erased|finished|download)\b/i.test(`${safeTitle} ${safeBody}`);
+  if (!failed && !completed) return;
+  const processName = safeTitle
+    .replace(/\b(complete(?:d)?|failed|failure|error|warning|ready|saved|finished)\b[!:. -]*/gi, '')
+    .trim() || 'Process';
+  const fileMatch = safeBody.match(/(?:^|[\s:])([^\\/:*?"<>|\r\n]+\.(?:mp4|mkv|mov|webm|mp3|wav|m4a|zip|txt|json|png|jpe?g|webp))(?:\s|$|[.,;])/i);
+  sendProcessWhatsAppAlert({
+    status: failed ? 'failed' : 'completed',
+    processName,
+    fileName: fileMatch?.[1]?.trim() || safeBody,
+    error: failed ? safeBody : '',
+  });
 }
 
 async function waitForPublicTunnelDns(publicUrl, timeoutMs = 45000) {
@@ -466,7 +646,7 @@ Protect reasoning privacy: the "thinking" field must contain only a short decisi
 • restart_server      — Restart one failed service. Args: {"server":"anjali|edgeTts|transcribe|videoExport|sc3Singing|imageGenerator"}
 
 ── Interactive Code Canvas ──
-• open_code_canvas    — Open an editable code canvas and show a live preview. For visual/browser requests, provide a complete standalone HTML document with inline CSS and JavaScript so preview works immediately. Args: {"title":"descriptive title","language":"html|javascript|python|jsx|css|json|text","code":"complete runnable code","preview":true}
+• open_code_canvas    — Open an editable code canvas and show a live preview. Use ONLY when the user explicitly asks to write/build/modify code or resolve a code/UI issue. Never use it for images, video, audio, rhymes, general questions, or ordinary app usage. For visual/browser coding requests, provide a complete standalone HTML document with inline CSS and JavaScript so preview works immediately. Args: {"title":"descriptive title","language":"html|javascript|python|jsx|css|json|text","code":"complete runnable code","preview":true}
                        MANDATORY: Whenever the user asks you to write, create, build, design, or demonstrate code, use this tool. Put the complete code in the canvas, not only in the chat message. Use language "html" and preview:true for websites, UI, games, animations, calculators, dashboards, and visual demos. For non-browser languages, the canvas opens in code-only mode.
 
 ── Creative AI ──
@@ -626,8 +806,8 @@ function chooseAgentReasoningProfile(payload) {
   const deepSignals = /\b(debug|fix|error|crash|architecture|refactor|security|performance|analyze|complex|root cause|repair existing|complete project)\b/i.test(request);
   const deep = deepSignals || toolFailures > 0 || request.length > 700 || (payload?.references?.length || 0) > 2;
   return deep
-    ? { name: 'deep', temperature: 0.2, numCtx: 8192, numPredict: 4096, topP: 0.9 }
-    : { name: 'fast', temperature: 0.3, numCtx: 4096, numPredict: 2048, topP: 0.92 };
+    ? { name: 'deep', temperature: 0.2, numCtx: 8192, numPredict: 3072, topP: 0.9 }
+    : { name: 'fast', temperature: 0.3, numCtx: 4096, numPredict: 1024, topP: 0.92 };
 }
 
 async function ensureLocalAgentBrain() {
@@ -657,6 +837,26 @@ async function ensureLocalAgentBrain() {
   throw new Error('The local agent brain did not start on port 11434.');
 }
 
+async function warmFastAgentBrain() {
+  const startedAt = Date.now();
+  const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: PRESENTATOR_FAST_MODEL,
+      prompt: '',
+      stream: false,
+      keep_alive: '60m',
+      // Match the normal fast-planner context so Ollama can reuse the warm
+      // allocation and prompt cache instead of resizing it on the first task.
+      options: { num_ctx: 4096, num_predict: 1 },
+    }),
+  });
+  if (!response.ok) throw new Error(`Warm-up failed (${response.status}): ${await response.text()}`);
+  await response.json();
+  console.log(`[PP] Fast Super Agent model pre-warmed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
+}
+
 async function callPresentatorAgent(payload, onProgress = () => {}, onController = () => {}) {
   const requestText = JSON.stringify({
     userRequest: String(payload?.userRequest || ''),
@@ -666,17 +866,47 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
     references: Array.isArray(payload?.references) ? payload.references : [],
   });
 
+  // Reclaim a cached diffusion model before loading the LLM. The image server
+  // refuses this request while an image is actively generating, so ongoing
+  // work is never interrupted.
+  await fetch('http://127.0.0.1:8432/api/unload', { method: 'POST' }).catch(() => {});
   await ensureLocalAgentBrain();
-  const reasoningProfile = chooseAgentReasoningProfile(payload);
-  const selectedModel = reasoningProfile.name === 'fast' ? PRESENTATOR_FAST_MODEL : PRESENTATOR_LOCAL_MODEL;
+  const recoveryRetry = Boolean(payload?.plannerRecoveryRetry);
+  const reasoningProfile = recoveryRetry
+    ? { name: 'fast-recovery', temperature: 0.25, numCtx: 2048, numPredict: 1024, topP: 0.9 }
+    : chooseAgentReasoningProfile(payload);
+  // The 4B planner needs several additional GB while Ollama prepares its CPU
+  // buffers. On this 16 GB workstation, route deep requests through the fast
+  // model whenever less than 8 GB of physical RAM is free instead of allowing
+  // llama-server to crash with ECONNRESET/out-of-memory.
+  const lowMemory = os.freemem() < 8 * 1024 ** 3;
+  const selectedModel = reasoningProfile.name.startsWith('fast') || lowMemory
+    ? PRESENTATOR_FAST_MODEL
+    : PRESENTATOR_LOCAL_MODEL;
   onProgress({ stage: 'ready', profile: reasoningProfile.name, generatedCharacters: 0 });
   const controller = new AbortController();
   onController(controller);
   const timeout = setTimeout(() => controller.abort(), 600000);
   let receivedFirstToken = false;
+  let firstTokenTimedOut = false;
+  const firstTokenWaitMs = recoveryRetry ? 180000 : reasoningProfile.name === 'deep' ? 180000 : 120000;
   const firstTokenTimeout = setTimeout(() => {
-    if (!receivedFirstToken) controller.abort(new Error('The local CPU planner produced no output for 45 seconds. The request was stopped so it can be retried or routed directly.'));
-  }, 45000);
+    if (!receivedFirstToken) {
+      firstTokenTimedOut = true;
+      controller.abort(new Error(`The local CPU planner produced no output for ${Math.round(firstTokenWaitMs / 1000)} seconds.`));
+    }
+  }, firstTokenWaitMs);
+  const plannerStartedAt = Date.now();
+  const loadingHeartbeat = setInterval(() => {
+    if (receivedFirstToken) return;
+    onProgress({
+      stage: 'loading',
+      profile: reasoningProfile.name,
+      generatedCharacters: 0,
+      elapsedSeconds: Math.floor((Date.now() - plannerStartedAt) / 1000),
+      label: 'Loading local model and preparing the cached prompt',
+    });
+  }, 1000);
   try {
     const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
       method: 'POST',
@@ -687,9 +917,9 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
         stream: true,
         think: false,
         format: PRESENTATOR_AGENT_FORMAT,
-        keep_alive: '30m',
+        keep_alive: '60m',
         messages: [
-          { role: 'system', content: reasoningProfile.name === 'fast' ? PRESENTATOR_AGENT_FAST_PROMPT : PRESENTATOR_AGENT_SYSTEM_PROMPT },
+          { role: 'system', content: selectedModel === PRESENTATOR_FAST_MODEL ? PRESENTATOR_AGENT_FAST_PROMPT : PRESENTATOR_AGENT_SYSTEM_PROMPT },
           {
             role: 'user',
             content: requestText,
@@ -711,18 +941,20 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
       const errorText = await response.text();
       if (errorText.includes('unable to allocate') || errorText.includes('CPU_REPACK') || errorText.includes('failed to allocate buffer') || errorText.includes('llama-server startup failed')) {
         console.warn('[Agent Brain] RAM buffer allocation limit hit. Unloading models and retrying with low-RAM profile...');
-        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: selectedModel, keep_alive: 0 })
-        }).catch(() => {});
+        for (const model of [PRESENTATOR_LOCAL_MODEL, PRESENTATOR_FAST_MODEL]) {
+          await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, keep_alive: 0 })
+          }).catch(() => {});
+        }
 
         const retryResponse = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
-            model: selectedModel,
+            model: PRESENTATOR_FAST_MODEL,
             stream: false,
             think: false,
             format: PRESENTATOR_AGENT_FORMAT,
@@ -746,7 +978,7 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
           const generatedText = json?.message?.content || '';
           if (generatedText) {
             const result = parseAgentJson(generatedText);
-            return { ok: true, model: `${selectedModel} (low-ram retry)`, reasoningProfile: 'low-ram', result };
+            return { ok: true, model: `${PRESENTATOR_FAST_MODEL} (low-ram retry)`, reasoningProfile: 'low-ram', result };
           }
         }
 
@@ -820,9 +1052,25 @@ async function callPresentatorAgent(payload, onProgress = () => {}, onController
         evalCount: Number(finalChunk.eval_count || 0),
       },
     };
+  } catch (error) {
+    if (firstTokenTimedOut && !recoveryRetry) {
+      clearInterval(loadingHeartbeat);
+      onProgress({ stage: 'retrying', profile: 'fast-recovery', generatedCharacters: 0, label: 'Local model was slow to start; retrying automatically with low-memory settings' });
+      await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel, keep_alive: 0 }),
+      }).catch(() => {});
+      return callPresentatorAgent({ ...payload, plannerRecoveryRetry: true }, onProgress, onController);
+    }
+    if (firstTokenTimedOut) {
+      throw new Error('The local planner could not start after automatic recovery. Ollama is online, but the computer is under heavy CPU or memory load. Stop other AI tools and retry.');
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
     clearTimeout(firstTokenTimeout);
+    clearInterval(loadingHeartbeat);
   }
 }
 
@@ -1083,6 +1331,34 @@ function postJsonForBuffer(port, path_, payload, timeoutMs = 120000) {
     req.on('error', reject);
     req.end(body);
   });
+}
+
+async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 120000, retries = 1) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await postJsonForBuffer(port, path_, payload, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      const transient = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET'].includes(String(error?.code || ''))
+        || /ECONNRESET|socket hang up|connection reset|fetch failed/i.test(String(error?.message || ''));
+      if (!transient || attempt >= retries) break;
+      // Give a restarting native worker time to reopen its health endpoint.
+      let ready = false;
+      for (let check = 0; check < 30; check += 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (await pingPort(port, '/health', 3000)) {
+          ready = true;
+          break;
+        }
+      }
+      if (!ready) break;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+  }
+  const friendly = new Error(`The local AI worker reset its connection and automatic recovery did not complete. Please retry once. (${lastError?.code || 'connection reset'})`);
+  friendly.code = lastError?.code;
+  throw friendly;
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Edge TTS health-check watchdog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -1489,6 +1765,7 @@ async function createWindow() {
       if (Notification.isSupported()) {
         new Notification({ title, body }).show();
       }
+      processAlertFromNotification(title, body);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -1541,6 +1818,33 @@ async function createWindow() {
 
   ipcMain.handle('presentator-agent-think', async (event, payload) => {
     try {
+      const directRequest = String(payload?.userRequest || '');
+      const directImageRequest =
+        /\b(create|generate|make|draw|design|produce|render)\b/i.test(directRequest)
+        && /\b(images?|pictures?|photos?|illustrations?|artworks?|posters?|wallpapers?|renders?)\b/i.test(directRequest)
+        && !/\b(video|animate|animation|mp4)\b/i.test(directRequest);
+      if (directImageRequest) {
+        return {
+          ok: true,
+          model: 'direct-image-router',
+          reasoningProfile: 'direct image',
+          result: {
+            message: 'Starting image generation immediately.',
+            thinking: 'Planner bypassed for a direct image request.',
+            plan: ['Generate the requested image', 'Upscale and save the result'],
+            actions: [{
+              tool: 'generate_image',
+              args: {
+                prompt: `${directRequest}. Ultra-detailed cinematic 3D render, physically based materials, professional lighting, sharp focus`,
+                negativePrompt: 'blurry, pixelated, distorted, malformed, low quality, watermark, text, logo',
+                seed: 0,
+              },
+              reason: 'Direct image request; bypass the planning loop.',
+            }],
+            done: true,
+          },
+        };
+      }
       return await callPresentatorAgent(payload, progress => {
         try { event.sender.send('presentator-agent-progress', progress); } catch (_) {}
       }, controller => activeAgentControllers.set(event.sender.id, controller));
@@ -1571,7 +1875,61 @@ async function createWindow() {
     // Image generation is a blocking native/Python operation. Restarting its
     // managed worker is the only immediate, reliable cancellation mechanism.
     if (activeImageGenerationRequests > 0 && servers.ImageGenerator) restartServer('ImageGenerator');
-    return { ok: true, cancelledPlanner, imageGeneratorStopped: activeImageGenerationRequests > 0 };
+    const hermesProcess = activeHermesProcesses.get(event.sender.id);
+    if (hermesProcess) {
+      killProcessTree(hermesProcess);
+      activeHermesProcesses.delete(event.sender.id);
+    }
+    return { ok: true, cancelledPlanner, hermesStopped: Boolean(hermesProcess), imageGeneratorStopped: activeImageGenerationRequests > 0 };
+  });
+
+  ipcMain.handle('presentator-agent-hermes-status', async () => new Promise(resolve => {
+    execFile('wsl.exe', ['--status'], { windowsHide: true, timeout: 10000 }, error => {
+      if (error) return resolve({ ok: false, needsWsl: true, error: 'Hermes requires WSL2 on this Windows computer.' });
+      execFile('wsl.exe', ['bash', '-lc', 'command -v hermes && hermes --version'], { windowsHide: true, timeout: 15000 }, (hermesError, stdout) => {
+        if (hermesError) return resolve({ ok: false, needsHermes: true, error: 'WSL2 is ready, but Hermes Agent is not installed inside it.' });
+        resolve({ ok: true, version: String(stdout || '').trim().split(/\r?\n/).pop() || 'ready' });
+      });
+    });
+  }));
+
+  ipcMain.handle('presentator-agent-hermes-improve', async (event, payload) => {
+    if (activeHermesProcesses.has(event.sender.id)) return { ok: false, error: 'Hermes improvement is already running.' };
+    const objective = String(payload?.objective || '').trim().slice(0, 4000);
+    const prompt = [
+      'You are the controlled improvement reviewer for Pattan Presentator Super Agent.',
+      'Work only inside /mnt/d/voice. Inspect the current implementation before editing.',
+      'Improve reliability, reasoning, recovery, observability, or test coverage for the objective below.',
+      'Preserve existing user features and files. Never delete files. Use filesystem checkpoints.',
+      'Run relevant checks after edits. Return a concise report of files changed and verification.',
+      `Objective: ${objective || 'Audit and safely improve the Super Agent module.'}`,
+    ].join('\n');
+    return new Promise(resolve => {
+      const child = spawn('wsl.exe', [
+        '--cd', '/mnt/d/voice',
+        'hermes', 'chat', '--quiet', '--checkpoints',
+        '--toolsets', 'terminal,skills',
+        '--query', prompt,
+      ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      activeHermesProcesses.set(event.sender.id, child);
+      let output = '';
+      const collect = data => {
+        output += data.toString();
+        if (output.length > 120000) output = output.slice(-120000);
+      };
+      child.stdout.on('data', collect);
+      child.stderr.on('data', collect);
+      child.on('error', error => {
+        activeHermesProcesses.delete(event.sender.id);
+        resolve({ ok: false, error: error.message });
+      });
+      child.on('exit', code => {
+        activeHermesProcesses.delete(event.sender.id);
+        resolve(code === 0
+          ? { ok: true, report: output.trim() || 'Hermes completed its controlled improvement review.' }
+          : { ok: false, error: `Hermes exited with code ${code}. ${output.trim().slice(-1600)}` });
+      });
+    });
   });
 
   ipcMain.handle('presentator-agent-restart-server', async (_event, serverName) => {
@@ -2467,7 +2825,12 @@ async function createWindow() {
           });
         }
       } catch (_) {}
-      resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+      resumePausedServers = await pauseManagedServersForImage([
+        'AnjaliAI',
+        'Sc3Singing',
+        'EdgeTTS',
+        'TranslationServer',
+      ]);
       const imageEntry = servers.ImageGenerator;
       if (!(await pingPort(8432, '/health')) && (!imageEntry?.proc || imageEntry.proc.killed || imageEntry.proc.exitCode !== null)) {
         restartServer('ImageGenerator');
@@ -2510,7 +2873,7 @@ async function createWindow() {
           progressPollBusy = false;
         }
       }, 1000);
-      const response = await postJsonForBuffer(
+      const response = await postJsonForBufferWithRecovery(
         8432,
         '/api/generate-image',
         {
@@ -2522,7 +2885,8 @@ async function createWindow() {
           outputWidth: 3840,
           outputHeight: 2160,
         },
-        900000
+        900000,
+        1
       ).finally(() => clearInterval(progressTimer));
       const json = JSON.parse(response.buffer.toString('utf8'));
       if (response.statusCode < 200 || response.statusCode >= 300 || !json.ok) {
@@ -2685,12 +3049,25 @@ async function createWindow() {
       try { killProcessTree(activeRhymeChild); } catch (_) {}
       activeRhymeChild = null;
     }
+    if (mobileRhymeJob?.status === 'running') {
+      mobileRhymeJob.status = 'failed';
+      mobileRhymeJob.error = 'Generation cancelled by user.';
+      mobileRhymeJob.progress = { pct: 0, phase: 'Stopped', detail: 'Generation cancelled by user', elapsedSeconds: 0 };
+    }
     return { ok: true, cancelled: true };
   });
 
   ipcMain.handle('generate-rhyme-song', async (event, payload) => {
     const lyrics = String(payload?.lyrics || '').trim();
     if (!lyrics) return { ok: false, error: 'Exact lyrics are required.' };
+    if (/\b(nude|nudy|naked|pussy|penis|vagina|nipples?|porn|sexual|sex)\b/i.test(lyrics)) {
+      return { ok: false, error: 'Kids Rhyme Maker rejected unrelated adult content. Clear both inputs and enter only the exact child-safe lyrics you want sung.' };
+    }
+    const titleWords = String(payload?.title || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(word => word.length > 2);
+    const lyricWords = new Set(lyrics.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean));
+    if (titleWords.length >= 3 && !titleWords.some(word => lyricWords.has(word))) {
+      return { ok: false, error: 'The song title and Exact Lyrics contain unrelated text. Generation was stopped so stale lyrics cannot be sung. Re-enter the lyrics and try again.' };
+    }
 
     const startedAt = Date.now();
     let activePhase = 'Checking ACE-Step installation';
@@ -2744,10 +3121,19 @@ async function createWindow() {
     const safeTitle = title.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 55) || 'kids-rhyme';
     let savedPath = path.join(outputDir, `${safeTitle}.mp3`);
     if (fs.existsSync(savedPath)) savedPath = path.join(outputDir, `${safeTitle}-${stamp}.mp3`);
-    const duration = Math.max(5, Math.min(30, Number(payload?.duration) || 30));
+    const requestedDuration = Math.max(5, Math.min(30, Number(payload?.duration) || 30));
+    const lyricWordCount = lyrics.trim().split(/\s+/).filter(Boolean).length;
+    // Singing needs substantially more room than speech. Silently squeezing a full
+    // verse into a short selection makes ACE-Step slur, repeat, or invent syllables.
+    const minimumClearDuration = Math.max(5, Math.ceil(lyricWordCount / 0.85));
+    if (minimumClearDuration > 30) {
+      clearInterval(heartbeat);
+      return { ok: false, error: `These ${lyricWordCount} lyric words need about ${minimumClearDuration} seconds for clear singing. Shorten the lyrics to about 25 words for the 30-second maximum.` };
+    }
+    const duration = Math.min(30, Math.max(requestedDuration, minimumClearDuration));
     const durationReference = path.join(workDir, `required-reference-${duration}s.wav`);
     const request = {
-      caption: String(payload?.stylePrompt || 'cheerful preschool nursery rhyme, warm young female singer, clear English pronunciation, gentle playful melody, soft bells and acoustic instruments, educational children song'),
+      caption: `${String(payload?.stylePrompt || 'cheerful preschool nursery rhyme, warm young female singer, clear English pronunciation, gentle playful melody, soft bells and acoustic instruments, educational children song')}, preserve the same lead-singer timbre and vocal character as the supplied Little Jack Horner reference`,
       lyrics,
       duration,
       bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 96)),
@@ -2762,10 +3148,10 @@ async function createWindow() {
       shift: 3.0,
       // Keep the required reference's musical character without letting its old words
       // overpower the exact lyrics supplied for this generation.
-      audio_cover_strength: 0.25,
+      audio_cover_strength: 0.40,
     };
     const savedPayload = {
-      lyrics, title, duration, clarityAttempts: Math.max(1, Math.min(3, Number(payload?.clarityAttempts) || 2)),
+      lyrics, title, duration, clarityAttempts: Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3)),
       bgmLevel: Number(payload?.bgmLevel), vocalPresence: Number(payload?.vocalPresence), bpm: request.bpm,
       stylePrompt: request.caption, seed: request.seed,
       lyricsHash: crypto.createHash('sha256').update(lyrics, 'utf8').digest('hex'),
@@ -2829,11 +3215,16 @@ async function createWindow() {
         report('Preparing required audio reference', 13, `Trimming the Little Jack Horner reference to ${duration} seconds`);
         await run(findFFmpegExecutable(), ['-y', '-i', referenceAudio, '-t', String(duration), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', durationReference], 5 * 60 * 1000, workDir);
       }
-      const attempts = Math.max(1, Math.min(5, Number(payload?.clarityAttempts) || 3));
-      const passScore = 50;
+      // Never treat the first weak performance as the final result. Mobile and
+      // older saved payloads may still request one attempt, but exact-lyric mode
+      // always gets at least three independent performances.
+      const attempts = Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3));
+      const passScore = 80;
       const initialSeed = Number.isFinite(Number(payload?.seed)) && Number(payload.seed) >= 0 ? Number(payload.seed) : Math.floor(Math.random() * 1000000);
       let best = null;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const attemptBase = 14 + Math.round(((attempt - 1) / attempts) * 74);
+        const attemptEnd = 14 + Math.round((attempt / attempts) * 74);
         const attemptDir = path.join(workDir, `reference-attempt-${attempt}`);
         fs.mkdirSync(attemptDir, { recursive: true });
         const requestPath = path.join(attemptDir, 'rhyme.json');
@@ -2841,30 +3232,47 @@ async function createWindow() {
         const generatedPath = path.join(attemptDir, 'rhyme00.wav');
         if (!fs.existsSync(generatedPath)) {
           if (!fs.existsSync(request0Path)) {
-            if (!fs.existsSync(requestPath)) fs.writeFileSync(requestPath, JSON.stringify({ ...request, seed: initialSeed + attempt - 1 }, null, 2), 'utf8');
+            if (!fs.existsSync(requestPath)) {
+              const retryStrength = attempt === 1 ? 0.40 : attempt === 2 ? 0.30 : 0.22;
+              const retryCaption = attempt === 1
+                ? request.caption
+                : `${request.caption}. Extra-clear child-friendly diction. Sing every supplied word exactly once, with short pauses between lyric lines; do not omit, repeat, replace, or improvise any word.`;
+              fs.writeFileSync(requestPath, JSON.stringify({
+                ...request,
+                caption: retryCaption,
+                audio_cover_strength: retryStrength,
+                seed: initialSeed + attempt - 1,
+              }, null, 2), 'utf8');
+            }
             saveRecovery('running', { stage: 'composing', attempt });
-            report(`Composing candidate ${attempt}/${attempts}`, 14 + ((attempt - 1) * 38), `High-quality lyric and melody plan · seed ${initialSeed + attempt - 1}`);
+            report(`Composing candidate ${attempt}/${attempts}`, attemptBase, `High-quality lyric and melody plan · seed ${initialSeed + attempt - 1}`);
             await run(lmExe, ['--request', requestPath, '--lm', lmModel, '--max-seq', '4096', '--no-fa'], 30 * 60 * 1000, attemptDir);
           } else {
-            report(`Resuming candidate ${attempt}/${attempts}`, 24 + ((attempt - 1) * 38), 'Song plan already complete; continuing from rendering');
+            report(`Resuming candidate ${attempt}/${attempts}`, attemptBase + 3, 'Song plan already complete; continuing from rendering');
           }
           if (!fs.existsSync(request0Path)) throw new Error('ACE-Step did not prepare the song request.');
           saveRecovery('running', { stage: 'rendering', attempt });
-          report(`Rendering candidate ${attempt}/${attempts}`, 24 + ((attempt - 1) * 38), `Singing with ${path.basename(dit)} — longest CPU stage`);
+          report(`Rendering candidate ${attempt}/${attempts}`, attemptBase + 4, `Singing with ${path.basename(dit)} — longest CPU stage`);
           await run(synthExe, ['--request', request0Path, '--embedding', embedding, '--dit', dit, '--vae', vae, '--src-audio', durationReference, '--wav', '--no-fa', '--vae-chunk', '128', '--vae-overlap', '32'], 45 * 60 * 1000, attemptDir);
         } else {
-          report(`Resuming candidate ${attempt}/${attempts}`, 46 + ((attempt - 1) * 38), 'Rendered WAV already exists; continuing from clarity verification');
+          report(`Resuming candidate ${attempt}/${attempts}`, Math.max(attemptBase + 5, attemptEnd - 2), 'Rendered WAV already exists; continuing from clarity verification');
         }
         if (!fs.existsSync(generatedPath)) throw new Error('ACE-Step did not create the song WAV.');
-        report(`Checking lyric clarity ${attempt}/${attempts}`, 48 + ((attempt - 1) * 38), 'Whisper is checking lyric clarity');
+        report(`Checking lyric clarity ${attempt}/${attempts}`, Math.max(attemptBase + 6, attemptEnd - 1), 'Whisper is checking lyric clarity');
         let check;
         try { check = await transcribeForClarity(generatedPath); } catch (error) { check = { text: '', score: 0, unavailable: true, error: error.message }; }
         const candidate = { path: generatedPath, ...check, attempt };
         if (!best || candidate.score > best.score) best = candidate;
-        report(`Lyric clarity score: ${candidate.score}%`, 52 + ((attempt - 1) * 38), candidate.score >= passScore ? 'Passed lyric clarity check' : attempt < attempts ? 'Retrying candidate for higher clarity' : 'Using best generated candidate');
+        report(`Lyric clarity score: ${candidate.score}%`, attemptEnd, candidate.score >= passScore ? 'Passed lyric clarity check' : attempt < attempts ? 'Automatically retrying with stronger diction and less reference bleed' : 'Rejected: lyrics are not clear enough');
         if (candidate.score >= passScore) break;
       }
       if (!best?.path) throw new Error('No song candidate was generated.');
+      if (!best.unavailable && best.score < passScore) {
+        throw new Error(`Song rejected after ${attempts} automatic performances because the best result detected only ${best.score}% of the exact lyrics (minimum ${passScore}%). Nothing unclear was saved.`);
+      }
+      if (best.unavailable) {
+        throw new Error('The lyric clarity checker was unavailable, so the song was not saved without verification.');
+      }
       report('Enhancing lead-vocal clarity', 92, 'Mastering HD stereo song with presence boost and loudness normalization');
       const enhancedPath = path.join(workDir, 'vocal-enhanced.wav');
       const requestedBgm = Number(payload?.bgmLevel);
@@ -2881,10 +3289,10 @@ async function createWindow() {
       report('Finalizing the MP3', 96, 'Saving the mastered 4K 320kbps MP3 song');
       fs.copyFileSync(fs.existsSync(enhancedPath) ? enhancedPath : best.path, savedPath);
       const bytes = fs.readFileSync(savedPath);
-      const clarityPassed = best.unavailable ? true : best.score >= 40;
+      const clarityPassed = best.score >= passScore;
       saveRecovery('completed', { stage: 'completed', savedPath, clarityScore: best.score });
-      report('Song complete', 100, `${path.basename(savedPath)} · clarity ${best.score || 100}%`);
-      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', duration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score || 100, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
+      report('Song complete', 100, `${path.basename(savedPath)} · clarity ${best.score}%`);
+      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', duration, requestedDuration, durationAdjusted: duration !== requestedDuration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
     } catch (error) {
       saveRecovery('paused', { stage: activePhase, error: error.message });
       report('Generation failed', 0, error.message);
@@ -2914,7 +3322,7 @@ async function createWindow() {
         const completedPath = path.join(workDir, 'vocal-enhanced.wav');
         if (fs.existsSync(requestPath) && !fs.existsSync(completedPath)) {
           const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
-          return { ok: true, job: { status: 'paused', workDir, stage: fs.existsSync(path.join(attemptDir, 'rhyme0.json')) ? 'rendering' : 'composing', payload: { lyrics: request.lyrics, title: 'Recovered rhyme', duration: request.duration, bpm: request.bpm, stylePrompt: request.caption, seed: request.seed, clarityAttempts: 2, bgmLevel: 20, vocalPresence: 7 } } };
+          return { ok: true, job: { status: 'paused', workDir, stage: fs.existsSync(path.join(attemptDir, 'rhyme0.json')) ? 'rendering' : 'composing', payload: { lyrics: request.lyrics, title: 'Recovered rhyme', duration: request.duration, bpm: request.bpm, stylePrompt: request.caption, seed: request.seed, clarityAttempts: 3, bgmLevel: 20, vocalPresence: 7 } } };
         }
       }
     } catch (error) { return { ok: false, error: error.message }; }
@@ -2934,27 +3342,14 @@ async function createWindow() {
     const requestedPresence = Number(payload?.vocalPresence);
     const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
     const presence = Math.max(0, Math.min(10, Number.isFinite(requestedPresence) ? requestedPresence : 7));
-    const singerStyle = String(payload?.singerStyle || '').toLowerCase();
+    const singerStyle = 'required Little Jack Horner reference singer';
     const bpm = Math.max(80, Math.min(140, Number(payload?.bpm) || 96));
-
-    let pitchFilter = '';
-    if (singerStyle.includes('male')) {
-      pitchFilter = 'asetrate=48000*0.815,atempo=1.227,';
-    } else if (singerStyle.includes('child')) {
-      pitchFilter = 'asetrate=48000*1.189,atempo=0.841,';
-    }
-
-    let tempoFilter = '';
-    const speedRatio = bpm / 96.0;
-    if (Math.abs(speedRatio - 1.0) > 0.03) {
-      tempoFilter = `atempo=${speedRatio.toFixed(2)},`;
-    }
-
-    const presenceEq = (-4.0 + (presence * 1.2)).toFixed(1);
-    const bgmEq = (-12.0 + (bgmLevel / 100) * 18.0).toFixed(1);
-    const overallVol = (0.65 + (presence * 0.05) + (bgmLevel / 100) * 0.45).toFixed(2);
-
-    const filter = `${pitchFilter}${tempoFilter}highpass=f=80,equalizer=f=350:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${presenceEq},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+    // Preview and final mastering must use exactly the same tonal controls.
+    // Pitch/tempo tricks here previously advertised a voice the generator did not use.
+    const presenceEq = (-1.0 + (presence * 0.6)).toFixed(1);
+    const bgmEq = (-6.0 + (bgmLevel / 100) * 8.0).toFixed(1);
+    const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
+    const filter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${presenceEq},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
     const previewDir = path.join(ROOT, 'generated-media', 'mix-previews');
     fs.mkdirSync(previewDir, { recursive: true });
     const previewPath = path.join(previewDir, `preview-${Date.now()}.wav`);
@@ -3016,10 +3411,145 @@ async function createWindow() {
       wordTimings: [],
     };
   });
-  ipcMain.handle('shutdown-computer-after-export', async () => ({
-    ok: false,
-    error: 'Automatic computer shutdown is disabled for safety.',
+  ipcMain.handle('shutdown-computer-after-export', async (_event, options = {}) => {
+    const delaySeconds = Math.max(30, Math.min(600, Number(options.delaySeconds) || 60));
+    const reason = String(options.reason || 'Pattan Presentator completed the requested process')
+      .replace(/[\r\n"]/g, ' ').slice(0, 120);
+    return new Promise(resolve => {
+      execFile('shutdown.exe', ['/s', '/t', String(delaySeconds), '/d', 'p:0:0', '/c', reason], {
+        windowsHide: true,
+        timeout: 10000,
+      }, error => resolve(error
+        ? { ok: false, error: error.message }
+        : { ok: true, delaySeconds }));
+    });
+  });
+  ipcMain.handle('cancel-computer-shutdown', async () => new Promise(resolve => {
+    execFile('shutdown.exe', ['/a'], { windowsHide: true, timeout: 10000 }, error => resolve(error
+      ? { ok: false, error: error.message }
+      : { ok: true }));
   }));
+
+  const ollamaLaunchTools = Object.freeze({
+    claude: 'Claude Code',
+    chatgpt: 'ChatGPT',
+    hermes: 'Hermes Agent',
+    openclaw: 'OpenClaw',
+    opencode: 'OpenCode',
+    'codex-app': 'Codex App',
+  });
+  ipcMain.handle('get-ollama-launch-status', async () => new Promise(resolve => {
+    execFile('ollama', ['--version'], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => {
+      if (error) return resolve({ ok: false, error: 'Ollama is not available. Start Ollama and press Check Ollama.' });
+      resolve({ ok: true, version: String(stdout || stderr || '').trim().replace(/^ollama version\s*/i, '') });
+    });
+  }));
+  ipcMain.handle('launch-ollama-tool', async (_event, requestedTool) => {
+    const tool = String(requestedTool || '').toLowerCase();
+    if (tool === 'ollama-menu') {
+      try {
+        const child = spawn('powershell.exe', ['-NoLogo', '-NoExit', '-Command', 'ollama'], {
+          cwd: ROOT, detached: true, windowsHide: false, stdio: 'ignore',
+        });
+        child.unref();
+        return { ok: true, tool, name: 'Ollama Menu' };
+      } catch (error) {
+        return { ok: false, error: `Could not open Ollama: ${error.message}` };
+      }
+    }
+    if (tool === 'codex-app') {
+      try {
+        // Ollama 0.32 exposes the Codex desktop integration as `chatgpt`
+        // (`codex-app` remains an alias). Supplying the installed model and
+        // --yes avoids a terminal selector and opens the desktop app directly.
+        const child = spawn('ollama', ['launch', 'chatgpt', '--model', 'qwen3.5:4b', '--yes'], {
+          cwd: ROOT,
+          detached: true,
+          windowsHide: true,
+          stdio: 'ignore',
+        });
+        activeOllamaToolProcesses.set(tool, child);
+        child.unref();
+        return { ok: true, tool, name: 'Codex App' };
+      } catch (error) {
+        return { ok: false, error: `Could not open Codex App: ${error.message}` };
+      }
+    }
+    const name = ollamaLaunchTools[tool];
+    if (!name) return { ok: false, error: 'That Ollama tool is not supported.' };
+    try {
+      // Launch every supported integration immediately with the strongest
+      // installed local model. Terminal-native tools still open their own
+      // terminal because that is their user interface.
+      const command = `ollama launch ${tool} --model qwen3.5:4b --yes`;
+      const child = spawn('powershell.exe', ['-NoLogo', '-NoExit', '-Command', command], {
+        cwd: ROOT,
+        detached: true,
+        windowsHide: false,
+        stdio: 'ignore',
+      });
+      activeOllamaToolProcesses.set(tool, child);
+      child.unref();
+      return { ok: true, tool, name };
+    } catch (error) {
+      return { ok: false, error: `Could not open ${name}: ${error.message}` };
+    }
+  });
+  ipcMain.handle('end-ollama-tool-session', async (_event, requestedTool) => {
+    const tool = String(requestedTool || '').toLowerCase();
+    if (!ollamaLaunchTools[tool] && tool !== 'codex-app') return { ok: false, error: 'That AI tool is not supported.' };
+    try {
+      const child = activeOllamaToolProcesses.get(tool);
+      if (child) {
+        killProcessTree(child);
+        activeOllamaToolProcesses.delete(tool);
+      }
+      if (tool === 'openclaw') {
+        spawn('powershell.exe', ['-NoLogo', '-Command', 'openclaw gateway stop'], { windowsHide: true, stdio: 'ignore' }).unref();
+      } else if (tool === 'hermes') {
+        spawn('powershell.exe', ['-NoLogo', '-Command', 'hermes gateway stop'], { windowsHide: true, stdio: 'ignore' }).unref();
+      } else if (tool === 'chatgpt' || tool === 'codex-app') {
+        spawn('ollama', ['launch', 'chatgpt', '--restore', '--yes'], { cwd: ROOT, detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+      }
+      return { ok: true, name: ollamaLaunchTools[tool] || 'Codex App' };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+  ipcMain.handle('end-all-ollama-tool-sessions', async () => {
+    for (const child of activeOllamaToolProcesses.values()) {
+      try { killProcessTree(child); } catch (_) {}
+    }
+    activeOllamaToolProcesses.clear();
+    try { spawn('powershell.exe', ['-NoLogo', '-Command', 'openclaw gateway stop'], { windowsHide: true, stdio: 'ignore' }).unref(); } catch (_) {}
+    try { spawn('powershell.exe', ['-NoLogo', '-Command', 'hermes gateway stop'], { windowsHide: true, stdio: 'ignore' }).unref(); } catch (_) {}
+    try { spawn('ollama', ['launch', 'chatgpt', '--restore', '--yes'], { cwd: ROOT, detached: true, windowsHide: true, stdio: 'ignore' }).unref(); } catch (_) {}
+    return { ok: true };
+  });
+  ipcMain.handle('open-ollama-update', async () => {
+    try {
+      await shell.openExternal('https://ollama.com/download/windows');
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+  ipcMain.handle('restore-codex-app', async () => {
+    try {
+      // Restoration requires confirmation and may close/restart the Codex app.
+      // Run detached so the renderer receives success before Codex restarts.
+      const child = spawn('ollama', ['launch', 'chatgpt', '--restore', '--yes'], {
+        cwd: ROOT,
+        detached: true,
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      return { ok: true, message: 'Original Codex profile restoration started. Codex may restart.' };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
 
   // ————————————— IPC: Restart video export server from renderer ——————————————————
   ipcMain.handle('restart-video-export', () => {
@@ -4283,6 +4813,22 @@ ipcMain.handle('open-file', async (event, filePath) => {
     return data;
   });
 
+  ipcMain.handle('get-whatsapp-auto-send', async () => ({
+    ok: true,
+    enabled: Boolean(getMobilePreferences().whatsappAutoSend),
+  }));
+
+  ipcMain.handle('set-whatsapp-auto-send', async (_event, enabled) => {
+    const preferences = saveMobilePreferences({ whatsappAutoSend: Boolean(enabled) });
+    return {
+      ok: true,
+      enabled: preferences.whatsappAutoSend,
+      message: preferences.whatsappAutoSend
+        ? 'WhatsApp link auto-send enabled. Running processes were not changed.'
+        : 'WhatsApp link auto-send disabled. Mobile access and running processes remain active.',
+    };
+  });
+
   // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
     const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, imageGeneratorAlive, viteAlive] = await Promise.all([
@@ -4419,7 +4965,10 @@ app.whenReady().then(async () => {
   // Start the Super Agent brain eagerly. Waiting until the first prompt made
   // Agent Studio look unresponsive while Ollama was still booting.
   ensureLocalAgentBrain()
-    .then(() => console.log('[PP] Super Agent brain ready on port 11434.'))
+    .then(async () => {
+      console.log('[PP] Super Agent brain ready on port 11434.');
+      await warmFastAgentBrain();
+    })
     .catch(error => console.error('[PP] Super Agent brain failed to start:', error.message));
 
   // Give servers a moment to bind ports before opening the window

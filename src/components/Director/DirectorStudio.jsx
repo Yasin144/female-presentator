@@ -124,7 +124,7 @@ function createSlideBase64(title, subtitle, width = 1920, height = 1080) {
   return canvas.toDataURL('image/png').split(',')[1];
 }
 
-export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, onOpenPresentation, onOpenExporter }) {
+export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, onOpenExporter }) {
   const [form, setForm] = useState({
     topic: '', audience: 'Students and everyday viewers', duration: 90,
     language: 'Indian English', format: 'Explainer', tone: 'Warm teacher',
@@ -434,7 +434,6 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
             <button onClick={() => handoff('edit')}>Open in Presentator</button>
             <button onClick={() => handoff('narrate')}>Prepare voice narration</button>
             <button onClick={onOpenCaptions}>Open Caption Burner</button>
-            <button onClick={onOpenPresentation}>Open Presentation</button>
           </div>
         </section>
       </main>

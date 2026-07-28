@@ -1,3 +1,8 @@
+/* Shared utility layer used by Super Agent and other React workspaces.
+   Preflight remains disabled in tailwind.config.js so established module
+   styling is preserved. */
+@tailwind utilities;
+
 :root, body[data-theme="dark"] {
   color-scheme: dark;
   --bg-start: #0f172a;

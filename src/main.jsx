@@ -13,6 +13,12 @@ if (!window.electronAPI) {
     writeFile: async () => ({ ok: true }),
     showItemInFolder: async () => {},
     getSystemInfo: async () => ({ platform: 'mobile-web', cpus: 8, memory: 16 }),
+    getOllamaLaunchStatus: async () => ({ ok: false, error: 'AI desktop tools must be launched on the Pattan Presentator computer.' }),
+    launchOllamaTool: async () => ({ ok: false, error: 'Open AI Tools on the desktop app to launch this tool.' }),
+    openOllamaUpdate: async () => ({ ok: false, error: 'Install Ollama updates on the desktop computer.' }),
+    restoreCodexApp: async () => ({ ok: false, error: 'Restore Codex on the desktop computer.' }),
+    endOllamaToolSession: async () => ({ ok: false, error: 'End AI tool sessions on the desktop computer.' }),
+    endAllOllamaToolSessions: async () => ({ ok: false, error: 'End AI tool sessions on the desktop computer.' }),
     getServerHealth: async () => ({ ok: true, status: 'online', cpu: '10%', ram: '3.8GB', disk: '75%' }),
     getMobileLink: async () => {
       try {
@@ -90,6 +96,8 @@ if (!window.electronAPI) {
     presentatorAgentThink: async (args) => ({ ok: true, response: `🤖 Mobile Super Agent Ready! Answer to: "${args?.prompt || 'Query'}"` }),
     presentatorAgentCancel: async () => ({ ok: true }),
     presentatorAgentStopProcess: async () => ({ ok: true }),
+    presentatorAgentHermesStatus: async () => ({ ok: false, error: 'Hermes self-improvement runs on the desktop computer.' }),
+    presentatorAgentHermesImprove: async () => ({ ok: false, error: 'Open Super Agent on the desktop to run Hermes.' }),
     presentatorAgentImportReference: async () => ({ ok: true, message: 'Reference loaded on mobile.' }),
     presentatorAgentReadDiagnostics: async () => ({ ok: true, logs: 'All mobile agent subsystems online.' }),
     presentatorAgentRestartServer: async () => ({ ok: true }),

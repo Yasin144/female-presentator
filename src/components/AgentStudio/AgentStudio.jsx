@@ -320,6 +320,9 @@ export default function AgentStudio() {
   const [operationElapsed, setOperationElapsed] = useState(0);
   const [videoApiKey, setVideoApiKey] = useState(() => window.localStorage.getItem('presentator.magicHourApiKey') || '');
   const [selectedFilter, setSelectedFilter] = useState('');
+  const [hermesStatus, setHermesStatus] = useState({ checking: true, ok: false });
+  const [localBrainStatus, setLocalBrainStatus] = useState({ checking: true, ok: false, version: '' });
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const cancelledRef = useRef(false);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
@@ -372,6 +375,42 @@ export default function AgentStudio() {
   useEffect(() => () => window.clearInterval(progressTimerRef.current), []);
 
   useEffect(() => {
+    window.electronAPI?.presentatorAgentHermesStatus?.()
+      .then(result => setHermesStatus({ ...result, checking: false }))
+      .catch(error => setHermesStatus({ ok: false, checking: false, error: error.message }));
+  }, []);
+
+  useEffect(() => {
+    const checkBrain = () => window.electronAPI?.getOllamaLaunchStatus?.()
+      .then(result => setLocalBrainStatus({ ...result, checking: false }))
+      .catch(error => setLocalBrainStatus({ ok: false, checking: false, error: error.message }));
+    checkBrain();
+    const timer = window.setInterval(checkBrain, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const runHermesImprovement = async () => {
+    if (busy || !hermesStatus.ok) return;
+    const lastObjective = [...activeChat.messages].reverse().find(message => message.role === 'user')?.text || 'Audit and safely improve the Super Agent module.';
+    setBusy(true);
+    setStatus('Hermes is inspecting and improving Super Agent…');
+    setMission({ objective: `Hermes improvement: ${lastObjective}`, status: 'Running with checkpoints', tools: [], startedAt: Date.now() });
+    try {
+      const result = await window.electronAPI.presentatorAgentHermesImprove({ objective: lastObjective });
+      if (!result?.ok) throw new Error(result?.error || 'Hermes improvement failed.');
+      addMessage('assistant', `Hermes improvement completed:\n\n${result.report}`);
+      setStatus('Hermes improvement completed');
+      setMission(current => current ? { ...current, status: 'Completed', finishedAt: Date.now() } : current);
+    } catch (error) {
+      addMessage('assistant', `Hermes could not run: ${error.message}`);
+      setStatus('Hermes needs attention');
+      setMission(current => current ? { ...current, status: 'Needs attention', finishedAt: Date.now() } : current);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
     if (!busy || !operationStartedAt) return undefined;
     const updateElapsed = () => setOperationElapsed(Math.max(0, Math.floor((Date.now() - operationStartedAt) / 1000)));
     updateElapsed();
@@ -416,12 +455,17 @@ export default function AgentStudio() {
         return;
       }
       const characters = Number(progressEvent?.generatedCharacters || 0);
+      const generatedTokens = Number(progressEvent?.generatedTokens || 0);
       const profile = String(progressEvent?.profile || 'fast');
       const nextStatus = progressEvent?.stage === 'parsing'
-        ? `Brain finished generating ${characters.toLocaleString()} characters • preparing actions`
+        ? `Brain finished generating ${generatedTokens ? `${generatedTokens.toLocaleString()} tokens` : `${characters.toLocaleString()} characters`} • preparing actions`
+        : progressEvent?.stage === 'loading'
+          ? `Loading local brain • ${Number(progressEvent?.elapsedSeconds || 0)}s • ${profile} mode`
+          : progressEvent?.stage === 'retrying'
+            ? String(progressEvent?.label || 'Retrying automatically with low-memory settings')
         : progressEvent?.stage === 'ready'
           ? `Brain ready • ${profile} mode • starting generation`
-          : `Brain generating live • ${characters.toLocaleString()} characters received`;
+          : `Brain generating live • ${generatedTokens ? `${generatedTokens.toLocaleString()} tokens` : `${characters.toLocaleString()} characters`} received`;
       setStatus(nextStatus);
       setMission(current => current ? {
         ...current,
@@ -729,11 +773,20 @@ export default function AgentStudio() {
     let codeCanvasOpened = false;
     const validationImages = [];
     const wantsVideo = /\b(video|animate|animation|mp4|8[- ]?second)\b/i.test(request);
-    const explicitImageRequest = /\b(create|generate|make|draw|design|produce)\b[\s\S]{0,100}\b(image|picture|photo|illustration|artwork|poster|wallpaper|scene|render)\b/i.test(request);
+    // Route image commands before invoking Ollama. Keep the tests independent
+    // so long prompts, quantities ("10 images"), and descriptive words cannot
+    // accidentally fall into the multi-round planner.
+    const explicitImageRequest =
+      /\b(create|generate|make|draw|design|produce|render)\b/i.test(request)
+      && /\b(images?|pictures?|photos?|illustrations?|artworks?|posters?|wallpapers?|renders?)\b/i.test(request);
     // Explicit image generation always wins over incidental words such as
     // "app", "website", or "canvas" that may merely describe image usage.
-    const isCodeRequest = !explicitImageRequest && !wantsVideo && /\b(code|coding|app|application|website|webpage|component|game|dashboard|calculator|script|program|html|css|javascript|typescript|python|react|software|developer|develop)\b/i.test(request);
-    const isVisualCodeRequest = !explicitImageRequest && !wantsVideo && /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react)\b/i.test(request);
+    const hasCodeSubject = /\b(code|coding|app|application|website|webpage|component|game|dashboard|calculator|script|program|html|css|javascript|typescript|python|react|software|module|source)\b/i.test(request);
+    const hasCodeActionOrIssue = /\b(write|create|build|develop|implement|modify|edit|update|fix|debug|repair|refactor|troubleshoot|error|issue|bug|crash|broken|failing|failure|layout|preview|compile|build)\b/i.test(request);
+    const isCodeRequest = !explicitImageRequest && !wantsVideo && hasCodeSubject && hasCodeActionOrIssue;
+    const isVisualCodeRequest = isCodeRequest
+      && /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react|layout|preview)\b/i.test(request)
+      && /\b(write|create|build|develop|implement|design|modify|edit|update|fix|repair|layout|preview)\b/i.test(request);
     const visualSubjectRequest = /\b(moon|stars?|sun|sky|space|planet|galaxy|landscape|mountain|ocean|forest|animal|kitten|cat|dog|flower|portrait|character|castle|house|car|background|wallpaper|poster|logo|illustration|artwork|picture|photo|image)\b/i.test(request)
       && !/\b(explain|describe|define|what is|why|how|question|code|website|webpage|app|application)\b/i.test(request);
     const isDirectImageRequest = (explicitImageRequest || visualSubjectRequest) && !wantsVideo;
@@ -744,6 +797,7 @@ export default function AgentStudio() {
     ].slice(-14);
     const referencePayload = buildReferencePayload();
     const instantCanvas = isVisualCodeRequest ? createInstantWebsite(request) : '';
+    if (!isCodeRequest) setCodeCanvas(null);
     if (instantCanvas) {
       codeCanvasOpened = true;
       setCodeCanvas({ title: request.slice(0, 80) || 'Generated Website', language: 'html', code: instantCanvas, preview: true });
@@ -834,7 +888,7 @@ export default function AgentStudio() {
       if (isDirectImageRequest) {
         setCodeCanvas(null);
         codeCanvasOpened = false;
-        setMission(current => current ? { ...current, round: 1, status: 'Starting image generator', reasoningProfile: 'direct' } : current);
+        setMission(current => current ? { ...current, round: 1, status: 'Starting image generator immediately', reasoningProfile: 'direct image' } : current);
         const imageAction = {
           tool: 'generate_image',
           args: {
@@ -931,6 +985,19 @@ export default function AgentStudio() {
                 },
               }
             : resolvedAction;
+          if (normalizedAction?.tool === 'open_code_canvas' && !isCodeRequest) {
+            toolResults.push({
+              action: normalizedAction,
+              outcome: {
+                tool: 'open_code_canvas',
+                ok: false,
+                skipped: true,
+                error: 'Code Canvas is restricted to explicit coding or code-issue requests. Continue with the appropriate non-code tool.',
+              },
+            });
+            setCodeCanvas(null);
+            continue;
+          }
           if (normalizedAction?.tool === 'create_animated_video' && videoCreated) {
             toolResults.push({
               action: normalizedAction,
@@ -1037,7 +1104,7 @@ export default function AgentStudio() {
 
   return (
     <div
-      className="h-full w-full flex bg-gradient-to-br from-[#0f111a] to-[#0a0b10] text-white overflow-hidden font-sans"
+      className="h-full w-full flex bg-[#212121] text-white overflow-hidden font-sans"
       onDragOver={event => { event.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={event => {
@@ -1064,19 +1131,19 @@ export default function AgentStudio() {
         </div>
       )}
 
-      {/* Glassmorphic Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-[260px]' : 'w-0'} shrink-0 bg-[#11131c]/80 backdrop-blur-xl border-r border-white/5 transition-all duration-300 overflow-hidden`}>
+      {/* Conversation sidebar */}
+      <aside className={`${sidebarOpen ? 'w-[260px]' : 'w-0'} sticky top-0 h-full shrink-0 bg-[#171717] border-r border-white/5 transition-all duration-300 overflow-hidden`}>
         <div className="w-[260px] h-full flex flex-col p-4">
-          <button onClick={newChat} className="h-11 rounded-xl border border-white/10 hover:border-emerald-500/35 hover:bg-emerald-500/5 hover:text-emerald-300 flex items-center justify-center gap-2.5 px-4 text-xs font-semibold uppercase tracking-wider transition-all duration-200 shadow-sm">
+          <button onClick={newChat} className="h-11 rounded-lg hover:bg-white/10 flex items-center justify-start gap-2.5 px-3 text-sm font-medium transition-all duration-200">
             <Icon name="plus" size={14} />
-            New Session
+            New chat
           </button>
           
           <div className="mt-6 px-2 text-[10px] font-bold text-white/30 uppercase tracking-widest">Recent Chats</div>
           <div className="flex-1 overflow-y-auto mt-3 space-y-1.5 dark-scrollbar pr-1">
             {chats.map(chat => (
-              <div key={chat.id} className={`group flex items-center rounded-xl transition-all duration-150 ${chat.id === activeId ? 'bg-[#1a1d29] border border-white/5 shadow-md shadow-black/20' : 'hover:bg-white/[0.03]'}`}>
-                <button onClick={() => setActiveId(chat.id)} className={`flex-1 min-w-0 px-3.5 py-3 text-left text-[13px] truncate ${chat.id === activeId ? 'text-emerald-300 font-medium' : 'text-white/60'}`}>
+              <div key={chat.id} className={`group flex items-center rounded-lg transition-all duration-150 ${chat.id === activeId ? 'bg-[#2a2a2a]' : 'hover:bg-white/[0.06]'}`}>
+                <button onClick={() => setActiveId(chat.id)} className={`flex-1 min-w-0 px-3.5 py-3 text-left text-[13px] truncate ${chat.id === activeId ? 'text-white font-medium' : 'text-white/60'}`}>
                   {chat.title}
                 </button>
                 <button onClick={() => deleteChat(chat.id)} className="opacity-0 group-hover:opacity-100 px-3 text-white/30 hover:text-red-400 transition-all">
@@ -1088,9 +1155,9 @@ export default function AgentStudio() {
 
           <div className="border-t border-white/5 pt-4 px-1 mt-auto">
             <div className="text-xs font-bold text-white/80">Pattan Local Brain</div>
-            <div className="text-[10px] text-emerald-400/80 mt-1 flex items-center gap-1.5 font-medium">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Offline • No Quota • D Drive
+            <div className={`text-[10px] mt-1 flex items-center gap-1.5 font-medium ${localBrainStatus.ok ? 'text-emerald-400/80' : localBrainStatus.checking ? 'text-amber-300/80' : 'text-red-400/80'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${localBrainStatus.ok ? 'bg-emerald-400 animate-pulse' : localBrainStatus.checking ? 'bg-amber-300 animate-pulse' : 'bg-red-400'}`} />
+              {localBrainStatus.checking ? 'Checking local brain…' : localBrainStatus.ok ? `Online • Ollama ${localBrainStatus.version || ''} • D Drive models` : 'Offline • Press System Health Pulse'}
             </div>
             
             <button onClick={refreshHealth} disabled={checkingHealth} className="mt-4 w-full rounded-xl border border-white/5 bg-[#161822] p-3 text-left hover:border-white/10 hover:bg-[#1b1e2c] transition-all duration-200 disabled:opacity-50">
@@ -1113,27 +1180,36 @@ export default function AgentStudio() {
       </aside>
 
       {/* Main Studio Body */}
-      <main className="flex-1 min-w-0 h-full flex flex-col relative bg-transparent">
-        <header className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-white/5 bg-[#0f111a]/85 backdrop-blur-md z-10">
+      <main className="flex-1 min-w-0 h-full flex flex-col relative bg-[#212121]">
+        <header className="sticky top-0 h-14 shrink-0 flex items-center justify-between px-4 bg-[#212121]/95 backdrop-blur-md z-10">
           <div className="flex items-center gap-3.5">
             <button onClick={() => setSidebarOpen(value => !value)} className="w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center transition-colors border border-transparent hover:border-white/10">
               <Icon name="menu" size={18} />
             </button>
             <div>
-              <div className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
-                Super Agent 
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono">v4.6 PRO</span>
+              <div className="text-sm font-semibold tracking-tight text-white flex items-center gap-2">
+                Pattan Super Agent
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 font-medium">{localBrainStatus.ok ? 'Local' : 'Connecting'}</span>
               </div>
               <div className="text-[10px] text-white/40 font-medium mt-0.5">{status}</div>
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <button onClick={() => setMissionOpen(true)} disabled={!mission} className="h-9 px-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-300 disabled:opacity-20 text-xs font-semibold transition-all">Mission Control</button>
+            <button onClick={() => setShowAdvancedTools(value => !value)} className={`h-9 px-3 rounded-lg text-xs font-medium transition-all ${showAdvancedTools ? 'bg-white/15 text-white' : 'hover:bg-white/10 text-white/65'}`}>Tools</button>
+            <button
+              onClick={runHermesImprovement}
+              disabled={busy || !hermesStatus.ok}
+              title={hermesStatus.ok ? 'Let Hermes inspect and safely improve Super Agent using checkpoints' : (hermesStatus.error || 'Hermes is not ready')}
+              className="h-9 px-3 rounded-lg hover:bg-white/10 text-white/65 disabled:opacity-35 text-xs font-medium transition-all"
+            >
+              {hermesStatus.checking ? 'Checking Hermes…' : hermesStatus.ok ? 'Hermes Improve' : 'Hermes Setup Required'}
+            </button>
+            <button onClick={() => setMissionOpen(true)} disabled={!mission} className="h-9 px-3 rounded-lg hover:bg-white/10 text-white/65 disabled:opacity-20 text-xs font-medium transition-all">Activity</button>
             <button onClick={retryLast} disabled={busy || !activeChat.messages.length} className="h-9 px-4 rounded-xl border border-white/10 hover:bg-white/5 text-white/70 hover:text-white disabled:opacity-20 text-xs font-semibold flex items-center gap-2 transition-all">
               <Icon name="retry" size={15} />
               Retry Last
             </button>
-            <button onClick={newChat} className="h-9 px-4 rounded-xl bg-white text-black hover:bg-white/90 text-xs font-bold shadow-lg shadow-white/5 transition-all">New Chat</button>
+            <button onClick={newChat} className="h-9 px-3 rounded-lg bg-white text-black hover:bg-white/90 text-xs font-semibold transition-all">New chat</button>
           </div>
         </header>
 
@@ -1141,10 +1217,10 @@ export default function AgentStudio() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto dark-scrollbar bg-transparent">
           {!activeChat.messages.length && !activeChat.assets.length ? (
             <div className="min-h-full flex flex-col items-center justify-center px-6 pb-20">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#10b981] to-[#3b82f6] text-white flex items-center justify-center shadow-xl shadow-emerald-500/10 border border-white/10 animate-pulse">
+              <div className="w-14 h-14 rounded-full bg-white text-[#212121] flex items-center justify-center shadow-lg">
                 <Icon name="spark" size={30} />
               </div>
-              <h1 className="text-2xl font-black mt-6 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/60">What are we building today?</h1>
+              <h1 className="text-2xl font-semibold mt-6 tracking-tight">How can I help you today?</h1>
               <p className="text-xs text-white/40 mt-2 text-center max-w-sm font-medium leading-5">
                 Drop documents, image frames, or scripts. I can inspect modules, generate local SD images, animate scenes, or run build checks.
               </p>
@@ -1178,7 +1254,7 @@ export default function AgentStudio() {
                     </div>
                   )}
                   {message.role === 'user' ? (
-                    <div className="group max-w-[82%] bg-gradient-to-br from-[#2f3954] to-[#1e2538] text-white border border-white/5 rounded-3xl rounded-tr-none px-5 py-3.5 shadow-lg shadow-black/20">
+                    <div className="group max-w-[82%] bg-[#303030] text-white rounded-3xl px-5 py-3.5">
                       <div className="text-[13.5px] leading-7 whitespace-pre-wrap font-medium">{message.text}</div>
                     </div>
                   ) : (
@@ -1240,8 +1316,30 @@ export default function AgentStudio() {
         </div>
 
         {/* Bottom Input Area */}
-        <div className="shrink-0 px-6 pb-6 pt-2 bg-gradient-to-t from-[#0a0b10] via-[#0a0b10]/95 to-transparent">
+        <div className="shrink-0 px-6 pb-4 pt-2 bg-gradient-to-t from-[#212121] via-[#212121] to-transparent">
           <div className="max-w-3xl mx-auto">
+            {progress > 0 && (
+              <div className="mb-2 flex items-center gap-3 rounded-xl bg-[#2a2a2a] px-3 py-2 text-[11px] text-white/65">
+                <span className="relative h-2 w-2 rounded-full bg-emerald-400">
+                  {busy && <span className="absolute inset-[-3px] rounded-full border border-emerald-400 animate-ping" />}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{status}</span>
+                <span className="font-mono text-white/35">{operationElapsed}s</span>
+                {busy && <button onClick={stopCurrentMission} className="font-semibold text-red-300 hover:text-red-200">Stop</button>}
+              </div>
+            )}
+            {activeChat.references.length > 0 && !showAdvancedTools && (
+              <div className="mb-2 flex gap-2 overflow-x-auto dark-scrollbar">
+                {activeChat.references.map(reference => (
+                  <div key={reference.id} className="flex h-8 max-w-[190px] shrink-0 items-center gap-2 rounded-lg bg-[#303030] px-2.5 text-[10px] text-white/70">
+                    <span className="truncate">{reference.name}</span>
+                    <button onClick={() => removeReference(reference.id)} className="text-white/35 hover:text-white"><Icon name="close" size={11} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {showAdvancedTools && (
+              <div className="mb-3 max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-[#2a2a2a] p-3 dark-scrollbar">
             <div className="mb-2 flex items-center gap-2 rounded-xl border border-violet-500/15 bg-violet-500/5 px-3 py-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-violet-300">Video API</span>
               <input type="password" value={videoApiKey} onChange={event => { const value = event.target.value; setVideoApiKey(value); window.localStorage.setItem('presentator.magicHourApiKey', value); }} placeholder="Paste free Magic Hour API key" className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/25" />
@@ -1331,9 +1429,11 @@ export default function AgentStudio() {
                 </button>
               ))}
             </div>
+              </div>
+            )}
 
-            {/* Glassmorphic Rounded Input Box */}
-            <div className="rounded-3xl bg-[#131622]/85 border border-white/5 shadow-2xl shadow-black/50 focus-within:border-emerald-500/40 focus-within:ring-2 focus-within:ring-emerald-500/5 transition-all overflow-hidden">
+            {/* ChatGPT-style composer */}
+            <div className="rounded-3xl bg-[#303030] border border-white/10 shadow-xl shadow-black/20 focus-within:border-white/20 transition-all overflow-hidden">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -1344,7 +1444,7 @@ export default function AgentStudio() {
                     submit();
                   }
                 }}
-                placeholder="Message Super Agent — Shift+Enter for new line..."
+                placeholder="Message Pattan Super Agent"
                 className="w-full min-h-[64px] max-h-40 resize-none bg-transparent px-6 pt-4.5 text-[13.5px] outline-none placeholder:text-white/25 leading-6 text-white"
                 disabled={busy}
               />
@@ -1364,7 +1464,7 @@ export default function AgentStudio() {
                   <button onClick={() => fileInputRef.current?.click()} disabled={uploading || busy} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 flex items-center justify-center disabled:opacity-20 transition-all" title="Add references">
                     <Icon name="plus" size={17} />
                   </button>
-                  <span className="text-[10px] text-white/30 font-medium">Add references (PDF, text, images, MP4)</span>
+                  <button onClick={() => setShowAdvancedTools(value => !value)} className="h-9 px-3 rounded-full hover:bg-white/10 text-[11px] text-white/55 transition-all">{showAdvancedTools ? 'Hide tools' : 'Tools'}</button>
                 </div>
                 {busy ? (
                   <button onClick={stopCurrentMission} className="w-9 h-9 rounded-full bg-red-600 text-white hover:bg-red-500 flex items-center justify-center shadow-lg shadow-red-900/30 transition-all" title="Stop process now">

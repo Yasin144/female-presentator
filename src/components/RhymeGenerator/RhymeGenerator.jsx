@@ -112,6 +112,7 @@ async function blobToBase64(blob) {
 export default function RhymeGenerator() {
   const [topic, setTopic] = useState('');
   const [lyrics, setLyrics] = useState('');
+  const [lastLyricsSource, setLastLyricsSource] = useState('lyrics');
   const [musicUrl, setMusicUrl] = useState('');
   const [musicBlob, setMusicBlob] = useState(null);
   const [status, setStatus] = useState('Ready to create a 30-second rhyme');
@@ -121,10 +122,12 @@ export default function RhymeGenerator() {
   const [vocalPresence, setVocalPresence] = useState(7);
   const [tempo, setTempo] = useState(96);
   const [clarityAttempts, setClarityAttempts] = useState(3);
-  const [singerStyle, setSingerStyle] = useState('youthful teenage girl solo singer');
+  const singerStyle = 'required Little Jack Horner reference singer';
   const [selectedDuration, setSelectedDuration] = useState(30);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [shutdownAfterComplete, setShutdownAfterComplete] = useState(true);
+  const [shutdownPending, setShutdownPending] = useState(false);
   const [moduleHealth, setModuleHealth] = useState({ loading: true, ok: false, checks: [] });
   const resumeCheckedRef = useRef(false);
   const audioRef = useRef(null);
@@ -173,7 +176,7 @@ export default function RhymeGenerator() {
 
   const previewAdvancedMix = async () => {
     setPreviewBusy(true);
-    setStatus(`Preparing 8-second preview · BGM ${bgmLevel}% · vocal presence ${vocalPresence}/10 · Singer: ${singerStyle} · ${tempo} BPM…`);
+    setStatus(`Preparing the required reference-voice preview · BGM ${bgmLevel}% · vocal presence ${vocalPresence}/10…`);
     try {
       const result = await window.electronAPI?.previewRhymeMix?.({ bgmLevel, vocalPresence, singerStyle, bpm: tempo });
       if (!result?.ok || !result.audioBase64) throw new Error(result?.error || 'Preview service unavailable.');
@@ -181,7 +184,7 @@ export default function RhymeGenerator() {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
-      setStatus(`New mix preview ready · BGM ${bgmLevel}% · Vocal presence ${vocalPresence}/10 · ${singerStyle} · ${tempo} BPM.`);
+      setStatus(`Reference-voice preview ready · the full rhyme will use this voice reference and the same mastering controls.`);
       setTimeout(() => {
         const player = document.getElementById('rhyme-mix-preview');
         if (player) {
@@ -211,7 +214,7 @@ export default function RhymeGenerator() {
           bpm: overrides.bpm ?? tempo,
           seed: overrides.seed,
           resumeWorkDir: overrides.resumeWorkDir,
-          stylePrompt: overrides.stylePrompt || `premium studio-quality preschool nursery rhyme, ${singerStyle}, extremely clear English diction, every lyric pronounced distinctly, slow simple phrasing, dry lead vocals loud and centered far above the accompaniment, minimal gentle instruments, no choir, no backing vocals, no vocal effects`,
+          stylePrompt: overrides.stylePrompt || `premium studio-quality preschool nursery rhyme, match the supplied reference singer's timbre and vocal character, extremely clear English diction, every lyric pronounced distinctly, slow simple phrasing, dry lead vocals loud and centered far above the accompaniment, minimal gentle instruments, no choir, no backing vocals, no vocal effects`,
         });
         if (generated?.ok && generated.audioBase64) {
           const blob = base64ToBlob(generated.audioBase64, generated.mimeType || 'audio/mp3');
@@ -223,9 +226,12 @@ export default function RhymeGenerator() {
           const activeFileName = generated.fileName || generated.filename || `${firstLine}-${targetDuration}sec.mp3`;
           const clarityLabel = generated.clarityPassed === true
             ? `clarity passed ${generated.clarityScore}%`
-            : `clarity score ${generated.clarityScore || 100}%`;
-          setStatus(`Complete · ${generated.engine || '4K Mobile Engine'} · ${clarityLabel} · saved as ${activeFileName}`);
-          setSelectedDuration(targetDuration);
+            : `clarity score ${generated.clarityScore ?? 0}%`;
+          const durationLabel = generated.durationAdjusted
+            ? `duration automatically expanded from ${generated.requestedDuration}s to ${generated.duration}s for clear lyrics`
+            : `${generated.duration || targetDuration}s`;
+          setStatus(`Complete · ${generated.engine || 'ACE-Step'} · ${clarityLabel} · ${durationLabel} · saved as ${activeFileName}`);
+          setSelectedDuration(generated.duration || targetDuration);
 
           // On mobile web browser, trigger automatic download of the generated MP3
           if (!window.electronAPI?.showSaveDialog) {
@@ -244,6 +250,18 @@ export default function RhymeGenerator() {
             window.speechSynthesis?.cancel();
             window.speechSynthesis?.speak(new SpeechSynthesisUtterance('Complete'));
           } catch (_) {}
+          if (shutdownAfterComplete && window.electronAPI?.showSaveDialog && window.electronAPI?.shutdownComputer) {
+            const shutdown = await window.electronAPI.shutdownComputer({
+              delaySeconds: 60,
+              reason: `Rhyme Maker completed and saved ${activeFileName}`,
+            });
+            if (shutdown?.ok) {
+              setShutdownPending(true);
+              setStatus(`Complete and safely saved · Windows will shut down in ${shutdown.delaySeconds}s. Use Cancel Shutdown to keep working.`);
+            } else {
+              setStatus(`Complete and safely saved · automatic shutdown failed: ${shutdown?.error || 'unknown error'}`);
+            }
+          }
           return;
         }
         throw new Error(generated?.error || 'ACE-Step Q8 returned no song.');
@@ -252,6 +270,7 @@ export default function RhymeGenerator() {
     } catch (error) {
       setStatus(`Music generation failed: ${error.message}`);
       setProgress(previous => ({ ...previous, pct: 0, phase: 'Generation failed', detail: error.message }));
+      window.electronAPI?.showNotification?.('Rhyme Song Failed', String(error.message || error));
     } finally { setBusy(false); }
   };
 
@@ -282,8 +301,18 @@ export default function RhymeGenerator() {
     setStatus('Stopped generation and audio playback.');
   };
 
+  const cancelShutdown = async () => {
+    const result = await window.electronAPI?.cancelComputerShutdown?.();
+    if (result?.ok) {
+      setShutdownPending(false);
+      setStatus('Windows shutdown cancelled. Your completed rhyme remains saved.');
+    } else {
+      setStatus(`Could not cancel Windows shutdown: ${result?.error || 'shutdown is no longer pending'}`);
+    }
+  };
+
   const createAll = async () => {
-    const exactInput = lyrics.trim() || topic.trim();
+    const exactInput = (lastLyricsSource === 'topic' ? topic.trim() : lyrics.trim()) || lyrics.trim() || topic.trim();
     if (!exactInput) {
       setStatus('Enter lyrics in either input box first.');
       return;
@@ -318,20 +347,22 @@ export default function RhymeGenerator() {
           <div className="rg-note" style={{marginTop:0, marginBottom:14}}><b>🔒 Required audio reference</b><br/>LITTLE JACK HORNER/audio.mp4 · looped to 30 seconds. Every rhyme uses only this audio for melody, rhythm, and voice-style guidance.</div>
           <div className="rg-health"><div className="rg-health-head"><span className={moduleHealth.ok ? 'rg-health-good' : 'rg-health-bad'}>{moduleHealth.loading ? '● Checking module…' : moduleHealth.ok ? '● Module ready' : '● Module needs attention'}</span><button className="rg-mini" onClick={runModuleCheck} disabled={moduleHealth.loading}>Recheck</button></div>{!moduleHealth.loading && <div className="rg-health-list">{moduleHealth.checks.map(check => <span key={check.name}>{check.ok ? '✓' : '✕'} {check.name}: {check.detail}</span>)}</div>}</div>
           <label className="rg-label" htmlFor="rhyme-topic">Song title, topic, or quick exact-lyrics input</label>
-          <textarea id="rhyme-topic" className="rg-input" rows="3" value={topic} disabled={busy} onChange={event => { setTopic(event.target.value); if (!lyrics.trim()) setLyrics(event.target.value); }} placeholder="Type here or use the large Exact Lyrics box" />
+          <textarea id="rhyme-topic" className="rg-input" rows="3" value={topic} disabled={busy} onChange={event => { setTopic(event.target.value); setLyrics(event.target.value); setLastLyricsSource('topic'); }} placeholder="Type here or use the large Exact Lyrics box" />
           <div className="rg-duration"><span><b>Select duration</b><br/><small>5 to 30 seconds · defaults to 30s</small></span><select className="rg-select" style={{width:150}} value={selectedDuration} disabled={busy} onChange={event => setSelectedDuration(Number(event.target.value) || 30)}><option value="30">30 sec (Default)</option><option value="25">25 sec</option><option value="20">20 sec</option><option value="15">15 sec</option><option value="10">10 sec</option><option value="5">5 sec</option></select></div>
           <div className="rg-advanced">
             <h3>⚙ Advanced Voice & Music</h3>
             <div className="rg-control"><div className="rg-control-head"><span>BGM prominence</span><span>{bgmLevel}%</span></div><input className="rg-range" type="range" min="0" max="100" value={bgmLevel} disabled={busy} onChange={event => setBgmLevel(Number(event.target.value))}/></div>
             <div className="rg-control"><div className="rg-control-head"><span>Vocal presence</span><span>{vocalPresence}/10</span></div><input className="rg-range" type="range" min="0" max="10" value={vocalPresence} disabled={busy} onChange={event => setVocalPresence(Number(event.target.value))}/></div>
-            <div className="rg-control"><label className="rg-label">Singer · applies to preview & full generation</label><select className="rg-select" value={singerStyle} disabled={busy} onChange={event => setSingerStyle(event.target.value)}><option value="youthful teenage girl solo singer">youthful teenage girl solo singer (Recommended / Default)</option><option value="cheerful young teenage female singer">cheerful young teenage female singer</option><option value="warm young female solo singer">warm young female solo singer</option><option value="bright child-friendly female solo singer">bright child-friendly female solo singer</option><option value="gentle young male solo singer">gentle young male solo singer</option></select></div>
-            <div className="rg-control-grid"><div className="rg-control"><div className="rg-control-head"><span>Tempo · full generation</span><span>{tempo} BPM</span></div><input className="rg-range" type="range" min="80" max="125" value={tempo} disabled={busy} onChange={event => setTempo(Number(event.target.value))}/></div><div className="rg-control"><label className="rg-label">Generation attempts</label><select className="rg-select" value={clarityAttempts} disabled={busy} onChange={event => setClarityAttempts(Number(event.target.value))}><option value="3">3 · Triple Attempt (Recommended / Default)</option><option value="2">2 · Double Attempt</option><option value="1">1 · Single Attempt</option></select></div></div>
-            <button className="rg-btn secondary" disabled={busy || previewBusy} onClick={previewAdvancedMix}>{previewBusy ? 'Preparing New Preview…' : '▶ Preview BGM + Vocal Mix · 8 sec'}</button>
+            <div className="rg-control"><label className="rg-label">Singer voice · locked to the required reference</label><div className="rg-select">Little Jack Horner reference singer</div></div>
+            <label className="rg-note" style={{display:'flex', alignItems:'center', gap:10, cursor:'pointer'}}><input type="checkbox" checked={shutdownAfterComplete} disabled={busy || shutdownPending} onChange={event => setShutdownAfterComplete(event.target.checked)}/><span><b>Shut down computer after successful completion</b><br/>Only after the verified MP3 is safely saved · 60-second cancellation period</span></label>
+            <div className="rg-control-grid"><div className="rg-control"><div className="rg-control-head"><span>Tempo · full generation</span><span>{tempo} BPM</span></div><input className="rg-range" type="range" min="80" max="125" value={tempo} disabled={busy} onChange={event => setTempo(Number(event.target.value))}/></div><div className="rg-control"><label className="rg-label">Clarity recovery</label><select className="rg-select" value={clarityAttempts} disabled={busy} onChange={event => setClarityAttempts(Number(event.target.value))}><option value="3">Automatic · up to 3 performances</option><option value="4">Extended · up to 4 performances</option><option value="5">Maximum · up to 5 performances</option></select></div></div>
+            <button className="rg-btn secondary" disabled={busy || previewBusy} onClick={previewAdvancedMix}>{previewBusy ? 'Preparing Voice Preview…' : '▶ Preview Required Voice + Mix · 8 sec'}</button>
             {previewUrl && <audio id="rhyme-mix-preview" className="rg-player" src={previewUrl} controls preload="auto"/>}
           </div>
           <div className="rg-actions">
             <button className="rg-btn" disabled={busy || (!lyrics.trim() && !topic.trim())} onClick={createAll}>{busy ? 'Creating…' : '🎤 Perform My Exact Lyrics'}</button>
             {(busy || previewBusy || previewUrl || musicUrl) && <button className="rg-btn stop-btn" onClick={stopAll}>🛑 STOP Generation / Audio</button>}
+            {shutdownPending && <button className="rg-btn stop-btn" onClick={cancelShutdown}>Cancel Windows Shutdown</button>}
             <button className="rg-btn secondary" disabled={busy || !topic.trim()} onClick={generateLyrics}>AI Write New Lyrics (Optional)</button>
           </div>
           {busy && <div className="rg-progress" role="status" aria-live="polite">
@@ -345,7 +376,7 @@ export default function RhymeGenerator() {
         </section>
         <section className="rg-card">
           <label className="rg-label" htmlFor="rhyme-lyrics">Exact lyrics to perform · required</label>
-          <textarea id="rhyme-lyrics" className="rg-lyrics" value={lyrics} onChange={event => setLyrics(event.target.value)} placeholder="Paste only the lyrics you want performed. Every supplied word will be used; no new words will be added." />
+          <textarea id="rhyme-lyrics" className="rg-lyrics" value={lyrics} onChange={event => { setLyrics(event.target.value); setLastLyricsSource('lyrics'); }} placeholder="Paste only the lyrics you want performed. Every supplied word will be used; no new words will be added." />
           <div className="rg-downloads"><button className="rg-btn secondary" disabled={!lyrics.trim()} onClick={downloadLyrics}>Download Lyrics</button></div>
         </section>
       </div>

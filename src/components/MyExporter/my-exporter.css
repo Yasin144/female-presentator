@@ -7,6 +7,8 @@
 .mx-header-meta{display:flex;gap:8px}
 .mx-header-meta span{padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:6px;color:#92969c;font-size:9px}
 .mx-header-actions{display:flex;justify-content:flex-end;gap:8px}
+.mx-header-actions .mx-reset-exporter{border-color:rgba(239,105,105,.45)!important;color:#ffaaaa!important}
+.mx-header-actions .mx-reset-exporter:hover:not(:disabled){background:#3b2024!important}
 .mx-header-actions{gap:4px}.mx-header-actions button{padding:0 8px!important;font-size:8px!important}
 .mx-page button{border:1px solid rgba(255,255,255,.11);background:#191c20;color:#e8e4da;cursor:pointer;font:600 10px/1 "Segoe UI",sans-serif}
 .mx-header button{height:34px;padding:0 13px}
@@ -671,4 +673,3 @@
 .mx-professional-tabs .mx-export-dropdown-menu {
   bottom: calc(100% + 6px);
 }
-

@@ -16,8 +16,21 @@
     "license": "ISC",
     "build": {
         "appId": "com.presentator.app",
+        "files": [
+            "**/*",
+            "!**/temp/**",
+            "!**/dist/**",
+            "!**/logs/**",
+            "!**/cache/**",
+            "!**/generated-media/**",
+            "!**/tts-cache/**",
+            "!**/*.wav",
+            "!**/*.mp3",
+            "!**/*.tmp"
+        ],
         "win": {
-            "target": "nsis"
+            "target": "portable",
+            "forceCodeSigning": false
         }
     },
     "devDependencies": {
