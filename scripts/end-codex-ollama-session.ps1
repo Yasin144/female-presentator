@@ -9,15 +9,15 @@ Get-Process -Name "ollama", "codex" -ErrorAction SilentlyContinue | ForEach-Obje
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Clean up config.toml and enforce model = gpt-5.6-sol
+# 2. Clean up config.toml and enforce model = gpt-5.6-sol (notify-free & BOM-free)
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $configPath) {
-    $content = Get-Content $configPath -Raw
+    $content = [System.IO.File]::ReadAllText($configPath)
     if ($content) {
         $cleaned = $content -replace "(?m)^model_provider\s*=.*$", "" `
                             -replace "(?m)^model_catalog_json\s*=.*$", "" `
                             -replace "(?m)^model\s*=.*$", "model = `"gpt-5.6-sol`"" `
-                            -replace "(?m)^notify\s*=.*$", "" `
+                            -replace "(?ms)notify\s*=\s*\[[\s\S]*?\]", "" `
                             -replace "(?ms)\[model_providers\.ollama[^\]]*\].*?(?=\n\[|\Z)", ""
         if (-not ($cleaned -match "(?m)^model\s*=")) {
             $cleaned = "model = `"gpt-5.6-sol`"`nmodel_reasoning_effort = `"low`"`n" + $cleaned
