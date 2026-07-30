@@ -20,6 +20,56 @@ const CAPTION_WORD_LIMIT = 8;
 const CAPTION_BOTTOM_OFFSET_PX = 80;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
+function normalizeNurseryCaptionText(value) {
+    return String(value || '')
+        .replace(/\b(?:horsen|hors)\b/gi, (word) => {
+            if (word === word.toUpperCase()) return 'HORSE';
+            if (word[0] === word[0]?.toUpperCase()) return 'Horse';
+            return 'horse';
+        })
+        .replace(/\bI\s+am\s+Oli\b/gi, 'I am Ali')
+        .replace(/\bI['’]m\s+Oli\b/gi, "I'm Ali");
+}
+
+function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LIMIT) {
+    const words = (Array.isArray(sourceWords) ? sourceWords : [])
+        .map((word) => ({
+            text: String(word.word || word.text || '').trim(),
+            start: Number(word.start ?? (Array.isArray(word.timestamp) ? word.timestamp[0] : 0)),
+            end: Number(word.end ?? (Array.isArray(word.timestamp) ? word.timestamp[1] : 0))
+        }))
+        .filter((word) => word.text && Number.isFinite(word.start) && Number.isFinite(word.end));
+    const chunks = [];
+    let group = [];
+    const flush = () => {
+        if (!group.length) return;
+        const normalizedText = normalizeNurseryCaptionText(group.map((word) => word.text).join(' '));
+        const normalizedTokens = normalizedText.split(/\s+/).filter(Boolean);
+        chunks.push({
+            text: normalizedText,
+            timestamp: [group[0].start, Math.max(group[0].start + 0.05, group[group.length - 1].end)],
+            words: group.map((word, index) => ({
+                text: normalizedTokens[index] || word.text,
+                timestamp: [word.start, Math.max(word.start + 0.05, word.end)]
+            }))
+        });
+        group = [];
+    };
+    for (const word of words) {
+        const previous = group[group.length - 1];
+        const gap = previous ? word.start - previous.end : 0;
+        const previousEndsSentence = previous ? /[.!?]["'’)]?$/.test(previous.text) : false;
+        if (group.length && (
+            group.length >= Math.max(1, maxWords) ||
+            gap > SHORT_CAPTION_GAP_SECONDS ||
+            previousEndsSentence
+        )) flush();
+        group.push(word);
+    }
+    flush();
+    return chunks;
+}
+
 function bootCaptionStudio() {
   if (window.__presentatorCaptionStudioBooted) return;
   const videoInput = document.getElementById('captionVideoInput');
@@ -1483,20 +1533,7 @@ function bootCaptionStudio() {
         const segments = Array.isArray(result && result.segments) ? result.segments : [];
         const chunks = [];
         if (words.length > 0) {
-            for (let i = 0; i < words.length; i += CAPTION_WORD_LIMIT) {
-                const sl = words.slice(i, i + CAPTION_WORD_LIMIT);
-                const txt = sl.map(w => String(w.word || w.text || '').trim()).filter(Boolean).join(' ').trim();
-                if (txt) {
-                    chunks.push({
-                        text: txt,
-                        timestamp: [Number(sl[0].start || 0), Number(sl[sl.length - 1].end || (Number(sl[0].start || 0) + 0.5))],
-                        words: sl.map(w => ({
-                            text: String(w.word || w.text || '').trim(),
-                            timestamp: [Number(w.start || 0), Number(w.end || (Number(w.start || 0) + 0.25))]
-                        })).filter(w => w.text)
-                    });
-                }
-            }
+            return buildSpeechBoundedCaptionChunks(words);
         } else if (segments.length > 0) {
             return segments.filter(s => s.text && String(s.text).trim()).map(s => ({
                 text: String(s.text).trim(),
@@ -1560,18 +1597,9 @@ function bootCaptionStudio() {
         let chunks = [];
 
         if (words.length > 0) {
-            // Build caption chunks from actual per-word timestamps.
-            const CHUNK_SIZE = CAPTION_WORD_LIMIT;
-            for (let i = 0; i < words.length; i += CHUNK_SIZE) {
-                const slice = words.slice(i, i + CHUNK_SIZE);
-                const chunkText = slice.map(w => w.word).join(' ').trim();
-                if (!chunkText) continue;
-                chunks.push({
-                    text: chunkText,
-                    timestamp: [slice[0].start, slice[slice.length - 1].end],
-                    words: slice.map(w => ({ text: w.word, timestamp: [w.start, w.end] }))
-                });
-            }
+            // Real word timestamps plus pause/sentence-aware grouping prevent
+            // future narration from appearing before it is spoken.
+            chunks = buildSpeechBoundedCaptionChunks(words);
         } else if (segments.length > 0) {
             // Fall back to segment-level timestamps
             chunks = segments
@@ -2195,11 +2223,7 @@ function bootCaptionStudio() {
                     const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
                     const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
                     if (words.length > 0) {
-                        for (let i = 0; i < words.length; i += CAPTION_WORD_LIMIT) {
-                            const sl = words.slice(i, i + CAPTION_WORD_LIMIT);
-                            const txt = sl.map(w => w.word).join(' ').trim();
-                            if (txt) generatedCaptions.push({ text: txt, timestamp: [sl[0].start, sl[sl.length-1].end], words: sl.map(w => ({ text: w.word, timestamp: [w.start, w.end] })) });
-                        }
+                        generatedCaptions = buildSpeechBoundedCaptionChunks(words);
                     } else if (segments.length > 0) {
                         generatedCaptions = segments.filter(s => s.text && s.text.trim()).map(s => ({
                             text: s.text.trim(), timestamp: [s.start, s.end],
@@ -2276,18 +2300,18 @@ function bootCaptionStudio() {
                 };
                 captionWorker.postMessage({ type: 'transcribe', audioDataArray: audioDataArray.buffer, options: opts, duration: sourceVideo.duration || 60 });
             });
-            let cur = null;
-            (workerResult.chunks || []).forEach(c => {
-                const txt = c.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim();
-                if (!txt) return;
-                let ts = Array.isArray(c.timestamp) ? c.timestamp : [0,0];
-                if (ts[0]===null) ts[0]=cur?cur.timestamp[1]:0;
-                if (ts[1]===null) ts[1]=ts[0]+0.5;
-                if (!cur) { cur={text:txt,timestamp:[...ts],words:[{text:txt,timestamp:[...ts]}]}; }
-                else { cur.text+=' '+txt; cur.timestamp[1]=ts[1]; cur.words.push({text:txt,timestamp:[...ts]}); }
-                if (/[.!?]$/.test(txt)||cur.words.length>=CAPTION_WORD_LIMIT){generatedCaptions.push(cur);cur=null;}
-            });
-            if (cur) generatedCaptions.push(cur);
+            generatedCaptions = buildSpeechBoundedCaptionChunks(
+                (workerResult.chunks || []).map((chunk) => {
+                    const stamp = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
+                    const start = stamp[0] == null ? 0 : Number(stamp[0]);
+                    const end = stamp[1] == null ? start + 0.5 : Number(stamp[1]);
+                    return {
+                        text: String(chunk.text || '').replace(/\[.*?\]|\(.*?\)|♪|♫/g, '').trim(),
+                        start,
+                        end
+                    };
+                })
+            );
             if (generatedCaptions.length === 0 && workerResult.text) {
                 const dur = sourceVideo.duration || 60;
                 generatedCaptions = buildLinearCaptionChunks(workerResult.text.replace(/\[.*?\]|\(.*?\)|♪|♫/g,'').trim(), dur, { narrationDurationSec: dur });

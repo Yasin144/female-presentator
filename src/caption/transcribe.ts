@@ -17,7 +17,11 @@ function normalizeNurseryCaptionText(value: string): string {
     if (word === word.toUpperCase()) return 'HORSE';
     if (word[0] === word[0]?.toUpperCase()) return 'Horse';
     return 'horse';
-  });
+  })
+    // Whisper can confuse the child's name Ali with "Oli". Limit this fix to
+    // self-introductions so a genuine person named Oli is not changed globally.
+    .replace(/\bI\s+am\s+Oli\b/gi, 'I am Ali')
+    .replace(/\bI['’]m\s+Oli\b/gi, "I'm Ali");
 }
 
 function getLanguageCode(language: Language): string | undefined {
@@ -377,19 +381,31 @@ function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
     const prevChunk = currentGroup.length ? currentGroup[currentGroup.length - 1] : null;
     const gap = prevChunk ? (chunk.timestamp[0] ?? 0) - (prevChunk.timestamp[1] ?? 0) : 0;
 
-    // Split if max words reached OR if speech pauses. This keeps captions from
-    // hanging on screen while narration is silent.
-    if (currentGroup.length >= maxWords || gap > CAPTION_SILENCE_GAP_SECONDS) {
+    const previousEndsSentence = prevChunk
+      ? /[.!?]["'’)]?$/.test(prevChunk.text.trim())
+      : false;
+
+    // Never preload words from the next spoken phrase. Close the current card
+    // at a sentence boundary, a real pause, or the configured word limit.
+    if (
+      currentGroup.length >= maxWords ||
+      gap > CAPTION_SILENCE_GAP_SECONDS ||
+      previousEndsSentence
+    ) {
       if (currentGroup.length) {
         const start = currentGroup[0].timestamp[0] ?? 0;
         const end   = currentGroup[currentGroup.length - 1].timestamp[1] ?? start + 1;
+        const normalizedText = normalizeNurseryCaptionText(
+          currentGroup.map(c => c.text.trim()).join(' ')
+        );
+        const normalizedWords = normalizedText.split(/\s+/);
         caps.push({
           start, end,
-          text:  currentGroup.map(c => c.text.trim()).join(' '),
-          words: currentGroup.map(c => ({
+          text: normalizedText,
+          words: currentGroup.map((c, index) => ({
             start: c.timestamp[0] ?? 0,
             end:   c.timestamp[1] ?? ((c.timestamp[0] ?? 0) + 1),
-            text:  c.text.trim(),
+            text:  normalizedWords[index] || c.text.trim(),
           }))
         });
       }
@@ -402,13 +418,17 @@ function groupIntoSentences(chunks: HFChunk[], maxWords = 4): CaptionItem[] {
   if (currentGroup.length) {
     const start = currentGroup[0].timestamp[0] ?? 0;
     const end   = currentGroup[currentGroup.length - 1].timestamp[1] ?? start + 1;
+    const normalizedText = normalizeNurseryCaptionText(
+      currentGroup.map(c => c.text.trim()).join(' ')
+    );
+    const normalizedWords = normalizedText.split(/\s+/);
     caps.push({
       start, end,
-      text:  currentGroup.map(c => c.text.trim()).join(' '),
-      words: currentGroup.map(c => ({
+      text: normalizedText,
+      words: currentGroup.map((c, index) => ({
         start: c.timestamp[0] ?? 0,
         end:   c.timestamp[1] ?? ((c.timestamp[0] ?? 0) + 1),
-        text:  c.text.trim(),
+        text:  normalizedWords[index] || c.text.trim(),
       }))
     });
   }
