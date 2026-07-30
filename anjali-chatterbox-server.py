@@ -574,6 +574,8 @@ VOICE_MAP = {
     "anjali": str(PROJECT_ROOT / "voice-reference-sc3.wav"),
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
     "uploaded": str(PROJECT_ROOT / "voice-reference-uploaded.wav"),
+    "rhyme_clean": str(PROJECT_ROOT / "generated-media" / "rhyme-reference-stems" / "htdemucs" / "little-jack-horner-reference-30s" / "vocals.wav"),
+    "rhyme_natural_v2": str(PROJECT_ROOT / "generated-media" / "rhyme-reference-stems" / "htdemucs" / "little-jack-horner-reference-30s" / "vocals.wav"),
 }
 CURRENT_VOICE = "sc3"
 

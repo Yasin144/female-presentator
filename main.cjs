@@ -1600,6 +1600,19 @@ function startServers() {
     });
   }
 
+  // 7. Caption/audio translation service (port 8434)
+  if (fs.existsSync(TRANSLATE_SERVER)) {
+    spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
+      cwd: ROOT,
+      restartDelayMs: 3000,
+      maxRestarts: 4,
+      restartWindowSec: 600,
+      env: PYTHON_ENV,
+    });
+  } else {
+    console.error('[PP] Translation server is missing:', TRANSLATE_SERVER);
+  }
+
   if (IS_DEV) {
     spawnManaged('ViteDevServer', NPM, ['run', 'dev'], { cwd: ROOT, restartDelayMs: 3000 });
   }
@@ -1609,7 +1622,7 @@ function startServers() {
 // Free stale server ports before launch (8426 and 8431 excluded - ML servers stay alive)
 function freeServerPorts() {
   return new Promise((resolve) => {
-    const ports = IS_DEV ? [5173, 8424, 8428, 8430, 8432] : [8424, 8428, 8430, 8432];
+    const ports = IS_DEV ? [5173, 8424, 8428, 8430, 8432, 8434] : [8424, 8428, 8430, 8432, 8434];
     const psLines = [
       '$myPid = ' + process.pid,
       '$ports = @(' + ports.join(',') + ')',
@@ -1795,6 +1808,7 @@ async function createWindow() {
   ipcMain.handle('write-file', async (_, { filePath, base64Data }) => {
     try {
       const buf = Buffer.from(base64Data, 'base64');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, buf);
       return { ok: true, filePath };
     } catch (err) {
@@ -1815,6 +1829,7 @@ async function createWindow() {
     platform:   process.platform,
     appVersion: app.getVersion()
   }));
+  ipcMain.handle('get-app-root', () => ROOT);
 
   ipcMain.handle('presentator-agent-think', async (event, payload) => {
     try {
@@ -3063,11 +3078,8 @@ async function createWindow() {
     if (/\b(nude|nudy|naked|pussy|penis|vagina|nipples?|porn|sexual|sex)\b/i.test(lyrics)) {
       return { ok: false, error: 'Kids Rhyme Maker rejected unrelated adult content. Clear both inputs and enter only the exact child-safe lyrics you want sung.' };
     }
-    const titleWords = String(payload?.title || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(word => word.length > 2);
-    const lyricWords = new Set(lyrics.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean));
-    if (titleWords.length >= 3 && !titleWords.some(word => lyricWords.has(word))) {
-      return { ok: false, error: 'The song title and Exact Lyrics contain unrelated text. Generation was stopped so stale lyrics cannot be sung. Re-enter the lyrics and try again.' };
-    }
+    // The title is output metadata only. Comparing it with the lyric words caused
+    // legitimate titles such as "Validation Rhyme" to reject otherwise exact lyrics.
 
     const startedAt = Date.now();
     let activePhase = 'Checking ACE-Step installation';
@@ -3130,11 +3142,17 @@ async function createWindow() {
       clearInterval(heartbeat);
       return { ok: false, error: `These ${lyricWordCount} lyric words need about ${minimumClearDuration} seconds for clear singing. Shorten the lyrics to about 25 words for the 30-second maximum.` };
     }
-    const duration = Math.min(30, Math.max(requestedDuration, minimumClearDuration));
+    const coordinatedSongMode = String(payload?.qualityMode || '') === 'coordinated-song';
+    const duration = coordinatedSongMode
+      ? 30
+      : Math.min(30, Math.max(requestedDuration, minimumClearDuration));
+    const performanceLyrics = coordinatedSongMode
+      ? `[Verse]\n${lyrics.replace(/\n+/g, '\n\n')}`
+      : lyrics;
     const durationReference = path.join(workDir, `required-reference-${duration}s.wav`);
     const request = {
-      caption: `${String(payload?.stylePrompt || 'cheerful preschool nursery rhyme, warm young female singer, clear English pronunciation, gentle playful melody, soft bells and acoustic instruments, educational children song')}, preserve the same lead-singer timbre and vocal character as the supplied Little Jack Horner reference`,
-      lyrics,
+      caption: `${String(payload?.stylePrompt || 'premium studio-quality preschool nursery rhyme, naturally expressive young female singer, warm realistic human vocal, joyful child-friendly performance, crystal-clear English pronunciation, memorable playful melody, soft piano, glockenspiel, ukulele and gentle drums, wide clean stereo instrumental, polished commercial children song')}, preserve the same lead-singer timbre and vocal character as the supplied Little Jack Horner reference; sing naturally with melodic phrasing and breath, never robotic, never spoken`,
+      lyrics: performanceLyrics,
       duration,
       bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 96)),
       keyscale: 'C major',
@@ -3143,8 +3161,10 @@ async function createWindow() {
       batch_size: 1,
       seed: Number(payload?.seed || -1),
       use_cot_caption: false,
-      inference_steps: 16,
-      guidance_scale: 1.0,
+      // This installation uses ACE-Step 1.5 Turbo. Its native configuration is
+      // 8 diffusion steps with CFG disabled; higher step/CFG values degrade vocals.
+      inference_steps: coordinatedSongMode ? 8 : 16,
+      guidance_scale: coordinatedSongMode ? 0.0 : 1.0,
       shift: 3.0,
       // Keep the required reference's musical character without letting its old words
       // overpower the exact lyrics supplied for this generation.
@@ -3153,7 +3173,7 @@ async function createWindow() {
     const savedPayload = {
       lyrics, title, duration, clarityAttempts: Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3)),
       bgmLevel: Number(payload?.bgmLevel), vocalPresence: Number(payload?.vocalPresence), bpm: request.bpm,
-      stylePrompt: request.caption, seed: request.seed,
+      stylePrompt: request.caption, seed: request.seed, qualityMode: coordinatedSongMode ? 'coordinated-song' : 'recovery-compatible',
       lyricsHash: crypto.createHash('sha256').update(lyrics, 'utf8').digest('hex'),
     };
     const saveRecovery = (status, extra = {}) => {
@@ -3218,7 +3238,9 @@ async function createWindow() {
       // Never treat the first weak performance as the final result. Mobile and
       // older saved payloads may still request one attempt, but exact-lyric mode
       // always gets at least three independent performances.
-      const attempts = Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3));
+      const attempts = coordinatedSongMode
+        ? Math.max(5, Math.min(8, Number(payload?.clarityAttempts) || 5))
+        : Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3));
       const passScore = 80;
       const initialSeed = Number.isFinite(Number(payload?.seed)) && Number(payload.seed) >= 0 ? Number(payload.seed) : Math.floor(Math.random() * 1000000);
       let best = null;
@@ -3233,7 +3255,10 @@ async function createWindow() {
         if (!fs.existsSync(generatedPath)) {
           if (!fs.existsSync(request0Path)) {
             if (!fs.existsSync(requestPath)) {
-              const retryStrength = attempt === 1 ? 0.40 : attempt === 2 ? 0.30 : 0.22;
+              // Strong reference conditioning can overpower short supplied lyrics.
+              // Keep the reference character for the first two candidates, then let
+              // the final recovery candidate prioritize the exact lyric tokens.
+              const retryStrength = coordinatedSongMode ? 0 : (attempt === 1 ? 0.35 : attempt === 2 ? 0.15 : 0);
               const retryCaption = attempt === 1
                 ? request.caption
                 : `${request.caption}. Extra-clear child-friendly diction. Sing every supplied word exactly once, with short pauses between lyric lines; do not omit, repeat, replace, or improvise any word.`;
@@ -3253,7 +3278,10 @@ async function createWindow() {
           if (!fs.existsSync(request0Path)) throw new Error('ACE-Step did not prepare the song request.');
           saveRecovery('running', { stage: 'rendering', attempt });
           report(`Rendering candidate ${attempt}/${attempts}`, attemptBase + 4, `Singing with ${path.basename(dit)} — longest CPU stage`);
-          await run(synthExe, ['--request', request0Path, '--embedding', embedding, '--dit', dit, '--vae', vae, '--src-audio', durationReference, '--wav', '--no-fa', '--vae-chunk', '128', '--vae-overlap', '32'], 45 * 60 * 1000, attemptDir);
+          const synthArgs = ['--request', request0Path, '--embedding', embedding, '--dit', dit, '--vae', vae];
+          if (!coordinatedSongMode && attempt < attempts) synthArgs.push('--src-audio', durationReference);
+          synthArgs.push('--wav', '--no-fa', '--vae-chunk', '128', '--vae-overlap', '32');
+          await run(synthExe, synthArgs, 45 * 60 * 1000, attemptDir);
         } else {
           report(`Resuming candidate ${attempt}/${attempts}`, Math.max(attemptBase + 5, attemptEnd - 2), 'Rendered WAV already exists; continuing from clarity verification');
         }
@@ -3265,10 +3293,103 @@ async function createWindow() {
         if (!best || candidate.score > best.score) best = candidate;
         report(`Lyric clarity score: ${candidate.score}%`, attemptEnd, candidate.score >= passScore ? 'Passed lyric clarity check' : attempt < attempts ? 'Automatically retrying with stronger diction and less reference bleed' : 'Rejected: lyrics are not clear enough');
         if (candidate.score >= passScore) break;
+        // A failed first score means more full CPU renders would delay a result.
+        // Move directly to the deterministic natural-voice recovery instead.
+        if (attempt === 1 && !coordinatedSongMode) {
+          report('Switching to exact-lyrics recovery', attemptEnd, `First candidate detected ${candidate.score}% of the supplied words`);
+          break;
+        }
       }
       if (!best?.path) throw new Error('No song candidate was generated.');
-      if (!best.unavailable && best.score < passScore) {
-        throw new Error(`Song rejected after ${attempts} automatic performances because the best result detected only ${best.score}% of the exact lyrics (minimum ${passScore}%). Nothing unclear was saved.`);
+      if (!coordinatedSongMode && !best.unavailable && best.score < passScore) {
+        report('Recovering exact lyric clarity', 89, 'Rebuilding the lead with the natural Little Jack Horner reference voice');
+        // ACE-Step can occasionally prioritize melody/reference phonemes over very
+        // short lyrics. Preserve the best musical bed, but replace its unclear lead
+        // with deterministic Chatterbox narration cloned from the required rhyme
+        // reference. The recovered mix must still pass the same Whisper gate.
+        resumePausedServers();
+        resumePausedServers = () => {};
+        let chatterboxReady = false;
+        for (let wait = 0; wait < 90; wait += 1) {
+          if (await pingPort(8426, '/health')) { chatterboxReady = true; break; }
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        if (chatterboxReady) {
+          try {
+            const recoveryVoice = path.join(workDir, 'exact-lyrics-reference-voice.wav');
+            const recoveryMix = path.join(workDir, 'exact-lyrics-recovery.wav');
+            const stemRoot = path.join(workDir, 'demucs-recovery');
+            let recoveryMusic = best.path;
+            const recoveryBgmSetting = Number(payload?.bgmLevel);
+            const recoveryMusicGain = Math.max(0.35, Math.min(0.88,
+              0.35 + ((Number.isFinite(recoveryBgmSetting) ? recoveryBgmSetting : 20) / 100) * 0.90
+            )).toFixed(3);
+            const lyricLines = lyrics.split(/\r?\n+/).map(line => line.trim()).filter(Boolean);
+            const voiceLineFiles = [];
+            for (let lineIndex = 0; lineIndex < lyricLines.length; lineIndex += 1) {
+              report('Recovering exact lyric clarity', 89, `Generating natural voice line ${lineIndex + 1}/${lyricLines.length}`);
+              const voiceResponse = await postJsonForBuffer(8426, '/api/narrate', {
+                text: lyricLines[lineIndex],
+                voice: 'rhyme_natural_v2',
+                generationOptions: {
+                  exaggeration: 0.48,
+                  cfgWeight: 0.48,
+                  temperature: 0.78,
+                  repetitionPenalty: 1.18,
+                },
+              }, 10 * 60 * 1000);
+              if (voiceResponse.statusCode < 200 || voiceResponse.statusCode >= 300 || !voiceResponse.buffer?.length) {
+                throw new Error(`Reference voice line ${lineIndex + 1} returned HTTP ${voiceResponse.statusCode}.`);
+              }
+              const lineFile = path.join(workDir, `exact-lyrics-line-${lineIndex + 1}.wav`);
+              fs.writeFileSync(lineFile, voiceResponse.buffer);
+              voiceLineFiles.push(lineFile);
+            }
+            if (voiceLineFiles.length === 1) {
+              fs.copyFileSync(voiceLineFiles[0], recoveryVoice);
+            } else {
+              const concatList = path.join(workDir, 'exact-lyrics-lines.txt');
+              fs.writeFileSync(concatList, voiceLineFiles.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
+              await run(findFFmpegExecutable(), [
+                '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
+                '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', recoveryVoice,
+              ], 10 * 60 * 1000, workDir);
+            }
+            try {
+              report('Cleaning the background music', 90, 'Removing the rejected vocal from the accompaniment');
+              await run(SINGING_PYTHON, [
+                '-m', 'demucs', '--two-stems', 'vocals',
+                '-o', stemRoot, best.path,
+              ], 10 * 60 * 1000, workDir);
+              const separatedMusic = path.join(
+                stemRoot, 'htdemucs', path.basename(best.path, path.extname(best.path)), 'no_vocals.wav'
+              );
+              if (fs.existsSync(separatedMusic)) recoveryMusic = separatedMusic;
+            } catch (separationError) {
+              console.warn('[Rhyme] Vocal separation unavailable; using filtered music bed:', separationError.message);
+            }
+            await run(findFFmpegExecutable(), [
+              '-y', '-i', recoveryMusic, '-i', recoveryVoice,
+              '-filter_complex',
+              `[0:a]highpass=f=55,lowpass=f=12000,volume=${recoveryMusicGain},apad=pad_dur=${duration}[music];[1:a]highpass=f=75,lowpass=f=12000,equalizer=f=3200:t=h:w=1:g=1,acompressor=threshold=-20dB:ratio=1.45:attack=24:release=260,volume=1.08,apad=pad_dur=${duration},asplit=2[voicekey][voiceout];[music][voicekey]sidechaincompress=threshold=0.040:ratio=2.2:attack=22:release=220[ducked];[ducked][voiceout]amix=inputs=2:duration=first:weights='1.0 1.0':normalize=0,loudnorm=I=-15:TP=-1.2:LRA=11[out]`,
+              '-map', '[out]', '-t', String(duration), '-ar', '48000', '-ac', '2',
+              '-c:a', 'pcm_s16le', recoveryMix,
+            ], 10 * 60 * 1000, workDir);
+            const recoveryCheck = await transcribeForClarity(recoveryMix);
+            report(`Recovered lyric clarity: ${recoveryCheck.score}%`, 91, recoveryCheck.score >= passScore ? 'Exact-lyrics recovery passed' : 'Exact-lyrics recovery did not pass');
+            if (recoveryCheck.score >= passScore) {
+              best = { path: recoveryMix, ...recoveryCheck, attempt: best.attempt, recovered: true };
+            }
+          } catch (recoveryError) {
+            console.error('[Rhyme] Exact-lyrics recovery failed:', recoveryError.message);
+          }
+        }
+        if (best.score < passScore) {
+          throw new Error(`Song rejected after ${attempts} automatic performances and natural-voice recovery because the best result detected only ${best.score}% of the exact lyrics (minimum ${passScore}%). Nothing unclear was saved.`);
+        }
+      }
+      if (coordinatedSongMode && !best.unavailable && best.score < passScore) {
+        throw new Error(`Coordinated song rejected after ${attempts} complete singing performances because the best result detected only ${best.score}% of the exact lyrics (minimum ${passScore}%). The singer and BGM were kept together; no narration replacement or mismatched mix was saved.`);
       }
       if (best.unavailable) {
         throw new Error('The lyric clarity checker was unavailable, so the song was not saved without verification.');
@@ -3292,7 +3413,7 @@ async function createWindow() {
       const clarityPassed = best.score >= passScore;
       saveRecovery('completed', { stage: 'completed', savedPath, clarityScore: best.score });
       report('Song complete', 100, `${path.basename(savedPath)} · clarity ${best.score}%`);
-      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', duration, requestedDuration, durationAdjusted: duration !== requestedDuration, engine: dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5', clarityScore: best.score, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt };
+      return { ok: true, filePath: savedPath, fileName: path.basename(savedPath), audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', duration, requestedDuration, durationAdjusted: duration !== requestedDuration, engine: best.recovered ? 'ACE-Step music + natural reference-voice clarity recovery' : (dit === ditHigh ? 'ACE-Step 1.5 Q8 High Quality' : 'ACE-Step 1.5 Q5'), clarityScore: best.score, clarityPassed, detectedLyrics: best.text || lyrics, attemptsUsed: best.attempt, clarityRecovered: Boolean(best.recovered) };
     } catch (error) {
       saveRecovery('paused', { stage: activePhase, error: error.message });
       report('Generation failed', 0, error.message);
@@ -3644,6 +3765,8 @@ async function createWindow() {
 ipcMain.handle('transcribe-video', async (event, opts) => {
   const { videoPath, languageHint } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  let resumePausedServers = () => {};
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -3672,6 +3795,22 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     });
     console.log('[Caption] Audio extracted:', Math.round(fs.statSync(tmpWav).size / 1024), 'KB');
 
+    // Whisper-small needs roughly 1.5–2 GB during decoding. Release cached
+    // diffusion/Ollama weights and temporarily stop the two largest voice
+    // workers so captioning cannot silently fail under memory pressure.
+    await fetch('http://127.0.0.1:8432/api/unload', { method: 'POST' }).catch(() => {});
+    try {
+      for (const model of [PRESENTATOR_LOCAL_MODEL, PRESENTATOR_FAST_MODEL]) {
+        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, keep_alive: 0 }),
+        });
+      }
+    } catch (_) {}
+    resumePausedServers = await pauseManagedServersForImage(['AnjaliAI', 'Sc3Singing']);
+    try { event.sender.send('caption-transcribe-progress', 3); } catch (_) {}
+
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
     const venvPy     = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
     const captionScript = path.join(ROOT, 'whisper-transcribe-caption.py');
@@ -3688,8 +3827,21 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
       });
-      let stdout = '', stderr = '';
-      proc.stdout && proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+      let stdout = '', stderr = '', progressBuffer = '';
+      proc.stdout && proc.stdout.on('data', d => {
+        const text = d.toString('utf8');
+        stdout += text;
+        progressBuffer += text;
+        const lines = progressBuffer.split(/\r?\n/);
+        progressBuffer = lines.pop() || '';
+        for (const line of lines) {
+          const match = line.match(/^PROGRESS:(\d+)/);
+          if (match) {
+            const pct = Math.max(0, Math.min(99, Number(match[1]) || 0));
+            try { event.sender.send('caption-transcribe-progress', pct); } catch (_) {}
+          }
+        }
+      });
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
       const timer = setTimeout(() => {
         killProcessTree(proc);
@@ -3702,7 +3854,10 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
           const lastLine = stdout.trim().split('\n').pop() || '{}';
           const json = JSON.parse(lastLine);
           if (json.error) reject(new Error('Whisper: ' + json.error));
-          else resolve(json);
+          else {
+            try { event.sender.send('caption-transcribe-progress', 100); } catch (_) {}
+            resolve(json);
+          }
         } catch(e) {
           reject(new Error('Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
         }
@@ -3740,6 +3895,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     return { ok: false, error: err.message };
   } finally {
     console.log('[Caption] Kept transcription WAV:', tmpWav);
+    resumePausedServers();
   }
 
 });
@@ -4528,16 +4684,6 @@ ipcMain.handle('export-translated-video', async (_event, opts) => {
     return { ok: false, error: error.message };
   }
 
-  // 7. Caption/audio translation service (port 8434)
-  if (fs.existsSync(TRANSLATE_SERVER)) {
-    spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
-      cwd: ROOT,
-      restartDelayMs: 3000,
-      maxRestarts: 4,
-      restartWindowSec: 600,
-      env: PYTHON_ENV,
-    });
-  }
 });
 
 

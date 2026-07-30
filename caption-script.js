@@ -315,6 +315,21 @@ function bootCaptionStudio() {
     let captionQueueRunning = false;
     let captionQueueExporting = false;
     let captionQueueMode = '';
+    if (window.electronAPI && typeof window.electronAPI.onTranscribeProgress === 'function') {
+        window.electronAPI.onTranscribeProgress((rawPct) => {
+            const pct = Math.max(0, Math.min(100, Number(rawPct) || 0));
+            const activeIndex = captionVideoQueue.findIndex(item => item.status === 'transcribing');
+            if (activeIndex < 0) return;
+            const mappedPct = Math.max(5, Math.round(5 + pct * 0.9));
+            setQueueItemState(activeIndex, {
+                progress: mappedPct,
+                message: pct >= 100
+                    ? 'Transcription complete. Building captions...'
+                    : `Whisper transcription ${pct}%`,
+            });
+            setCaptionProgressBar(mappedPct);
+        });
+    }
 
     if (!document.getElementById('captionQueueSpinStyle')) {
         const spinStyle = document.createElement('style');
@@ -2969,8 +2984,8 @@ function bootCaptionStudio() {
                     return;
                 }
 
-                // True ASS karaoke fill: each \kf duration progressively wipes
-                // PrimaryColour over SecondaryColour for the individual word.
+                // Display the complete current phrase while karaoke timing
+                // progressively highlights each narrated word.
                 let tokenCursor = 0;
                 const karaokeText = wrappedTokenLines.map(lineTokens => {
                     const lineText = lineTokens.map((token) => {

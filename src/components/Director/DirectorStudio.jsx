@@ -134,6 +134,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
   const [projects, setProjects] = useState(loadProjects);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Describe the video and Director will prepare the complete production plan.');
+  const [progress, setProgress] = useState({ current: 0, total: 0, phase: '' });
 
   const autoMuxToExporter = async () => {
     const safeDraft = draft || (form.topic.trim() ? makeDirectorDraft(form) : '');
@@ -142,9 +143,14 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
       return;
     }
     setBusy(true);
+    setProgress({ current: 0, total: 0, phase: 'Checking production services' });
     setStatus('Parsing script and preparing canvas elements...');
 
     try {
+      if (typeof window.electronAPI?.writeFile !== 'function' || typeof window.electronAPI?.narrateEdgeTts !== 'function') {
+        throw new Error('AI Director production services are unavailable. Restart Pattan Presentator.');
+      }
+      const appRoot = await window.electronAPI.getAppRoot?.() || 'D:\\voice';
       const titleMatch = safeDraft.match(/TITLE:\s*(.*)/i);
       const title = titleMatch ? titleMatch[1].trim() : (form.topic.trim() || 'AI Director Project');
 
@@ -170,6 +176,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
       }
 
       setStatus(`Generating ${parsedScenes.length} narration voiceovers and slide images...`);
+      setProgress({ current: 0, total: parsedScenes.length, phase: 'Preparing scenes' });
       const scenesState = [];
       const audioTracksState = [];
       const captionsState = [];
@@ -180,12 +187,14 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
       for (let idx = 0; idx < parsedScenes.length; idx++) {
         const s = parsedScenes[idx];
         setStatus(`[Scene ${idx + 1}/${parsedScenes.length}] Synthesizing narration and drawing slide...`);
+        setProgress({ current: idx, total: parsedScenes.length, phase: `Creating scene ${idx + 1}` });
 
         const base64Png = createSlideBase64(`Scene ${idx + 1}`, s.visual);
         const imgName = `director_scene_${Date.now()}_${idx + 1}.png`;
-        const imgPath = `D:\\voice\\generated-media\\images\\${imgName}`;
+        const imgPath = `${appRoot}\\generated-media\\images\\${imgName}`;
         
-        await window.electronAPI.writeFile(imgPath, base64Png);
+        const imageWrite = await window.electronAPI.writeFile(imgPath, base64Png);
+        if (!imageWrite?.ok) throw new Error(`Scene ${idx + 1} image could not be saved: ${imageWrite?.error || 'unknown write error'}`);
 
         let audioDuration = 5.0;
         let audioPath = '';
@@ -196,17 +205,21 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
             voice: selectedVoice,
             rate: '+0%'
           });
-          if (ttsResult?.ok && ttsResult?.audioBase64) {
-            const audioName = `director_narr_${Date.now()}_${idx + 1}.wav`;
-            audioPath = `D:\\voice\\generated-media\\narration\\${audioName}`;
-            await window.electronAPI.writeFile(audioPath, ttsResult.audioBase64);
-
-            audioDuration = await new Promise((resolve) => {
-              const audioObj = new Audio(`data:audio/wav;base64,${ttsResult.audioBase64}`);
-              audioObj.addEventListener('loadedmetadata', () => resolve(audioObj.duration));
-              audioObj.addEventListener('error', () => resolve(5.0));
-            });
+          if (!ttsResult?.ok || !ttsResult?.audioBase64) {
+            throw new Error(`Scene ${idx + 1} narration failed: ${ttsResult?.error || 'voice server returned no audio'}`);
           }
+          const contentType = String(ttsResult.contentType || 'audio/mpeg');
+          const audioExtension = contentType.includes('wav') ? 'wav' : 'mp3';
+          const audioName = `director_narr_${Date.now()}_${idx + 1}.${audioExtension}`;
+          audioPath = `${appRoot}\\generated-media\\narration\\${audioName}`;
+          const audioWrite = await window.electronAPI.writeFile(audioPath, ttsResult.audioBase64);
+          if (!audioWrite?.ok) throw new Error(`Scene ${idx + 1} narration could not be saved: ${audioWrite?.error || 'unknown write error'}`);
+
+          audioDuration = await new Promise((resolve) => {
+            const audioObj = new Audio(`data:${contentType};base64,${ttsResult.audioBase64}`);
+            audioObj.addEventListener('loadedmetadata', () => resolve(Number.isFinite(audioObj.duration) ? audioObj.duration : 5.0), { once: true });
+            audioObj.addEventListener('error', () => resolve(5.0), { once: true });
+          });
         }
 
         const sceneId = `scene-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -240,6 +253,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
         });
 
         cumulativeTime += audioDuration;
+        setProgress({ current: idx + 1, total: parsedScenes.length, phase: `Scene ${idx + 1} complete` });
       }
 
       const newProject = {
@@ -277,6 +291,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
 
       localStorage.setItem('pattan-my-exporter-project-v1', JSON.stringify(newProject));
       setStatus('Production plan auto-muxed successfully!');
+      setProgress({ current: parsedScenes.length, total: parsedScenes.length, phase: 'Production ready' });
       
       if (typeof onOpenExporter === 'function') {
         onOpenExporter();
@@ -284,6 +299,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
     } catch (err) {
       console.error(err);
       setStatus(`Auto-Mux failed: ${err.message}`);
+      setProgress(current => ({ ...current, phase: 'Stopped with an error' }));
     } finally {
       setBusy(false);
     }
@@ -423,6 +439,7 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
           <div className="director-card director-script">
             <div className="director-script-head"><div className="director-section-title">02 — Director script</div><span>{draft.trim() ? `${draft.trim().split(/\s+/).length} words` : 'Not generated'}</span></div>
             <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Your scene-by-scene production script will appear here. It remains fully editable." />
+            {progress.total > 0 && <div className="director-live-progress" role="status" aria-live="polite"><div><strong>{progress.phase}</strong><span>{progress.current}/{progress.total}</span></div><i><b style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }} /></i></div>}
             <div className="director-status">{status}</div>
           </div>
         </section>

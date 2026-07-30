@@ -2719,9 +2719,31 @@ export default function MyExporter({ active = true }) {
   const thumbLeftPercent = scrollInfo.width > scrollInfo.clientWidth 
     ? (scrollInfo.left / (scrollInfo.width - scrollInfo.clientWidth)) * (100 - thumbPercent) 
     : 0;
+  const exporterBusy = captioning || exporting;
+  const hasNarrationSource = scenes.some(scene => scene.kind === 'video' && scene.hasAudio !== false && !scene.disabled);
+  const guidedStep = !scenes.length ? 1 : result ? 4 : captions.length ? 3 : 2;
+  const guidedStatus = exporting
+    ? `Exporting your video · ${progress.pct || 0}%`
+    : captioning
+      ? `Creating captions · ${progress.pct || 0}%`
+      : result
+        ? `Finished · ${result.fileName || 'your video is ready'}`
+        : !scenes.length
+          ? 'Start by importing a video or image'
+          : captions.length
+            ? `${captions.length} captions ready · preview, then export`
+            : 'Media ready · add captions if needed, then preview';
+  const guidedExport = () => {
+    setExportDropdownOpen(false);
+    if (settings.burnCaptions && !captions.length && hasNarrationSource) return generateCaptionsAndExport();
+    return exportVideo();
+  };
+  const visibleAssetTabs = advancedMode
+    ? ['Media','Stock Media','Audio','Titles','Transitions','Effects','Filters','Stickers','Templates']
+    : ['Media','Audio','Titles'];
 
   return (
-    <div className={`mx-page ${timelineExpanded ? 'mx-timeline-expanded' : ''} mx-layout-${layoutMode}`}>
+    <div className={`mx-page ${timelineExpanded ? 'mx-timeline-expanded' : ''} mx-layout-${layoutMode} ${advancedMode ? 'mx-mode-advanced' : 'mx-mode-simple'}`}>
       <input ref={mediaInput} className="mx-hidden" type="file" multiple accept="video/*,image/*" onChange={addMedia} />
       <input ref={musicInput} className="mx-hidden" type="file" accept="audio/*" onChange={addMusic} />
       <input ref={watermarkInput} className="mx-hidden" type="file" accept="image/png,image/webp,image/jpeg" onChange={addWatermark} />
@@ -2743,9 +2765,9 @@ export default function MyExporter({ active = true }) {
       </div>
 
       <nav className="mx-professional-tabs" aria-label="Editor asset categories">
-        {['Media','Stock Media','Audio','Titles','Transitions','Effects','Filters','Stickers','Templates'].map(tab => <button key={tab} className={assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); if (tab === 'Media') setOpenSidePanel('library'); if (tab === 'Audio') window.setTimeout(() => document.querySelector('.mx-audio-box')?.scrollIntoView({ behavior: 'smooth' }), 0); if (tab === 'Titles') addTextOverlay(); if (['Effects','Filters'].includes(tab)) setAdvancedMode(true); }}>{tab === 'Media' ? '▣' : tab === 'Stock Media' ? '◫' : tab === 'Audio' ? '♫' : tab === 'Titles' ? 'T' : tab === 'Transitions' ? '◒' : tab === 'Effects' ? '✦' : tab === 'Filters' ? '◉' : tab === 'Stickers' ? '★' : '▦'}<span>{tab}</span></button>)}
+        {visibleAssetTabs.map(tab => <button key={tab} className={assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); if (tab === 'Media') setOpenSidePanel('library'); if (tab === 'Audio') window.setTimeout(() => document.querySelector('.mx-audio-box')?.scrollIntoView({ behavior: 'smooth' }), 0); if (tab === 'Titles') setOpenSidePanel('inspector'); if (['Effects','Filters'].includes(tab)) setAdvancedMode(true); }}>{tab === 'Media' ? '▣' : tab === 'Stock Media' ? '◫' : tab === 'Audio' ? '♫' : tab === 'Titles' ? 'T' : tab === 'Transitions' ? '◒' : tab === 'Effects' ? '✦' : tab === 'Filters' ? '◉' : tab === 'Stickers' ? '★' : '▦'}<span>{tab}</span></button>)}
         <i className="mx-professional-divider" />
-        <div className="mx-quick-project-actions">
+        {advancedMode ? <div className="mx-quick-project-actions">
           <button title="New project" onClick={newProject}><b>＋</b><span>New</span></button>
           <button title="Open project" onClick={() => projectInput.current?.click()}><b>▱</b><span>Open</span></button>
           <button title="Save project" onClick={saveProject}><b>▣</b><span>Save</span></button>
@@ -2768,9 +2790,29 @@ export default function MyExporter({ active = true }) {
             <span>Layout</span>
           </button>
           <select title="Switch project" aria-label="Switch project" value={activeWorkspaceId} disabled={captioning || exporting} onChange={event => switchWorkspace(event.target.value)}>{workspaceTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.id === activeWorkspaceId ? projectName : tab.name}</option>)}</select>
-        </div>
-        <div className="mx-export-dropdown-container"><button className="mx-professional-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}%` : 'Export ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div>
+        </div> : <div className="mx-simple-project-actions">
+          <button title="Open a saved project" onClick={() => projectInput.current?.click()}>Open</button>
+          <button title="Save this project" onClick={saveProject} disabled={exporterBusy}>Save</button>
+          <button title="Show every editing control" onClick={() => setAdvancedMode(true)}>More tools</button>
+        </div>}
+        {advancedMode
+          ? <div className="mx-export-dropdown-container"><button className="mx-professional-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}%` : 'Export ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div>
+          : <button className="mx-professional-export mx-guided-export" onClick={guidedExport} disabled={!scenes.length || exporterBusy}>{exporting ? `${progress.pct}% Exporting` : settings.burnCaptions && !captions.length && hasNarrationSource ? 'Captions + Export' : 'Export Video'}</button>}
       </nav>
+
+      {!advancedMode && <section className="mx-guided-workflow" aria-label="My Exporter guided workflow">
+        <div className="mx-guided-heading">
+          <div><strong>Make your video</strong><span>{guidedStatus}</span></div>
+          {exporterBusy && <b>{progress.pct || 0}%</b>}
+        </div>
+        <div className="mx-guided-progress" aria-hidden="true"><i style={{ width: `${exporterBusy ? Math.max(3, progress.pct || 0) : guidedStep * 25}%` }} /></div>
+        <div className="mx-guided-actions">
+          <button className={guidedStep === 1 ? 'active' : scenes.length ? 'done' : ''} onClick={pickMedia} disabled={exporterBusy}><b>1</b><span><strong>Import</strong><small>Add videos or images</small></span></button>
+          <button className={guidedStep === 2 ? 'active' : captions.length ? 'done' : ''} onClick={generateCaptions} disabled={!hasNarrationSource || exporterBusy}><b>2</b><span><strong>Captions</strong><small>{captions.length ? `${captions.length} ready` : hasNarrationSource ? 'Create from narration' : 'Video narration needed'}</small></span></button>
+          <button className={guidedStep === 3 ? 'active' : result ? 'done' : ''} onClick={togglePreviewFullscreen} disabled={!selected || exporterBusy}><b>3</b><span><strong>Preview</strong><small>Check before saving</small></span></button>
+          <button className={guidedStep === 4 ? 'done' : ''} onClick={guidedExport} disabled={!scenes.length || exporterBusy}><b>4</b><span><strong>Export</strong><small>{settings.burnCaptions && !captions.length && hasNarrationSource ? 'Captions included' : 'Save finished MP4'}</small></span></button>
+        </div>
+      </section>}
 
       {/* ── Layout Picker Popup ── */}
       {layoutPickerOpen && (

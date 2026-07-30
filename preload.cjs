@@ -6,6 +6,7 @@ const burnProgressHandlers = new Map();
 const translateDubProgressHandlers = new Map();
 const myExporterProgressHandlers = new Map();
 const agentProgressHandlers = new Map();
+const transcribeProgressHandlers = new Map();
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -25,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Get system info (RAM, CPUs, platform)
   getSystemInfo: () =>
     ipcRenderer.invoke('get-system-info'),
+  getAppRoot: () =>
+    ipcRenderer.invoke('get-app-root'),
 
   getOllamaLaunchStatus: () =>
     ipcRenderer.invoke('get-ollama-launch-status'),
@@ -253,6 +256,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Renderer never loads video bytes → no OOM crash on large videos.
   transcribeVideo: (opts) =>
     ipcRenderer.invoke('transcribe-video', opts),
+
+  onTranscribeProgress: (callback) => {
+    const handler = (_, progress) => callback(progress);
+    transcribeProgressHandlers.set(callback, handler);
+    ipcRenderer.on('caption-transcribe-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('caption-transcribe-progress', handler);
+      transcribeProgressHandlers.delete(callback);
+    };
+  },
+  offTranscribeProgress: (callback) => {
+    const handler = transcribeProgressHandlers.get(callback);
+    if (handler) {
+      ipcRenderer.removeListener('caption-transcribe-progress', handler);
+      transcribeProgressHandlers.delete(callback);
+    }
+  },
 
   transcribeVideoGroq: (opts) =>
     ipcRenderer.invoke('transcribe-video-groq', opts),

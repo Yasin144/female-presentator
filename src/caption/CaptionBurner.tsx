@@ -164,6 +164,10 @@ export default function CaptionBurner({ onClose }: Props) {
   const [curTime, setCurTime]     = useState(0);
   const [processing, setProc]     = useState(false);
   const [batchOn, setBatch]       = useState(false);
+  const [autoBurn, setAutoBurn]   = useState(() => {
+    try { return localStorage.getItem('caption-burner-auto-burn') !== 'false'; }
+    catch { return true; }
+  });
   const [isZipping, setZipping]   = useState(false);
   const [errorMsg, setError]      = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -535,12 +539,21 @@ export default function CaptionBurner({ onClose }: Props) {
         if (!transcribed || !transcribed.captions?.length) return;
         itemToBurn = transcribed;
       }
+      if (!autoBurn) {
+        upd(item.id, {
+          status: 'transcribed',
+          message: 'Captions ready · Auto Burn is off. Review them, then click Export Video.',
+          progress: 100,
+        });
+        notify('Captions ready', `${item.video.name}: review captions, then click Export Video`);
+        return;
+      }
       upd(item.id, { status: 'exporting', message: `Captions ready. Exporting at ${QUEUE_EXPORT_FONT_SIZE}px...`, progress: 2 });
       await burnItem(itemToBurn, { autoDownload: true, phaseName: 'Start queue', signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
     } catch (e) {
       console.error(`[CaptionBurner] Failed to process ${item.video.name}:`, e);
     }
-  }, [transcribeItem, burnItem]);
+  }, [transcribeItem, burnItem, autoBurn, upd, notify]);
 
   const runFullProcess = useCallback(async (item: QueueItem) => {
     if (!item.video.file) return;
@@ -1147,7 +1160,11 @@ export default function CaptionBurner({ onClose }: Props) {
                                 && (!next || t < next.start);
                             });
                           }
-                          const groupStart = activeIndex >= 0 ? Math.floor(activeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT : 0;
+                          // Show the complete current phrase, then apply karaoke
+                          // highlighting to the word being narrated. The next
+                          // phrase remains hidden until its caption start time.
+                          const safeIndex = activeIndex >= 0 ? activeIndex : 0;
+                          const groupStart = Math.floor(safeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT;
                           const wordsToShow = allWords.slice(groupStart, groupStart + CAPTION_WORD_LIMIT);
                           return wordsToShow.map((w, i) => {
                             const lit = t >= w.start && t <= w.end;
@@ -1565,6 +1582,35 @@ export default function CaptionBurner({ onClose }: Props) {
                 <p className="text-[9px] text-slate-500 mt-1">Row-wise controls. Changes show on the upload preview above.</p>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoBurn}
+                  title={autoBurn ? 'Captions will burn automatically after transcription' : 'Caption burning waits for your manual Export Video click'}
+                  onClick={() => setAutoBurn(current => {
+                    const next = !current;
+                    try { localStorage.setItem('caption-burner-auto-burn', String(next)); } catch {}
+                    return next;
+                  })}
+                  className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-2"
+                  style={{
+                    color: autoBurn ? '#86efac' : '#cbd5e1',
+                    background: autoBurn ? 'rgba(16,185,129,0.14)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${autoBurn ? 'rgba(16,185,129,0.32)' : 'rgba(255,255,255,0.10)'}`,
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="relative inline-flex items-center rounded-full"
+                    style={{ width: 26, height: 14, padding: 2, background: autoBurn ? '#10b981' : '#475569' }}
+                  >
+                    <i
+                      className="block rounded-full bg-white transition-transform"
+                      style={{ width: 10, height: 10, transform: autoBurn ? 'translateX(12px)' : 'translateX(0)' }}
+                    />
+                  </span>
+                  Auto Burn {autoBurn ? 'ON' : 'OFF'}
+                </button>
                 <button
                   disabled={queue.length === 0 || queueRunnableCount === 0 || processing}
                   onClick={() => runAllProcesses(activeId || undefined)}

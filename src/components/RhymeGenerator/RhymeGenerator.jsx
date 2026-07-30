@@ -129,7 +129,9 @@ export default function RhymeGenerator() {
   const [shutdownAfterComplete, setShutdownAfterComplete] = useState(true);
   const [shutdownPending, setShutdownPending] = useState(false);
   const [moduleHealth, setModuleHealth] = useState({ loading: true, ok: false, checks: [] });
+  const [resumeJob, setResumeJob] = useState(null);
   const resumeCheckedRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
   const audioRef = useRef(null);
   const safeName = useMemo(() => (topic || 'kids-rhyme').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 45), [topic]);
 
@@ -198,6 +200,7 @@ export default function RhymeGenerator() {
   };
 
   const generateMusic = async (songLyrics = lyrics, overrides = {}) => {
+    cancelRequestedRef.current = false;
     setBusy(true);
     const targetDuration = overrides.duration || selectedDuration || 30;
     setProgress({ pct: 1, phase: 'Starting ACE-Step', detail: 'Preparing local generation', elapsedSeconds: 0 });
@@ -208,14 +211,16 @@ export default function RhymeGenerator() {
           lyrics: songLyrics,
           title: overrides.title || (lyrics.trim() ? (topic.trim() || songLyrics.split(/\r?\n/)[0]) : songLyrics.split(/\r?\n/)[0]),
           duration: targetDuration,
-          clarityAttempts: overrides.clarityAttempts ?? clarityAttempts,
+          clarityAttempts: Math.max(5, overrides.clarityAttempts ?? clarityAttempts),
           bgmLevel: overrides.bgmLevel ?? bgmLevel,
           vocalPresence: overrides.vocalPresence ?? vocalPresence,
           bpm: overrides.bpm ?? tempo,
+          qualityMode: 'coordinated-song',
           seed: overrides.seed,
           resumeWorkDir: overrides.resumeWorkDir,
           stylePrompt: overrides.stylePrompt || `premium studio-quality preschool nursery rhyme, match the supplied reference singer's timbre and vocal character, extremely clear English diction, every lyric pronounced distinctly, slow simple phrasing, dry lead vocals loud and centered far above the accompaniment, minimal gentle instruments, no choir, no backing vocals, no vocal effects`,
         });
+        if (cancelRequestedRef.current) return;
         if (generated?.ok && generated.audioBase64) {
           const blob = base64ToBlob(generated.audioBase64, generated.mimeType || 'audio/mp3');
           if (musicUrl) URL.revokeObjectURL(musicUrl);
@@ -232,6 +237,7 @@ export default function RhymeGenerator() {
             : `${generated.duration || targetDuration}s`;
           setStatus(`Complete · ${generated.engine || 'ACE-Step'} · ${clarityLabel} · ${durationLabel} · saved as ${activeFileName}`);
           setSelectedDuration(generated.duration || targetDuration);
+          setResumeJob(null);
 
           // On mobile web browser, trigger automatic download of the generated MP3
           if (!window.electronAPI?.showSaveDialog) {
@@ -264,10 +270,11 @@ export default function RhymeGenerator() {
           }
           return;
         }
-        throw new Error(generated?.error || 'ACE-Step Q8 returned no song.');
+        throw new Error(generated?.error || 'ACE-Step Q8 returned no coordinated song.');
       }
       throw new Error('ACE-Step Q8 Electron service is unavailable.');
     } catch (error) {
+      if (cancelRequestedRef.current) return;
       setStatus(`Music generation failed: ${error.message}`);
       setProgress(previous => ({ ...previous, pct: 0, phase: 'Generation failed', detail: error.message }));
       window.electronAPI?.showNotification?.('Rhyme Song Failed', String(error.message || error));
@@ -280,11 +287,13 @@ export default function RhymeGenerator() {
     window.electronAPI.getRhymeResumeJob().then(result => {
       const job = result?.job;
       if (!job?.payload?.lyrics || !job.workDir) return;
-      setStatus('An older interrupted rhyme was found. It will not replace your current lyrics.');
+      setResumeJob(job);
+      setStatus('An interrupted rhyme was found. Choose Resume Previous Generation to continue from its saved checkpoint.');
     }).catch(() => {});
   }, []);
 
   const stopAll = async () => {
+    cancelRequestedRef.current = true;
     try { await window.electronAPI?.cancelRhymeSong?.(); } catch (_) {}
     if (audioRef.current) {
       audioRef.current.pause();
@@ -299,6 +308,23 @@ export default function RhymeGenerator() {
     setPreviewBusy(false);
     setProgress({ pct: 0, phase: 'Stopped', detail: 'Generation cancelled by user', elapsedSeconds: 0 });
     setStatus('Stopped generation and audio playback.');
+  };
+
+  const resumePrevious = async () => {
+    const job = resumeJob;
+    if (!job?.payload?.lyrics || !job.workDir || busy) return;
+    const payload = job.payload;
+    setLyrics(payload.lyrics);
+    setTopic(payload.title || payload.lyrics.split(/\r?\n/)[0] || 'Recovered rhyme');
+    setLastLyricsSource('lyrics');
+    setSelectedDuration(Number(payload.duration) || 30);
+    setStatus(`Resuming from ${job.stage || 'the last completed stage'}…`);
+    await generateMusic(payload.lyrics, {
+      ...payload,
+      title: payload.title,
+      duration: Number(payload.duration) || 30,
+      resumeWorkDir: job.workDir,
+    });
   };
 
   const cancelShutdown = async () => {
@@ -360,6 +386,7 @@ export default function RhymeGenerator() {
             {previewUrl && <audio id="rhyme-mix-preview" className="rg-player" src={previewUrl} controls preload="auto"/>}
           </div>
           <div className="rg-actions">
+            {resumeJob && <button className="rg-btn secondary" disabled={busy} onClick={resumePrevious}>↻ Resume Previous Generation</button>}
             <button className="rg-btn" disabled={busy || (!lyrics.trim() && !topic.trim())} onClick={createAll}>{busy ? 'Creating…' : '🎤 Perform My Exact Lyrics'}</button>
             {(busy || previewBusy || previewUrl || musicUrl) && <button className="rg-btn stop-btn" onClick={stopAll}>🛑 STOP Generation / Audio</button>}
             {shutdownPending && <button className="rg-btn stop-btn" onClick={cancelShutdown}>Cancel Windows Shutdown</button>}
