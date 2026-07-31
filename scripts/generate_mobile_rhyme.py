@@ -25,7 +25,11 @@ def main():
     bgm_vol = f"{max(0.25, min(0.9, (bgm_level / 100.0) * 0.85)):.2f}"
 
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    bgm_path = os.path.join(root_dir, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav')
+    # Use instrumental-only BGM (vocals removed) so no reference voice interferes
+    bgm_path = os.path.join(root_dir, 'generated-media', 'rhyme-reference-stems', 'htdemucs', 'little-jack-horner-reference-30s', 'no_vocals.wav')
+    if not os.path.exists(bgm_path):
+        bgm_path = os.path.join(root_dir, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav')
+
     temp_dir = os.path.join(root_dir, 'temp')
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -33,9 +37,9 @@ def main():
     tmp_vocal = os.path.join(temp_dir, f'_vocal_{stamp}.wav')
     final_mp3 = os.path.join(temp_dir, f'_song_{stamp}.mp3')
 
-    # Step 1: edge-tts
+    # Step 1: edge-tts with slower rate (-20%) for comfortable nursery rhyme pace
     async def synthesize():
-        communicate = edge_tts.Communicate(raw_text, voice, rate='-5%', pitch=pitch)
+        communicate = edge_tts.Communicate(raw_text, voice, rate='-20%', pitch=pitch)
         await communicate.save(tmp_vocal)
 
     asyncio.run(synthesize())
