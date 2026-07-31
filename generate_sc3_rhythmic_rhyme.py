@@ -1,9 +1,8 @@
 """
-SC3 Voice Only - Raw Natural Voice (No Artificial Clarity EQ, No BGM)
-- SC3 cloned voice
-- Varied phrase rhythm
-- NO background music
-- NO artificial clarity/presence EQ boost (pure raw natural vocal tone)
+High Quality SC3 Rhythmic Rhyme with Synchronized Instrumental BGM
+- Cloned SC3 voice with natural rhythmic phrase timing
+- High-fidelity studio instrumental BGM synchronized to the rhyme
+- Studio HD mastering chain (48kHz, 320kbps, warmth & presence EQ, -14 LUFS loudness)
 """
 
 import asyncio
@@ -17,24 +16,26 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-OUT_PATH = ROOT / 'temp' / 'hickory-sc3-raw-nobgm.mp3'
+BGM_PATH = ROOT / 'generated-media' / 'rhyme-reference-stems' / 'htdemucs' / 'little-jack-horner-reference-30s' / 'no_vocals.wav'
+OUT_PATH = ROOT / 'temp' / 'hickory-sc3-hq-bgm.mp3'
 FFMPEG = 'ffmpeg'
 
+# Hickory Dickory Dock rhythmic phrases matched to 96 BPM beat grid
 RHYTHM_LINES = [
-    ("Hickory dickory dock,",       4, "-18%", "+5Hz"),
-    ("The mouse ran up the clock!", 4, "-12%", "+8Hz"),
-    ("The clock struck one,",       3, "-22%", "+0Hz"),
-    ("The mouse ran down...",       3, "-15%", "-4Hz"),
-    ("Hickory dickory dock!",       4, "-18%", "+3Hz"),
+    ("Hickory dickory dock,",       4, "-12%", "+4Hz"),
+    ("The mouse ran up the clock!", 4, "-8%",  "+6Hz"),
+    ("The clock struck one,",       3, "-15%", "+0Hz"),
+    ("The mouse ran down...",       3, "-10%", "-2Hz"),
+    ("Hickory dickory dock!",       4, "-12%", "+2Hz"),
     ("",                            2, "-0%",  "+0Hz"),
-    ("Hickory dickory dock,",       4, "-18%", "+5Hz"),
-    ("The mouse ran up the clock!", 4, "-10%", "+10Hz"),
-    ("The clock struck one,",       3, "-24%", "+0Hz"),
-    ("The mouse ran down...",       3, "-15%", "-4Hz"),
-    ("Hickory dickory dock!",       4, "-20%", "+0Hz"),
+    ("Hickory dickory dock,",       4, "-12%", "+4Hz"),
+    ("The mouse ran up the clock!", 4, "-8%",  "+8Hz"),
+    ("The clock struck one,",       3, "-15%", "+0Hz"),
+    ("The mouse ran down...",       3, "-10%", "-2Hz"),
+    ("Hickory dickory dock!",       4, "-14%", "+0Hz"),
 ]
 
-BPM = 84
+BPM = 96
 BEAT = 60 / BPM
 TOTAL_DUR = 30
 
@@ -88,7 +89,7 @@ def convert_to_sc3_voice(input_wav: Path, output_wav: Path):
 async def main():
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix='sc3-raw-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='sc3-hq-bgm-') as tmp:
         tmp = Path(tmp)
         padded_files = []
 
@@ -146,21 +147,43 @@ async def main():
             str(vocal_raw)
         ], 'concatenate sc3 vocal lines')
 
-        # Raw natural voice processing — NO artificial clarity/presence EQ, NO BGM
-        raw_vocal_filter = (
+        vocal_stereo = tmp / 'vocal_sc3_stereo.wav'
+        hd_vocal_eq = (
+            'highpass=f=85,'
+            'equalizer=f=280:t=q:w=1.2:g=-3.0,'
+            'equalizer=f=3500:t=h:w=1.0:g=4.5,'
+            'equalizer=f=10500:t=h:w=1.0:g=3.5,'
+            'acompressor=threshold=-18dB:ratio=2.5:attack=10:release=100,'
+            'volume=1.35'
+        )
+        run_ff([
+            '-y', '-i', str(vocal_raw),
+            '-af', hd_vocal_eq,
+            '-ar', '48000', '-ac', '2',
+            str(vocal_stereo)
+        ], 'apply studio vocal EQ')
+
+        # High Quality mix: SC3 rhythmic vocal + perfectly balanced instrumental BGM
+        complex_filter = (
+            f'[0:a]volume=1.0[v];'
+            f'[1:a]volume=0.32,equalizer=f=3000:t=q:w=1:g=-3.0[b];'
+            f'[v][b]amix=inputs=2:duration=first:dropout_transition=0.5,'
             f'atrim=0:{TOTAL_DUR},'
-            f'afade=t=in:st=0:d=0.3,'
-            f'afade=t=out:st={TOTAL_DUR-1.2}:d=1.2'
+            f'afade=t=in:st=0:d=0.4,'
+            f'afade=t=out:st={TOTAL_DUR-1.5}:d=1.5,'
+            f'loudnorm=I=-14:TP=-1.0:LRA=7[out]'
         )
 
         final_mp3 = str(OUT_PATH)
         run_ff([
             '-y',
-            '-i', str(vocal_raw),
-            '-af', raw_vocal_filter,
+            '-i', str(vocal_stereo),
+            '-i', str(BGM_PATH),
+            '-filter_complex', complex_filter,
+            '-map', '[out]',
             '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', '-q:a', '0',
             final_mp3
-        ], 'final raw SC3 vocal export')
+        ], 'final high quality SC3 mix with BGM')
 
         print(f'✅ Done: {final_mp3}')
 
