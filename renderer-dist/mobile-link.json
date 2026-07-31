@@ -1,5 +1,9 @@
 {
-  "wifiUrl": "http://192.168.29.161:5173",
-  "mobileUrl": "https://prospective-translations-dominant-database.trycloudflare.com",
-  "updatedAt": "2026-07-27T11:09:42.081Z"
+  "wifiUrl": "http://192.168.29.161:8433",
+  "mobileUrl": "https://smilies-acids-rep-wizard.trycloudflare.com/?mobileToken=33e2cf7b187cabacd19210498dd4ba95f97967c840f5b2c6",
+  "active": true,
+  "updatedAt": "2026-07-31T11:19:55.837Z",
+  "status": "active",
+  "verified": true,
+  "provider": "Cloudflare Quick Tunnel"
 }
