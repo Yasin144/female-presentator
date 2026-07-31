@@ -3154,7 +3154,7 @@ async function createWindow() {
       caption: `${String(payload?.stylePrompt || 'hd crystal-clear voice, studio-mastered vocal, ultra-clean high-fidelity 48kHz audio, premium preschool nursery rhyme, naturally expressive young female singer, warm realistic human vocal, joyful child-friendly performance, crystal-clear English pronunciation, memorable playful melody, soft piano, glockenspiel, ukulele and gentle drums, wide clean stereo instrumental, polished commercial children song')}, preserve the same lead-singer timbre and vocal character as the supplied Little Jack Horner reference; sing naturally with melodic phrasing and breath, never robotic, never spoken`,
       lyrics: performanceLyrics,
       duration,
-      bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 96)),
+      bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 84)),
       keyscale: 'C major',
       timesignature: '4',
       vocal_language: 'en',
