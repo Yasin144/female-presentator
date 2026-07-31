@@ -44,11 +44,11 @@ def main():
         print(json.dumps({"ok": False, "error": "TTS synthesis failed"}))
         return
 
-    # Step 2: FFmpeg mix with BGM
+    # Step 2: FFmpeg mix with BGM (HD Crystal-Clear Vocal Mastering)
     complex_filter = (
-        f"[0:a]highpass=f=100,equalizer=f=320:t=q:w=1.5:g=-5.0,equalizer=f=3800:t=h:w=1:g=6.5,equalizer=f=8000:t=h:w=1:g=4.0,acompressor=threshold=-15dB:ratio=3:attack=8:release=120,volume=1.2,apad=pad_len=48000*30[vocal];"
-        f"[1:a]volume={bgm_vol},equalizer=f=3000:t=q:w=1:g=-2.0[bgm];"
-        f"[vocal][bgm]amix=inputs=2:duration=longest:dropout_transition=0.5,atrim=0:{target_duration},afade=t=out:st={target_duration - 1}:d=1,loudnorm=I=-14:TP=-0.5:LRA=7[out]"
+        f"[0:a]highpass=f=85,equalizer=f=280:t=q:w=1.2:g=-3.5,equalizer=f=3500:t=h:w=1.0:g=4.5,equalizer=f=10500:t=h:w=1.0:g=3.5,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=100,volume=1.25,apad=pad_len=48000*30[vocal];"
+        f"[1:a]volume={bgm_vol},equalizer=f=3000:t=q:w=1:g=-2.5[bgm];"
+        f"[vocal][bgm]amix=inputs=2:duration=longest:dropout_transition=0.5,atrim=0:{target_duration},afade=t=out:st={target_duration - 1}:d=1,loudnorm=I=-14:TP=-1.0:LRA=7[out]"
     )
 
     cmd = [
@@ -60,6 +60,7 @@ def main():
         '-ar', '48000',
         '-c:a', 'libmp3lame',
         '-b:a', '320k',
+        '-q:a', '0',
         final_mp3
     ]
 

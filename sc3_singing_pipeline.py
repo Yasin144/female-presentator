@@ -23,10 +23,11 @@ def convert_to_wav(input_path, output_path):
     run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
-        "-ar", "44100",
+        "-af", "highpass=f=85,equalizer=f=280:t=q:w=1.2:g=-3.5,equalizer=f=3500:t=h:w=1.0:g=4.5,equalizer=f=10500:t=h:w=1.0:g=3.5",
+        "-ar", "48000",
         "-ac", "2",
         str(output_path),
-    ], "Preparing song audio")
+    ], "Preparing song audio for HD voice conversion")
 
 
 def main():
@@ -68,9 +69,10 @@ def main():
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(converted_audio),
             "-codec:a", "libmp3lame",
-            "-b:a", "192k",
+            "-b:a", "320k",
+            "-q:a", "0",
             str(output_path),
-        ], "Writing MP3 output")
+        ], "Writing 320kbps HD MP3 output")
 
     if not output_path.exists() or output_path.stat().st_size <= 0:
         raise RuntimeError("The sc3 singing model did not create an output MP3.")

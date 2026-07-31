@@ -100,16 +100,15 @@ def _direct_converter_importable():
 
 def _prepare_wav(input_path, output_path):
     """Prepare audio for OpenVoice conversion.
-    High-quality resample to 44100Hz stereo with soxr resampler.
-    Gentle high-shelf boost (+1.5dB above 8kHz) restores presence lost
-    in MP3 encoding so OpenVoice extracts a richer source embedding.
+    HD resample to 48000Hz stereo.
+    Multiband presence EQ & dynamics compressor restores crisp vocal articulation
+    and air frequencies so OpenVoice extracts an ultra-clear HD source embedding.
     """
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
-        # High-quality resampling + subtle presence boost for richer SE extraction
-        "-af", "equalizer=f=8000:t=h:w=1:g=1.5",
-        "-ar", "44100",
+        "-af", "highpass=f=85,equalizer=f=280:t=q:w=1.2:g=-3.5,equalizer=f=3500:t=h:w=1.0:g=4.5,equalizer=f=10500:t=h:w=1.0:g=3.5,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=100",
+        "-ar", "48000",
         "-ac", "2",
         "-sample_fmt", "s16",
         str(output_path),
@@ -118,13 +117,12 @@ def _prepare_wav(input_path, output_path):
 
 def _write_mp3(input_path, output_path):
     """Write maximum-quality MP3.
-    320kbps + loudness normalisation to -16 LUFS (broadcast standard).
-    -16 LUFS keeps the voice loud and present without clipping.
+    320kbps + -14 LUFS broadcast loudness standard for HD crystal-clear audio.
     """
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
-        "-af", "loudnorm=I=-16:TP=-1.5:LRA=7",
+        "-af", "loudnorm=I=-14:TP=-1.0:LRA=7",
         "-codec:a", "libmp3lame",
         "-b:a", "320k",
         "-q:a", "0",
