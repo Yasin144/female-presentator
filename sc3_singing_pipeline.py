@@ -68,11 +68,12 @@ def main():
         run([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(converted_audio),
+            "-af", "loudnorm=I=-14:TP=-1.0:LRA=7",
             "-codec:a", "libmp3lame",
             "-b:a", "320k",
             "-q:a", "0",
             str(output_path),
-        ], "Writing 320kbps HD MP3 output")
+        ], "Writing 320kbps HD Crystal-Clear MP3 output (-14 LUFS)")
 
     if not output_path.exists() or output_path.stat().st_size <= 0:
         raise RuntimeError("The sc3 singing model did not create an output MP3.")

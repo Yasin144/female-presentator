@@ -3403,9 +3403,9 @@ async function createWindow() {
       const eqGain = (-1.0 + (presence * 0.6)).toFixed(1);
       const bgmEq = (-6.0 + (bgmLevel / 100) * 8.0).toFixed(1);
       const overallVol = (0.75 + (presence * 0.04) + (bgmLevel / 100) * 0.25).toFixed(2);
-      const audioFilter = `highpass=f=80,equalizer=f=400:t=q:w=1:g=${bgmEq},equalizer=f=3500:t=h:w=1:g=${eqGain},volume=${overallVol},acompressor=threshold=-16dB:ratio=2.5:attack=10:release=150,loudnorm=I=-14:TP=-1.0:LRA=9`;
+      const audioFilter = `highpass=f=85,equalizer=f=280:t=q:w=1.2:g=${bgmEq},equalizer=f=3500:t=h:w=1.0:g=${eqGain},equalizer=f=10500:t=h:w=1.0:g=3.5,volume=${overallVol},acompressor=threshold=-18dB:ratio=2.8:attack=10:release=100,loudnorm=I=-14:TP=-1.0:LRA=7`;
       try {
-        await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', enhancedPath], 10 * 60 * 1000, workDir);
+        await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', '-q:a', '0', enhancedPath], 10 * 60 * 1000, workDir);
       } catch (_) {}
       report('Finalizing the MP3', 96, 'Saving the mastered 4K 320kbps MP3 song');
       fs.copyFileSync(fs.existsSync(enhancedPath) ? enhancedPath : best.path, savedPath);
