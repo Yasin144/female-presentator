@@ -4,7 +4,7 @@ import './director-studio.css';
 const STORAGE_KEY = 'pattan-director-projects-v1';
 
 const LANGUAGES = ['English', 'Indian English', 'Telugu', 'Hindi'];
-const FORMATS = ['Explainer', 'Lesson', 'Product story', 'News update', 'Social short'];
+const FORMATS = ['Children’s rhyme video', 'Explainer', 'Lesson', 'Product story', 'News update', 'Social short'];
 const TONES = ['Clear and confident', 'Warm teacher', 'Cinematic', 'Energetic', 'Professional'];
 
 function loadProjects() {
@@ -19,6 +19,32 @@ function loadProjects() {
 function makeDirectorDraft(form) {
   const topic = form.topic.trim();
   const duration = Math.max(30, Number(form.duration) || 90);
+  if (form.format === 'Children’s rhyme video') {
+    const lyricLines = topic.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const exactLyrics = lyricLines.join('\n');
+    const secondsPerScene = Math.max(3, Math.min(6, duration / Math.max(1, lyricLines.length)));
+    const scenes = lyricLines.map((line, index) => (
+      `SCENE ${index + 1} — LYRIC LINE ${index + 1}\n` +
+      `Presenter: ${line}\n` +
+      `Visual: Recreate “${line}” as a meaningful premium 3D animated action using only relevant characters, objects and settings from the supplied sources. Add one playful secondary action and expressive facial reaction.\n` +
+      `Performance: Synchronize lip movement, body action, object animation and musical accents to every sung word.\n` +
+      `Camera: Use a clear child-friendly ${index % 3 === 0 ? 'wide establishing shot' : index % 3 === 1 ? 'expressive medium tracking shot' : 'close-up followed by a gentle pull-back'}; transition smoothly after about ${secondsPerScene.toFixed(1)} seconds.\n` +
+      `Caption emphasis: Display exactly “${line}” only while it is sung; one readable line, high contrast, never covering a face.`
+    )).join('\n\n');
+
+    return `TITLE: ${lyricLines[0] || 'Children’s Rhyme'}\n` +
+      `FORMAT: Premium children’s rhyme video\nTARGET AGE: ${form.audience || '3–6 years'}\n` +
+      `LANGUAGE: ${form.language}\nTARGET LENGTH: ${duration} seconds\nASPECT RATIO: 16:9 widescreen\n\n` +
+      `EXACT RHYME LYRICS — LOCKED:\n${exactLyrics}\n\n` +
+      `SOURCE PRIORITY: exact lyrics → character references → object references → setting references → animation-style references. Analyse every supplied image, audio, video, costume, face, colour, object and background before generation. Recreate references as one living 3D world; never show a flat slideshow. Never omit, rewrite, reorder or add lyrics.\n\n` +
+      `VISUAL STANDARD: Premium cinematic 3D realistic-cartoon animation, bright child-friendly colours, polished textures, expressive stable faces, correct hands, smooth shadows, beautiful warm lighting, clear depth and professional international children’s television quality. Maintain identical character face, age, proportions, hairstyle, skin tone, costume and colours across every shot. Maintain exact object counts and stable environments.\n\n` +
+      `MUSIC: Original joyful, energetic and memorable child-friendly melody with a clear rhythm. Use xylophone, ukulele, soft drums, handclaps, bells, flute, cheerful strings, light bass and playful percussion. Add tasteful pauses, instrumental responses and synchronized sound effects without covering lyrics. Keep the approved SC3 vocal clear and in front.\n\n` +
+      `PERFORMANCE: Warm, lively, natural singing; exact pronunciation; no robotic delivery. Use expressive eyes, blinking, eyebrows, head turns, gestures, dancing, clapping, jumping, spinning, pointing and safe friendly interaction. Every lyric line must become a visible action, not characters standing and singing. Backgrounds should move gently without overcrowding the frame.\n\n` +
+      `${scenes}\n\n` +
+      `ENDING: Finish with a joyful rhyme-connected celebration, smile, wave or bow and hold the final composition long enough to feel complete.\n\n` +
+      `NEGATIVE PROMPT: No inconsistent characters, altered costumes, missing or extra lyrics, incorrect counts, duplicates, deformed hands, extra fingers, distorted or crossed eyes, stiff or repeated animation, robotic lip movement, lip-sync errors, dark faces, frightening expressions, unsafe actions, random objects, irrelevant background characters, overcrowding, flat source images, frozen singing poses, broken anatomy, disappearing or floating objects, flicker, warping, style changes, shaky camera, cropped faces or hands, unreadable or misspelled subtitles, logos, brands, watermark-like text, low-resolution frames, abrupt cuts or unfinished ending.\n\n` +
+      `FINAL QUALITY GATES: Verify exact lyrics, pronunciation, word-level lip sync, beat synchronization, subtitle timing, character continuity, object counts, safe actions, 16:9 framing, audio balance, visual clarity and complete ending before export.`;
+  }
   const sceneCount = Math.max(3, Math.min(8, Math.round(duration / 25)));
   const beats = [
     ['Opening hook', `Begin with a strong question or surprising truth about ${topic}.`],
@@ -126,8 +152,8 @@ function createSlideBase64(title, subtitle, width = 1920, height = 1080) {
 
 export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, onOpenExporter }) {
   const [form, setForm] = useState({
-    topic: '', audience: 'Students and everyday viewers', duration: 90,
-    language: 'Indian English', format: 'Explainer', tone: 'Warm teacher',
+    topic: '', audience: '3–6 years', duration: 90,
+    language: 'Indian English', format: 'Children’s rhyme video', tone: 'Energetic',
     voice: 'Anjali female presenter', captions: true,
   });
   const [draft, setDraft] = useState('');
@@ -425,9 +451,9 @@ export default function DirectorStudio({ onSendToPresentator, onOpenCaptions, on
         <section className="director-grid">
           <div className="director-card director-brief">
             <div className="director-section-title">01 — Creative brief</div>
-            <label className="director-wide">Topic or goal<textarea value={form.topic} onChange={event => update('topic', event.target.value)} placeholder="Example: Explain compound interest with a simple Indian household example" /></label>
+            <label className="director-wide">{form.format === 'Children’s rhyme video' ? 'Exact rhyme lyrics' : 'Topic or goal'}<textarea value={form.topic} onChange={event => update('topic', event.target.value)} placeholder={form.format === 'Children’s rhyme video' ? 'Paste the complete exact rhyme here. One lyric line per line.' : 'Example: Explain compound interest with a simple Indian household example'} /></label>
             <label>Audience<input value={form.audience} onChange={event => update('audience', event.target.value)} /></label>
-            <label>Length<select value={form.duration} onChange={event => update('duration', Number(event.target.value))}><option value={45}>45 seconds</option><option value={90}>90 seconds</option><option value={180}>3 minutes</option><option value={300}>5 minutes</option></select></label>
+            <label>Length<select value={form.duration} onChange={event => update('duration', Number(event.target.value))}><option value={30}>30 seconds</option><option value={45}>45 seconds</option><option value={60}>60 seconds</option><option value={90}>90 seconds</option><option value={120}>2 minutes</option><option value={180}>3 minutes</option><option value={300}>5 minutes</option></select></label>
             <label>Format<select value={form.format} onChange={event => update('format', event.target.value)}>{FORMATS.map(item => <option key={item}>{item}</option>)}</select></label>
             <label>Language<select value={form.language} onChange={event => update('language', event.target.value)}>{LANGUAGES.map(item => <option key={item}>{item}</option>)}</select></label>
             <label>Tone<select value={form.tone} onChange={event => update('tone', event.target.value)}>{TONES.map(item => <option key={item}>{item}</option>)}</select></label>

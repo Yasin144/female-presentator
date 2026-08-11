@@ -44,6 +44,15 @@ async function saveBlobInChunks(api: any, blob: Blob, fileName: string) {
   }
   const finished = await api.finishDownloadFile(begin.id);
   if (!finished?.ok) throw new Error(finished?.error || 'Could not finish output file');
+  if (api?.isMobileRemote && finished.downloadUrl) {
+    const anchor = document.createElement('a');
+    anchor.href = finished.downloadUrl;
+    anchor.download = finished.fileName || fileName;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
   return { filePath: finished.filePath as string, fileName: finished.fileName as string };
 }
 
@@ -266,7 +275,7 @@ export default function CaptionBurner({ onClose }: Props) {
     }
     // Use native file path in Electron to avoid blob URL failures on large files
     const api = (window as any).electronAPI;
-    if (api?.getPathForFile) {
+    if (api?.getPathForFile && !api?.isMobileRemote) {
       const filePath = api.getPathForFile(item.video.file);
       if (filePath) {
         // Convert Windows backslashes to forward slashes for file:// URL
@@ -307,13 +316,42 @@ export default function CaptionBurner({ onClose }: Props) {
 
   // Remove a video from the queue
   const remove = useCallback((id: string) => {
-    setQueue(q => q.filter(i => i.id !== id));
-    if (activeId === id) {
-      setActiveId(null);
-      setVideoUrl(null);
-      setBurnedVideoUrl(null);
-    }
+    setQueue(q => {
+      const next = q.filter(i => i.id !== id);
+      if (activeId === id) {
+        setActiveId(next[0]?.id || null);
+        if (!next.length) {
+          setVideoUrl(null);
+          setBurnedVideoUrl(null);
+        }
+      }
+      return next;
+    });
   }, [activeId]);
+
+  const clearAll = useCallback(() => {
+    for (const controller of Object.values(abortControllersRef.current)) controller.abort();
+    abortControllersRef.current = {};
+    if (typeof window.electronAPI?.cancelTranscribeVideo === 'function') {
+      window.electronAPI.cancelTranscribeVideo({ all: true }).catch(() => {});
+    }
+    pendingAutoStartIdRef.current = null;
+    setQueue([]);
+    setActiveId(null);
+    setVideoUrl(null);
+    setBurnedVideoUrl(null);
+    setDuration(0);
+    setCurTime(0);
+    setIsPlaying(false);
+    setProc(false);
+    setBatch(false);
+    setError(null);
+    if (fileRef.current) {
+      fileRef.current.value = '';
+      delete fileRef.current.dataset.pattanUploaded;
+      delete fileRef.current.dataset.pattanUploading;
+    }
+  }, []);
 
   const notify = useCallback((title: string, body: string) => {
     const api = electronApi();
@@ -335,6 +373,9 @@ export default function CaptionBurner({ onClose }: Props) {
     if (controller) {
       controller.abort();
       delete abortControllersRef.current[id];
+    }
+    if (typeof window.electronAPI?.cancelTranscribeVideo === 'function') {
+      window.electronAPI.cancelTranscribeVideo({ id }).catch(() => {});
     }
     upd(id, { status: 'cancelled', progress: 0, message: 'Cancelled' });
     const item = queue.find(i => i.id === id);
@@ -382,7 +423,7 @@ export default function CaptionBurner({ onClose }: Props) {
   const addFiles = async (files: File[], opts: { language?: Language; autoStart?: boolean } = {}) => {
     setError(null);
     const language = opts.language || S.language;
-    const selectedVideos = files.filter(f => f.type.startsWith('video/'));
+    const selectedVideos = files.filter(f => f.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
     const api = electronApi();
     if (api?.isMobileRemote && api?.uploadMobileFile) {
       try {
@@ -538,6 +579,18 @@ export default function CaptionBurner({ onClose }: Props) {
         const transcribed = await transcribeItem(item, signal);
         if (!transcribed || !transcribed.captions?.length) return;
         itemToBurn = transcribed;
+      }
+      const reviewLanguages = new Set(['Hindi', 'Telugu', 'Tamil', 'Kannada', 'Malayalam', 'Urdu', 'Arabic']);
+      const resolvedDetectedLanguage = String(itemToBurn.detectedLang || itemToBurn.language || '');
+      if (reviewLanguages.has(resolvedDetectedLanguage)) {
+        upd(item.id, {
+          status: 'transcribed',
+          message: `${resolvedDetectedLanguage} captions ready · Quality review required before Export Video.`,
+          progress: 100,
+        });
+        setAutoBurn(false);
+        notify('Caption review required', `${item.video.name}: verify the ${resolvedDetectedLanguage} words before export`);
+        return;
       }
       if (!autoBurn) {
         upd(item.id, {
@@ -916,6 +969,18 @@ export default function CaptionBurner({ onClose }: Props) {
         }}
       />
 
+      {currentWorkingItem && (
+        <button
+          type="button"
+          className="cb-global-cancel"
+          onClick={cancelCurrentVideo}
+          title="Stop the active caption process"
+        >
+          <span aria-hidden="true">■</span>
+          Stop {currentWorkingItem.status === 'exporting' ? 'Burning' : 'Transcription'}
+        </button>
+      )}
+
       <header
         className="flex items-center justify-between shrink-0"
         style={{ height: 64, padding: '0 24px', borderBottom: '1px solid rgba(125,145,255,0.12)', background: 'rgba(2,6,23,0.68)', backdropFilter: 'blur(18px)' }}
@@ -1165,7 +1230,9 @@ export default function CaptionBurner({ onClose }: Props) {
                           // phrase remains hidden until its caption start time.
                           const safeIndex = activeIndex >= 0 ? activeIndex : 0;
                           const groupStart = Math.floor(safeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT;
-                          const wordsToShow = allWords.slice(groupStart, groupStart + CAPTION_WORD_LIMIT);
+                          // Match exported captions: reveal the current phrase
+                          // progressively and never preview words from the future.
+                          const wordsToShow = allWords.slice(groupStart, Math.max(groupStart + 1, safeIndex + 1));
                           return wordsToShow.map((w, i) => {
                             const lit = t >= w.start && t <= w.end;
                             return (
@@ -1327,6 +1394,11 @@ export default function CaptionBurner({ onClose }: Props) {
                 <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 rounded-lg text-[9px] font-bold text-white transition-all" style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)' }}>
                   <IconPlus /> Add
                 </button>
+                {queue.length > 0 && (
+                  <button onClick={clearAll} disabled={!!currentWorkingItem} className="px-3 py-1.5 rounded-lg text-[9px] font-bold text-rose-200 transition-all disabled:opacity-40" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.24)' }}>
+                    Clear All
+                  </button>
+                )}
               </div>
             </div>
             <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(2,6,23,0.28)' }}>
@@ -1620,7 +1692,11 @@ export default function CaptionBurner({ onClose }: Props) {
                   {batchOn && (
                     <span className="inline-block w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#fcd34d', borderTopColor: 'transparent' }} />
                   )}
-                  {batchOn ? `Queue Running ${workingCount}/${queue.length}` : `Start Queue (${queueRunnableCount})`}
+                  {batchOn
+                    ? `Generating ${workingCount}/${queue.length}`
+                    : queue.length === 1
+                      ? 'Generate Captions'
+                      : `Generate Captions (${queueRunnableCount})`}
                 </button>
                 <button
                   disabled={captionReadyCount === 0 || processing}
@@ -1747,7 +1823,7 @@ export default function CaptionBurner({ onClose }: Props) {
                     {activeItem?.status === 'transcribing' ? 'Transcribing...' 
                       : activeItem?.status === 'exporting' ? 'Burning...' 
                       : canBurn ? 'Export Video' 
-                      : `Start Queue (${queueRunnableCount})`}
+                      : queue.length === 1 ? 'Generate Captions' : `Generate Captions (${queueRunnableCount})`}
                   </button>
                   {canBurn && (
                     <button

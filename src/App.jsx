@@ -6,11 +6,12 @@ import DirectorStudio from './components/Director/DirectorStudio';
 import MyExporter from './components/MyExporter/MyExporter';
 import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
 import OllamaTools from './components/OllamaTools/OllamaTools';
+import QuoteStudio from './components/QuoteStudio/QuoteStudio';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'director', 'exporter', 'ai-tools']);
+const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'quotes', 'director', 'exporter', 'ai-tools']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'presentator';
 
 class CaptionErrorBoundary extends React.Component {
@@ -126,6 +127,19 @@ function App() {
     mobileUrl: '',
     updatedAt: ''
   });
+  useEffect(() => {
+    const openRhymeStudio = (event) => {
+      const detail = event?.detail || {};
+      try {
+        if (detail.engine) localStorage.setItem('pattan.rhyme.requestedEngine', String(detail.engine));
+        if (detail.command) localStorage.setItem('pattan.rhyme.requestedCommand', String(detail.command));
+      } catch (_) {}
+      setCaptionOpen(false);
+      setCurrentModule('rhyme');
+    };
+    window.addEventListener('pp:open-rhyme-studio', openRhymeStudio);
+    return () => window.removeEventListener('pp:open-rhyme-studio', openRhymeStudio);
+  }, []);
   const [copiedNotice, setCopiedNotice] = useState('');
   const [tunnelSecs, setTunnelSecs] = useState(0);
   const [whatsAppAutoSend, setWhatsAppAutoSend] = useState(true);
@@ -222,9 +236,6 @@ function App() {
           const ipcData = await window.electronAPI.getMobileLink();
           if (ipcData?.mobileUrl || ipcData?.wifiUrl) {
             updateLinkState(ipcData);
-            if (!ipcData.mobileUrl && window.electronAPI?.generateMobileLink) {
-              window.electronAPI.generateMobileLink().catch(() => {});
-            }
             return;
           }
         }
@@ -239,9 +250,6 @@ function App() {
           const json = await res.json();
           if (json?.mobileUrl || json?.wifiUrl) {
             updateLinkState(json);
-            if (!json.mobileUrl && window.electronAPI?.generateMobileLink) {
-              window.electronAPI.generateMobileLink().catch(() => {});
-            }
           }
         }
       } catch (_) {}
@@ -395,7 +403,7 @@ function App() {
 
   useEffect(() => {
     // Cache-buster: change this version string any time a legacy JS file changes
-    const _CB = '?v=20260714-local-caption-opening-fix';
+    const _CB = '?v=20260803-sing-song-upload-queue-fix';
     const scriptSources = [
       "../logo-data.js" + _CB,
       "../script.js" + _CB,
@@ -608,6 +616,19 @@ function App() {
                 fontFamily: 'system-ui'
               }}
             >Rhyme Maker</button>
+            <button
+              className="app-nav-button"
+              data-active={currentModule === 'quotes'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('quotes'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'quotes' ? 'linear-gradient(135deg,#f7d477,#e79d2d)' : 'transparent',
+                color: currentModule === 'quotes' ? '#241704' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'quotes' ? '0 4px 12px rgba(231,157,45,0.3)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >Quote Studio</button>
             <button
               className="app-nav-button"
               data-active={currentModule === 'director'}
@@ -827,6 +848,13 @@ function App() {
         <div style={{ display: (!captionOpen && currentModule === 'rhyme') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="Rhyme Generator">
             <RhymeGenerator />
+          </ModuleErrorBoundary>
+        </div>
+
+        {/* ── Viral Quote Studio ── */}
+        <div style={{ display: (!captionOpen && currentModule === 'quotes') ? 'block' : 'none', height: '100vh', overflow: 'auto', boxSizing: 'border-box' }}>
+          <ModuleErrorBoundary moduleName="Viral Quote Studio">
+            <QuoteStudio />
           </ModuleErrorBoundary>
         </div>
 
@@ -1134,7 +1162,8 @@ function App() {
                 onClick={async () => {
                   setCopiedNotice('⚡ Generating fresh live 4G/5G mobile link & WhatsApp notification...');
                   if (window.electronAPI?.generateMobileLink) {
-                    await window.electronAPI.generateMobileLink();
+                    const generated = await window.electronAPI.generateMobileLink();
+                    if (generated?.mobileUrl) updateLinkState(generated);
                   }
                   try {
                     const res = await fetch('/api/mobile-link');

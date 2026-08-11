@@ -436,6 +436,63 @@ plz open ur books!"></textarea>
             <p className="upload-copy" id="placeValueToolStatus">Use this builder when you want to present place value
               charts quickly without typing the full layout by hand.</p>
           </div>
+          <div className="tool-card number-table-card">
+            <div className="tool-card-head">
+              <span className="module-icon">NUM</span>
+              <p className="tool-card-title">Number Table Builder</p>
+            </div>
+            <p className="upload-copy">Enter from and to numbers. Presentator will create the same grid style, display it,
+              and read the numbers in order.</p>
+            <div className="display-style-grid">
+              <label className="style-field" htmlFor="numberTableFromInput">
+                <span className="style-label">From</span>
+                <input id="numberTableFromInput" className="text-field-input" type="text" inputMode="numeric"
+                  maxLength="7" placeholder="101" />
+              </label>
+              <label className="style-field" htmlFor="numberTableToInput">
+                <span className="style-label">To</span>
+                <input id="numberTableToInput" className="text-field-input" type="text" inputMode="numeric"
+                  maxLength="7" placeholder="200" />
+              </label>
+            </div>
+
+            {/* ── Number Table Theme Selector ── */}
+            <div className="display-style-grid" style={{marginTop:'8px'}}>
+              <label className="style-field" htmlFor="numberTableThemeSelect">
+                <span className="style-label">Number Theme</span>
+                <select id="numberTableThemeSelect" className="theme-select text-style-select"
+                  aria-label="Choose number table visual theme" defaultValue="normal">
+                  <option value="normal">📋 Normal</option>
+                  <option value="classic">🟥 Classic (Red Grid)</option>
+                  <option value="ocean">🌊 Ocean Blue</option>
+                  <option value="forest">🌿 Forest Green</option>
+                  <option value="candy">🍭 Candy Pink</option>
+                  <option value="gold">✨ Golden Hour</option>
+                  <option value="night">🌌 Night Purple</option>
+                  <option value="neon">⚡ Neon Cyan</option>
+                  <option value="chalk">🖊 Chalk Board</option>
+                  <option value="fire">🔥 Fire Orange</option>
+                  <option value="royal">👑 Royal Violet</option>
+                </select>
+              </label>
+            </div>
+
+            {/* ── Intro Enable/Disable for Number Table ── */}
+            <label className="toggle-check" htmlFor="numberTableIntroEnabled" style={{marginTop:'8px'}}>
+              <input id="numberTableIntroEnabled" type="checkbox" defaultChecked />
+              <span>🎬 Play Intro Clip Before Number Table</span>
+            </label>
+            <p className="upload-copy" style={{fontSize:'0.75rem', marginTop:'2px'}} id="numberTableIntroStatus">
+              Intro will play before the number grid presentation when enabled.
+            </p>
+
+            <div className="toolbar toolbar-compact" style={{marginTop:'8px'}}>
+              <button id="applyNumberTableBtn" className="primary-btn" type="button">Create Table</button>
+              <button id="showNumberTableBtn" className="accent-btn" type="button">Display</button>
+              <button id="readNumberTableBtn" className="primary-btn" type="button">Display &amp; Read</button>
+            </div>
+            <p className="upload-copy" id="numberTableToolStatus">Use this for number grids like 101 to 200.</p>
+          </div>
           <div className="input-module-head" style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
             <label className="field-label maths-label" htmlFor="lessonInput">Translated Maths Lesson</label>
             <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
@@ -1323,6 +1380,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <label className="field-label" htmlFor="sc3VideoInput">Videos — Queue (American English → Indian English)</label>
             <p className="upload-copy">Upload <strong>one or more videos</strong> — they will be queued and processed one by one. Each video gets its full audio replaced with the SC3 Indian English voice.</p>
             <input id="sc3VideoInput" className="image-input" type="file" accept="video/mp4,video/webm,video/*" multiple />
+            <button id="sc3VideoFolderBtn" className="ghost-btn" type="button">📁 Load Every Video From a Folder</button>
             <video id="sc3VideoSourcePreview" className="audio-preview hidden" controls preload="metadata"></video>
             <div className="toolbar toolbar-compact">
               <button id="singSongProcessBtn" className="primary-btn" type="button" disabled>🎵 Prepare Song Mix</button>
@@ -1352,6 +1410,13 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <div style={{color:'#9ca3af', fontSize:'0.75rem'}}>SC3 Singing • Natural rhythm • Much faster</div>
                   </div>
                 </label>
+                <label id="sc3ModeLyriaLabel" style={{display:'flex', alignItems:'center', gap:'8px', cursor:'pointer', background:'rgba(30,30,50,0.4)', border:'2px solid rgba(34,211,238,0.35)', borderRadius:'8px', padding:'8px 14px', flex:'1', minWidth:'180px', transition:'all 0.2s'}}>
+                  <input type="radio" name="sc3VoiceMode" id="sc3ModeLyria" value="lyria" style={{accentColor:'#22d3ee', width:'16px', height:'16px'}} />
+                  <div>
+                    <div style={{fontWeight:'700', color:'#67e8f9', fontSize:'0.88rem'}}>☁ Google Lyria 3 Pro</div>
+                    <div style={{color:'#9ca3af', fontSize:'0.75rem'}}>Cloud song • Custom duration • 44.1 kHz stereo</div>
+                  </div>
+                </label>
               </div>
             </div>
 
@@ -1374,11 +1439,26 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
 
             <p className="upload-copy" id="singSongModelStatus">SC3 Indian voice clone is ready. Upload one or more videos above and click Process Video Queue.</p>
             <div id="singSongProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
-              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-              <div className="progress-track">
-                <span id="singSongProgressBar" className="progress-fill"></span>
+              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+              style={{marginTop:'14px',padding:'14px 16px',borderRadius:'12px',border:'1px solid rgba(96,165,250,.4)',background:'linear-gradient(135deg,rgba(30,58,138,.22),rgba(15,23,42,.8))'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'9px'}}>
+                <span id="singSongProgressSpinner" aria-hidden="true" style={{display:'none',width:'16px',height:'16px',border:'3px solid rgba(96,165,250,.3)',borderTopColor:'#60a5fa',borderRadius:'50%',animation:'spin 1s linear infinite'}} />
+                <strong id="singSongProgressLabel" style={{color:'#dbeafe',fontSize:'.92rem'}}>Ready</strong>
+                <strong style={{marginLeft:'auto',color:'#93c5fd',fontSize:'1.1rem'}}><span id="singSongProgressPct">0</span>%</strong>
               </div>
-              <p id="singSongProgressLabel" className="upload-copy">0% complete</p>
+              <div className="progress-track" style={{height:'9px',overflow:'hidden',borderRadius:'999px'}}>
+                <span id="singSongProgressBar" className="progress-fill" style={{width:'0%',transition:'width .45s ease'}}></span>
+                <span id="singSongProgressShimmer" aria-hidden="true" style={{display:'none'}} />
+              </div>
+              <div style={{display:'flex',gap:'12px',flexWrap:'wrap',marginTop:'10px',fontSize:'.76rem',color:'#bfdbfe'}}>
+                <span>Queue: <b id="singSongQueueCounter">0 / 0 videos</b></span>
+                <span>Elapsed: <b id="singSongElapsed">0:00</b></span>
+                <span>ETA: <b id="singSongProgressEta">calculating…</b></span>
+                <span>Done: <b id="singSongDoneCount">0</b></span>
+                <span>Failed: <b id="singSongFailCount">0</b></span>
+                <span id="singSongEtaDetail" style={{display:'none'}}>calculating…</span>
+              </div>
+              <p style={{margin:'9px 0 0',fontSize:'.75rem',color:'#94a3b8'}}>Live status updates automatically while extracting audio, transcribing, generating voice, syncing, muxing, and saving.</p>
             </div>
             <audio id="singSongResultPreview" className="audio-preview hidden" controls preload="metadata"></audio>
             <video id="sc3VideoResultPreview" className="audio-preview hidden" controls preload="metadata"></video>
@@ -1451,6 +1531,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
 
             <div className="toolbar toolbar-compact">
               <button id="captionActionBtn" className="primary-btn" type="button" disabled>Generate Captions (Upload Source First)</button>
+              <button id="captionCancelBtn" className="caption-cancel-btn hidden" type="button">Stop Transcription</button>
               <button id="captionEraseBtn" className="accent-btn hidden" type="button" style={{"background": "linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.15))", "border": "1px solid rgba(239, 68, 68, 0.4)", "color": "#fca5a5"}}>🧹 Erase Captions</button>
               <button id="captionPreviewBtn" className="ghost-btn hidden" type="button">Preview 5s</button>
               <button id="captionExportBtn" className="accent-btn hidden" type="button">Export Result</button>
@@ -1636,16 +1717,16 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               </div>
               <video id="captionSourceVideo" hidden playsInline crossOrigin="anonymous"></video>
             </div>
-          </div>
 
-          <div id="captionEditorPanel" className="tool-card hidden" style={{"marginTop": "1rem"}}>
-            <div className="tool-card-head">
-              <span className="module-icon">EDT</span>
-              <p className="tool-card-title">Edit Auto-Captions</p>
+            <div id="captionEditorPanel" className="tool-card hidden" style={{"marginTop": "1rem"}}>
+              <div className="tool-card-head">
+                <span className="module-icon">EDT</span>
+                <p className="tool-card-title">Edit Auto-Captions</p>
+              </div>
+              <p className="upload-copy">If the AI missed a word, correct it below and it will instantly update on the video.
+              </p>
+              <div id="captionList" style={{"maxHeight": "250px", "overflowY": "auto", "paddingRight": "8px"}}></div>
             </div>
-            <p className="upload-copy">If the AI missed a word, correct it below and it will instantly update on the video.
-            </p>
-            <div id="captionList" style={{"maxHeight": "250px", "overflowY": "auto", "paddingRight": "8px"}}></div>
           </div>
         </div>
       </details>
@@ -1672,7 +1753,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             </label>
             <label className="toggle-check" htmlFor="proAnimationsEnabled">
               <input id="proAnimationsEnabled" type="checkbox" defaultChecked />
-              <span>Enable Auto-Math & Interactive Screen Scanning Animations</span>
+              <span>Enable Auto-Math &amp; Interactive Screen Scanning Animations</span>
             </label>
             <label className="toggle-check" htmlFor="proQuizEnabled">
               <input id="proQuizEnabled" type="checkbox" defaultChecked />
@@ -1682,7 +1763,28 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <input id="proDuckingEnabled" type="checkbox" defaultChecked />
               <span>Enable Audio Ducking (Lower music volume when Anjali speaks)</span>
             </label>
+
+            {/* ── Intro Clip Enable / Disable ── */}
+            <label className="toggle-check" htmlFor="introClipEnabled" style={{marginTop:'10px'}}>
+              <input id="introClipEnabled" type="checkbox" defaultChecked />
+              <span>🎬 Play Intro Clip Before Every Lesson</span>
+            </label>
+            <p className="upload-copy" id="introClipStatus" style={{fontSize:'0.78rem', marginTop:'2px'}}>
+              Intro clip will play before the lesson when available.
+            </p>
+
+            {/* ── Intro Poster Upload ── */}
+            <div style={{marginTop:'10px'}}>
+              <label className="field-label" style={{marginBottom:'4px'}}>Intro Poster Image (Optional)</label>
+              <p className="upload-copy" style={{marginBottom:'6px'}}>Upload a full-screen image to show before the lesson starts. Works independently of the intro clip.</p>
+              <div className="toolbar toolbar-compact">
+                <button id="introPosterUploadBtn" className="ghost-btn" type="button">Upload Poster Image</button>
+              </div>
+              <input id="introPosterInput" type="file" accept="image/*" style={{display:'none'}} />
+              <p className="upload-copy" id="introPosterStatus" style={{marginTop:'4px'}}>No poster uploaded.</p>
+            </div>
           </div>
+
 
           <div className="media-upload-grid">
             <div className="upload-block">

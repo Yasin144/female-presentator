@@ -21,7 +21,13 @@ function normalizeNurseryCaptionText(value: string): string {
     // Whisper can confuse the child's name Ali with "Oli". Limit this fix to
     // self-introductions so a genuine person named Oli is not changed globally.
     .replace(/\bI\s+am\s+Oli\b/gi, 'I am Ali')
-    .replace(/\bI['’]m\s+Oli\b/gi, "I'm Ali");
+    .replace(/\bI['’]m\s+Oli\b/gi, "I'm Ali")
+    // Conservative repairs for repeatable Whisper phonetic errors in clear
+    // educational narration. These are whole phrases, never broad word swaps.
+    .replace(/\bmaximum class trend\b/gi, 'maximum class strength')
+    .replace(/\bset up the form YOLA\b/gi, 'set up the formula')
+    .replace(/\bneck\s*-?\s*e\s*-?\s*serie\b/gi, 'necessary')
+    .replace(/\bThe video for a moment\b/gi, 'Pause the video for a moment');
 }
 
 function getLanguageCode(language: Language): string | undefined {
@@ -73,6 +79,16 @@ function captionsFromLocalSegments(segments: any[], maxWords: number): CaptionIt
   return out;
 }
 
+function isInstructionLeakCaption(text: string): boolean {
+  const value = String(text || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /transcribe every spoken/.test(value)
+    || /keep (telugu|hindi)/.test(value)
+    || /hindi and english/.test(value)
+    || /do not translate/.test(value)
+    || /do not summarize/.test(value)
+    || /invent words/.test(value);
+}
+
 function processLocalWhisperResult(result: any, language: Language, maxWords: number): { captions: CaptionItem[]; detectedLang: string; detectedCode?: string } {
   const targetCode = getLanguageCode(language);
   const resultText = [
@@ -94,6 +110,7 @@ function processLocalWhisperResult(result: any, language: Language, maxWords: nu
   }
   if (!captions.length && Array.isArray(result?.segments)) captions = captionsFromLocalSegments(result.segments, maxWords);
   if (!captions.length && String(result?.text || '').trim()) captions = buildFromText(normalizeNurseryCaptionText(String(result.text)), maxWords);
+  captions = captions.filter(caption => !isInstructionLeakCaption(caption.text));
   if (!captions.length) throw new Error('Local Whisper returned no speech');
   if (isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) throw new Error('Local Whisper produced repeated captions.');
   return { captions, detectedLang, detectedCode };
@@ -127,8 +144,19 @@ async function transcribeWithLocalWhisper(
   if (!api?.transcribeVideo || !api?.getPathForFile) return null;
 
   throwIfAborted(signal);
+  if (api.isMobileRemote && api.uploadMobileFile) {
+    onProgress('Uploading video securely to the Windows caption engine…', 2);
+    const uploaded = await api.uploadMobileFile(file);
+    if (!uploaded?.ok || !uploaded?.filePath || Number(uploaded?.size || file.size || 0) <= 0) {
+      throw new Error('The phone video did not finish uploading to Windows. Select it again and keep the app open.');
+    }
+    onProgress('Upload complete · starting Windows Whisper…', 5);
+  }
   const filePath = api.getPathForFile(file);
-  if (!filePath) return null;
+  if (!filePath) {
+    if (api.isMobileRemote) throw new Error('The uploaded phone video has no Windows file path. Select it again.');
+    return null;
+  }
 
   const targetCode = getLanguageCode(language);
   const languageHint = targetCode || 'auto';

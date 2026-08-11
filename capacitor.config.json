@@ -1,0 +1,20 @@
+{
+  "appId": "com.pattan.presentator",
+  "appName": "Pattan Presentator",
+  "webDir": "renderer-dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": [
+      "*.trycloudflare.com",
+      "*.loca.lt",
+      "192.168.*.*",
+      "10.*.*.*",
+      "172.16.*.*"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#070a12"
+  }
+}

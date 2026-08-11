@@ -18,6 +18,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Write a file natively (bypasses browser download API limitations)
   writeFile: (filePath, base64Data) =>
     ipcRenderer.invoke('write-file', { filePath, base64Data }),
+  beginDownloadFile: (fileName) =>
+    ipcRenderer.invoke('begin-download-file', fileName),
+  appendDownloadChunk: (id, base64) =>
+    ipcRenderer.invoke('append-download-chunk', id, base64),
+  finishDownloadFile: (id) =>
+    ipcRenderer.invoke('finish-download-file', id),
+  beginQuoteExport: (options) =>
+    ipcRenderer.invoke('quote-export-begin', options),
+  appendQuoteExportChunk: (id, base64) =>
+    ipcRenderer.invoke('quote-export-append', { id, base64 }),
+  finishQuoteExport: (id, options) =>
+    ipcRenderer.invoke('quote-export-finish', { id, options }),
 
   // Open the containing folder in Windows Explorer
   showItemInFolder: (filePath) =>
@@ -197,6 +209,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Genuine ACE-Step text-to-song generation. Supplied lyrics are preserved.
   generateRhymeSong: (payload) =>
     ipcRenderer.invoke('generate-rhyme-song', payload),
+  generateLyriaSong: (payload) =>
+    ipcRenderer.invoke('generate-lyria-song', payload),
 
   cancelRhymeSong: () =>
     ipcRenderer.invoke('cancel-rhyme-song'),
@@ -240,12 +254,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Gets the real on-disk path for a browser File object (Electron only).
   // Needed so the main process can read the file without loading it in renderer.
   getPathForFile: (file) => webUtils.getPathForFile(file),
+  pickSingSongVideoFolder: (options = {}) =>
+    ipcRenderer.invoke('sing-song-pick-video-folder', options),
 
   // Replace video audio with SC3 voice — all heavy work runs in main process:
   // FFmpeg extracts audio → SC3 server converts → FFmpeg muxes back into video.
   // Zero large files loaded into renderer memory. Crash-free.
   sc3ReplaceVideoAudio: (opts) =>
     ipcRenderer.invoke('sc3-replace-video-audio', opts),
+  onSc3Progress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('sc3-progress', listener);
+    return () => ipcRenderer.removeListener('sc3-progress', listener);
+  },
 
   // Fast mode — SC3 Singing timbre transfer for video (no transcription, much faster)
   sc3SingingReplaceVideo: (opts) =>
@@ -256,6 +277,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Renderer never loads video bytes → no OOM crash on large videos.
   transcribeVideo: (opts) =>
     ipcRenderer.invoke('transcribe-video', opts),
+  cancelTranscribeVideo: (opts) =>
+    ipcRenderer.invoke('cancel-transcribe-video', opts),
 
   onTranscribeProgress: (callback) => {
     const handler = (_, progress) => callback(progress);

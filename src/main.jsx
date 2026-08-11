@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import AndroidLauncher, { isPackagedAndroidLauncher } from './components/AndroidLauncher.jsx'
 
 // ── Universal Web & Mobile Polyfill for window.electronAPI ───────────────────
 // Unlocks full 100% access for all modules when accessed via mobile browsers,
@@ -129,6 +130,8 @@ if (!window.electronAPI) {
     // Exporter Module Polyfills
     myExporterDeleteProject: async () => ({ ok: true }),
     myExporterPickMedia: async () => ({ canceled: true }),
+    pickSingSongVideoFolder: async () => ({ ok: false, canceled: true, videos: [] }),
+    generateLyriaSong: async () => ({ ok: false, error: 'Google Lyria generation runs securely on the Windows app.' }),
     myExporterWaveform: async () => ({ ok: true, peaks: [] }),
     myExporterPreflight: async () => ({ ok: true, ready: true }),
     myExporterExport: async () => ({ ok: true }),
@@ -139,4 +142,4 @@ if (!window.electronAPI) {
   };
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(isPackagedAndroidLauncher() ? <AndroidLauncher /> : <App />)

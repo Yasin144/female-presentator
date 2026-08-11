@@ -221,7 +221,13 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
 
   const playResX = Math.max(1, Math.round(meta.width || 1920));
   const playResY = Math.max(1, Math.round(meta.height || 1080));
-  const fs = Math.max(10, Math.min(Math.round(playResY * 0.09), Math.round(s.fontSize || 35)));
+  // Portrait clips are narrow: scale against both dimensions so captions never
+  // become giant merely because the video is tall.
+  const fs = Math.max(10, Math.min(
+    Math.round(playResY * 0.075),
+    Math.round(playResX * 0.078),
+    Math.round(s.fontSize || 35),
+  ));
   
   // Swap primary and secondary colors for standard karaoke behavior:
   // - SecondaryColour (sec) is the inactive/unhighlighted color (normal text, e.g. White).
@@ -319,15 +325,18 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     })));
     if (s.style === 'white-yellow' || s.style === 'karaoke') {
       const validWords = words.filter(w => w.end > w.start);
-      const posPrefix = posPrefixFor(words);
       const activeLines = validWords.map((word, activeIndex) => {
           const nextWord = validWords[activeIndex + 1];
           const shortGapEnd = nextWord && nextWord.start > word.end && nextWord.start - word.end <= SPEECH_GAP_SECONDS
             ? nextWord.start
             : word.end;
           const lineEnd = Math.max(word.start + 0.05, Math.min(shortGapEnd, c.end));
+          // Reveal only words that have actually started. Previously the full
+          // six-word card was rendered immediately, exposing future narration.
+          const revealedWords = validWords.slice(0, activeIndex + 1);
+          const posPrefix = posPrefixFor(revealedWords);
           let tokenCursor = 0;
-          const styledText = wrapWordsForAss(words).map(line => (
+          const styledText = wrapWordsForAss(revealedWords).map(line => (
             line.map((token) => {
               const color = tokenCursor === activeIndex ? pri : sec;
               tokenCursor += 1;
@@ -341,26 +350,18 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
         });
       return activeLines;
     }
-    let kar = '';
-    const posPrefix = posPrefixFor(words);
-    const wrappedLines = wrapWordsForAss(words);
-    const wrappedLineStarts = new Set<WordItem>();
-    wrappedLines.forEach(line => {
-      if (line[0]) wrappedLineStarts.add(line[0]);
+    // Standard styles use the same progressive reveal rule. At "I" show I;
+    // at "am" show I am; at "Ali" show I am Ali—never future words.
+    return words.flatMap((word, activeIndex) => {
+      const nextWord = words[activeIndex + 1];
+      const lineEnd = Math.max(word.start + 0.05,
+        Math.min(nextWord && nextWord.start - word.end <= SPEECH_GAP_SECONDS ? nextWord.start : word.end, c.end));
+      const revealedWords = words.slice(0, activeIndex + 1);
+      const text = wrapWordsForAss(revealedWords)
+        .map(line => shapeCaptionText(line.map(token => token.text).join(' '), s))
+        .join('\\N');
+      return [`Dialogue: 0,${toAss(word.start)},${toAss(lineEnd)},Default,,0,0,0,,${posPrefixFor(revealedWords)}${text}`];
     });
-    let currentTime = c.start;
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i];
-      if (i > 0 && wrappedLineStarts.has(w)) kar += '\\N';
-      const gap = w.start - currentTime;
-      if (gap > 0.01) {
-        kar += `{\\k${Math.round(gap * 100)}}`;
-      }
-      const dur = w.end - w.start;
-      kar += `{\\k${Math.max(1, Math.round(dur * 100))}}${shapeCaptionText(w.text, s)} `;
-      currentTime = w.end;
-    }
-    return [`Dialogue: 0,${toAss(c.start)},${toAss(c.end)},Default,,0,0,0,,${posPrefix}${kar.trim()}`];
   });
   return [header,...lines].join('\n');
 }

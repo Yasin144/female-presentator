@@ -80,6 +80,15 @@ const placeValueSystemSelect = document.getElementById("placeValueSystemSelect")
 const applyPlaceValueTableBtn = document.getElementById("applyPlaceValueTableBtn");
 const showPlaceValueTableBtn = document.getElementById("showPlaceValueTableBtn");
 const placeValueToolStatus = document.getElementById("placeValueToolStatus");
+const numberTableFromInput = document.getElementById("numberTableFromInput");
+const numberTableToInput = document.getElementById("numberTableToInput");
+const applyNumberTableBtn = document.getElementById("applyNumberTableBtn");
+const showNumberTableBtn = document.getElementById("showNumberTableBtn");
+const readNumberTableBtn = document.getElementById("readNumberTableBtn");
+const numberTableToolStatus = document.getElementById("numberTableToolStatus");
+const numberTableThemeSelect = document.getElementById("numberTableThemeSelect");
+const numberTableIntroEnabled = document.getElementById("numberTableIntroEnabled");
+const numberTableIntroStatus = document.getElementById("numberTableIntroStatus");
 const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
 const presentationTemplateToggle = document.getElementById("presentationTemplateOutcomesToggle");
 const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
@@ -1903,7 +1912,7 @@ function getPdfExportFileName(renderMode = getPdfRenderMode()) {
 function getDefaultExportFileName() {
   return isPdfPresentationMode()
     ? getPdfExportFileName(getPdfRenderMode())
-    : "learning-outcomes-video.mp4";
+    : getDefaultLessonVideoFileName();
 }
 
 function clearPreparedLessonExportTimer() {
@@ -2890,11 +2899,29 @@ function normalizeOutcomesTitle(value = "") {
 }
 
 function getPresentationTitleText() {
-  // ONLY use the explicit 'Learning Outcomes Template Title' input.
-  // Nothing else — no heading fallback, no subject mode.
+  const activeTemplate = normalizePresentationTemplate(state.presentationTemplate);
+  if (EXTRA_PRESENTATION_TEMPLATES.includes(activeTemplate)) {
+    const activeInput = document.getElementById(`templateTitle_${activeTemplate}`);
+    let storedTitle = "";
+    try {
+      storedTitle = window.localStorage.getItem(`pp_template_title_${activeTemplate}`) || "";
+    } catch (error) {
+      console.error(error);
+    }
+    const activeTitle = normalizeOutcomesTitle(activeInput && activeInput.value)
+      || normalizeOutcomesTitle(storedTitle);
+    if (activeTitle) return activeTitle;
+  }
+
+  // Use the explicit Learning Outcomes title for the default title capsule.
   return normalizeOutcomesTitle(state.outcomesTitle)
     || normalizeOutcomesTitle(outcomesTitleInput && outcomesTitleInput.value)
     || '';
+}
+
+function getDefaultLessonVideoFileName() {
+  const title = sanitizeDownloadFileName(getPresentationTitleText(), "").replace(/\.mp4$/i, "").trim();
+  return title ? `${title}.mp4` : "learning-outcomes-video.mp4";
 }
 
 function getStoredOutcomesTitle() {
@@ -4129,6 +4156,143 @@ function buildDisplayedLines(text) {
   return splitIntoLines(text);
 }
 
+function getNumberTableData(textValue = "") {
+  const safeText = String(textValue || "").replace(/\u00a0/g, " ").trim();
+  if (!safeText) return null;
+
+  const explicitMatch = safeText.match(/\b(?:number\s+table|numbers?\s+table|table)\s*(?:from)?\s*(-?\d{1,6})\s*(?:to|-|through)\s*(-?\d{1,6})\b/i)
+    || safeText.match(/\bfrom\s*(-?\d{1,6})\s*(?:to|-|through)\s*(-?\d{1,6})\b/i)
+    || safeText.match(/\b(-?\d{1,6})\s*(?:to|through)\s*(-?\d{1,6})\b/i);
+  if (!explicitMatch) return null;
+
+  let start = Number.parseInt(explicitMatch[1], 10);
+  let end = Number.parseInt(explicitMatch[2], 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start > end) [start, end] = [end, start];
+  const count = end - start + 1;
+  if (count < 2 || count > 300) return null;
+
+  const preferredRows = count % 10 === 0 ? 10 : Math.min(10, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, preferredRows);
+  const cols = Math.ceil(count / rows);
+  const cells = Array.from({ length: rows }, (_, row) => (
+    Array.from({ length: cols }, (_, col) => {
+      const value = start + row + (col * rows);
+      return value <= end ? value : null;
+    })
+  ));
+
+  return {
+    start,
+    end,
+    rows,
+    cols,
+    cells,
+    title: `${start} to ${end}`
+  };
+}
+
+function getNumberTableNarrationText(textValue = "") {
+  const table = getNumberTableData(textValue);
+  if (!table) return "";
+  const values = [];
+  for (let value = table.start; value <= table.end; value += 1) {
+    values.push(String(value));
+  }
+  // Use period separator: each number becomes its own TTS sentence chunk.
+  // The TTS engine measures the exact audio duration of each chunk independently,
+  // so speechStartMs for every number = exact cumulative time → 100% grid sync.
+  return values.join(". ") + ".";
+}
+
+function getNumberTableNarrationChunkEntries(text = "") {
+  const table = getNumberTableData(text);
+  if (!table) return null;
+  const entries = [];
+  const titleText = typeof getPresentationTitleText === "function" ? getPresentationTitleText() : "";
+  const titleNarration = titleText ? buildNarrationLine(titleText) : "";
+  if (titleNarration) {
+    entries.push({
+      text: titleNarration,
+      gapAfterMs: 500
+    });
+  }
+  for (let value = table.start; value <= table.end; value += 1) {
+    entries.push({
+      text: String(value) + ".",
+      // 1.5 second gap after each number: teacher says it clearly, grid cell lights up, pause, next
+      gapAfterMs: value < table.end ? 1500 : 0
+    });
+  }
+  return entries.length ? entries : null;
+}
+
+function getVisibleNumberTableCount(tableData) {
+  if (!tableData) return 0;
+  if (!state.speaking && !state.exportingVideo) return 0;
+  const numberCount = Math.max(0, tableData.end - tableData.start + 1);
+  if (numberCount <= 0) return 0;
+
+  // During export, renderNarrationTimelineForExport drives time via state.exportCapture.elapsedMs
+  // (state.activeAudio is null during export). During live playback, use the audio element clock.
+  const elapsedMs = state.exportingVideo
+    ? Math.max(0, Math.round(Number(state.exportCapture?.elapsedMs) || 0))
+    : Math.max(0, Math.round((state.activeAudio?.currentTime || 0) * 1000));
+  const activeDurationMs = Number.isFinite(Number(state.activeAudio?.duration))
+    ? Math.max(0, Math.round(Number(state.activeAudio.duration) * 1000))
+    : 0;
+  const narrationDurationMs = Math.max(0, Math.round(Number(state.narration?.durationMs || 0)));
+  const audioDurationMs = activeDurationMs || narrationDurationMs;
+  const syncProfile = state.narration?.syncProfile?.profile;
+  const digitUnitMap = new Map();
+  if (syncProfile?.units?.length) {
+    for (const item of syncProfile.units) {
+      const disp = String(item?.displayText || "").trim();
+      const spoken = String(item?.spokenText || "").trim();
+      const digitText = /^\d+$/.test(disp)
+        ? disp
+        : (/^\d+$/.test(spoken.replace(/[^\d]/g, "")) ? spoken.replace(/[^\d]/g, "") : "");
+      if (digitText && !digitUnitMap.has(digitText)) {
+        digitUnitMap.set(digitText, item);
+      }
+    }
+  }
+  const firstNumberUnit = digitUnitMap.get(String(tableData.start));
+  const firstNumberStartMs = Math.max(0, Math.round(Number(firstNumberUnit?.speechStartMs) || 0));
+
+  // Audio-clock fallback: divide total duration evenly across all numbers.
+  // This is used only if exact number timing is unavailable.
+  const revealByAudioClock = () => {
+    if (audioDurationMs <= 0) return elapsedMs > 0 ? 1 : 0;
+    const adjustedElapsedMs = Math.max(0, elapsedMs - firstNumberStartMs);
+    const adjustedDurationMs = Math.max(1, audioDurationMs - firstNumberStartMs);
+    const slotMs = adjustedDurationMs / numberCount;
+    const leadMs = Math.max(80, Math.min(250, slotMs * 0.35));
+    return clamp(Math.floor((adjustedElapsedMs + leadMs) / Math.max(1, slotMs)) + 1, adjustedElapsedMs > 0 ? 1 : 0, numberCount);
+  };
+
+  // Preferred path: use syncProfile units indexed by displayText (raw digit tokens).
+  // The narration is "101. 102. 103." — each number is its own TTS chunk with a
+  // real measured duration. speechStartMs for each token = exact cumulative audio time.
+  if (firstNumberUnit && digitUnitMap.size && elapsedMs >= 0) {
+      let profileVisibleCount = 0;
+      for (let value = tableData.start; value <= tableData.end; value += 1) {
+        const unit = digitUnitMap.get(String(value));
+        if (!unit) break;
+        // speechStartMs is now the exact real audio position (period-chunk timing).
+        // No lead offset needed — reveal precisely when the number starts being spoken.
+        if (elapsedMs >= Math.max(0, Number(unit.speechStartMs) || 0)) {
+          profileVisibleCount += 1;
+          continue;
+        }
+        break;
+      }
+      return clamp(profileVisibleCount, 0, numberCount);
+  }
+
+  return revealByAudioClock();
+}
+
 // ── Full shortcut/abbreviation expansion — NOTHING goes to TTS unexpanded ───
 const NARRATION_SHORTCUT_MAP = [
   // ── Chat / social-media shortforms ──────────────────────────────────────
@@ -4324,6 +4488,31 @@ function buildNarrationLines(text) {
     .filter(Boolean);
 }
 
+function normalizeNarrationTitleForCompare(value = "") {
+  return String(value || "")
+    .replace(/^\s*#{1,6}\s+/, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function removeDuplicateLeadingTitleLine(text = "", title = "") {
+  const titleKey = normalizeNarrationTitleForCompare(title);
+  if (!titleKey) return text;
+  const lines = String(text || "").replace(/\r\n|\r/g, "\n").split("\n");
+  while (lines.length && !String(lines[0] || "").trim()) {
+    lines.shift();
+  }
+  if (!lines.length) return text;
+  const firstLineKey = normalizeNarrationTitleForCompare(lines[0]);
+  if (firstLineKey && firstLineKey === titleKey) {
+    lines.shift();
+    return lines.join("\n").trim();
+  }
+  return text;
+}
+
 function normalizeNarrationChunkEntries(chunks = [], defaultGapAfterMs = 0) {
   return Array.isArray(chunks)
     ? chunks.map((chunk, index) => {
@@ -4396,7 +4585,16 @@ function getGlossaryNarrationChunkEntries(text = "") {
 }
 
 function buildNarrationText(text) {
-  return buildNarrationLines(text).join(" ");
+  const titleText = typeof getPresentationTitleText === "function" ? getPresentationTitleText() : "";
+  const titleNarration = titleText ? buildNarrationLine(titleText) : "";
+  const mainText = titleText ? removeDuplicateLeadingTitleLine(text, titleText) : text;
+
+  // Number tables: enumerate every number so TTS reads each one individually.
+  // The sync engine then lights up each grid cell exactly as its number is spoken.
+  const numberTableNarration = getNumberTableNarrationText(mainText);
+  const mainNarration = numberTableNarration || buildNarrationLines(mainText).join(" ");
+
+  return [titleNarration, mainNarration].filter(Boolean).join(" ");
 }
 
 function buildNarrationRequestPayload(text) {
@@ -5547,6 +5745,13 @@ function setMathsTranslatorStatus(message) {
 
 function setPlaceValueToolStatus(message) {
   const result = applyStatusMessage(placeValueToolStatus, message);
+  if (result.isError) {
+    showRuntimeDisplayError(result.text);
+  }
+}
+
+function setNumberTableToolStatus(message) {
+  const result = applyStatusMessage(numberTableToolStatus, message);
   if (result.isError) {
     showRuntimeDisplayError(result.text);
   }
@@ -11978,16 +12183,22 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   const glossaryNarrationChunks = options.rawNarrationText === true || voice === EDGE_NARRATION_VOICE
     ? null
     : getGlossaryNarrationChunkEntries(text);
+  // Number table: each number is its own chunk with a 1.5s gap — exact sync + clear teacher pacing
+  const numberTableNarrationChunks = options.rawNarrationText === true || voice === EDGE_NARRATION_VOICE
+    ? null
+    : getNumberTableNarrationChunkEntries(text);
   const chunkEntries = glossaryNarrationChunks?.length
     ? glossaryNarrationChunks
-    : normalizeNarrationChunkEntries(
-      narrationText.length > chunkConfig.threshold
-        ? splitNarrationTextIntoChunks(narrationText, chunkConfig.maxChunkLength).map((chunk, index, source) => ({
-          text: chunk,
-          gapAfterMs: index < (source.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0
-        }))
-        : [{ text: narrationText, gapAfterMs: 0 }]
-    );
+    : numberTableNarrationChunks?.length
+      ? numberTableNarrationChunks
+      : normalizeNarrationChunkEntries(
+        narrationText.length > chunkConfig.threshold
+          ? splitNarrationTextIntoChunks(narrationText, chunkConfig.maxChunkLength).map((chunk, index, source) => ({
+            text: chunk,
+            gapAfterMs: index < (source.length - 1) ? NARRATION_CHUNK_JOIN_GAP_MS : 0
+          }))
+          : [{ text: narrationText, gapAfterMs: 0 }]
+      );
 
   const trackAnjaliGeneration = voice === "anjali";
   if (trackAnjaliGeneration) {
@@ -12007,7 +12218,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       );
       const blob = await combineNarrationBlobs(singleChunkResult.blobs, singleChunkEntries);
       const totalDurationMs = singleChunkResult.durations.reduce((sum, value) => sum + value, 0);
-      const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, singleChunkEntries, singleChunkResult.durations);
+      const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, singleChunkEntries, singleChunkResult.durations);
       if (typeof options.onSyncProfile === "function" && syncProfile) {
         options.onSyncProfile(syncProfile);
       }
@@ -12108,7 +12319,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     }
 
     const combinedBlob = await combineNarrationBlobs(blobs, resolvedChunks);
-    const syncProfile = buildSpeechSyncProfileFromChunkDurations(text, resolvedChunks, chunkDurationsMs);
+    const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, resolvedChunks, chunkDurationsMs);
     if (typeof options.onSyncProfile === "function" && syncProfile) {
       options.onSyncProfile(syncProfile);
     }
@@ -12385,7 +12596,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       ? Math.round(measuredAudioDurationMs / audioSpeed)
       : 0
   );
-  if (shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob, { preferChunked: Boolean(getElectronOutputPath(saveHandle)) })) {
+  const shouldForceChunkedForFileSave = Boolean(outputPath || saveHandle);
+  if (shouldForceChunkedForFileSave || shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob, { preferChunked: Boolean(getElectronOutputPath(saveHandle)) })) {
     return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
       audioFileName,
       audioSpeed,
@@ -15150,6 +15362,84 @@ async function applyPlaceValueTableBuilder(options = {}) {
   }
 }
 
+function sanitizeNumberTableInput(value) {
+  return String(value || "").replace(/[^\d-]/g, "").replace(/(?!^)-/g, "").slice(0, 7);
+}
+
+function buildNumberTableLessonText(fromValue, toValue) {
+  const start = Number.parseInt(String(fromValue || "").trim(), 10);
+  const end = Number.parseInt(String(toValue || "").trim(), 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return "";
+  }
+  const low = Math.min(start, end);
+  const high = Math.max(start, end);
+  if (high - low + 1 < 2 || high - low + 1 > 300) {
+    return "";
+  }
+  return `# ${low} to ${high}\nNumber table from ${low} to ${high}`;
+}
+
+async function applyNumberTableBuilder(options = {}) {
+  const fromValue = sanitizeNumberTableInput(numberTableFromInput?.value || "");
+  const toValue = sanitizeNumberTableInput(numberTableToInput?.value || "");
+  if (numberTableFromInput) numberTableFromInput.value = fromValue;
+  if (numberTableToInput) numberTableToInput.value = toValue;
+
+  const lessonText = buildNumberTableLessonText(fromValue, toValue);
+  if (!lessonText) {
+    setNumberTableToolStatus("Enter a valid range. Example: From 101, To 200. Maximum 300 numbers.");
+    if (numberTableFromInput && !fromValue) numberTableFromInput.focus();
+    else if (numberTableToInput) numberTableToInput.focus();
+    return;
+  }
+
+  if (state.mathsTranslator.timerId) {
+    window.clearTimeout(state.mathsTranslator.timerId);
+    state.mathsTranslator.timerId = 0;
+  }
+  if (state.mathsTranslator.previewTimerId) {
+    window.clearTimeout(state.mathsTranslator.previewTimerId);
+    state.mathsTranslator.previewTimerId = 0;
+  }
+  if (mathsSourceInput) mathsSourceInput.value = "";
+  state.mathsTranslator.lastSource = "";
+  state.mathsTranslator.lastTranslated = "";
+  setMathsTranslateLoading(false, "Translation complete.");
+  updateMathsTranslationPreview("");
+
+  lessonInput.value = lessonText;
+  handleLessonInputChange();
+
+  const tableData = getNumberTableData(lessonText);
+  setNumberTableToolStatus(`Ready: ${tableData?.start ?? fromValue} to ${tableData?.end ?? toValue} table created.`);
+  setStatus(options.readAfterShow
+    ? "Number table created. Opening screen and starting narration."
+    : (options.showScreenAfter ? "Number table created and opened on the screen." : "Number table created in the lesson box."));
+
+  // Honour the Number Table-specific intro toggle
+  const numberTableIntroWanted = numberTableIntroEnabled ? numberTableIntroEnabled.checked : true;
+  // Set suppression flag — blocks intro in showScreen, playSlide, and export paths
+  state.numberTableIntroSuppressed = !numberTableIntroWanted;
+
+  try {
+    if (options.showScreenAfter || options.readAfterShow) {
+      await showScreen();
+    }
+    if (options.readAfterShow) {
+      await playSlide();
+    }
+  } finally {
+    // Always clear suppression flag after number table action
+    state.numberTableIntroSuppressed = false;
+    if (numberTableIntroStatus) {
+      numberTableIntroStatus.textContent = numberTableIntroWanted
+        ? "Intro will play before the number grid presentation when enabled."
+        : "Intro is disabled for Number Table. Presentation starts immediately.";
+    }
+  }
+}
+
 function drawPlaceValueSummaryCard(x, y, width, height, label, value, accentColor) {
   ctx.save();
   ctx.shadowColor = "rgba(5, 24, 31, 0.2)";
@@ -15337,6 +15627,117 @@ function drawMathPlaceValueBoard(contentArea, boardData, currentPageIndex = 0, t
 
   ctx.restore();
 }
+
+function getNumberTableTheme() {
+  const t = numberTableThemeSelect?.value || "normal";
+  const THEMES = {
+    normal:   { bg: "#ffffff", gridLine: "#e53935", numColor: "#111111", activeHighlight: "rgba(255,235,59,0.45)", activeBorder: "#e53935", titleColor: "#ffffff" },
+    classic:  { bg: "#fffdf8", gridLine: "#ff9b8e", numColor: "#111827", activeHighlight: "rgba(253,224,71,0.34)", activeBorder: "#f97316", titleColor: "#ffffff" },
+    ocean:    { bg: "#e0f7fa", gridLine: "#0288d1", numColor: "#01579b", activeHighlight: "rgba(2,136,209,0.22)", activeBorder: "#0288d1", titleColor: "#b3e5fc" },
+    forest:   { bg: "#e8f5e9", gridLine: "#2e7d32", numColor: "#1b5e20", activeHighlight: "rgba(46,125,50,0.22)", activeBorder: "#66bb6a", titleColor: "#a5d6a7" },
+    candy:    { bg: "#fce4ec", gridLine: "#e91e63", numColor: "#880e4f", activeHighlight: "rgba(233,30,99,0.18)", activeBorder: "#e91e63", titleColor: "#f48fb1" },
+    gold:     { bg: "#fff8e1", gridLine: "#f9a825", numColor: "#6d4c00", activeHighlight: "rgba(249,168,37,0.28)", activeBorder: "#ffd600", titleColor: "#ffe082" },
+    night:    { bg: "#1a1033", gridLine: "#7c3aed", numColor: "#e9d5ff", activeHighlight: "rgba(124,58,237,0.30)", activeBorder: "#a78bfa", titleColor: "#c4b5fd" },
+    neon:     { bg: "#001f2e", gridLine: "#00e5ff", numColor: "#00e5ff", activeHighlight: "rgba(0,229,255,0.22)", activeBorder: "#00bcd4", titleColor: "#80deea" },
+    chalk:    { bg: "#2d4a38", gridLine: "#dde0c2", numColor: "#f0ece0", activeHighlight: "rgba(221,224,194,0.22)", activeBorder: "#f0ece0", titleColor: "#c5d5b5" },
+    fire:     { bg: "#1c0500", gridLine: "#ff6d00", numColor: "#ffccbc", activeHighlight: "rgba(255,109,0,0.25)", activeBorder: "#ff9800", titleColor: "#ffab91" },
+    royal:    { bg: "#12005e", gridLine: "#9c27b0", numColor: "#ce93d8", activeHighlight: "rgba(156,39,176,0.28)", activeBorder: "#ba68c8", titleColor: "#e1bee7" },
+  };
+  return THEMES[t] || THEMES.normal;
+}
+
+function drawNumberTableBoard(contentArea, tableData) {
+  if (!tableData?.cells?.length) return;
+
+  const theme = getNumberTableTheme();
+  const panelX = contentArea.x + 10;
+  const panelY = contentArea.y + 10;
+  const panelWidth = contentArea.width - 20;
+  const panelHeight = contentArea.height - 20;
+  const titleText = getPresentationTitleText() || tableData.title;
+  const showTitle = Boolean(titleText);
+  const titleHeight = showTitle ? 58 : 0;
+  const gridGapTop = showTitle ? 10 : 0;
+  const gridAvailableHeight = panelHeight - titleHeight - gridGapTop;
+  const maxGridWidth = Math.min(panelWidth, gridAvailableHeight * (tableData.cols / Math.max(1, tableData.rows)) * 1.18);
+  const cellWidth = Math.floor(maxGridWidth / tableData.cols);
+  const cellHeight = Math.floor(gridAvailableHeight / tableData.rows);
+  const cellSize = Math.max(34, Math.min(cellWidth, cellHeight, 86));
+  const gridWidth = cellSize * tableData.cols;
+  const gridHeight = cellSize * tableData.rows;
+  const gridX = panelX + Math.round((panelWidth - gridWidth) / 2);
+  const gridY = panelY + titleHeight + gridGapTop + Math.round((gridAvailableHeight - gridHeight) / 2);
+  const fontSize = clamp(Math.round(cellSize * 0.36), 16, 34);
+  const isProgressive = Boolean(state.speaking || state.exportingVideo);
+  const visibleNumberCount = isProgressive
+    ? getVisibleNumberTableCount(tableData)
+    : (tableData.end - tableData.start + 1); // show all when not playing
+  // activeValue = the number currently being spoken (last revealed cell)
+  const activeValue = isProgressive && visibleNumberCount > 0
+    ? tableData.start + visibleNumberCount - 1
+    : null;
+
+  ctx.save();
+  if (showTitle) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = theme.titleColor;
+    ctx.font = '900 34px "Nunito", "Segoe UI", sans-serif';
+    ctx.shadowColor = "rgba(0,0,0,0.38)";
+    ctx.shadowBlur = 8;
+    ctx.fillText(titleText, panelX + panelWidth / 2, panelY + 28, panelWidth - 20);
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(gridX, gridY, gridWidth, gridHeight);
+  ctx.strokeStyle = theme.gridLine;
+  ctx.lineWidth = 2;
+
+  for (let row = 0; row <= tableData.rows; row += 1) {
+    const y = gridY + row * cellSize;
+    ctx.beginPath();
+    ctx.moveTo(gridX, y);
+    ctx.lineTo(gridX + gridWidth, y);
+    ctx.stroke();
+  }
+
+  for (let col = 0; col <= tableData.cols; col += 1) {
+    const x = gridX + col * cellSize;
+    ctx.beginPath();
+    ctx.moveTo(x, gridY);
+    ctx.lineTo(x, gridY + gridHeight);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = theme.numColor;
+  ctx.font = `800 ${fontSize}px "Nunito", "Segoe UI", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  tableData.cells.forEach((rowValues, row) => {
+    rowValues.forEach((value, col) => {
+      if (value === null || value === undefined) return;
+      const numberIndex = value - tableData.start;
+      if (numberIndex < 0 || numberIndex >= visibleNumberCount) return;
+      const cellX = gridX + col * cellSize;
+      const cellY = gridY + row * cellSize;
+      if (value === activeValue) {
+        ctx.save();
+        ctx.fillStyle = theme.activeHighlight;
+        ctx.fillRect(cellX + 2, cellY + 2, cellSize - 4, cellSize - 4);
+        ctx.strokeStyle = theme.activeBorder;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(cellX + 3, cellY + 3, cellSize - 6, cellSize - 6);
+        ctx.restore();
+      }
+      ctx.fillText(String(value), gridX + col * cellSize + cellSize / 2, gridY + row * cellSize + cellSize / 2 + 1);
+    });
+  });
+
+  ctx.restore();
+}
+
 
 function getImagePageIndexForItem(item, fallbackIndex = 0) {
   if (Number.isInteger(item?.pageIndex) && item.pageIndex >= 0) {
@@ -15874,10 +16275,8 @@ function drawInfoKidsLogo(options = {}) {
   if (options.skipAnimatedHeader) {
     return;
   }
-  // ── Animated title badge — slides in from right at playback start, out at end ──
-  // Badge only shows on Learning Outcomes template
-  const _logoTpl = normalizePresentationTemplate(state.presentationTemplate);
-  if (_logoTpl !== PRESENTATION_TEMPLATE_OUTCOMES) return;
+  // Animated title badge - slides in from right at playback start, out at end.
+  // It follows the saved title on every presentation theme.
 
   const titleText = getPresentationTitleText();
   // If no title has been typed in the title input, skip the badge entirely
@@ -16952,6 +17351,10 @@ const _drawSceneLayoutCache = {
   fullKey: "",
   fullResult: null
 };
+const _numberTableDrawCache = {
+  key: "",
+  result: null
+};
 const _pureInputGlossaryCache = {
   key: "",
   pairs: null
@@ -16962,7 +17365,20 @@ function invalidateDrawSceneLayoutCache() {
   _drawSceneLayoutCache.textOnlyResult = null;
   _drawSceneLayoutCache.fullKey = "";
   _drawSceneLayoutCache.fullResult = null;
+  _numberTableDrawCache.key = "";
+  _numberTableDrawCache.result = null;
   markSceneDirty(); // layout changed → must redraw
+}
+
+function getCachedNumberTableData(primaryText = "", fallbackText = "") {
+  const key = `${primaryText}||${fallbackText}`;
+  if (_numberTableDrawCache.key === key) {
+    return _numberTableDrawCache.result;
+  }
+  const result = getNumberTableData(primaryText) || getNumberTableData(fallbackText);
+  _numberTableDrawCache.key = key;
+  _numberTableDrawCache.result = result;
+  return result;
 }
 
 function getCachedTextOnlyContent(text, pageIndex) {
@@ -16998,6 +17414,7 @@ let _lastDrawnSpeaking = false;
 let _lastDrawnExporting = false;
 let _lastDrawnTitleIntroActive = false;
 let _lastDrawnExactCharFloat = -1; // Track sub-character progress for smooth typing
+let _lastDrawnNumberTableVisibleCount = -1;
 
 function markSceneDirty() {
   _sceneIsDirty = true;
@@ -17005,6 +17422,7 @@ function markSceneDirty() {
 
 function isSceneActuallyDirty(mouthOpen) {
   if (_sceneIsDirty) return true;
+  let numberTableActive = false;
   // Animated backdrops use performance.now() for time-based animation
   // They must redraw every frame even when speech/text is idle
   const _animTpl = (typeof normalizePresentationTemplate === 'function' && typeof state !== 'undefined')
@@ -17015,10 +17433,19 @@ function isSceneActuallyDirty(mouthOpen) {
     'desert-dunes','aurora-borealis','lightning-storm','mountain-mist','rainbow-garden'];
   if (_animTpl && _animatedBackdrops.indexOf(_animTpl) >= 0) return true;
   if (state.exportingVideo || state.exportVideoTrack?.readyState === "live") return true;
+  if (state.speaking && typeof getCachedNumberTableData === "function") {
+    const numberTable = getCachedNumberTableData(state.text, state.displayedText || state.text);
+    if (numberTable) {
+      numberTableActive = true;
+      const visibleCount = getVisibleNumberTableCount(numberTable);
+      if (visibleCount !== _lastDrawnNumberTableVisibleCount) return true;
+    }
+  }
   if (state.speaking !== _lastDrawnSpeaking) return true;
   if (state.titleIntroActive !== _lastDrawnTitleIntroActive) return true;
   if (Math.abs((mouthOpen || 0) - _lastDrawnMouthOpen) > 0.01) return true;
   if (state.text !== _lastDrawnText) return true;
+  if (numberTableActive) return false;
   if (state.displayedText !== _lastDrawnDisplayedText) return true;
   // Sub-character float changes trigger redraws for smooth alpha fade.
   // Lower threshold → more continuous redraws for butter-smooth sub-pixel alpha fading
@@ -17044,6 +17471,7 @@ function drawScene(mouthOpen = 0.12) {
 
   state.drawnCharCount = 0;
   _lastDrawnExactCharFloat = state.exactCharCountFloat || 0;
+  _lastDrawnNumberTableVisibleCount = -1;
 
   if (state.sceneTransition.blankActive) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -17097,6 +17525,37 @@ function drawScene(mouthOpen = 0.12) {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
   const boardData = getMathPlaceValueBoardData(boardSourceText) || (isAnimatingContent ? getMathPlaceValueBoardData(state.text) : null);
+  const numberTableData = getCachedNumberTableData(state.text, boardSourceText);
+  if (numberTableData) {
+    _lastDrawnNumberTableVisibleCount = getVisibleNumberTableCount(numberTableData);
+    const contentArea = {
+      x: 42,
+      y: 44,
+      width: canvas.width - 84,
+      height: canvas.height - 88
+    };
+    const totalPageCount = Math.max(1, state.images.length ? getImagePageCount() : 1);
+    const currentPageIndex = clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
+    state.previewPageIndex = currentPageIndex;
+    state.renderedPageCount = totalPageCount;
+    state.contentScrollOffset = 0;
+    updateStagePageUi(currentPageIndex, totalPageCount);
+    drawInfoKidsLogo();
+    drawContentHighlightPanel(contentArea, {
+      insetX: 24,
+      insetY: 20,
+      radius: 30
+    });
+    drawNumberTableBoard(contentArea, numberTableData);
+    drawOptionalImages(currentPageIndex, totalPageCount);
+    drawProceduralConceptAnimations();
+    drawAutoQuizOverlay();
+    drawWhiteboardStrokes();
+    drawInfoKidsLogo({ skipAnimatedHeader: true });
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
   // Use cached layouts for state.text (unchanged during playback) — only
   // activeContent uses the per-frame displayedText and is always recomputed.
   const textOnlyContent = getCachedTextOnlyContent(state.text, state.previewPageIndex);
@@ -17118,7 +17577,7 @@ function drawScene(mouthOpen = 0.12) {
     )
     : fullContent;
   const contentArea = fullContent.contentArea;
-  const totalPageCount = boardData
+  const totalPageCount = (boardData || numberTableData)
     ? Math.max(1, state.images.length ? getImagePageCount() : 1)
     : Math.max(
       fullContent.pageCount,
@@ -17131,7 +17590,7 @@ function drawScene(mouthOpen = 0.12) {
       Math.max(0, totalPageCount - 1)
     )
     : clamp(activeContent.pageCount - 1, 0, Math.max(0, totalPageCount - 1));
-  const currentPageIndex = boardData
+  const currentPageIndex = (boardData || numberTableData)
     ? clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1))
     : (isAnimatingContent
       ? animatedPageIndex
@@ -17180,6 +17639,19 @@ function drawScene(mouthOpen = 0.12) {
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
     drawInfoKidsLogo();
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
+
+  if (numberTableData) {
+    state.contentScrollOffset = 0;
+    drawNumberTableBoard(contentArea, numberTableData);
+    drawOptionalImages(currentPageIndex, totalPageCount);
+    drawProceduralConceptAnimations();
+    drawAutoQuizOverlay();
+    drawWhiteboardStrokes();
+    drawInfoKidsLogo({ skipAnimatedHeader: true });
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -18663,7 +19135,7 @@ function scheduleStageVideoStartAfterDelay(options = {}) {
 }
 
 async function playIntroClipIfEnabled() {
-  if (isPdfPresentationMode() || !state.introPlayback.enabled) {
+  if (isPdfPresentationMode() || !state.introPlayback.enabled || state.numberTableIntroSuppressed) {
     return;
   }
 
@@ -18959,6 +19431,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
   const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
   const exportSnapshot = options.exportSnapshot || null;
   const timelineText = String(exportSnapshot?.text || state.text || "");
+  const timelineHasNumberTable = typeof getNumberTableData === "function" && Boolean(getNumberTableData(timelineText));
   const syncProfileData = state.narration?.syncProfile?.text === timelineText
     ? state.narration.syncProfile
     : null;
@@ -19030,7 +19503,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
       lastDisplayedAdvanceProgress = progress;
     }
 
-    if (progress >= 1) {
+    if (progress >= 1 && !timelineHasNumberTable) {
       nextDisplayedText = timelineText;
       lastDisplayedLength = timelineText.length;
       lastDisplayedAdvanceProgress = 1;
@@ -19073,7 +19546,7 @@ async function renderNarrationTimelineForExport(durationMs, playbackRate = getLe
     await new Promise(resolve => setTimeout(resolve, waitMs));
   }
 
-  if (timelineText) {
+  if (timelineText && !timelineHasNumberTable) {
     if (exportSnapshot) {
       applyLessonExportSnapshot(exportSnapshot, timelineText);
     } else {
@@ -21621,7 +22094,8 @@ async function ensureNarrationReadyForSlide(options = {}) {
 async function createTitleNarrationForVoice(voice = state.preferredNarrationVoice || "anjali", options = {}) {
   voice = requireNarrationVoiceId(voice);
   const titleText = getPresentationTitleText();
-  if (!titleText) {
+  // Skip title narration for number table lessons
+  if (!titleText || getNumberTableData(state.text)) {
     return null;
   }
 
@@ -21706,7 +22180,7 @@ async function playSlide() {
   armStartingTitleBadge();
 
   const currentText = commitLatestLessonText();
-  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const introClipRequested = Boolean(!state.numberTableIntroSuppressed && (introClipEnabled?.checked || state.introPlayback.enabled));
   const posterRequested = Boolean(state.introPoster.available);
   const allowIntroOnlyPlayback = !String(currentText || "").trim() && introClipRequested;
   if (!isPdfPresentationMode() && shouldPreferPdfScreenFromInput()) {
@@ -22621,13 +23095,17 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     state.speaking = false;
     cancelVisualLoop();
     state.mouthOpen = 0.12;
-    if (exportSnapshot) {
+    const exportTextForFinalHold = String(exportSnapshot?.text || state.text || "");
+    const finalHoldHasNumberTable = typeof getNumberTableData === "function" && Boolean(getNumberTableData(exportTextForFinalHold));
+    if (!finalHoldHasNumberTable && exportSnapshot) {
       applyLessonExportSnapshot(exportSnapshot, exportSnapshot.text);
-    } else {
+    } else if (!finalHoldHasNumberTable) {
       state.displayedText = state.text;
     }
-    state.exactCharCountFloat = String(exportSnapshot?.text || state.text || "").length;
-    syncLessonPageToDisplayedText(state.displayedText, state.exactCharCountFloat);
+    if (!finalHoldHasNumberTable) {
+      state.exactCharCountFloat = exportTextForFinalHold.length;
+      syncLessonPageToDisplayedText(state.displayedText, state.exactCharCountFloat);
+    }
     syncLessonPlaybackProgressUi(1, true);
 
     const finalContextHoldMs = 1200;
@@ -22786,10 +23264,11 @@ async function exportVideo(options = {}) {
   }
 
   preventBackgroundThrottling();
+  const outputFileName = getDefaultExportFileName();
   const lessonExportSource = options.lessonExportSourceOverride || getLessonExportSource();
   const exportText = lessonExportSource.text;
   const lessonExportSnapshot = lessonExportSource.snapshot;
-  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const introClipRequested = Boolean(!state.numberTableIntroSuppressed && (introClipEnabled?.checked || state.introPlayback.enabled));
   const hasAnyLessonText = Boolean(
     String(exportText || "").trim()
     || String(state.text || "").trim()
@@ -22855,7 +23334,7 @@ async function exportVideo(options = {}) {
   try {
     if (saveHandleRequested && !cacheOnly && !videoSaveHandle) {
       try {
-        videoSaveHandle = await requestVideoSaveHandle("learning-outcomes-video.mp4");
+        videoSaveHandle = await requestVideoSaveHandle(outputFileName);
       } catch (error) {
         if (error?.name === "AbortError") {
           setStatus("Video export cancelled.");
@@ -23328,7 +23807,7 @@ async function exportVideo(options = {}) {
         holdLastFrameMs: getFinalExportSafetyTailMs(),
         saveHandle: videoSaveHandle,
         saveToDefaultPath: shouldSaveToDownloads,
-        outputFileName: "learning-outcomes-video.mp4"
+        outputFileName
       })
       : await muxVideoAndAudio(videoBlob, audioBlob, {
         audioFileName,
@@ -23338,7 +23817,7 @@ async function exportVideo(options = {}) {
         holdLastFrameMs: getFinalExportSafetyTailMs(),
         saveHandle: videoSaveHandle,
         saveToDefaultPath: shouldSaveToDownloads,
-        outputFileName: "learning-outcomes-video.mp4"
+        outputFileName
       });
     if (cacheOnly) {
       if (!(finalResult instanceof Blob) || !finalResult.size) {
@@ -23373,7 +23852,7 @@ async function exportVideo(options = {}) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video downloaded to Downloads with${includedIntroInExport ? " intro and " : " "}narration audio.`);
     } else {
-      triggerFileDownload(finalResult, "learning-outcomes-video.mp4");
+      triggerFileDownload(finalResult, outputFileName);
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video downloaded with${includedIntroInExport ? " intro and " : " "}narration audio.`);
     }
@@ -24274,13 +24753,25 @@ function handleSingSongSelection(event) {
   state.singSong.sourceUrl = URL.createObjectURL(file);
   if (singSongSourcePreview) {
     singSongSourcePreview.src = state.singSong.sourceUrl;
-    singSongSourcePreview.classList.remove("hidden");
+    singSongSourcePreview.classList.remove('hidden');
+    singSongSourcePreview.style.display = 'block';
+    singSongSourcePreview.load();
   }
   if (singSongProcessBtn) singSongProcessBtn.disabled = false;
   if (singSongSc3ReplaceBtn) singSongSc3ReplaceBtn.disabled = false;
   if (singSongModelBtn) singSongModelBtn.disabled = false;
-  setSingSongStatus(`Selected audio: ${file.name}. Click Auto Replace Vocal With sc3.`);
+  setSingSongStatus('\ud83c\udfa7 Audio ready: ' + file.name + '. Click \u201cConvert Voice \u2192 Indian English (SC3)\u201d to process.');
   void ensureSc3SingingModelServer();
+}
+
+// Prepare Song Mix — wraps the SC3 narrate audio pipeline for the audio-only path
+async function processSingSongSafe() {
+  const file = state.singSong.file;
+  if (!file) {
+    setSingSongStatus('Upload an audio file first before clicking Prepare Song Mix.', { error: true });
+    return;
+  }
+  await replaceSingSongWithSc3SingingModel();
 }
 
 
@@ -24396,16 +24887,22 @@ async function processVideoQueue() {
       const modeLabel = 'Chatterbox HQ';
       setSingSongStatus('Processing "' + item.name + '" (' + pos + ' of ' + tot + ') -- ' + modeLabel + '...');
 
-      let pct = 12;
-      const tick = window.setInterval(() => {
-        pct = Math.min(pct + 3, 88);
-        updateQueueOverallProgress(_vidIdx, tot, pct, 'Video ' + pos + '/' + tot + ' \u2014 ' + item.name + ' [' + modeLabel + ']...');
-      }, 3000);
+      let unlistenProgress = null;
+      if (typeof window.electronAPI?.onSc3Progress === 'function') {
+        unlistenProgress = window.electronAPI.onSc3Progress((data) => {
+          if (data && data.stage) {
+            updateQueueOverallProgress(_vidIdx, tot, data.pct || 50, 'Video ' + pos + '/' + tot + ' \u2014 ' + data.stage + ' (' + (data.detail || '') + ')');
+            setSingSongStatus('Video ' + pos + '/' + tot + ' \u2014 ' + data.stage + ' \u2014 ' + (data.detail || ''));
+          }
+        });
+      }
 
-      // STRICT RULE: Only sc3/pattan Chatterbox voice -- never singing timbre transfer
       let result;
-      result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName, voice: state.preferredNarrationVoice });
-      window.clearInterval(tick);
+      try {
+        result = await window.electronAPI.sc3ReplaceVideoAudio({ filePath, outputBaseName: baseName, voice: state.preferredNarrationVoice });
+      } finally {
+        if (typeof unlistenProgress === 'function') unlistenProgress();
+      }
 
       if (!result || !result.ok) throw new Error(result ? result.error : 'Main process returned no response.');
 
@@ -24540,13 +25037,9 @@ function handleSc3VideoSelection(event) {
     return;
   }
 
-  // Validate file sizes
-  const oversized = files.filter(f => f.size > 600 * 1024 * 1024);
-  if (oversized.length) {
-    setSingSongStatus(oversized.length + ' video(s) too large (>600 MB): ' + oversized.map(f => f.name).join(', ') + '. Please split into shorter clips.', { error: true });
-    event.target.value = '';
-    return;
-  }
+
+  // Large desktop files are passed to the main process by path. They are not
+  // copied into renderer memory, so any file size is fine.
   const large = files.filter(f => f.size > 150 * 1024 * 1024);
   if (large.length) {
     setSingSongStatus(large.length + ' large video(s) detected (>150 MB). Processing may be slow.', { warning: true });
@@ -24573,6 +25066,8 @@ function handleSc3VideoSelection(event) {
   if (sc3VideoSourcePreview) {
     sc3VideoSourcePreview.src = state.singSong.videoSourceUrl;
     sc3VideoSourcePreview.classList.remove('hidden');
+    sc3VideoSourcePreview.style.display = 'block';
+    sc3VideoSourcePreview.load();
   }
 
   if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = false;
@@ -24646,8 +25141,13 @@ async function convertBlobToSc3Audio(blob, inputFileName, outputFileName, onProg
 
 
 async function replaceSingSongVocalWithSc3() {
+  // Route: video-only -> use IPC video pipeline; audio-only or both -> use SC3 narration
   if (!state.singSong.file && state.singSong.videoFile) {
     await replaceVideoAudioWithSc3();
+    return;
+  }
+  if (!state.singSong.file && !state.singSong.videoFile) {
+    setSingSongStatus('\u26a0\ufe0f Upload an audio or video file first before clicking Convert Voice.', { error: true });
     return;
   }
   await replaceSingSongWithSc3SingingModel();
@@ -25213,7 +25713,7 @@ async function showScreen() {
   }
 
   const text = getEffectiveLessonText();
-  const introClipRequested = Boolean(introClipEnabled?.checked || state.introPlayback.enabled);
+  const introClipRequested = Boolean(!state.numberTableIntroSuppressed && (introClipEnabled?.checked || state.introPlayback.enabled));
   const allowIntroOnlyScreen = !String(text || "").trim() && introClipRequested;
   if (!allowIntroOnlyScreen && !ensureLessonTextIsReady(text)) {
     return;
@@ -25383,6 +25883,47 @@ if (showPlaceValueTableBtn) {
     void runLockedAction("placeValueTable", [applyPlaceValueTableBtn, showPlaceValueTableBtn], async () => applyPlaceValueTableBuilder({ showScreenAfter: true }));
   });
 }
+if (numberTableFromInput) {
+  numberTableFromInput.addEventListener("input", () => {
+    numberTableFromInput.value = sanitizeNumberTableInput(numberTableFromInput.value);
+  });
+}
+if (numberTableToInput) {
+  numberTableToInput.addEventListener("input", () => {
+    numberTableToInput.value = sanitizeNumberTableInput(numberTableToInput.value);
+  });
+}
+if (applyNumberTableBtn) {
+  applyNumberTableBtn.addEventListener("click", () => {
+    void runLockedAction("numberTable", [applyNumberTableBtn, showNumberTableBtn, readNumberTableBtn], async () => applyNumberTableBuilder());
+  });
+}
+if (showNumberTableBtn) {
+  showNumberTableBtn.addEventListener("click", () => {
+    void runLockedAction("numberTable", [applyNumberTableBtn, showNumberTableBtn, readNumberTableBtn], async () => applyNumberTableBuilder({ showScreenAfter: true }));
+  });
+}
+if (readNumberTableBtn) {
+  readNumberTableBtn.addEventListener("click", () => {
+    void runLockedAction("numberTable", [applyNumberTableBtn, showNumberTableBtn, readNumberTableBtn], async () => applyNumberTableBuilder({ readAfterShow: true }));
+  });
+}
+// Number Table Theme — redraw the screen instantly when theme changes
+if (numberTableThemeSelect) {
+  numberTableThemeSelect.addEventListener("change", () => {
+    drawScene(0);
+  });
+}
+// Number Table Intro Toggle — update status label
+if (numberTableIntroEnabled) {
+  numberTableIntroEnabled.addEventListener("change", () => {
+    if (numberTableIntroStatus) {
+      numberTableIntroStatus.textContent = numberTableIntroEnabled.checked
+        ? "Intro will play before the number grid presentation when enabled."
+        : "Intro is disabled for Number Table. Presentation starts immediately.";
+    }
+  });
+}
 lessonInput.addEventListener("input", () => {
   scheduleLessonInputChange(stagePanel && !stagePanel.classList.contains("hidden") ? 0 : 140);
   if (isPureInputModeEnabled()) {
@@ -25525,6 +26066,11 @@ EXTRA_PRESENTATION_TEMPLATES.forEach((tplId) => {
   const save = () => {
     const val = inp.value.trim();
     try { val ? localStorage.setItem(`pp_template_title_${tplId}`, val) : localStorage.removeItem(`pp_template_title_${tplId}`); } catch(e) {}
+    if (normalizePresentationTemplate(state.presentationTemplate) === tplId) {
+      state.titleAnim = null;
+      markSceneDirty();
+      if (typeof drawScene === "function") drawScene(state.mouthOpen || 0.12);
+    }
   };
   if (btn) btn.addEventListener("click", save);
   inp.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); save(); } });
@@ -26643,7 +27189,7 @@ if (singSongDownloadReplacedBtn) {
 }
 audioInput.addEventListener("change", handleAudioSelection);
 videoInput.addEventListener("change", handleVideoSelection);
-introClipEnabled.addEventListener("change", (event) => {
+if (introClipEnabled) { introClipEnabled.addEventListener("change", (event) => {
   state.introPlayback.enabled = event.target.checked;
   setIntroClipStatus(
     state.introPlayback.enabled
@@ -26657,7 +27203,7 @@ introClipEnabled.addEventListener("change", (event) => {
   if (state.introPoster.available) {
     setIntroPosterStatus(`Poster ready: ${state.introPoster.fileName}. It will export as a full-screen image before the lesson.`);
   }
-});
+}); }
 if (introPosterUploadBtn && introPosterInput) {
   introPosterUploadBtn.addEventListener("click", () => {
     introPosterInput.click();
@@ -28878,4 +29424,3 @@ document.addEventListener('change', function _topLevelTplChange(e) {
   }
   setTimeout(poll, 1800);
 }());
-

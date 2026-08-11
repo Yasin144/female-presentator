@@ -96,6 +96,11 @@ let mobileTunnelProcess = null;
 let mobileTunnelStarting = null;
 let lastSentMobileUrl = '';
 let mobileRhymeJob = null;
+const mobileNarrationJobs = new Map();
+const mobileLongJobs = new Map();
+const activeDownloadFiles = new Map();
+const activeQuoteExports = new Map();
+const completedMobileDownloads = new Map();
 // Prefer the built-in-SSH fallback while Cloudflare quick-tunnel DNS is failing.
 // A successful future Cloudflare health path can reset this counter.
 let mobileCloudflareFailures = 2;
@@ -125,7 +130,10 @@ function getMobileMethodMap() {
     const methods = {};
     let match;
     while ((match = expression.exec(source))) methods[match[1]] = match[2];
-    return methods;
+    return {
+      ...methods,
+      narrateEdgeTtsTimed: 'narrate-edge-tts-timed',
+    };
   } catch (_) { return {}; }
 }
 
@@ -133,11 +141,64 @@ function mobileBridgeSource() {
   const methods = JSON.stringify(getMobileMethodMap());
   return `(() => {
     const methods = ${methods};
+    const longMethods = new Set([
+      'my-exporter-export','my-exporter-crop-save','burn-captions','erase-captions',
+      'export-translated-video','export-synced-translated-video','sc3-replace-video-audio',
+      'sc3-singing-replace-video','transcribe-video','transcribe-video-groq',
+      'generate-lyria-song',
+      'presentator-agent-think','presentator-agent-generate-image','presentator-agent-create-video',
+      'presentator-agent-generate-true-video','presentator-agent-generate-sfx','presentator-agent-morph-audio'
+    ]);
     const query = new URLSearchParams(location.search);
     const supplied = query.get('mobileToken');
     if (supplied) localStorage.setItem('presentator.mobileToken', supplied);
     const token = supplied || localStorage.getItem('presentator.mobileToken') || '';
+    const captionProgressHandlers = new Set();
     const invoke = async (method, args) => {
+      if (longMethods.has(method)) {
+        const startedResponse = await fetch('/api/mobile-job-start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Presentator-Mobile-Token': token },
+          body: JSON.stringify({ method, args })
+        });
+        const started = await startedResponse.json();
+        if (!startedResponse.ok || !started.ok) throw new Error(started.error || 'Could not start the Windows background job');
+        let lastProgressAt = Date.now();
+        let lastProgressStamp = 0;
+        for (;;) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          const statusResponse = await fetch('/api/mobile-job-status?id=' + encodeURIComponent(started.jobId), {
+            headers: { 'X-Presentator-Mobile-Token': token }, cache: 'no-store'
+          });
+          const job = await statusResponse.json();
+          if (!statusResponse.ok || !job.ok) throw new Error(job.error || 'Could not read background job progress');
+          const progressStamp = Number(job.progress?.updatedAt || 0);
+          if (progressStamp > lastProgressStamp) {
+            lastProgressStamp = progressStamp;
+            lastProgressAt = Date.now();
+            if (job.progress?.channel === 'caption-transcribe-progress') {
+              for (const callback of captionProgressHandlers) {
+                try { callback(job.progress.data); } catch (_) {}
+              }
+            }
+          }
+          if (job.status === 'completed') {
+            if (job.result?.mobileDownloadUrl) {
+              const anchor = document.createElement('a');
+              anchor.href = job.result.mobileDownloadUrl;
+              anchor.download = job.result.fileName || 'Pattan-Video.mp4';
+              anchor.rel = 'noopener';
+              document.body.appendChild(anchor);
+              anchor.click();
+              anchor.remove();
+            }
+            return job.result;
+          }
+          if (job.status === 'failed') throw new Error(job.error || 'Windows background job failed');
+          if (Date.now() - lastProgressAt > 180000) {
+            throw new Error('The Windows caption worker produced no progress for 3 minutes. Cancel and retry after checking the transcription server.');
+          }
+        }
+      }
       const response = await fetch('/api/mobile-rpc', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Presentator-Mobile-Token': token },
         body: JSON.stringify({ method, args })
@@ -152,6 +213,7 @@ function mobileBridgeSource() {
       getPathForFile: file => file?.__mobilePath || file?.path || '',
       uploadMobileFile: async file => {
         if (!file || typeof file.arrayBuffer !== 'function') throw new Error('Select the file again.');
+        if (file.__mobilePath) return { ok: true, filePath: file.__mobilePath, fileName: file.name, reused: true };
         const response = await fetch('/api/mobile-upload', {
           method: 'POST',
           headers: {
@@ -173,9 +235,17 @@ function mobileBridgeSource() {
         return () => rhymeProgressHandlers.delete(callback);
       },
       onMyExporterProgress: () => () => {}, offMyExporterProgress: () => {},
+      onCaptionTranscribeProgress: callback => {
+        if (typeof callback === 'function') captionProgressHandlers.add(callback);
+        return () => captionProgressHandlers.delete(callback);
+      },
+      offCaptionTranscribeProgress: callback => captionProgressHandlers.delete(callback),
       onServerStatus: () => () => {},
     };
     for (const [method, channel] of Object.entries(methods)) api[method] = (...args) => invoke(channel, args);
+    api.showSaveDialog = options => invoke('mobile-resolve-save-dialog', [options || {}]);
+    api.myExporterPickMedia = async () => ({ ok: false, error: 'Choose media from this phone' });
+    api.myExporterPickAudio = async () => ({ ok: false, error: 'Choose audio from this phone' });
     api.generateRhymeSong = async payload => {
       const started = await fetch('/api/mobile-rhyme-start', {
         method: 'POST',
@@ -201,7 +271,49 @@ function mobileBridgeSource() {
         if (job.status === 'failed') throw new Error(job.error || 'Rhyme generation failed');
       }
     };
+    const narrateOnComputer = async payload => {
+      const started = await fetch('/api/mobile-narration-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Presentator-Mobile-Token': token },
+        body: JSON.stringify({ payload })
+      }).then(async response => {
+        const body = await response.json();
+        if (!response.ok || !body.ok) throw new Error(body.error || 'Could not start narration on the computer');
+        return body;
+      });
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        const response = await fetch('/api/mobile-narration-status?id=' + encodeURIComponent(started.jobId), {
+          headers: { 'X-Presentator-Mobile-Token': token }, cache: 'no-store'
+        });
+        const job = await response.json();
+        if (!response.ok || !job.ok) throw new Error(job.error || 'Could not read narration progress');
+        if (job.status === 'completed') return job.result;
+        if (job.status === 'failed') throw new Error(job.error || 'Narration failed');
+      }
+    };
+    api.narrateSc3Text = narrateOnComputer;
+    api.narrateSc3Tts = narrateOnComputer;
     window.electronAPI = api;
+    document.addEventListener('change', async event => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.files?.length || input.dataset.pattanUploaded === '1') return;
+      event.stopImmediatePropagation();
+      input.dataset.pattanUploading = '1';
+      try {
+        for (const file of Array.from(input.files)) await api.uploadMobileFile(file);
+        input.dataset.pattanUploaded = '1';
+        window.dispatchEvent(new CustomEvent('pattan-mobile-files-ready', {
+          detail: { inputId: input.id || '', files: Array.from(input.files) }
+        }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('pattan-mobile-upload-error', { detail: String(error?.message || error) }));
+      } finally {
+        delete input.dataset.pattanUploading;
+        setTimeout(() => { delete input.dataset.pattanUploaded; }, 0);
+      }
+    }, true);
   })();`;
 }
 
@@ -254,7 +366,9 @@ function startMobileHttpServer() {
           let originalName = 'mobile-upload.bin';
           try { originalName = decodeURIComponent(String(req.headers['x-presentator-file-name'] || originalName)); } catch (_) {}
           const safeName = path.basename(originalName).replace(/[^\w.\- ()]/g, '_').slice(0, 160) || 'mobile-upload.bin';
-          const uploadDir = path.join(ROOT, 'temp', 'mobile-uploads');
+          // Keep phone uploads in one visible, user-manageable location. Files
+          // remain here until the user chooses to delete them manually.
+          const uploadDir = path.join(app.getPath('downloads'), 'Pattan Mobile Uploads');
           fs.mkdirSync(uploadDir, { recursive: true });
           const filePath = path.join(uploadDir, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safeName}`);
           const output = fs.createWriteStream(filePath, { flags: 'wx' });
@@ -352,6 +466,130 @@ function startMobileHttpServer() {
           res.end(JSON.stringify({ ok: true, ...mobileRhymeJob }));
           return;
         }
+        if (requestUrl.pathname === '/api/mobile-narration-start' && req.method === 'POST') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
+          let body = '';
+          req.on('data', chunk => { if (body.length < 4 * 1024 * 1024) body += chunk; });
+          req.on('end', () => {
+            try {
+              const handler = mobileIpcHandlers.get('narrate-sc3-text') || mobileIpcHandlers.get('narrate-sc3-tts');
+              if (!handler) throw new Error('Narration service is not ready.');
+              const request = JSON.parse(body || '{}');
+              const jobId = crypto.randomUUID();
+              const job = { id: jobId, status: 'running', startedAt: Date.now(), phase: 'Starting voice server', result: null, error: '' };
+              mobileNarrationJobs.set(jobId, job);
+              for (const [id, oldJob] of mobileNarrationJobs) {
+                if (id !== jobId && Date.now() - oldJob.startedAt > 30 * 60 * 1000) mobileNarrationJobs.delete(id);
+              }
+              Promise.resolve(handler({ sender: BrowserWindow.getAllWindows()[0]?.webContents }, request.payload || {}))
+                .then(result => { job.result = result; job.status = 'completed'; job.phase = 'Narration ready'; })
+                .catch(error => { job.status = 'failed'; job.error = String(error?.message || error); job.phase = 'Narration failed'; });
+              res.writeHead(202, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ ok: true, jobId }));
+            } catch (error) {
+              res.writeHead(409, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: error.message }));
+            }
+          });
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-narration-status' && req.method === 'GET') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
+          const job = mobileNarrationJobs.get(String(requestUrl.searchParams.get('id') || ''));
+          if (!job) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Narration job was not found.' })); return; }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: true, ...job }));
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-job-start' && req.method === 'POST') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
+          let body = '';
+          req.on('data', chunk => { if (body.length < 50 * 1024 * 1024) body += chunk; });
+          req.on('end', () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const method = String(payload.method || '');
+              const handler = mobileIpcHandlers.get(method);
+              if (!handler) throw new Error(`Mobile background method is unavailable: ${method || 'unknown'}`);
+              const jobId = crypto.randomUUID();
+              const job = { id: jobId, method, status: 'running', startedAt: Date.now(), progress: null, result: null, error: '' };
+              mobileLongJobs.set(jobId, job);
+              for (const [id, oldJob] of mobileLongJobs) {
+                if (id !== jobId && Date.now() - oldJob.startedAt > 60 * 60 * 1000) mobileLongJobs.delete(id);
+              }
+              const desktopWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+              const sender = {
+                send: (channel, data) => {
+                  job.progress = { channel, data, updatedAt: Date.now() };
+                  try { desktopWindow?.webContents.send(channel, data); } catch (_) {}
+                },
+              };
+              Promise.resolve(handler({ sender }, ...(Array.isArray(payload.args) ? payload.args : [])))
+                .then(result => {
+                  if (result?.ok !== false) {
+                    const candidatePath = result?.outputPath || result?.videoPath || result?.filePath;
+                    if (candidatePath && fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+                      const downloadId = crypto.randomUUID();
+                      const fileName = path.basename(candidatePath);
+                      completedMobileDownloads.set(downloadId, { filePath: candidatePath, fileName, completedAt: Date.now() });
+                      result = {
+                        ...result,
+                        fileName: result.fileName || fileName,
+                        mobileDownloadUrl: `/api/mobile-file-download?id=${encodeURIComponent(downloadId)}&mobileToken=${encodeURIComponent(mobileAccessToken)}`,
+                      };
+                    }
+                  }
+                  job.result = result;
+                  job.status = result?.ok === false ? 'failed' : 'completed';
+                  job.error = result?.ok === false ? String(result.error || 'Background job failed') : '';
+                })
+                .catch(error => { job.status = 'failed'; job.error = String(error?.message || error); });
+              res.writeHead(202, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ ok: true, jobId }));
+            } catch (error) {
+              res.writeHead(409, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: error.message }));
+            }
+          });
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-job-status' && req.method === 'GET') {
+          const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
+          const job = mobileLongJobs.get(String(requestUrl.searchParams.get('id') || ''));
+          if (!job) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Background job was not found.' })); return; }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: true, ...job }));
+          return;
+        }
+        if (requestUrl.pathname === '/api/mobile-file-download' && req.method === 'GET') {
+          const suppliedToken = String(requestUrl.searchParams.get('mobileToken') || req.headers['x-presentator-mobile-token'] || '');
+          if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Invalid mobile access token.'); return; }
+          const entry = completedMobileDownloads.get(String(requestUrl.searchParams.get('id') || ''));
+          if (!entry || !fs.existsSync(entry.filePath)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Exported video was not found.'); return; }
+          const stat = fs.statSync(entry.filePath);
+          const range = String(req.headers.range || '');
+          const headers = {
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': `attachment; filename="${String(entry.fileName || 'Pattan-Video.mp4').replace(/["\r\n]/g, '_')}"`,
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, no-store',
+          };
+          if (range) {
+            const match = range.match(/bytes=(\d+)-(\d*)/);
+            const start = Math.max(0, Number(match?.[1] || 0));
+            const end = Math.min(stat.size - 1, match?.[2] ? Number(match[2]) : stat.size - 1);
+            res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end - start + 1 });
+            fs.createReadStream(entry.filePath, { start, end }).pipe(res);
+          } else {
+            res.writeHead(200, { ...headers, 'Content-Length': stat.size });
+            fs.createReadStream(entry.filePath).pipe(res);
+          }
+          return;
+        }
         if (requestUrl.pathname === '/api/mobile-rpc' && req.method === 'POST') {
           const suppliedToken = String(req.headers['x-presentator-mobile-token'] || '');
           if (suppliedToken !== mobileAccessToken) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Invalid mobile access token.' })); return; }
@@ -373,7 +611,14 @@ function startMobileHttpServer() {
           return;
         }
         if (requestUrl.pathname === '/api/mobile-link' || requestUrl.pathname === '/mobile-link.json') {
-          const data = saveMobileLinkState(lastSentMobileUrl);
+          let saved = {};
+          try { saved = JSON.parse(fs.readFileSync(path.join(ROOT, 'temp', 'active-mobile-link.json'), 'utf8')); } catch (_) {}
+          const data = {
+            ...saved,
+            wifiUrl: `http://${getMobileWifiIp()}:${MOBILE_HTTP_PORT}`,
+            mobileUrl: lastSentMobileUrl || saved.mobileUrl || '',
+            active: Boolean(lastSentMobileUrl || saved.mobileUrl),
+          };
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
           res.end(JSON.stringify(data));
           return;
@@ -460,7 +705,26 @@ function sendProcessWhatsAppAlert({ status, processName, fileName = '', error = 
   child.on('error', alertError => console.error('[Process Alert] WhatsApp sender failed:', alertError.message));
 }
 
+// ── Windows SAPI voice alert — fires in a detached PowerShell, no GPU/TTS server needed ──
+function speakAlertSc3(text) {
+  try {
+    const safe = String(text || '')
+      .replace(/'/g, '')          // remove single quotes (PS string safety)
+      .replace(/[^\x20-\x7E ]/g, ' ')  // strip non-ASCII
+      .slice(0, 300);
+    const ps = spawn('powershell', [
+      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command',
+      `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Rate = 0; $s.Volume = 100; $s.Speak('${safe}');`
+    ], { windowsHide: true, detached: true, stdio: 'ignore' });
+    ps.unref();
+    console.log(`[SC3] 🔊 Voice alert: "${safe.slice(0, 80)}${safe.length > 80 ? '…' : ''}"`);
+  } catch (e) {
+    console.warn('[SC3] Voice alert failed:', e.message);
+  }
+}
+
 function processAlertFromNotification(title, body) {
+
   const safeTitle = String(title || '').trim();
   const safeBody = String(body || '').trim();
   const failed = /\b(fail(?:ed|ure)?|error|warning)\b/i.test(`${safeTitle} ${safeBody}`);
@@ -1092,18 +1356,18 @@ const VITE_URL = 'http://127.0.0.1:5173';
   console[method] = (...args) => { try { orig(...args); } catch(_) {} };
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Server registry Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Server registry ————————————————————————————————————————————————
 // Each entry holds the live child process + restart metadata.
-const servers = {};   // key Ã¢â€ â€™ { proc, restartCount, lastRestartAt, stopped }
+const servers = {};   // key —> { proc, restartCount, lastRestartAt, stopped }
 let   isQuitting = false;
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Spawn a managed server process Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Spawn a managed server process —————————————————————————————————
 // Options:
-//   maxRestarts   Ã¢â‚¬â€œ max restarts within restartWindowSec before giving up (default 8)
-//   restartWindowSec Ã¢â‚¬â€œ rolling window in seconds                          (default 120)
-//   restartDelayMs   Ã¢â‚¬â€œ base delay before first restart                    (default 3000)
-//   healthPort       Ã¢â‚¬â€œ TCP port to health-ping (optional)
-//   healthPath       Ã¢â‚¬â€œ HTTP path to ping                                  (default '/')
+//   maxRestarts   — max restarts within restartWindowSec before giving up (default 8)
+//   restartWindowSec — rolling window in seconds                          (default 120)
+//   restartDelayMs   — base delay before first restart                    (default 3000)
+//   healthPort       — TCP port to health-ping (optional)
+//   healthPath       — HTTP path to ping                                  (default '/')
 function spawnManaged(key, cmd, args, opts = {}) {
   const {
     maxRestarts      = 8,
@@ -1123,9 +1387,13 @@ function spawnManaged(key, cmd, args, opts = {}) {
 
   function doSpawn() {
     if (isQuitting || entry.stopped) return;
+    if (entry.proc && !entry.proc.killed && entry.proc.exitCode === null) {
+      console.log(`[PP] ${key} process is already active (PID ${entry.proc.pid}).`);
+      return;
+    }
 
     console.log(`[PP] Starting ${key}...`);
-    // On Windows, .cmd and .bat files need shell:true to execute Ã¢â‚¬â€
+    // On Windows, .cmd and .bat files need shell:true to execute —
     // without it Node.js throws EINVAL.
     const needsShell = showConsole || /\.(cmd|bat)$/i.test(cmd);
     const proc = spawn(cmd, args, {
@@ -1145,7 +1413,7 @@ function spawnManaged(key, cmd, args, opts = {}) {
 
     proc.on('exit', (code, signal) => {
       if (isQuitting || entry.stopped) return;
-      console.warn(`[PP] ${key} exited (code=${code} signal=${signal}) Ã¢â‚¬â€ scheduling restart`);
+      console.warn(`[PP] ${key} exited (code=${code} signal=${signal}) — scheduling restart`);
       scheduleRestart();
     });
   }
@@ -1160,16 +1428,16 @@ function spawnManaged(key, cmd, args, opts = {}) {
     }
 
     if (entry.restartCount >= maxRestarts) {
-      console.error(`[PP] ${key} hit max restarts (${maxRestarts}) in ${restartWindowSec}s Ã¢â‚¬â€ giving up.`);
+      console.error(`[PP] ${key} hit max restarts (${maxRestarts}) in ${restartWindowSec}s — giving up.`);
       return;
     }
 
-    // Exponential back-off: 3s, 6s, 12s Ã¢â‚¬Â¦ capped at 30s
+    // Exponential back-off: 3s, 6s, 12s … capped at 30s
     const delay = Math.min(restartDelayMs * Math.pow(2, entry.restartCount), 30000);
     entry.restartCount++;
     entry.lastRestartAt = now;
 
-    console.log(`[PP] ${key} restart #${entry.restartCount} in ${delay}msÃ¢â‚¬Â¦`);
+    console.log(`[PP] ${key} restart #${entry.restartCount} in ${delay}ms…`);
     setTimeout(() => {
       if (!isQuitting && !entry.stopped) doSpawn();
     }, delay);
@@ -1210,7 +1478,7 @@ async function pauseManagedServersForImage(keys) {
   };
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Kill a managed server (no restart) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Kill a managed server (no restart) —————————————————————————————
 function killServer(key) {
   const entry = servers[key];
   if (!entry) return;
@@ -1237,7 +1505,7 @@ function killProcessTree(proc) {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Force-restart a managed server Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Force-restart a managed server —————————————————————————————————
 function restartServer(key) {
   const entry = servers[key];
   if (!entry) return;
@@ -1264,7 +1532,7 @@ function restartServer(key) {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Kill ALL servers on app exit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Kill ALL servers on app exit ———————————————————————————————————
 function killAll() {
   isQuitting = true;
   for (const key of Object.keys(servers)) {
@@ -1284,7 +1552,7 @@ function killAll() {
   saveMobileLinkState('', { status: 'inactive', stoppedAt: new Date().toISOString() });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Ping a TCP port to check health Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Ping a TCP port to check health ————————————————————————————————
 function pingPort(port, path_ = '/health', timeoutMs = 4000) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => { req.destroy(); resolve(false); }, timeoutMs);
@@ -1343,6 +1611,13 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
       const transient = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET'].includes(String(error?.code || ''))
         || /ECONNRESET|socket hang up|connection reset|fetch failed/i.test(String(error?.message || ''));
       if (!transient || attempt >= retries) break;
+
+      if (port === 8426) restartServer('AnjaliAI');
+      else if (port === 8427) restartServer('EdgeTTS');
+      else if (port === 8428) restartServer('TranscriptionServer');
+      else if (port === 8431) restartServer('Sc3Singing');
+      else if (port === 8432) restartServer('ImageGenerator');
+
       // Give a restarting native worker time to reopen its health endpoint.
       let ready = false;
       for (let check = 0; check < 30; check += 1) {
@@ -1361,7 +1636,7 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
   throw friendly;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Edge TTS health-check watchdog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Edge TTS health-check watchdog —————————————————————————————————
 // Pings port 8426 every 20 seconds. If unreachable, kills the process so
 // the auto-restart watchdog in spawnManaged fires immediately.
 let anjaliHealthTimer = null;
@@ -1378,14 +1653,14 @@ function startAnjaliWatchdog() {
     }
 
     anjaliHealthFailureCount += 1;
-    console.warn(`[PP] Voice server health-check miss ${anjaliHealthFailureCount}/5`);
-    if (anjaliHealthFailureCount < 5) {
-      return;  // allow 5 Ãƒâ€” 30s = 150 seconds before restart
+    console.warn(`[PP] Voice server health-check miss ${anjaliHealthFailureCount}/30`);
+    if (anjaliHealthFailureCount < 30) {
+      return;  // allow 30 checks during heavy multi-sentence TTS synthesis before forcing restart
     }
     anjaliHealthFailureCount = 0;
 
     if (!alive) {
-      console.warn('[PP] Voice server health-check FAILED Ã¢â‚¬â€ forcing restart...');
+      console.warn('[PP] Voice server health-check FAILED — forcing restart...');
       const entry = servers['AnjaliAI'];
       if (entry) {
         entry.stopped  = false;
@@ -1412,14 +1687,14 @@ function startAnjaliWatchdog() {
         w.webContents.send('server-status', {
           server: 'anjali',
           status: 'restarting',
-          message: 'Voice server went offline Ã¢â‚¬â€ restarting automatically...'
+          message: 'Voice server went offline — restarting automatically...'
         });
       });
     }
   }, 30000); // ping every 30s; restart only after 5 consecutive misses = 150s grace
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Start individual servers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ————————————— Start individual servers ————————————————————————————————————————
 const PS = process.env.SYSTEMROOT
   ? path.join(process.env.SYSTEMROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   : 'powershell';
@@ -1431,6 +1706,7 @@ const EDGE_TTS_SERVER = path.join(ROOT, 'timed-voiceover-server.py');
 const SC3_SINGING_SERVER = path.join(ROOT, 'sc3-singing-server.py');
 const WHISPER_PYTHON = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
 const WHISPER_SCRIPT = path.join(ROOT, 'whisper-transcribe.py');
+const TRANSCRIBE_HTTP_SERVER = path.join(ROOT, 'transcribe-http-server.py');
 const IMAGEGEN_PYTHON = path.join(ROOT, '.imagegen-venv', 'Scripts', 'python.exe');
 const IMAGEGEN_SERVER = path.join(ROOT, 'local-image-server.py');
 const TRANSLATE_SERVER = path.join(ROOT, 'translate-server.py');
@@ -1550,64 +1826,105 @@ async function startAnjaliServer() {
 
 function startServers() {
   // 1. Transcription server (port 8428)
-  spawnManaged('TranscriptionServer', PS, [
-    '-ExecutionPolicy', 'Bypass',
-    '-File', path.join(ROOT, 'transcribe-server.ps1')
-  ], { restartDelayMs: 2000 });
+  pingPort(8428, '/health', 1500).then(alive => {
+    if (alive) {
+      console.log('[PP] Transcription server on 8428 is already alive - reusing it.');
+      servers.TranscriptionServer = servers.TranscriptionServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+      return;
+    }
+    spawnManaged('TranscriptionServer', WHISPER_PYTHON, [
+      '-u', TRANSCRIBE_HTTP_SERVER
+    ], { restartDelayMs: 2000 });
+  });
 
   // 2. Video Export / FFmpeg server (port 8430)
-  spawnManaged('FFmpegServer', PS, [
-    '-ExecutionPolicy', 'Bypass',
-    '-File', path.join(ROOT, 'video-export-server.ps1')
-  ], { restartDelayMs: 2000 });
+  pingPort(8430, '/health', 1500).then(alive => {
+    if (alive) {
+      console.log('[PP] FFmpeg server on 8430 is already alive - reusing it.');
+      servers.FFmpegServer = servers.FFmpegServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+      return;
+    }
+    spawnManaged('FFmpegServer', PS, [
+      '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(ROOT, 'video-export-server.ps1')
+    ], { restartDelayMs: 2000 });
+  });
 
   // 3. Chatterbox TTS server (port 8426) - sc3 cloned voice option
   startAnjaliServer();
 
   // 4. Edge TTS server (port 8427) - separate voice option, never a fallback
-  spawnManaged('EdgeTTS', ANJALI_PYTHON, ['-u', EDGE_TTS_SERVER], {
-    cwd: ROOT,
-    restartDelayMs: 3000,
-    maxRestarts: 4,
-    restartWindowSec: 600,
-    env: PYTHON_ENV,
-  });
-
-  // 5. SC3 singing model server (port 8431)
-  if (fs.existsSync(SC3_SINGING_SERVER)) {
-    spawnManaged('Sc3Singing', fs.existsSync(SINGING_PYTHON) ? SINGING_PYTHON : ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
-      cwd: ROOT,
-      restartDelayMs: 3000,
-      maxRestarts: 4,
-      restartWindowSec: 600,
-      env: SINGING_ENV,
-    });
-  }
-
-  // 6. Fully local AI image generator (CPU, model and cache on D drive)
-  if (fs.existsSync(IMAGEGEN_PYTHON) && fs.existsSync(IMAGEGEN_SERVER)) {
-    spawnManaged('ImageGenerator', IMAGEGEN_PYTHON, ['-u', IMAGEGEN_SERVER], {
-      cwd: ROOT,
-      restartDelayMs: 5000,
-      maxRestarts: 4,
-      restartWindowSec: 900,
-      env: {
-        ...process.env,
-        PYTHONPATH: path.join(ROOT, '.imagegen-venv', 'Lib', 'site-packages'),
-        HF_HOME: path.join(ROOT, 'AI_Models', 'imagegen', 'hf-home'),
-        HUGGINGFACE_HUB_CACHE: path.join(ROOT, 'AI_Models', 'imagegen', 'hub'),
-      },
-    });
-  }
-
-  // 7. Caption/audio translation service (port 8434)
-  if (fs.existsSync(TRANSLATE_SERVER)) {
-    spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
+  pingPort(8427, '/health', 1500).then(alive => {
+    if (alive) {
+      console.log('[PP] Edge TTS server on 8427 is already alive - reusing it.');
+      servers.EdgeTTS = servers.EdgeTTS || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+      return;
+    }
+    spawnManaged('EdgeTTS', ANJALI_PYTHON, ['-u', EDGE_TTS_SERVER], {
       cwd: ROOT,
       restartDelayMs: 3000,
       maxRestarts: 4,
       restartWindowSec: 600,
       env: PYTHON_ENV,
+    });
+  });
+
+  // 5. SC3 singing model server (port 8431)
+  if (fs.existsSync(SC3_SINGING_SERVER)) {
+    pingPort(8431, '/health', 1500).then(alive => {
+      if (alive) {
+        console.log('[PP] SC3 singing server on 8431 is already alive - reusing it.');
+        servers.Sc3Singing = servers.Sc3Singing || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+        return;
+      }
+      spawnManaged('Sc3Singing', fs.existsSync(SINGING_PYTHON) ? SINGING_PYTHON : ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
+        cwd: ROOT,
+        restartDelayMs: 3000,
+        maxRestarts: 4,
+        restartWindowSec: 600,
+        env: SINGING_ENV,
+      });
+    });
+  }
+
+  // 6. Fully local AI image generator (CPU, model and cache on D drive)
+  if (fs.existsSync(IMAGEGEN_PYTHON) && fs.existsSync(IMAGEGEN_SERVER)) {
+    pingPort(8432, '/health', 1500).then(alive => {
+      if (alive) {
+        console.log('[PP] Image generator on 8432 is already alive - reusing it.');
+        servers.ImageGenerator = servers.ImageGenerator || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+        return;
+      }
+      spawnManaged('ImageGenerator', IMAGEGEN_PYTHON, ['-u', IMAGEGEN_SERVER], {
+        cwd: ROOT,
+        restartDelayMs: 5000,
+        maxRestarts: 4,
+        restartWindowSec: 900,
+        env: {
+          ...process.env,
+          PYTHONPATH: path.join(ROOT, '.imagegen-venv', 'Lib', 'site-packages'),
+          HF_HOME: path.join(ROOT, 'AI_Models', 'imagegen', 'hf-home'),
+          HUGGINGFACE_HUB_CACHE: path.join(ROOT, 'AI_Models', 'imagegen', 'hub'),
+        },
+      });
+    });
+  }
+
+  // 7. Caption/audio translation service (port 8434)
+  if (fs.existsSync(TRANSLATE_SERVER)) {
+    pingPort(8434, '/health', 1500).then(alive => {
+      if (alive) {
+        console.log('[PP] Translation server on 8434 is already alive - reusing it.');
+        servers.TranslationServer = servers.TranslationServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+        return;
+      }
+      spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
+        cwd: ROOT,
+        restartDelayMs: 3000,
+        maxRestarts: 4,
+        restartWindowSec: 600,
+        env: PYTHON_ENV,
+      });
     });
   } else {
     console.error('[PP] Translation server is missing:', TRANSLATE_SERVER);
@@ -2788,7 +3105,7 @@ async function createWindow() {
         return { ok: false, error: 'Source audio file not found.' };
       }
       // Send to SC3 Singing server (port 8426) for timbre conversion
-      const response = await postJsonForBuffer(8426, '/api/convert-song', { filePath: sourcePath, voice }, 600000);
+      const response = await postJsonForBufferWithRecovery(8426, '/api/convert-song', { filePath: sourcePath, voice }, 600000, 3);
       if (!response || response.statusCode !== 200) {
         throw new Error('SC3 conversion server returned status ' + response?.statusCode);
       }
@@ -2968,7 +3285,7 @@ async function createWindow() {
 
 
   ipcMain.handle('narrate-edge-tts', async (_event, payload) => {
-    const response = await postJsonForBuffer(8427, '/api/preview-mp3', payload, 180000);
+    const response = await postJsonForBufferWithRecovery(8427, '/api/preview-mp3', payload, 180000, 3);
     const contentType = String(response.headers['content-type'] || 'audio/wav');
     const bodyText = /application\/json/i.test(contentType)
       ? response.buffer.toString('utf8')
@@ -3042,10 +3359,17 @@ async function createWindow() {
   });
 
   const narrateWithSc3 = async (payload) => {
-    const response = await postJsonForBuffer(8426, '/api/narrate', {
+    if (!(await pingPort(8426, '/health', 3500))) {
+      await startAnjaliServer();
+      const ready = await waitForAnjaliHealth(480000);
+      if (!ready) {
+        throw new Error('The Chatterbox voice service could not start on the Windows computer. Restart Pattan Presentator and retry.');
+      }
+    }
+    const response = await postJsonForBufferWithRecovery(8426, '/api/narrate', {
       ...payload,
       voice: payload?.voice || 'sc3',
-    }, 600000);
+    }, 600000, 3);
     const contentType = String(response.headers?.['content-type'] || 'audio/wav');
     if (response.statusCode < 200 || response.statusCode >= 300) {
       let message = `SC3 narration server returned HTTP ${response.statusCode}.`;
@@ -3059,10 +3383,15 @@ async function createWindow() {
   ipcMain.handle('narrate-sc3-text', async (_event, payload) => narrateWithSc3(payload));
 
   let activeRhymeChild = null;
+  let activeLyriaController = null;
   ipcMain.handle('cancel-rhyme-song', () => {
     if (activeRhymeChild) {
       try { killProcessTree(activeRhymeChild); } catch (_) {}
       activeRhymeChild = null;
+    }
+    if (activeLyriaController) {
+      try { activeLyriaController.abort(); } catch (_) {}
+      activeLyriaController = null;
     }
     if (mobileRhymeJob?.status === 'running') {
       mobileRhymeJob.status = 'failed';
@@ -3070,6 +3399,78 @@ async function createWindow() {
       mobileRhymeJob.progress = { pct: 0, phase: 'Stopped', detail: 'Generation cancelled by user', elapsedSeconds: 0 };
     }
     return { ok: true, cancelled: true };
+  });
+
+  ipcMain.handle('generate-lyria-song', async (event, payload) => {
+    const lyrics = String(payload?.lyrics || '').trim();
+    if (!lyrics) return { ok: false, error: 'Exact lyrics are required.' };
+    if (/\b(nude|naked|porn|sexual|sex)\b/i.test(lyrics)) {
+      return { ok: false, error: 'Kids Rhyme Maker rejected unrelated adult content.' };
+    }
+    const keyPath = path.join(ROOT, '.gemini_api_key');
+    const apiKey = String(process.env.GEMINI_API_KEY || (fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : '')).trim();
+    if (!apiKey) return { ok: false, error: 'Google Gemini API key is missing. Add it in AI Tools first.' };
+
+    const startedAt = Date.now();
+    const report = (phase, pct, detail = '') => {
+      try { event.sender.send('rhyme-song-progress', { phase, pct, detail, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) }); } catch (_) {}
+    };
+    const controller = new AbortController();
+    activeLyriaController = controller;
+    const title = String(payload?.title || lyrics.split(/\r?\n/)[0] || 'kids-rhyme').trim();
+    const safeBase = title.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 55) || 'kids-rhyme';
+    const model = payload?.model === 'lyria-3-pro-preview' ? 'lyria-3-pro-preview' : 'lyria-3-clip-preview';
+    const duration = model === 'lyria-3-clip-preview' ? 30 : Math.max(30, Math.min(184, Number(payload?.duration) || 120));
+    const prompt = [
+      `Create a child-safe nursery rhyme song titled "${title}".`,
+      `${duration} seconds, ${Number(payload?.bpm) || 112} BPM, cheerful traditional children's melody, crystal-clear realistic lead singer, 44.1 kHz stereo.`,
+      String(payload?.command || '').trim(),
+      `Use bright acoustic instruments and keep accompaniment below the lead vocal. Do not add, omit, repeat, paraphrase, or replace any lyric word.`,
+      `Perform only this exact supplied spoken-and-sung script, respecting its section tags:`, lyrics,
+    ].join('\n');
+    let heartbeat = null;
+    try {
+      report('Google Lyria 3', 5, 'Sending exact lyrics securely to the Gemini API');
+      let pct = 8;
+      heartbeat = setInterval(() => {
+        pct = Math.min(88, pct + 2);
+        report('Google Lyria 3 generating', pct, model === 'lyria-3-clip-preview' ? 'Creating a 30-second 44.1 kHz stereo song' : 'Creating a full structured song');
+      }, 2500);
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({ model, input: prompt }),
+        signal: controller.signal,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const googleMessage = String(body?.error?.message || '');
+        if (response.status === 429 && /free_tier|quota|limit:\s*0/i.test(googleMessage)) {
+          throw new Error('Google Lyria 3 is connected, but this API key has zero Lyria quota. Lyria has no free API tier. Enable paid Gemini API billing, then retry. Clip costs $0.04 per song and Pro costs $0.08 per song according to Google pricing.');
+        }
+        throw new Error(googleMessage || `Google Lyria returned HTTP ${response.status}`);
+      }
+      const blocks = [];
+      const collect = value => {
+        if (!value || typeof value !== 'object') return;
+        if (Array.isArray(value)) return value.forEach(collect);
+        if (value.type === 'audio' && value.data) blocks.push(value);
+        Object.values(value).forEach(collect);
+      };
+      collect(body);
+      const audioBlock = blocks[blocks.length - 1];
+      if (!audioBlock?.data) throw new Error('Google Lyria returned no audio. The model may not be enabled for this API key or region.');
+      const bytes = Buffer.from(audioBlock.data, 'base64');
+      const outputPath = path.join(os.homedir(), 'Downloads', `${safeBase}-Google-Lyria-3-${Date.now()}.mp3`);
+      fs.writeFileSync(outputPath, bytes);
+      report('Google Lyria 3 complete', 100, `Saved ${path.basename(outputPath)} to Downloads`);
+      return { ok: true, audioBase64: bytes.toString('base64'), mimeType: 'audio/mp3', filePath: outputPath, fileName: path.basename(outputPath), duration, requestedDuration: duration, durationAdjusted: false, engine: model === 'lyria-3-clip-preview' ? 'Google Lyria 3 Clip' : 'Google Lyria 3 Pro', clarityPassed: null, clarityScore: null };
+    } catch (error) {
+      return { ok: false, error: error?.name === 'AbortError' ? 'Google Lyria generation cancelled.' : String(error?.message || error) };
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
+      if (activeLyriaController === controller) activeLyriaController = null;
+    }
   });
 
   ipcMain.handle('generate-rhyme-song', async (event, payload) => {
@@ -3105,7 +3506,11 @@ async function createWindow() {
     const ditFallback = path.join(models, 'acestep-v15-turbo-Q5_K_M.gguf');
     const dit = fs.existsSync(ditHigh) && fs.statSync(ditHigh).size > 2500000000 ? ditHigh : ditFallback;
     const vae = path.join(models, 'vae-BF16.gguf');
-    const referenceAudio = path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
+    const premiumHybridReference = path.join(ROOT, 'generated-media', 'rhyme-reference', 'hickory-sc3-traditional-6-8-kids-reference-v4.wav');
+    const legacyReferenceAudio = path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav');
+    // Prefer the user-approved profile: SC3 vocal character from the second
+    // Hickory recording plus the premium accompaniment from the first.
+    const referenceAudio = fs.existsSync(premiumHybridReference) ? premiumHybridReference : legacyReferenceAudio;
     const required = [lmExe, synthExe, lmModel, embedding, dit, vae, referenceAudio];
     const missing = required.filter(file => !fs.existsSync(file));
     if (missing.length) {
@@ -3143,6 +3548,14 @@ async function createWindow() {
       return { ok: false, error: `These ${lyricWordCount} lyric words need about ${minimumClearDuration} seconds for clear singing. Shorten the lyrics to about 25 words for the 30-second maximum.` };
     }
     const coordinatedSongMode = String(payload?.qualityMode || '') === 'coordinated-song';
+    const normalizedLyrics = lyrics.toLowerCase();
+    const isHickoryRhyme = /hickory\s*,?\s*dickory\s*dock/.test(normalizedLyrics);
+    const isLullabyRhyme = /twinkle\s*,?\s*twinkle|hush\s*,?\s*little\s*baby|rock[- ]a[- ]bye/.test(normalizedLyrics);
+    const researchedArrangement = isHickoryRhyme
+      ? 'traditional lively 6/8 action-song groove; melody climbs stepwise while the mouse runs up, strikes a bright clock accent, then descends clearly while the mouse runs down; bouncing bass on dotted beats, playful pizzicato strings, glockenspiel, woodblock clock ticks, handclaps and light shaker; energetic and danceable for preschool children'
+      : isLullabyRhyme
+        ? 'gentle nursery lullaby in 4/4; memorable stepwise melody, soft music-box bells, warm piano, delicate strings and very light brushed percussion; calm but never empty'
+        : 'modern preschool action-song arrangement in 4/4; instantly memorable stepwise melody, strong child-friendly pulse, bouncy bass, ukulele, glockenspiel, handclaps, kick and light shakers; clear verse lift and joyful chorus energy';
     const duration = coordinatedSongMode
       ? 30
       : Math.min(30, Math.max(requestedDuration, minimumClearDuration));
@@ -3151,12 +3564,12 @@ async function createWindow() {
       : lyrics;
     const durationReference = path.join(workDir, `required-reference-${duration}s.wav`);
     const request = {
-      caption: `${String(payload?.stylePrompt || 'hd crystal-clear voice, studio-mastered vocal, ultra-clean high-fidelity 48kHz audio, premium preschool nursery rhyme, naturally expressive young female singer, warm realistic human vocal, joyful child-friendly performance, crystal-clear English pronunciation, memorable playful melody, soft piano, glockenspiel, ukulele and gentle drums, wide clean stereo instrumental, polished commercial children song')}, preserve the same lead-singer timbre and vocal character as the supplied Little Jack Horner reference; sing naturally with melodic phrasing and breath, never robotic, never spoken`,
+      caption: `${String(payload?.stylePrompt || 'HD crystal-clear studio vocal, premium preschool nursery rhyme, naturally expressive young female singer, warm realistic human vocal, joyful child-friendly performance, crystal-clear English pronunciation')}; ${researchedArrangement}; preserve the approved SC3 lead-singer timbre; vocals stay centered and clearly above the accompaniment; sing naturally with melody, phrasing and breath, never robotic and never spoken`,
       lyrics: performanceLyrics,
       duration,
-      bpm: Math.max(80, Math.min(140, Number(payload?.bpm) || 84)),
-      keyscale: 'C major',
-      timesignature: '4',
+      bpm: isHickoryRhyme ? 112 : isLullabyRhyme ? 84 : Math.max(96, Math.min(124, Number(payload?.bpm) || 112)),
+      keyscale: isHickoryRhyme ? 'D major' : 'C major',
+      timesignature: isHickoryRhyme ? '6' : '4',
       vocal_language: 'en',
       batch_size: 1,
       seed: Number(payload?.seed || -1),
@@ -3168,7 +3581,7 @@ async function createWindow() {
       shift: 3.0,
       // Keep the required reference's musical character without letting its old words
       // overpower the exact lyrics supplied for this generation.
-      audio_cover_strength: 0.40,
+      audio_cover_strength: coordinatedSongMode ? 0.18 : 0.40,
     };
     const savedPayload = {
       lyrics, title, duration, clarityAttempts: Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3)),
@@ -3242,8 +3655,10 @@ async function createWindow() {
         ? Math.max(5, Math.min(8, Number(payload?.clarityAttempts) || 5))
         : Math.max(3, Math.min(5, Number(payload?.clarityAttempts) || 3));
       const passScore = 80;
+      const minimumExportScore = 70;
       const initialSeed = Number.isFinite(Number(payload?.seed)) && Number(payload.seed) >= 0 ? Number(payload.seed) : Math.floor(Math.random() * 1000000);
       let best = null;
+      const completedCandidates = [];
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         const attemptBase = 14 + Math.round(((attempt - 1) / attempts) * 74);
         const attemptEnd = 14 + Math.round((attempt / attempts) * 74);
@@ -3258,7 +3673,9 @@ async function createWindow() {
               // Strong reference conditioning can overpower short supplied lyrics.
               // Keep the reference character for the first two candidates, then let
               // the final recovery candidate prioritize the exact lyric tokens.
-              const retryStrength = coordinatedSongMode ? 0 : (attempt === 1 ? 0.35 : attempt === 2 ? 0.15 : 0);
+              const retryStrength = coordinatedSongMode
+                ? (attempt === 1 ? 0.18 : attempt === 2 ? 0.10 : 0)
+                : (attempt === 1 ? 0.35 : attempt === 2 ? 0.15 : 0);
               const retryCaption = attempt === 1
                 ? request.caption
                 : `${request.caption}. Extra-clear child-friendly diction. Sing every supplied word exactly once, with short pauses between lyric lines; do not omit, repeat, replace, or improvise any word.`;
@@ -3279,7 +3696,12 @@ async function createWindow() {
           saveRecovery('running', { stage: 'rendering', attempt });
           report(`Rendering candidate ${attempt}/${attempts}`, attemptBase + 4, `Singing with ${path.basename(dit)} — longest CPU stage`);
           const synthArgs = ['--request', request0Path, '--embedding', embedding, '--dit', dit, '--vae', vae];
-          if (!coordinatedSongMode && attempt < attempts) synthArgs.push('--src-audio', durationReference);
+          // The first coordinated candidates inherit the approved SC3 voice and
+          // premium BGM profile. Later candidates remove audio conditioning so
+          // the supplied lyrics always take priority over reference phonemes.
+          if ((!coordinatedSongMode && attempt < attempts) || (coordinatedSongMode && attempt <= 2)) {
+            synthArgs.push('--src-audio', durationReference);
+          }
           synthArgs.push('--wav', '--no-fa', '--vae-chunk', '128', '--vae-overlap', '32');
           await run(synthExe, synthArgs, 45 * 60 * 1000, attemptDir);
         } else {
@@ -3290,6 +3712,7 @@ async function createWindow() {
         let check;
         try { check = await transcribeForClarity(generatedPath); } catch (error) { check = { text: '', score: 0, unavailable: true, error: error.message }; }
         const candidate = { path: generatedPath, ...check, attempt };
+        completedCandidates.push(candidate);
         if (!best || candidate.score > best.score) best = candidate;
         report(`Lyric clarity score: ${candidate.score}%`, attemptEnd, candidate.score >= passScore ? 'Passed lyric clarity check' : attempt < attempts ? 'Automatically retrying with stronger diction and less reference bleed' : 'Rejected: lyrics are not clear enough');
         if (candidate.score >= passScore) break;
@@ -3301,6 +3724,20 @@ async function createWindow() {
         }
       }
       if (!best?.path) throw new Error('No song candidate was generated.');
+      // Singing transcription can occasionally return a sparse first pass. Before
+      // rejecting a long generation, audit every completed performance once more
+      // and select the genuinely fullest lyric take, not simply the latest file.
+      if (!best.unavailable && best.score < passScore && completedCandidates.length > 1) {
+        report('Final exact-lyrics audit', 89, `Rechecking all ${completedCandidates.length} completed performances`);
+        for (const candidate of completedCandidates) {
+          try {
+            const audit = await transcribeForClarity(candidate.path);
+            if (audit.score > candidate.score) Object.assign(candidate, audit);
+            if (!best || candidate.score > best.score) best = candidate;
+          } catch (_) {}
+        }
+        report(`Best audited lyric clarity: ${best.score}%`, 90, `Selected performance ${best.attempt}/${attempts}`);
+      }
       if (!coordinatedSongMode && !best.unavailable && best.score < passScore) {
         report('Recovering exact lyric clarity', 89, 'Rebuilding the lead with the natural Little Jack Horner reference voice');
         // ACE-Step can occasionally prioritize melody/reference phonemes over very
@@ -3328,7 +3765,7 @@ async function createWindow() {
             const voiceLineFiles = [];
             for (let lineIndex = 0; lineIndex < lyricLines.length; lineIndex += 1) {
               report('Recovering exact lyric clarity', 89, `Generating natural voice line ${lineIndex + 1}/${lyricLines.length}`);
-              const voiceResponse = await postJsonForBuffer(8426, '/api/narrate', {
+              const voiceResponse = await postJsonForBufferWithRecovery(8426, '/api/narrate', {
                 text: lyricLines[lineIndex],
                 voice: 'rhyme_natural_v2',
                 generationOptions: {
@@ -3337,7 +3774,7 @@ async function createWindow() {
                   temperature: 0.78,
                   repetitionPenalty: 1.18,
                 },
-              }, 10 * 60 * 1000);
+              }, 10 * 60 * 1000, 3);
               if (voiceResponse.statusCode < 200 || voiceResponse.statusCode >= 300 || !voiceResponse.buffer?.length) {
                 throw new Error(`Reference voice line ${lineIndex + 1} returned HTTP ${voiceResponse.statusCode}.`);
               }
@@ -3389,13 +3826,16 @@ async function createWindow() {
         }
       }
       if (coordinatedSongMode && !best.unavailable && best.score < passScore) {
-        throw new Error(`Coordinated song rejected after ${attempts} complete singing performances because the best result detected only ${best.score}% of the exact lyrics (minimum ${passScore}%). The singer and BGM were kept together; no narration replacement or mismatched mix was saved.`);
+        if (best.score < minimumExportScore) {
+          throw new Error(`Coordinated song rejected after ${attempts} complete singing performances because the best result detected only ${best.score}% of the exact lyrics (minimum export score ${minimumExportScore}%). The singer and BGM were kept together; no mismatched mix was saved.`);
+        }
+        report('Usable song accepted with clarity warning', 91, `Best coordinated performance scored ${best.score}%. Exporting it to Downloads with singer and BGM intact.`);
       }
       if (best.unavailable) {
         throw new Error('The lyric clarity checker was unavailable, so the song was not saved without verification.');
       }
       report('Enhancing lead-vocal clarity', 92, 'Mastering HD stereo song with presence boost and loudness normalization');
-      const enhancedPath = path.join(workDir, 'vocal-enhanced.wav');
+      const enhancedPath = path.join(workDir, 'vocal-enhanced.mp3');
       const requestedBgm = Number(payload?.bgmLevel);
       const requestedPresence = Number(payload?.vocalPresence);
       const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
@@ -3407,7 +3847,7 @@ async function createWindow() {
       try {
         await run(findFFmpegExecutable(), ['-y', '-i', best.path, '-af', audioFilter, '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '320k', '-q:a', '0', enhancedPath], 10 * 60 * 1000, workDir);
       } catch (_) {}
-      report('Finalizing the MP3', 96, 'Saving the mastered 4K 320kbps MP3 song');
+      report('Finalizing the MP3', 96, `Saving the mastered 320kbps MP3 to ${outputDir}`);
       fs.copyFileSync(fs.existsSync(enhancedPath) ? enhancedPath : best.path, savedPath);
       const bytes = fs.readFileSync(savedPath);
       const clarityPassed = best.score >= passScore;
@@ -3440,8 +3880,8 @@ async function createWindow() {
         const legacyAttempt = path.join(workDir, 'attempt-1');
         const attemptDir = fs.existsSync(referenceAttempt) ? referenceAttempt : legacyAttempt;
         const requestPath = path.join(attemptDir, 'rhyme.json');
-        const completedPath = path.join(workDir, 'vocal-enhanced.wav');
-        if (fs.existsSync(requestPath) && !fs.existsSync(completedPath)) {
+        const completedPaths = [path.join(workDir, 'vocal-enhanced.mp3'), path.join(workDir, 'vocal-enhanced.wav')];
+        if (fs.existsSync(requestPath) && !completedPaths.some(filePath => fs.existsSync(filePath))) {
           const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
           return { ok: true, job: { status: 'paused', workDir, stage: fs.existsSync(path.join(attemptDir, 'rhyme0.json')) ? 'rendering' : 'composing', payload: { lyrics: request.lyrics, title: 'Recovered rhyme', duration: request.duration, bpm: request.bpm, stylePrompt: request.caption, seed: request.seed, clarityAttempts: 3, bgmLevel: 20, vocalPresence: 7 } } };
         }
@@ -3451,6 +3891,7 @@ async function createWindow() {
   });
   ipcMain.handle('preview-rhyme-mix', async (_event, payload) => {
     const sampleCandidates = [
+      path.join(ROOT, 'generated-media', 'rhyme-reference', 'hickory-sc3-traditional-6-8-kids-reference-v4.wav'),
       path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav'),
       path.join(ROOT, 'generated-media', 'song-work', 'little-jack-horner-q8', 'rhyme00.wav'),
       path.join(ROOT, 'generated-media', 'song-work', 'install-test', 'rhyme00.wav'),
@@ -3463,7 +3904,7 @@ async function createWindow() {
     const requestedPresence = Number(payload?.vocalPresence);
     const bgmLevel = Math.max(0, Math.min(100, Number.isFinite(requestedBgm) ? requestedBgm : 20));
     const presence = Math.max(0, Math.min(10, Number.isFinite(requestedPresence) ? requestedPresence : 7));
-    const singerStyle = 'required Little Jack Horner reference singer';
+    const singerStyle = 'SC3 Hickory voice with premium Hickory instrumental profile';
     const bpm = Math.max(80, Math.min(140, Number(payload?.bpm) || 96));
     // Preview and final mastering must use exactly the same tonal controls.
     // Pitch/tempo tricks here previously advertised a voice the generator did not use.
@@ -3496,7 +3937,7 @@ async function createWindow() {
       ['ACE lyric engine', path.join(aceRoot, 'build', 'Release', 'ace-lm.exe'), 100000],
       ['ACE music engine', path.join(aceRoot, 'build', 'Release', 'ace-synth.exe'), 100000],
       ['Whisper clarity checker', path.join(ROOT, 'whisper-transcribe-caption.py'), 1000],
-      ['Required rhyme reference', path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav'), 5000000],
+      ['Traditional 6/8 SC3 + BGM profile', path.join(ROOT, 'generated-media', 'rhyme-reference', 'hickory-sc3-traditional-6-8-kids-reference-v4.wav'), 5000000],
     ].map(([name, filePath, minimumSize]) => {
       let size = 0;
       try { size = fs.statSync(filePath).size; } catch (_) {}
@@ -3504,15 +3945,20 @@ async function createWindow() {
     });
     try { fs.accessSync(app.getPath('downloads'), fs.constants.W_OK); checks.push({ name: 'Downloads saving', ok: true, detail: 'Writable' }); }
     catch (_) { checks.push({ name: 'Downloads saving', ok: false, detail: 'Permission denied' }); }
+    const lyriaKeyPath = path.join(ROOT, '.gemini_api_key');
+    const lyriaKeyReady = Boolean(String(process.env.GEMINI_API_KEY || (fs.existsSync(lyriaKeyPath) ? fs.readFileSync(lyriaKeyPath, 'utf8') : '')).trim());
+    checks.push({ name: 'Google Lyria 3 Pro', ok: lyriaKeyReady, detail: lyriaKeyReady ? 'API key configured' : 'Gemini API key required' });
     try {
       await new Promise((resolve, reject) => execFile(findFFmpegExecutable(), ['-version'], { windowsHide: true, timeout: 10000 }, error => error ? reject(error) : resolve()));
       checks.push({ name: 'FFmpeg mastering', ok: true, detail: 'Ready' });
     } catch (_) { checks.push({ name: 'FFmpeg mastering', ok: false, detail: 'Unavailable' }); }
     const sampleReady = [
+      path.join(ROOT, 'generated-media', 'rhyme-reference', 'hickory-sc3-traditional-6-8-kids-reference-v4.wav'),
+      path.join(ROOT, 'generated-media', 'rhyme-reference', 'little-jack-horner-reference-30s.wav'),
       path.join(ROOT, 'generated-media', 'song-work', 'little-jack-horner-q8', 'rhyme00.wav'),
       path.join(ROOT, 'generated-media', 'song-work', 'install-test', 'rhyme00.wav'),
     ].some(filePath => fs.existsSync(filePath));
-    checks.push({ name: 'Instant preview source', ok: sampleReady, detail: sampleReady ? 'Ready' : 'Generate one song first' });
+    checks.push({ name: 'Voice preview source', ok: sampleReady, detail: sampleReady ? 'Ready' : 'Approved reference is missing' });
     return { ok: checks.every(check => check.ok), checks };
   });
   ipcMain.handle('narrate-uploaded-video-voice', async () => ({
@@ -3520,7 +3966,7 @@ async function createWindow() {
     error: 'Uploaded-video voice cloning is not configured for text synthesis. Select SC3 or Edge TTS.',
   }));
   ipcMain.handle('narrate-edge-tts-timed', async (_event, payload) => {
-    const result = await postJsonForBuffer(8427, '/api/preview-mp3', payload, 180000);
+    const result = await postJsonForBufferWithRecovery(8427, '/api/preview-mp3', payload, 180000, 3);
     if (result.statusCode < 200 || result.statusCode >= 300) {
       throw new Error(`Timed Edge TTS returned HTTP ${result.statusCode}.`);
     }
@@ -3756,6 +4202,17 @@ async function createWindow() {
   });
 
 // ————————————— Crash-free Video Transcription (IPC) ————————————————————————————
+let activeCaptionTranscribeProcess = null;
+let activeCaptionTranscribeCancelRequested = false;
+
+ipcMain.handle('cancel-transcribe-video', async () => {
+  activeCaptionTranscribeCancelRequested = true;
+  if (activeCaptionTranscribeProcess) {
+    try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+  }
+  return { ok: true, cancelled: true };
+});
+
 // Calls Whisper Python directly — works on ANY video type (speech, music, animation)
 // Pipeline:
 //   1. FFmpeg extracts 16kHz mono WAV from video
@@ -3767,6 +4224,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
   let resumePausedServers = () => {};
+  activeCaptionTranscribeCancelRequested = false;
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -3788,6 +4246,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
         '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
         tmpWav
       ], { stdio: 'pipe', windowsHide: true });
+      activeCaptionTranscribeProcess = proc;
       let stderr = '';
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString(); });
       proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
@@ -3821,12 +4280,16 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
 
     const langParam = languageHint || 'auto';
+    if (activeCaptionTranscribeCancelRequested) {
+      throw new Error('Transcription cancelled.');
+    }
     const whisperResult = await new Promise((resolve, reject) => {
       const proc = spawn(pyExe, [scriptPath, tmpWav, langParam, path.basename(videoPath)], {
         stdio: 'pipe',
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
       });
+      activeCaptionTranscribeProcess = proc;
       let stdout = '', stderr = '', progressBuffer = '';
       proc.stdout && proc.stdout.on('data', d => {
         const text = d.toString('utf8');
@@ -3874,11 +4337,14 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     };
 
   } catch (err) {
+    if (activeCaptionTranscribeCancelRequested) {
+      return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
+    }
     // Fallback: HTTP transcription server (port 8428)
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
     try {
       const wavBase64 = fs.readFileSync(tmpWav).toString('base64');
-      const result = await postJsonForBuffer(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000);
+      const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000, 3);
       if (result && result.statusCode === 200) {
         const p = JSON.parse(result.buffer.toString('utf8'));
         return {
@@ -3894,6 +4360,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     }
     return { ok: false, error: err.message };
   } finally {
+    activeCaptionTranscribeProcess = null;
+    activeCaptionTranscribeCancelRequested = false;
     console.log('[Caption] Kept transcription WAV:', tmpWav);
     resumePausedServers();
   }
@@ -3926,7 +4394,8 @@ async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint) {
     form.append('temperature', '0');
     form.append('timestamp_granularities[]', 'word');
     form.append('timestamp_granularities[]', 'segment');
-    form.append('prompt', 'Transcribe every spoken word exactly as heard. Keep Telugu, Hindi, and English in the original spoken language. Do not translate, summarize, or invent words.');
+    // Do not send an instruction prompt to Whisper. On noisy or silent clips the
+    // model can hallucinate that prompt verbatim and it then gets burned as captions.
     if (languageHint && languageHint !== 'auto') form.append('language', languageHint);
     form.append('file', new Blob([audioBuffer], { type: 'audio/wav' }), 'caption-audio.wav');
 
@@ -4009,21 +4478,29 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
       if (json.language && !detectedLanguage) detectedLanguage = json.language;
       const segments = Array.isArray(json.segments) ? json.segments : [];
       const words = Array.isArray(json.words) ? json.words : [];
-      if (json.text) allText.push(String(json.text).trim());
+      const instructionLeak = /transcribe every spoken|keep\s+(?:telugu|hindi)|hindi\s*,?\s*and\s*english|do not translate|do not summarize|invent words/i;
+      const leakedRanges = [];
       for (const seg of segments) {
         const text = String(seg.text || '').trim();
-        if (!text) continue;
         const start = Number(seg.start || 0) + timeOffset;
         const end = Number(seg.end || start + 0.5) + timeOffset;
+        if (!text) continue;
+        if (instructionLeak.test(text)) {
+          leakedRanges.push({ start, end });
+          continue;
+        }
         if (start < lastSegmentEnd - 0.35) continue;
         lastSegmentEnd = Math.max(lastSegmentEnd, end);
         allSegments.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, text });
+        allText.push(text);
       }
       for (const word of words) {
         const text = String(word.word || word.text || '').trim();
         if (!text) continue;
         const start = Number(word.start || 0) + timeOffset;
         const end = Number(word.end || start + 0.25) + timeOffset;
+        const midpoint = (start + end) / 2;
+        if (leakedRanges.some(range => midpoint >= range.start - 0.15 && midpoint <= range.end + 0.15)) continue;
         if (start < lastWordEnd - 0.2) continue;
         lastWordEnd = Math.max(lastWordEnd, end);
         allWords.push({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, word: text });
@@ -4048,306 +4525,74 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
 // ————————————— Whisper Transcription Helper —————————————————————————————————————
 // Spawns whisper-transcribe.py from .singing-venv (has faster-whisper installed).
 // Far more accurate than Windows Speech Recognition (port 8428) for Indian accents.
-async function runWhisperTranscribe(audioPath, timeoutMs = 1800000) {
+// The local transcription server can run one Whisper job at a time.  Both the
+// "Narrate Audio" and "Convert Video" actions use this helper; serialise them
+// so two clicks cannot wedge port 8428 behind competing 5-minute jobs.
+let whisperTranscriptionTail = Promise.resolve();
+function runWhisperTranscribe(audioPath, timeoutMs = 1800000) {
+  const task = whisperTranscriptionTail.then(() => runWhisperTranscribeNow(audioPath, timeoutMs));
+  // Keep the queue alive after a failed/cancelled job.
+  whisperTranscriptionTail = task.catch(() => undefined);
+  return task;
+}
+
+async function runWhisperTranscribeNow(audioPath, timeoutMs = 1800000) {
+  // Prefer the shared transcription service.  Sing Song used to ignore the
+  // ready 8428 service and start a second local Whisper process, which made
+  // long videos (5+ minutes) time out on CPU and incorrectly looked like a
+  // Chatterbox failure.  The service already owns model loading and returns
+  // the same JSON shape used by Caption Burner.
+  try {
+    const audioBase64 = fs.readFileSync(audioPath).toString('base64');
+    const serverResult = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
+      audioBase64,
+      wordTimestamps: false,
+      language: 'en'
+    }, Math.max(300000, Math.min(timeoutMs, 900000)), 3);
+    if (serverResult?.statusCode === 200) {
+      const payload = JSON.parse(serverResult.buffer.toString('utf8'));
+      const text = String(payload.text || payload.transcript || payload.result?.text || '').trim();
+      if (text) {
+        console.log('[PP] Whisper: used transcription server on port 8428');
+        return text;
+      }
+    }
+    console.warn('[PP] Whisper server returned no usable transcript; using local fallback.');
+  } catch (serverErr) {
+    console.warn('[PP] Whisper server unavailable; using local fallback:', serverErr.message);
+  }
   return new Promise((resolve, reject) => {
     const py = fs.existsSync(WHISPER_PYTHON) ? WHISPER_PYTHON : 'python';
-    const proc = spawn(py, [WHISPER_SCRIPT, audioPath], {
-      stdio: 'pipe',
-      windowsHide: true,
+    const selectedScript = fs.existsSync(path.join(ROOT, 'whisper-transcribe-caption.py'))
+      ? path.join(ROOT, 'whisper-transcribe-caption.py') : WHISPER_SCRIPT;
+    const proc = spawn(py, [selectedScript, audioPath, 'en'], {
+      stdio: 'pipe', windowsHide: true,
       env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
     });
     let stdout = '', stderr = '';
-    if (proc.stdout) proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
-    if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error('Whisper transcription timed out after ' + (timeoutMs / 1000) + 's'));
-    }, timeoutMs);
-    proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn error: ' + err.message)); });
-    proc.on('exit', code => {
+    proc.stdout?.on('data', data => { stdout += data.toString('utf8'); });
+    proc.stderr?.on('data', data => { stderr += data.toString('utf8'); });
+    const timer = setTimeout(() => { proc.kill(); reject(new Error(`Whisper transcription timed out after ${timeoutMs / 1000}s`)); }, timeoutMs);
+    proc.on('error', error => { clearTimeout(timer); reject(error); });
+    proc.on('exit', () => {
       clearTimeout(timer);
       try {
-        const lastLine = stdout.trim().split('\n').pop() || '';
-        const json = JSON.parse(lastLine);
-        if (json.error) reject(new Error('Whisper error: ' + json.error));
-        else resolve(String(json.text || '').trim());
-      } catch (_) {
-        reject(new Error('Whisper output parse failed. stderr: ' + stderr.slice(0, 300) + ' stdout: ' + stdout.slice(0, 100)));
-      }
+        const result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
+        if (result.error) throw new Error(result.error);
+        resolve(String(result.text || '').trim());
+      } catch (error) { reject(new Error(`Whisper output parse failed: ${stderr.slice(-300) || error.message}`)); }
     });
   });
 }
 
-// ————————————— American English —> Indian English voice pipeline —————————————————
-// Pipeline:
-//   1. FFmpeg — 16 kHz mono WAV (for transcription)
-//   2. Whisper (faster-whisper tiny) — full transcript text  —  replaces Windows SR
-//   3. convertToIndianEnglish() — replace American slang with Indian equivalents
-//   4. Chatterbox TTS (port 8426, sc3 Indian voice) — synthesise each sentence
-//   5. FFmpeg concat + atempo time-scale to match original video duration
-//   6. FFmpeg mux new audio back into video — saved to Downloads
-
-/** Converts American English slang/contractions to Indian English equivalents. */
-function convertToIndianEnglish(text) {
-  return text
-    // contractions — full form
-    .replace(/\b(gonna)\b/gi, 'going to')
-    .replace(/\b(wanna)\b/gi, 'want to')
-    .replace(/\b(gotta)\b/gi, 'have to')
-    .replace(/\b(lemme)\b/gi, 'let me')
-    .replace(/\b(gimme)\b/gi, 'give me')
-    .replace(/\b(kinda)\b/gi, 'kind of')
-    .replace(/\b(sorta)\b/gi, 'sort of')
-    .replace(/\b(dunno)\b/gi, 'do not know')
-    .replace(/\b(y'all|yall)\b/gi, 'all of you')
-    .replace(/\b(ain't)\b/gi, 'is not')
-    .replace(/\b(can't)\b/gi, 'cannot')
-    .replace(/\b(won't)\b/gi, 'will not')
-    .replace(/\b(don't)\b/gi, 'do not')
-    .replace(/\b(doesn't)\b/gi, 'does not')
-    .replace(/\b(didn't)\b/gi, 'did not')
-    .replace(/\b(isn't)\b/gi, 'is not')
-    .replace(/\b(wasn't)\b/gi, 'was not')
-    .replace(/\b(weren't)\b/gi, 'were not')
-    .replace(/\b(haven't)\b/gi, 'have not')
-    .replace(/\b(hasn't)\b/gi, 'has not')
-    .replace(/\b(hadn't)\b/gi, 'had not')
-    .replace(/\b(wouldn't)\b/gi, 'would not')
-    .replace(/\b(shouldn't)\b/gi, 'should not')
-    .replace(/\b(couldn't)\b/gi, 'could not')
-    .replace(/\b(it's)\b/gi, 'it is')
-    .replace(/\b(that's)\b/gi, 'that is')
-    .replace(/\b(there's)\b/gi, 'there is')
-    .replace(/\b(they're)\b/gi, 'they are')
-    .replace(/\b(we're)\b/gi, 'we are')
-    .replace(/\b(you're)\b/gi, 'you are')
-    .replace(/\b(I'm)\b/g, 'I am')
-    .replace(/\b(I've)\b/g, 'I have')
-    .replace(/\b(I'll)\b/g, 'I will')
-    .replace(/\b(I'd)\b/g, 'I would')
-    .replace(/\b(he's)\b/gi, 'he is')
-    .replace(/\b(she's)\b/gi, 'she is')
-    .replace(/\b(what's)\b/gi, 'what is')
-    .replace(/\b(who's)\b/gi, 'who is')
-    .replace(/\b(let's)\b/gi, 'let us')
-    // American slang — Indian English
-    .replace(/\b(dude|bro|buddy|pal|man)\b/gi, 'friend')
-    .replace(/\b(cool|awesome|rad|sick|lit)\b/gi, 'very good')
-    .replace(/\b(totally|absolutely|for sure|heck yeah)\b/gi, 'certainly')
-    .replace(/\b(nope)\b/gi, 'no')
-    .replace(/\b(yep|yup|yeah)\b/gi, 'yes')
-    .replace(/\b(okay|ok)\b/gi, 'alright')
-    .replace(/\b(stuff|things|items)\b/gi, 'things')
-    .replace(/\b(guys)\b/gi, 'students')
-    .replace(/\b(kids)\b/gi, 'children')
-    .replace(/\b(check out)\b/gi, 'look at')
-    .replace(/\b(check)\b/gi, 'verify')
-    .replace(/\b(hang on)\b/gi, 'wait a moment')
-    .replace(/\b(hold on)\b/gi, 'please wait')
-    .replace(/\b(awesome sauce)\b/gi, 'very wonderful')
-    .replace(/\b(no worries)\b/gi, 'do not worry')
-    .replace(/\b(my bad)\b/gi, 'I am sorry')
-    .replace(/\b(for real)\b/gi, 'truly')
-    .replace(/\b(right on)\b/gi, 'very good')
-    .replace(/\b(what the heck|what the hell)\b/gi, 'what on earth')
-    .replace(/\b(a lot of|lots of)\b/gi, 'many')
-    .replace(/\b(gonna go ahead and)\b/gi, 'will now')
-    .replace(/\b(go ahead and)\b/gi, 'now')
-    .replace(/\b(pretty much)\b/gi, 'mostly')
-    .replace(/\b(kind of a big deal)\b/gi, 'very important')
-    .replace(/\b(a big deal)\b/gi, 'very important')
-    // normalize multiple spaces / exclamations
-    .replace(/(!{2,})/g, '!')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Splits text into manageable sentence chunks for TTS (max ~200 chars each). */
-function splitIntoSentences(text, maxLen = 200) {
-  const raw = text.split(/(?<=[.!?])\s+/);
-  const chunks = [];
-  let current = '';
-  for (const sentence of raw) {
-    if ((current + ' ' + sentence).trim().length > maxLen && current) {
-      chunks.push(current.trim());
-      current = sentence;
-    } else {
-      current = current ? current + ' ' + sentence : sentence;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.filter(Boolean);
-}
-
-// ── Fast Mode: SC3 Singing timbre transfer for video ──────────────────────────
-// Extract audio → SC3 Singing (port 8426) converts timbre → mux back into video
-ipcMain.handle('sc3-singing-replace-video', async (event, opts) => {
-  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
-  if (!filePath) return { ok: false, error: 'No file path provided.' };
-
-  const tmpDir  = require('os').tmpdir();
-  const stamp   = Date.now();
-  const safeBase = (outputBaseName || 'video').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const FFMPEG  = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-  const tempFiles = [];
-
-  function runFF(args, label) {
-    return new Promise((resolve, reject) => {
-      const proc = spawn(FFMPEG, args, { stdio: 'pipe', windowsHide: true });
-      let stderr = '';
-      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
-      proc.on('exit', code => { if (code === 0) resolve(); else reject(new Error('FFmpeg(' + label + ') exit ' + code + ': ' + stderr.slice(-200))); });
-    });
-  }
-
-  try {
-    // 1. Extract audio from video as WAV
-    const audioWav = path.join(tmpDir, 'sc3fast-audio-' + stamp + '.wav');
-    tempFiles.push(audioWav);
-    console.log('[Fast] Extracting audio from video...');
-    await runFF(['-y', '-i', filePath, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', audioWav], 'extract audio');
-
-    // 2. Send to SC3 Singing server (port 8426) for timbre conversion
-    console.log('[Fast] Sending to SC3 Singing for timbre conversion...');
-    const sc3Raw = await postJsonForBuffer(8426, '/api/convert-song', { filePath: audioWav, voice }, 600000);
-    if (!sc3Raw || sc3Raw.statusCode !== 200) throw new Error('SC3 Singing server failed (status ' + sc3Raw?.statusCode + '). Ensure SC3 Singing server is running.');
-    const sc3Body = JSON.parse(sc3Raw.buffer.toString('utf8'));
-    if (!sc3Body.audioBase64) throw new Error('SC3 Singing returned no audio.');
-
-    // 3. Save converted audio to temp file
-    const convertedMp3 = path.join(tmpDir, 'sc3fast-converted-' + stamp + '.mp3');
-    tempFiles.push(convertedMp3);
-    fs.writeFileSync(convertedMp3, Buffer.from(sc3Body.audioBase64, 'base64'));
-    console.log('[Fast] SC3 Singing conversion done. Muxing back into video...');
-
-    // 4. Mux converted audio back into original video
-    const outFile = path.join(os.homedir(), 'Downloads', safeBase + '-sc3-fast-' + stamp + '.mp4');
-    await runFF(['-y', '-i', filePath, '-i', convertedMp3, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-map', '0:v:0', '-map', '1:a:0', '-shortest', outFile], 'mux video');
-    console.log('[Fast] Done:', outFile);
-
-    return { ok: true, outputPath: outFile, indianEnglish: false, sc3Fast: true };
-  } catch (err) {
-    console.error('[Fast] SC3 Singing video failed:', err.message);
-    return { ok: false, error: 'SC3 Fast mode failed: ' + err.message };
-  } finally {
-    tempFiles.forEach(f => { try { fs.unlinkSync(f); } catch(_) {} });
-  }
-});
-
-ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
-  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
-  if (!filePath) return { ok: false, error: 'No file path provided.' };
-
-  const tmpDir  = require('os').tmpdir();
-  const stamp   = Date.now();
-  const safeBase = (outputBaseName || 'sc3-video').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const inputMp3 = path.join(tmpDir, 'sc3-full-' + stamp + '.mp3');
-  const outputMp4 = path.join(os.homedir(), 'Downloads', safeBase + '-sc3-' + stamp + '.mp4');
-  const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-  const FFPROBE = FFMPEG.replace('ffmpeg.exe', 'ffprobe.exe');
-
-  function runFFmpeg(args, label) {
-    return new Promise((resolve, reject) => {
-      console.log('[PP] SC3 ffmpeg:', label || args.slice(-1)[0]);
-      const proc = spawn(FFMPEG, args, { stdio: 'pipe', windowsHide: true });
-      let stderr = '';
-      if (proc.stderr) proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', err => reject(new Error('FFmpeg: ' + err.message)));
-      proc.on('exit', code => {
-        if (code === 0) resolve();
-        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
-      });
-    });
-  }
-
-  // Get audio duration in seconds using ffprobe
-  function getAudioDuration(filePath_) {
-    return new Promise((resolve) => {
-      const proc = spawn(FFPROBE, [
-        '-v', 'quiet', '-show_entries', 'format=duration',
-        '-of', 'csv=p=0', filePath_
-      ], { stdio: 'pipe', windowsHide: true });
-      let out = '';
-      proc.stdout.on('data', d => { out += d.toString(); });
-      proc.on('exit', () => resolve(parseFloat(out.trim()) || 0));
-      proc.on('error', () => resolve(0));
-    });
-  }
-
-  // Call SC3 server with a file path — returns Buffer of converted MP3 or throws
-  async function sc3ConvertChunk(chunkPath, chunkName) {
-    console.log('[PP] SC3 converting chunk:', chunkName);
-    const sc3Raw = await postJsonForBuffer(8426, '/api/convert-song', {
-      filePath: chunkPath,
-      outputFileName: chunkName + '.mp3',
-      saveToDownloads: false,
-      voice
-    }, 600000);
-    const bodyText = sc3Raw && sc3Raw.buffer ? sc3Raw.buffer.toString('utf8') : null;
-    if (!sc3Raw || sc3Raw.statusCode !== 200) {
-      let errMsg = 'SC3 error status ' + (sc3Raw ? sc3Raw.statusCode : 'none');
-      if (bodyText) { try { errMsg = JSON.parse(bodyText).error || bodyText.slice(0, 200); } catch (_) { errMsg = bodyText.slice(0, 200); } }
-      throw new Error(errMsg);
-    }
-    const j = JSON.parse(bodyText);
-    if (!j.audioBase64) throw new Error(j.error || 'SC3 returned no audio.');
-    return Buffer.from(j.audioBase64, 'base64');
-  }
-
-  // Wait for SC3 converter to be warmed (GET /health, not POST)
-  async function waitForSc3Warmed(maxWaitMs) {
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-      const j = await new Promise((resolve) => {
-        const req = http.get({ hostname: '127.0.0.1', port: 8426, path: '/health', agent: false }, (res) => {
-          const chunks = []; res.on('data', d => chunks.push(d));
-          res.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (_) { resolve(null); } });
-        });
-        req.on('error', () => resolve(null));
-        req.setTimeout(5000, () => { req.destroy(); resolve(null); });
-      });
-      if (j && j.converterWarmed) { console.log('[PP] SC3: converter ready.'); return true; }
-      if (j) console.log('[PP] SC3: waiting for converter to warm...');
-      await new Promise(r => setTimeout(r, 5000));
-    }
-    console.warn('[PP] SC3: warm timeout — proceeding anyway.');
-    return false;
-  }
-
-  const tempFiles = [inputMp3];
-  try {
-    // 1. Extract full audio as MP3
-    console.log('[PP] SC3 replace: extracting audio from', path.basename(filePath));
-    await runFFmpeg([
-      '-y', '-i', filePath,
-      '-vn', '-acodec', 'libmp3lame', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-      inputMp3
-    ], 'extract mp3');
-
-    const totalSecs = await getAudioDuration(inputMp3);
-    const sizeMb = Math.round(fs.statSync(inputMp3).size / 1024 / 1024 * 10) / 10;
-    console.log('[PP] SC3 replace: audio', Math.round(totalSecs), 'sec,', sizeMb, 'MB');
-
-    // —————— Step A: Try Indian English pipeline (Transcribe —> Convert —> Chatterbox TTS) ——————
-    let finalAudioMp3 = null;
-    let usedIndianPipeline = false;
-
-    try {
-      console.log('[PP] SC3 Indian English: transcribing audio for slang conversion...');
-
-      // Extract 16 kHz mono WAV for transcription
-      const transcribeWav = path.join(tmpDir, 'sc3-transcribe-' + stamp + '.wav');
-      tempFiles.push(transcribeWav);
-      await runFFmpeg([
-        '-y', '-i', filePath,
-        '-vn', '-ar', '16000', '-ac', '1',
+/* Removed corrupted duplicate handler fragment.  The restored implementation
+   is declared immediately before the active audio narration handler below.
         transcribeWav
       ], 'extract transcribe wav');
 
       // Transcribe with Whisper (faster-whisper tiny — accurate for Indian English)
       console.log('[PP] SC3 Indian English: transcribing with Whisper...');
-      const transcript = await runWhisperTranscribe(transcribeWav, 300000);
+      const transcript = await runWhisperTranscribe(transcribeWav, 1800000);
       if (!transcript) throw new Error('Whisper returned no speech. Video may have no voice audio.');
 
 
@@ -4436,6 +4681,141 @@ ipcMain.handle('sc3-replace-video-audio', async (event, opts) => {
 // ————————————— Chatterbox sc3 Voice Narration for Audio Files ———————————————————
 // Pipeline: Transcribe audio (port 8428) —> Indian English slang —> Chatterbox TTS (port 8426)
 // Used by Sing Song "Convert Voice —> Indian English" button for audio files.
+*/
+
+function convertToIndianEnglish(text) {
+  return String(text || '')
+    .replace(/\b(gonna)\b/gi, 'going to')
+    .replace(/\b(wanna)\b/gi, 'want to')
+    .replace(/\b(gotta)\b/gi, 'have to');
+}
+
+function splitIntoSentences(text, limit = 120) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const chunks = []; let current = '';
+  for (const word of words) {
+    const next = `${current} ${word}`.trim();
+    if (next.length > limit && current) { chunks.push(current); current = word; }
+    else current = next;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
+  const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
+  if (!filePath) return { ok: false, error: 'No file path provided.' };
+
+  const LOG = (msg) => {
+    const ts = new Date().toLocaleTimeString('en-IN', { hour12: false });
+    console.log(`[SC3] [${ts}] ${msg}`);
+  };
+
+  const sendProgress = (stage, pct, detail) => {
+    LOG(`${stage}${detail ? ' — ' + detail : ''} (${pct}%)`);
+    try { _event.sender.send('sc3-progress', { stage, pct, detail, fileName: path.basename(filePath) }); } catch(_) {}
+  };
+
+  const ffmpeg = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
+  const workDir = path.join(os.tmpdir(), `pattan-sc3-${Date.now()}`);
+  fs.mkdirSync(workDir, { recursive: true });
+
+  LOG(`▶  START  File: ${path.basename(filePath)}  (${Math.round(fs.statSync(filePath).size / 1024 / 1024)} MB)`);
+  LOG(`   WorkDir: ${workDir}`);
+
+  const run = args => new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, args, { windowsHide: true }); let stderr = '';
+    child.stderr?.on('data', data => { stderr += data.toString(); });
+    child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.slice(-500))));
+  });
+
+  const startTime = Date.now();
+
+  try {
+    // ── STEP 1: Extract audio ────────────────────────────────────────────────
+    sendProgress('Step 1/4: Extracting audio', 10, 'FFmpeg extracting 16kHz WAV...');
+    const wav = path.join(workDir, 'source.wav');
+    await run(['-y', '-i', filePath, '-vn', '-ar', '16000', '-ac', '1', wav]);
+    const wavSizeMb = Math.round(fs.statSync(wav).size / 1024 / 1024 * 10) / 10;
+    LOG(`   ✔ Step 1 done — WAV extracted (${wavSizeMb} MB) in ${((Date.now()-startTime)/1000).toFixed(1)}s`);
+
+    // ── STEP 2: Whisper transcription ────────────────────────────────────────
+    sendProgress('Step 2/4: Transcribing speech with Whisper', 30, 'Whisper transcribing audio (Port 8428)...');
+    LOG(`   Sending WAV to Whisper server on Port 8428...`);
+    const whisperStart = Date.now();
+    const transcript = await runWhisperTranscribe(wav, 900000);
+    if (!transcript) throw new Error('No clear speech detected in this video.');
+    LOG(`   ✔ Step 2 done — Transcript: ${transcript.slice(0, 120).replace(/\n/g,' ')}... (${((Date.now()-whisperStart)/1000).toFixed(1)}s)`);
+
+    // ── STEP 3: Indian English conversion + Chatterbox TTS ───────────────────
+    sendProgress('Step 3/4: Synthesizing Chatterbox voice', 45, 'Preparing Indian English sentences...');
+    const indianText = convertToIndianEnglish(transcript);
+    const sentences = splitIntoSentences(indianText);
+    const totalSentences = sentences.length;
+    LOG(`   Indian English conversion done. ${totalSentences} sentence(s) to synthesise.`);
+
+    const clips = [];
+    for (const [index, sentence] of sentences.entries()) {
+      const sentencePct = Math.round(45 + ((index + 1) / totalSentences) * 40);
+      sendProgress('Step 3/4: Synthesizing Chatterbox voice', sentencePct, `Sentence ${index + 1} of ${totalSentences}...`);
+      LOG(`   Chatterbox → Sentence ${index + 1}/${totalSentences}: "${sentence.slice(0, 80)}${sentence.length > 80 ? '…' : ''}"`);
+      const ttsStart = Date.now();
+      const reply = await postJsonForBuffer(8426, '/api/narrate', { text: sentence, voice }, 240000);
+      if (reply.statusCode !== 200) throw new Error(`Voice synthesis failed at sentence ${index + 1}.`);
+      const clip = path.join(workDir, `voice-${index}.wav`); fs.writeFileSync(clip, reply.buffer); clips.push(clip);
+      LOG(`     ✔ Sentence ${index + 1} done (${((Date.now()-ttsStart)/1000).toFixed(1)}s, ${Math.round(reply.buffer.length/1024)} KB)`);
+    }
+    LOG(`   ✔ Step 3 done — All ${totalSentences} sentence(s) synthesised`);
+
+    // ── STEP 4: Merge video + audio ───────────────────────────────────────────
+    sendProgress('Step 4/4: Merging video & audio', 90, 'FFmpeg merging video & Chatterbox voice...');
+    const list = path.join(workDir, 'concat.txt');
+    fs.writeFileSync(list, clips.map(file => `file '${file.replace(/\\/g, '/')}'`).join('\n'));
+    const audio = path.join(workDir, 'voice.mp3');
+    await run(['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-b:a', '128k', audio]);
+    const safe = (outputBaseName || path.basename(filePath, path.extname(filePath))).replace(/[^a-z0-9_-]/gi, '_');
+    const outputPath = path.join(os.homedir(), 'Downloads', `${safe}-sc3-${Date.now()}.mp4`);
+    LOG(`   Muxing final video -> ${path.basename(outputPath)}`);
+    await run(['-y', '-i', filePath, '-i', audio, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-shortest', outputPath]);
+
+    const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
+    sendProgress('Complete', 100, 'Saved to Downloads folder');
+    LOG(`✅ DONE  Saved: ${outputPath}`);
+    LOG(`   Total time: ${totalSec}s  |  Sentences: ${totalSentences}  |  File: ${path.basename(outputPath)}`);
+
+    // ── Voice Alert (Windows SAPI) ────────────────────────────────────────────
+    const doneMsg = `SC3 video done. File saved to Downloads. Total time ${Math.round(totalSec / 60)} minutes.`;
+    speakAlertSc3(doneMsg);
+
+    // ── WhatsApp Alert ────────────────────────────────────────────────────────
+    sendProcessWhatsAppAlert({
+      status: 'done',
+      processName: 'SC3 Indian English Video',
+      fileName: `${path.basename(outputPath)}  (took ${totalSec}s, ${totalSentences} sentences)`,
+    });
+
+    return { ok: true, outputPath, fileName: path.basename(outputPath), indianEnglish: true };
+
+  } catch (error) {
+    LOG(`❌ ERROR: ${error.message}`);
+
+    // ── Voice Alert on Failure ────────────────────────────────────────────────
+    speakAlertSc3(`SC3 video failed. Error: ${error.message.slice(0, 80)}`);
+
+    // ── WhatsApp Alert on Failure ─────────────────────────────────────────────
+    sendProcessWhatsAppAlert({
+      status: 'failed',
+      processName: 'SC3 Indian English Video',
+      fileName: path.basename(filePath),
+      error: error.message,
+    });
+
+    return { ok: false, error: error.message };
+  }
+});
+
+
+
 ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
   const { filePath, outputBaseName, voice = 'sc3' } = opts || {};
   if (!filePath) return { ok: false, error: 'No file path provided.' };
@@ -4468,7 +4848,7 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
 
     // 2. Transcribe with Whisper (faster-whisper tiny â€” accurate Indian English support)
     console.log('[PP] sc3-narrate-audio: transcribing with Whisper...', path.basename(filePath));
-    const transcript = await runWhisperTranscribe(transcribeWav, 300000);
+    const transcript = await runWhisperTranscribe(transcribeWav, 1800000);
     if (!transcript) throw new Error('Whisper could not detect speech. Ensure the file contains clear voice recordings.');
     console.log('[PP] sc3-narrate-audio: transcript', transcript.length, 'chars');
 
@@ -4933,9 +5313,130 @@ ipcMain.handle('open-file', async (event, filePath) => {
 });
 
   ipcMain.handle('generate-mobile-link', async () => {
-    console.log('[Mobile Tunnel] Generate/Refresh requested via IPC...');
-    startMobileAppTunnelService(false).catch(error => console.error('[Mobile Tunnel] Refresh failed:', error.message));
-    return { status: 'requested' };
+    console.log('[Mobile Tunnel] Explicit NEW link requested via IPC...');
+    const previousUrl = lastSentMobileUrl;
+    await startMobileAppTunnelService(true);
+    if (!lastSentMobileUrl || lastSentMobileUrl === previousUrl) {
+      throw new Error('Cloudflare did not issue a different mobile link. Please try once more.');
+    }
+    let saved = {};
+    try { saved = JSON.parse(fs.readFileSync(path.join(ROOT, 'temp', 'active-mobile-link.json'), 'utf8')); } catch (_) {}
+    return {
+      ...saved,
+      status: 'active',
+      mobileUrl: lastSentMobileUrl,
+      wifiUrl: saved.wifiUrl || `http://${getMobileWifiIp()}:${MOBILE_HTTP_PORT}`,
+      changed: true,
+      previousUrl,
+    };
+  });
+
+  ipcMain.handle('quote-export-begin', async (_event, options = {}) => {
+    const id = crypto.randomUUID();
+    activeQuoteExports.set(id, { chunks: [], bytes: 0, createdAt: Date.now(), options });
+    return { ok: true, id };
+  });
+
+  ipcMain.handle('quote-export-append', async (_event, payload = {}) => {
+    const entry = activeQuoteExports.get(String(payload.id || ''));
+    if (!entry) return { ok: false, error: 'Quote export session expired.' };
+    try {
+      const chunk = Buffer.from(String(payload.base64 || ''), 'base64');
+      entry.chunks.push(chunk); entry.bytes += chunk.length;
+      return { ok: true, bytes: entry.bytes };
+    } catch (error) { return { ok: false, error: String(error?.message || error) }; }
+  });
+
+  ipcMain.handle('quote-export-finish', async (_event, payload = {}) => {
+    const id = String(payload.id || ''); const entry = activeQuoteExports.get(id);
+    if (!entry) return { ok: false, error: 'Quote export session expired.' };
+    activeQuoteExports.delete(id);
+    try {
+      const options = { ...entry.options, ...(payload.options || {}) };
+      const safeBase = path.basename(String(options.fileName || `Legendary-Quote-${Date.now()}.mp4`), path.extname(String(options.fileName || 'video.mp4'))).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 140);
+      const downloads = path.join(os.homedir(), 'Downloads'); fs.mkdirSync(downloads, { recursive: true });
+      let outputPath = path.join(downloads, `${safeBase}.mp4`); if (fs.existsSync(outputPath)) outputPath = path.join(downloads, `${safeBase}-${Date.now()}.mp4`);
+      const ffmpeg = findFFmpegExecutable(); const input = Buffer.concat(entry.chunks);
+      const preset = String(options.preset || 'premium'); const crf = preset === 'master' ? '10' : preset === 'ultra' ? '12' : '15';
+      const codec = String(options.codec || 'h264') === 'hevc' ? 'libx265' : 'libx264';
+      const args = ['-y','-hide_banner','-loglevel','error','-f','webm','-i','pipe:0','-map','0:v:0','-map','0:a:0','-c:v',codec,'-preset','slow','-crf',crf,'-pix_fmt','yuv420p','-c:a','aac','-b:a',String(options.audioBitrate || '320k'),'-ar','48000','-ac','2','-movflags','+faststart',outputPath];
+      await new Promise((resolve,reject)=>{const proc=spawn(ffmpeg,args,{windowsHide:true,stdio:['pipe','ignore','pipe']});let stderr='';proc.stderr.on('data',d=>stderr+=d);proc.on('error',reject);proc.on('exit',code=>code===0?resolve():reject(new Error(stderr.slice(-1200)||`FFmpeg exited ${code}`)));proc.stdin.on('error',()=>{});proc.stdin.end(input)});
+      const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i,'ffprobe'));
+      const probe = await new Promise((resolve,reject)=>execFile(ffprobe,['-v','error','-show_entries','stream=codec_type,codec_name,width,height,sample_rate','-show_entries','format=duration','-of','json',outputPath],{windowsHide:true},(error,stdout)=>error?reject(error):resolve(JSON.parse(stdout))));
+      const streams = probe.streams || []; const video = streams.find(s=>s.codec_type==='video'); const audio = streams.find(s=>s.codec_type==='audio');
+      if (!video || !audio) throw new Error('Final validation failed: exported MP4 is missing video or audio.');
+      return { ok:true,filePath:outputPath,fileName:path.basename(outputPath),bytes:fs.statSync(outputPath).size,validation:{videoCodec:video.codec_name,audioCodec:audio.codec_name,width:video.width,height:video.height,sampleRate:audio.sample_rate,duration:Number(probe.format?.duration||0),hasAudio:true} };
+    } catch (error) { return { ok:false,error:String(error?.message||error) }; }
+  });
+
+  ipcMain.handle('begin-download-file', async (_event, fileName) => {
+    try {
+      const safeName = path.basename(String(fileName || 'Pattan-Video.mp4'))
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+        .slice(0, 180) || 'Pattan-Video.mp4';
+      const downloadsDir = path.join(os.homedir(), 'Downloads');
+      fs.mkdirSync(downloadsDir, { recursive: true });
+      const parsed = path.parse(safeName);
+      let filePath = path.join(downloadsDir, safeName);
+      if (fs.existsSync(filePath)) filePath = path.join(downloadsDir, `${parsed.name}-${Date.now()}${parsed.ext}`);
+      const id = crypto.randomUUID();
+      const fd = fs.openSync(filePath, 'wx');
+      activeDownloadFiles.set(id, { fd, filePath, fileName: path.basename(filePath), bytes: 0 });
+      return { ok: true, id, filePath, fileName: path.basename(filePath) };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle('append-download-chunk', async (_event, id, base64) => {
+    const entry = activeDownloadFiles.get(String(id || ''));
+    if (!entry) return { ok: false, error: 'The mobile video save session expired.' };
+    try {
+      const buffer = Buffer.from(String(base64 || ''), 'base64');
+      fs.writeSync(entry.fd, buffer);
+      entry.bytes += buffer.length;
+      return { ok: true, bytes: entry.bytes };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle('finish-download-file', async (_event, id) => {
+    const key = String(id || '');
+    const entry = activeDownloadFiles.get(key);
+    if (!entry) return { ok: false, error: 'The mobile video save session expired.' };
+    try {
+      fs.closeSync(entry.fd);
+      activeDownloadFiles.delete(key);
+      completedMobileDownloads.set(key, { filePath: entry.filePath, fileName: entry.fileName, completedAt: Date.now() });
+      for (const [oldId, oldEntry] of completedMobileDownloads) {
+        if (Date.now() - oldEntry.completedAt > 24 * 60 * 60 * 1000) completedMobileDownloads.delete(oldId);
+      }
+      return {
+        ok: true,
+        filePath: entry.filePath,
+        fileName: entry.fileName,
+        bytes: entry.bytes,
+        downloadUrl: `/api/mobile-file-download?id=${encodeURIComponent(key)}&mobileToken=${encodeURIComponent(mobileAccessToken)}`,
+      };
+    } catch (error) {
+      activeDownloadFiles.delete(key);
+      return { ok: false, error: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle('mobile-resolve-save-dialog', async (_event, options = {}) => {
+    const requested = path.basename(String(options.defaultPath || 'Pattan-Export.mp4'))
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+      .slice(0, 180) || 'Pattan-Export.mp4';
+    const parsed = path.parse(requested);
+    const downloadsDir = path.join(os.homedir(), 'Downloads');
+    fs.mkdirSync(downloadsDir, { recursive: true });
+    let filePath = path.join(downloadsDir, requested);
+    if (fs.existsSync(filePath)) {
+      filePath = path.join(downloadsDir, `${parsed.name}-${Date.now()}${parsed.ext}`);
+    }
+    return { canceled: false, filePath, mobileAutomatic: true };
   });
 
   ipcMain.handle('get-mobile-link', async () => {
@@ -5049,6 +5550,12 @@ app.whenReady().then(async () => {
   // This fixes absolute-path script loading (/script.js Ã¢â€ â€™ D:\voice\script.js)
   protocol.handle('app', (request) => {
     const url = new URL(request.url);
+    if (url.hostname === 'media') {
+      const mediaPath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+      if (fs.existsSync(mediaPath)) {
+        return net.fetch('file:///' + mediaPath.replace(/\\/g, '/'));
+      }
+    }
     if (url.pathname.includes('/api/mobile-link') || url.pathname.includes('/mobile-link.json')) {
       const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
       const pubFile = path.join(ROOT, 'public', 'mobile-link.json');
@@ -5355,6 +5862,41 @@ ipcMain.handle('my-exporter-pick-audio', async () => {
   return { ok: !result.canceled, canceled: result.canceled, filePaths: result.filePaths || [] };
 });
 
+ipcMain.handle('sing-song-pick-video-folder', async (_event, options = {}) => {
+  let selectedPath = String(options.folderPath || '').trim();
+  if (!selectedPath) {
+    const result = await dialog.showOpenDialog({
+      title: 'Select the folder containing Sing Song videos',
+      defaultPath: 'D:\\MATHS\\CONVERTING CLASS 1 ALL VIDEOS',
+      properties: ['openDirectory']
+    });
+    if (result.canceled || !result.filePaths?.[0]) {
+      return { ok: false, canceled: true, videos: [] };
+    }
+    selectedPath = result.filePaths[0];
+  }
+  const root = path.resolve(selectedPath);
+  const allowed = new Set(['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v']);
+  const videos = [];
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(fullPath);
+      else if (entry.isFile() && allowed.has(path.extname(entry.name).toLowerCase())) {
+        const stat = fs.statSync(fullPath);
+        videos.push({ filePath: fullPath, name: entry.name, size: stat.size });
+      }
+    }
+  };
+  try {
+    visit(root);
+    videos.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return { ok: true, canceled: false, folderPath: root, videos };
+  } catch (error) {
+    return { ok: false, canceled: false, folderPath: root, videos: [], error: error.message };
+  }
+});
+
 ipcMain.handle('my-exporter-crop-save', async (event, opts) => {
   const { inputPath, outputPath, crop, start, end } = opts;
   const ffmpeg = findMyExporterFFmpeg();
@@ -5591,7 +6133,6 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
         const depth = Math.round(Math.max(0, Math.min(16, Number(item.depth) || 0)) * height / 1080);
         return `Style: Text${index},${font},${size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H70000000,-1,0,0,0,100,100,0,0,${boxed ? 3 : 1},${boxed ? 2 : 0},${depth},5,0,0,0,1`;
       }).join('\n');
-      // Fix string template escape parsing in textDialogues positioning arguments
       const textDialoguesFixed = textOverlays.map((item, index) => {
         const x = Math.round(width * Math.max(0, Math.min(100, Number(item.x) || 0)) / 100);
         const y = Math.round(height * Math.max(0, Math.min(100, Number(item.y) || 0)) / 100);
@@ -5599,8 +6140,8 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
         const start = Math.max(0, Number(item.start) || 0);
         const end = Math.max(start + .1, Number(item.end) || totalDuration);
         const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\\\N');
-        return `Dialogue: 1,&{assTime(start)},&{assTime(end)},Text&{index},,0,0,0,,{\\an5\\pos(&{x},&{y})\\alpha&H&{alpha}&\\c&{assColor(item.color)}}&{text}`;
-      }).join('\n').replace(/\&/g, '$');
+        return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${assColor(item.color)}}${text}`;
+      }).join('\n');
       const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,Arial,${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,100,100,0,0,${style.border},${style.outline},${style.shadow},${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
       fs.writeFileSync(assPath, ass, 'utf8');
       const escaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");

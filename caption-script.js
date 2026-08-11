@@ -83,6 +83,7 @@ function bootCaptionStudio() {
     const renderCanvas = document.getElementById('captionRenderCanvas');
     const statusText = document.getElementById('captionStatusText');
     const actionBtn = document.getElementById('captionActionBtn');
+    const cancelBtn = document.getElementById('captionCancelBtn');
     const exportBtn = document.getElementById('captionExportBtn');
     const previewBtn = document.getElementById('captionPreviewBtn');
     const exportActions = document.getElementById('captionExportActions');
@@ -615,6 +616,9 @@ function bootCaptionStudio() {
         hideSingleCaptionProgress();
         resetBtn.classList.add('hidden'); progressBlock.classList.add('hidden');
         videoInput.value = '';
+        delete videoInput.dataset.pattanUploaded;
+        delete videoInput.dataset.pattanUploading;
+        statusText.innerHTML = 'Select a video to generate captions.';
     });
 
     if (eraseBtn) {
@@ -901,13 +905,33 @@ function bootCaptionStudio() {
         queueNextBtn.addEventListener('click', () => loadQueuedCaptionVideo(captionQueueIndex + 1));
     }
     
-    videoInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files || []).filter(file => file && file.type && file.type.startsWith('video/'));
-        if (!files.length) return;
+    function acceptCaptionVideoFiles(rawFiles) {
+        const files = Array.from(rawFiles || []).filter(file => file && ((file.type && file.type.startsWith('video/')) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name || '')));
+        if (!files.length) {
+            if (statusText) statusText.innerHTML = '❌ The selected item is not a supported video. Choose MP4, MOV, M4V, WebM, MKV, or AVI.';
+            actionBtn.disabled = true;
+            actionBtn.classList.remove('hidden');
+            return;
+        }
         captionVideoQueue = files.map(file => ({ file, status: 'ready', captions: [] }));
         captionQueueIndex = 0;
         loadQueuedCaptionVideo(0);
         scrollCaptionStudioToWorkSection();
+    }
+
+    videoInput.addEventListener('change', (e) => {
+        if (videoInput.dataset.pattanCaptionHandled === '1') {
+            delete videoInput.dataset.pattanCaptionHandled;
+            return;
+        }
+        acceptCaptionVideoFiles(e.target.files || []);
+    });
+
+    window.addEventListener('pattan-mobile-files-ready', (event) => {
+        const detail = event && event.detail ? event.detail : {};
+        if (detail.inputId !== 'captionVideoInput') return;
+        videoInput.dataset.pattanCaptionHandled = '1';
+        acceptCaptionVideoFiles(detail.files || []);
     });
 
     function setQueueItemState(index, patch) {
@@ -1969,6 +1993,7 @@ function bootCaptionStudio() {
         actionBtn.disabled = false;
         actionBtn.textContent = 'Cancel Transcription';
         actionBtn.classList.remove('hidden');
+        if (cancelBtn) cancelBtn.classList.remove('hidden');
         const showSingleProgress = !captionQueueRunning && !captionQueueExporting;
         const updateSingleProgress = (pct, phase, detail) => {
             if (showSingleProgress) renderSingleCaptionProgress(pct, phase, detail);
@@ -2337,6 +2362,11 @@ function bootCaptionStudio() {
             isExtractingText = false;
             activeCaptionTranscription = null;
             captionTranscriptionCancelRequested = false;
+            if (cancelBtn) {
+                cancelBtn.classList.add('hidden');
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Stop Transcription';
+            }
             if (!captionQueueRunning && !captionQueueExporting) {
                 actionBtn.disabled = false;
                 if (!generatedCaptions.length) {
@@ -2366,6 +2396,20 @@ function bootCaptionStudio() {
         if (captionQueueRunning || captionQueueExporting) return;
         if (captionVideoQueue.length > 1) await transcribeCaptionQueueFrom(captionQueueIndex);
         else await transcribeActiveCaptionVideo();
+    });
+
+    if (cancelBtn) cancelBtn.addEventListener('click', async () => {
+        if (!isExtractingText || captionTranscriptionCancelRequested) return;
+        captionTranscriptionCancelRequested = true;
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Stopping...';
+        actionBtn.disabled = true;
+        actionBtn.textContent = 'Stopping...';
+        statusText.innerHTML = 'Stopping the active transcription safely...';
+        if (window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
+            try { await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription || {}); }
+            catch (error) { console.error('[Caption] Cancel failed:', error); }
+        }
     });
 
 

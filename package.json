@@ -10,6 +10,10 @@
         "dev:mobile": "vite --host 0.0.0.0 --port 5173",
         "mobile": "node scripts/start-mobile.cjs",
         "build:react": "vite build",
+        "android:add": "npx cap add android",
+        "android:sync": "npm run build:react && npx cap sync android",
+        "android:open": "npx cap open android",
+        "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
         "preview": "vite preview"
     },
     "author": "Anjali",
@@ -34,6 +38,7 @@
         }
     },
     "devDependencies": {
+        "@capacitor/cli": "^8.5.0",
         "@eslint/js": "^10.0.1",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
@@ -50,6 +55,8 @@
         "vite": "^8.0.10"
     },
     "dependencies": {
+        "@capacitor/android": "^8.5.0",
+        "@capacitor/core": "^8.5.0",
         "@ffmpeg/ffmpeg": "^0.12.15",
         "@ffmpeg/util": "^0.12.2",
         "flow-sdk": "^0.3.1",

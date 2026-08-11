@@ -338,7 +338,15 @@ try {
     $client = $listener.AcceptTcpClient()
 
     try {
+      # A client can connect and then never finish sending its request (common
+      # when a mobile upload is cancelled).  This server is deliberately
+      # single-worker, so without a timeout that one abandoned socket blocks
+      # /health and every later transcription indefinitely.
+      $client.ReceiveTimeout = 15000
+      $client.SendTimeout = 15000
       $stream = $client.GetStream()
+      $stream.ReadTimeout = 15000
+      $stream.WriteTimeout = 15000
       $request = Read-HttpRequest -Stream $stream
       Handle-Request -Request $request -Stream $stream
     } catch {
