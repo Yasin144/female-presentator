@@ -69,3 +69,14 @@ electron-screen.png
 .env
 .env.*
 frame_test.jpg
+
+# Machine-local development/runtime artifacts
+/.agents/
+/.imagegen-venv/
+/temp/
+/tools/
+/OllamaSetup.exe
+/*.wfp
+/public/mobile-link.json
+/scripts/test_wa.py
+/scripts/test_wa_send.py

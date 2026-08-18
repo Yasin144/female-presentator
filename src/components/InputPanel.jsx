@@ -324,6 +324,19 @@ function InputPanel() {
                 </div>
               </div>
 
+              <div className="tpl3d-card" id="templateCard_playground-joy" data-template="playground-joy">
+                <div className="tpl3d-inner">
+                  <div className="tpl3d-preview tpl3d-preview-playground">
+                    <span className="tpl-playground-title">Aa</span>
+                    <span className="tpl-playground-kids">🧒🏽⚽👧🏻</span>
+                  </div>
+                  <div className="tpl3d-body">
+                    <span className="tpl3d-name">🛝 Playground</span>
+                    <button className="tpl3d-select-btn" data-tpl="playground-joy" type="button">✓ Select</button>
+                  </div>
+                </div>
+              </div>
+
             </div>
             <div className="outcomes-title-row">
               <label className="field-label" htmlFor="outcomesTitleInput">Learning Outcomes Template Title</label>
@@ -1418,6 +1431,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                   </div>
                 </label>
               </div>
+
             </div>
 
             {/* ── Queue Monitor Panel ─────────────────────────────────── */}
@@ -1682,6 +1696,17 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <span id="captionStrokeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>0%</span>
                   </div>
                   <input type="range" id="captionStrokeSlider" min="0" max="100" defaultValue="0" />
+                </label>
+                <label className="style-field">
+                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
+                    <span className="style-label">Font Height</span>
+                    <span id="captionHeightValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>100%</span>
+                  </div>
+                  <input type="range" id="captionHeightSlider" min="70" max="140" defaultValue="100" />
+                </label>
+                <label className="style-field" style={{"display": "flex", "alignItems": "center", "justifyContent": "space-between", "gap": "10px"}}>
+                  <span className="style-label">Bold captions</span>
+                  <input type="checkbox" id="captionBoldCheck" defaultChecked style={{"width": "18px", "height": "18px"}} />
                 </label>
               </div>
 

@@ -121,6 +121,9 @@ function bootCaptionStudio() {
     const fontSelect = document.getElementById('captionFontSelect');
     const strokeSlider = document.getElementById('captionStrokeSlider');
     const strokeValue = document.getElementById('captionStrokeValue');
+    const heightSlider = document.getElementById('captionHeightSlider');
+    const heightValue = document.getElementById('captionHeightValue');
+    const boldCheck = document.getElementById('captionBoldCheck');
     const colorPicker = document.getElementById('captionColorPicker');
     const syncSlider = document.getElementById('captionSyncSlider');
     const syncValue = document.getElementById('captionSyncNum');
@@ -161,6 +164,7 @@ function bootCaptionStudio() {
         if (gapSlider && gapValue) gapValue.textContent = `${sliderPercent(gapSlider)}% · ${Math.round(Number(gapSlider.value))}`;
         if (widthSlider && widthValue) widthValue.textContent = `${Math.round(Number(widthSlider.value))}%`;
         if (strokeSlider && strokeValue) strokeValue.textContent = `${Math.round(Number(strokeSlider.value))}%`;
+        if (heightSlider && heightValue) heightValue.textContent = `${Math.round(Number(heightSlider.value))}%`;
         if (syncSlider && syncValue) {
             const seconds = (Number(syncSlider.value || 0) / 1000).toFixed(1);
             syncValue.textContent = `${sliderPercent(syncSlider)}% · ${seconds}s`;
@@ -576,7 +580,7 @@ function bootCaptionStudio() {
     });
 
     [
-        styleSelect, sizeSlider, gapSlider, widthSlider, fontSelect,
+        styleSelect, sizeSlider, gapSlider, widthSlider, heightSlider, fontSelect, boldCheck,
         strokeSlider, colorPicker, syncSlider, emojiCheck, karaokeCheck,
         filterSelect, progressCheck, watermarkCheck
     ].filter(Boolean).forEach(control => {
@@ -1925,7 +1929,6 @@ function bootCaptionStudio() {
                 (window.state && Array.isArray(window.state.allNarrationTexts) && window.state.allNarrationTexts.length
                     ? window.state.allNarrationTexts.join(' ')
                     : window.state && window.state.lastNarrationText) ||
-                localStorage.getItem('pp_last_narration_text') ||
                 ''
             ).trim();
             const narVoice = (
@@ -2732,7 +2735,8 @@ function bootCaptionStudio() {
             const fontSize = Math.max(12, Math.floor(sizeSlider ? parseInt(sizeSlider.value) : 35));
             
             const gapMult = (gapSlider ? parseInt(gapSlider.value) : 120) / 100;
-            const lineHeight = fontSize * gapMult;
+            const heightMult = (heightSlider ? parseInt(heightSlider.value) : 100) / 100;
+            const lineHeight = fontSize * gapMult * heightMult;
 
             const maxWBase = targetWidth;
             const widthMult = (widthSlider ? parseInt(widthSlider.value) : 85) / 100;
@@ -2794,7 +2798,7 @@ function bootCaptionStudio() {
             if (useEmoji) targetEmoji = getEmojiForText(currentChunk.text);
 
             const fontFamily = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
-            ctx.font = `900 ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `${boldCheck && !boldCheck.checked ? 400 : 900} ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), activeWordIndex, CAPTION_WORD_LIMIT);
             const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
             const anchoredY = getBottomAnchoredCaptionCenterY(targetHeight, fontSize, lineHeight, Math.max(1, wrappedLines.length));
@@ -2950,6 +2954,10 @@ function bootCaptionStudio() {
             backColor = '&HFF000000&';
         }
 
+        // Keep captions clean and readable: never add the heavy black text edge
+        // that caused words to merge visually in narration exports.
+        outline = 0;
+        shadow = 0;
         return { activeColor, inactiveColor, baseTextColor, outlineColor, backColor, borderStyle, outline, shadow };
     }
 
@@ -2969,13 +2977,15 @@ function bootCaptionStudio() {
         const marginV = CAPTION_BOTTOM_OFFSET_PX;
         const syncOffset = getCaptionSyncOffsetSeconds();
         const selectedFont = String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
+        const selectedBold = boldCheck && !boldCheck.checked ? 0 : -1;
+        const selectedHeight = Math.max(70, Math.min(140, Number(heightSlider?.value || 100)));
         // Local AI captions always export as word-by-word karaoke fill.
         const isKaraoke = true;
         if (karaokeCheck) karaokeCheck.checked = true;
         const useEmoji = emojiCheck && emojiCheck.checked;
         const measureCanvas = document.createElement('canvas');
         const measureCtx = measureCanvas.getContext('2d');
-        if (measureCtx) measureCtx.font = `900 ${fontSize}px ${selectedFont}`;
+        if (measureCtx) measureCtx.font = `${selectedBold ? 900 : 400} ${fontSize}px ${selectedFont}`;
         const wrapTokensForAss = (tokens) => {
             if (!measureCtx) return [tokens];
             const maxWidth = width * widthMult;
@@ -2999,7 +3009,7 @@ function bootCaptionStudio() {
             return height - getCaptionBottomSafety(fontSize, lineHeight, lineCount);
         };
 
-        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},${outlineColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${captionAnchor},${sideMargin},${sideMargin},${marginV},1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+        const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Preview,${selectedFont},${fontSize},${activeColor},${inactiveColor},${outlineColor},${backColor},${selectedBold},0,0,0,100,${selectedHeight},0,0,${borderStyle},0,0,${captionAnchor},${sideMargin},${sideMargin},${marginV},1\nStyle: Progress,Arial,10,${activeColor},${activeColor},${activeColor},${activeColor},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
         const events = [];
         const exportWordLimit = CAPTION_WORD_LIMIT;
 

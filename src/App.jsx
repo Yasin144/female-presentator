@@ -7,11 +7,12 @@ import MyExporter from './components/MyExporter/MyExporter';
 import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
 import OllamaTools from './components/OllamaTools/OllamaTools';
 import QuoteStudio from './components/QuoteStudio/QuoteStudio';
+import VideoResizer from './components/VideoResizer/VideoResizer';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'quotes', 'director', 'exporter', 'ai-tools']);
+const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'quotes', 'director', 'exporter', 'resizer', 'ai-tools']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'presentator';
 
 class CaptionErrorBoundary extends React.Component {
@@ -280,6 +281,7 @@ function App() {
     { id: 'nav-rhyme', category: '🧭 Navigation', title: 'Go to Rhyme Generator', desc: 'Create 30-second preschool lyrics and music', action: () => { setCaptionOpen(false); setCurrentModule('rhyme'); } },
     { id: 'nav-director', category: '🧭 Navigation', title: 'Go to AI Director', desc: 'Assemble projects & timeline templates', action: () => { setCaptionOpen(false); setCurrentModule('director'); } },
     { id: 'nav-exporter', category: '🧭 Navigation', title: 'Go to My Exporter', desc: 'Compile final video with voice, logo & captions', action: () => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } },
+    { id: 'nav-resizer', category: '🧭 Navigation', title: 'Go to Video Resizer', desc: 'Resize and reframe complete videos for social media', action: () => { setCaptionOpen(false); setCurrentModule('resizer'); } },
     
     // QUICK ACTIONS
     { id: 'act-burner', category: '⚡ Quick Actions', title: 'Open Caption Burner', desc: 'Hardburn subtitles with Whisper model', action: () => { setCaptionOpen(true); } },
@@ -658,6 +660,19 @@ function App() {
             >My Exporter</button>
             <button
               className="app-nav-button"
+              data-active={currentModule === 'resizer'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('resizer'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'resizer' ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : 'transparent',
+                color: currentModule === 'resizer' ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'resizer' ? '0 4px 12px rgba(56,189,248,0.3)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >Video Resizer</button>
+            <button
+              className="app-nav-button"
               data-active={currentModule === 'ai-tools'}
               onClick={() => { setCaptionOpen(false); setCurrentModule('ai-tools'); }}
               style={{
@@ -886,6 +901,11 @@ function App() {
         <div style={{ display: (!captionOpen && currentModule === 'ai-tools') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
           <ModuleErrorBoundary moduleName="AI Tools">
             <OllamaTools />
+          </ModuleErrorBoundary>
+        </div>
+        <div style={{ display: (!captionOpen && currentModule === 'resizer') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="Video Ratio Master">
+            <VideoResizer />
           </ModuleErrorBoundary>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { Flow } from 'flow-sdk';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs/dist/exceljs.min.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -29,26 +29,45 @@ export async function downloadExcelReport(filename, auditLog) {
     }))
   );
 
-  const wb = XLSX.utils.book_new();
-  
-  // Errors Sheet with AutoFilter
-  const wsErrors = XLSX.utils.json_to_sheet(errorData);
-  if (errorData.length > 0) {
-    const range = XLSX.utils.decode_range(wsErrors['!ref'] || 'A1');
-    wsErrors['!autofilter'] = { ref: XLSX.utils.encode_range(range) };
-  }
-  XLSX.utils.book_append_sheet(wb, wsErrors, 'Audit Errors');
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Pattan Presentator';
+  workbook.created = new Date();
 
-  // Answers Sheet with AutoFilter
-  const wsAnswers = XLSX.utils.json_to_sheet(answerData);
-  if (answerData.length > 0) {
-    const range = XLSX.utils.decode_range(wsAnswers['!ref'] || 'A1');
-    wsAnswers['!autofilter'] = { ref: XLSX.utils.encode_range(range) };
-  }
-  XLSX.utils.book_append_sheet(wb, wsAnswers, 'Answer Key');
+  const addSheet = (name, rows, headers) => {
+    const worksheet = workbook.addWorksheet(name, {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+    worksheet.columns = headers.map(header => ({
+      header,
+      key: header,
+      width: Math.min(55, Math.max(14, header.length + 3)),
+    }));
+    worksheet.addRows(rows);
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = { vertical: 'middle', wrapText: true };
+    if (rows.length) {
+      worksheet.autoFilter = { from: 'A1', to: worksheet.getRow(1).getCell(headers.length).address };
+    }
+    worksheet.eachRow(row => {
+      row.eachCell(cell => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true }; });
+    });
+    return worksheet;
+  };
 
-  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(excelBuffer)));
+  addSheet('Audit Errors', errorData, [
+    'PDF Page No.', 'Section / Question No.', 'Error Type', 'Original Text',
+    'Issue Found', 'Suggested Correction', 'Severity'
+  ]);
+  addSheet('Answer Key', answerData, ['Question No.', 'Correct Answer', 'Page No.']);
+
+  const excelBuffer = await workbook.xlsx.writeBuffer();
+  const bytes = new Uint8Array(excelBuffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  const base64 = btoa(binary);
 
   await Flow.download({
     base64,

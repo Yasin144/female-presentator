@@ -8,7 +8,13 @@ function StagePanel() {
   const actionLocks = useStore((state) => state.actionLocks);
   const [isExporting, setIsExporting] = useState(false);
   const [logoBox, setLogoBox] = useState(() => {
+    const bottomRightDefault = { x: 82, y: 89, w: 16 };
     try {
+      const layoutVersion = localStorage.getItem("stage-info-kids-logo-layout-version");
+      if (layoutVersion !== "single-bottom-right-v2") {
+        localStorage.setItem("stage-info-kids-logo-layout-version", "single-bottom-right-v2");
+        return bottomRightDefault;
+      }
       const saved = JSON.parse(localStorage.getItem("stage-info-kids-logo-box") || "null");
       if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && Number.isFinite(saved.w)) {
         return {
@@ -20,7 +26,7 @@ function StagePanel() {
     } catch {
       // Ignore invalid saved placement.
     }
-    return { x: 82, y: 83, w: 15 };
+    return bottomRightDefault;
   });
 
   // Poll export status every 500 ms
@@ -49,10 +55,13 @@ function StagePanel() {
 
   const clampLogoBox = (box) => {
     const w = Math.min(38, Math.max(10, Number(box.w) || 15));
+    // The logo is approximately 3:1. Convert its CSS width percentage into
+    // stage-height percentage so resizing can never push it below the frame.
+    const heightPercent = w * (16 / 9) / 3;
     return {
       w,
       x: Math.min(100 - w, Math.max(0, Number(box.x) || 0)),
-      y: Math.min(94, Math.max(0, Number(box.y) || 0))
+      y: Math.min(100 - heightPercent, Math.max(0, Number(box.y) || 0))
     };
   };
 
@@ -301,8 +310,16 @@ function StagePanel() {
                 <option value="lightning-storm">⚡ Lightning Storm</option>
                 <option value="mountain-mist">🏔️ Mountain Mist</option>
                 <option value="rainbow-garden">🌈 Rainbow Garden</option>
+                <option value="playground-joy">🛝 Playground Joy</option>
               </select>
             </label>
+            <label className="toggle-check" htmlFor="infoKidsTitleEnabled" style={{ marginTop: "10px" }}>
+              <input id="infoKidsTitleEnabled" type="checkbox" defaultChecked />
+              <span>Show centered INFO KIDS title on every theme</span>
+            </label>
+            <p className="stage-speed-copy" style={{ marginTop: "6px" }}>
+              This is one global setting for preview and exported video. Enabled by default.
+            </p>
             <p id="stageTemplateStatus" className="stage-speed-copy">Classic Stage active. Select a theme to change the background live.</p>
           </div>
         </details>
@@ -359,6 +376,17 @@ function StagePanel() {
               <button id="fontIncreaseBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Increase font"
                 title="Increase font"><span aria-hidden="true">F+</span></button>
             </div>
+            <details style={{marginTop:"10px"}}>
+              <summary style={{cursor:"pointer",fontSize:"0.78rem",fontWeight:700,color:"#fff"}}>Advanced Font &amp; Position</summary>
+              <div style={{display:"grid",gap:"9px",padding:"10px 2px 2px"}}>
+                <label className="stage-toolbar-meta">Font size — <span id="advancedFontSizeValue">100%</span><input id="advancedFontSize" type="range" min="60" max="220" step="5" defaultValue="100" style={{width:"100%"}} /></label>
+                <label className="stage-toolbar-meta">Line spacing — <span id="advancedLineSpacingValue">100%</span><input id="advancedLineSpacing" type="range" min="65" max="200" step="5" defaultValue="100" style={{width:"100%"}} /></label>
+                <label className="stage-toolbar-meta">Letter spacing — <span id="advancedLetterSpacingValue">0</span><input id="advancedLetterSpacing" type="range" min="-2" max="12" step="1" defaultValue="0" style={{width:"100%"}} /></label>
+                <label className="stage-toolbar-meta">Horizontal position — <span id="advancedTextXValue">0</span><input id="advancedTextX" type="range" min="-200" max="200" step="10" defaultValue="0" style={{width:"100%"}} /></label>
+                <label className="stage-toolbar-meta">Vertical position — <span id="advancedTextYValue">0</span><input id="advancedTextY" type="range" min="-160" max="240" step="10" defaultValue="0" style={{width:"100%"}} /></label>
+                <button id="advancedTextReset" className="ghost-btn" type="button">Reset Font &amp; Position</button>
+              </div>
+            </details>
           </div>
         </details>
 
@@ -680,7 +708,12 @@ function StagePanel() {
             <canvas ref={canvasRef} id="previewCanvas" width="1280" height="720" aria-label="Anjali Teacher preview" />
             <div
               className="stage-info-kids-logo-overlay"
-              style={{ left: `${logoBox.x}%`, top: `${logoBox.y}%`, width: `${logoBox.w}%` }}
+              style={{
+                left: `${logoBox.x}%`,
+                top: `${logoBox.y}%`,
+                width: `${logoBox.w}%`,
+                display: isExporting ? "none" : undefined
+              }}
               onPointerDown={(event) => beginLogoGesture(event, "drag")}
               onPointerMove={updateLogoGesture}
               onPointerUp={endLogoGesture}

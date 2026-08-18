@@ -24,7 +24,6 @@ const dns        = require('dns');
 const zlib       = require('zlib');
 const { jsonrepair } = require('jsonrepair');
 const { Client: MagicHourClient } = require('magic-hour');
-const localtunnel = require('localtunnel');
 const mobileIpcHandlers = new Map();
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => {
@@ -88,6 +87,7 @@ const OLLAMA_PORT = 11434;
 const activeAgentControllers = new Map();
 const activeHermesProcesses = new Map();
 const activeOllamaToolProcesses = new Map();
+const activeVideoResizerProcesses = new Map();
 let activeImageGenerationRequests = 0;
 const MOBILE_HTTP_PORT = 8433;
 const MOBILE_WHATSAPP_NUMBER = '917386726193';
@@ -800,18 +800,12 @@ async function startMobileAppTunnelService(forceRefresh = false) {
         if (!isQuitting) setTimeout(() => startMobileAppTunnelService(false).catch(() => {}), 3000);
       });
     } catch (cloudflareError) {
-      console.error('[Mobile Link] Cloudflare unavailable, using LocalTunnel:', cloudflareError.message);
-      const tunnel = await localtunnel({ port: MOBILE_HTTP_PORT, local_host: '127.0.0.1' });
-      mobileTunnelProcess = tunnel;
-      lastSentMobileUrl = `${tunnel.url}/?mobileToken=${mobileAccessToken}`;
-      const data = saveMobileLinkState(lastSentMobileUrl, { status: 'active', verified: true, provider: 'LocalTunnel fallback' });
-      autoSendMobileLinkToWhatsApp(lastSentMobileUrl, data.wifiUrl);
-      tunnel.on('error', error => saveMobileLinkState('', { status: 'error', error: error.message }));
-      tunnel.on('close', () => {
-        if (mobileTunnelProcess === tunnel) mobileTunnelProcess = null;
-        saveMobileLinkState('', { status: 'inactive', provider: 'LocalTunnel fallback' });
-        if (!isQuitting) setTimeout(() => startMobileAppTunnelService(false).catch(() => {}), 3000);
-      });
+      const message = `Cloudflare Quick Tunnel could not start: ${cloudflareError.message}`;
+      console.error('[Mobile Link]', message);
+      mobileTunnelProcess = null;
+      lastSentMobileUrl = '';
+      saveMobileLinkState('', { status: 'error', error: message, provider: 'Cloudflare Quick Tunnel' });
+      throw new Error(message);
     }
   })();
   try { await mobileTunnelStarting; } finally { mobileTunnelStarting = null; }
@@ -1564,7 +1558,7 @@ function pingPort(port, path_ = '/health', timeoutMs = 4000) {
   });
 }
 
-function postJsonForBuffer(port, path_, payload, timeoutMs = 120000) {
+function postJsonForBuffer(port, path_, payload, timeoutMs = 120000, signal = null) {
   return new Promise((resolve, reject) => {
     const body = Buffer.from(JSON.stringify(payload || {}), 'utf8');
     const req = http.request({
@@ -1597,6 +1591,12 @@ function postJsonForBuffer(port, path_, payload, timeoutMs = 120000) {
       req.destroy(new Error(`Request timed out after ${timeoutMs}ms.`));
     });
     req.on('error', reject);
+    if (signal) {
+      const abort = () => req.destroy(Object.assign(new Error('Voice generation cancelled.'), { name: 'AbortError' }));
+      if (signal.aborted) return abort();
+      signal.addEventListener('abort', abort, { once: true });
+      req.once('close', () => signal.removeEventListener('abort', abort));
+    }
     req.end(body);
   });
 }
@@ -3097,7 +3097,12 @@ async function createWindow() {
   });
 
   // ─── Super Agent: presentator-agent-morph-audio ───────────────────────────
-  ipcMain.handle('presentator-agent-morph-audio', async (_event, request) => {
+  const activeVoiceGeneration = new Map();
+  ipcMain.handle('presentator-agent-morph-audio', async (event, request) => {
+    const ownerId = event.sender.id;
+    activeVoiceGeneration.get(ownerId)?.abort();
+    const controller = new AbortController();
+    activeVoiceGeneration.set(ownerId, controller);
     try {
       const sourcePath = path.resolve(String(request?.sourcePath || ''));
       const voice = String(request?.voice || 'sc3');
@@ -3105,7 +3110,7 @@ async function createWindow() {
         return { ok: false, error: 'Source audio file not found.' };
       }
       // Send to SC3 Singing server (port 8426) for timbre conversion
-      const response = await postJsonForBufferWithRecovery(8426, '/api/convert-song', { filePath: sourcePath, voice }, 600000, 3);
+      const response = await postJsonForBuffer(8426, '/api/convert-song', { filePath: sourcePath, voice }, 600000, controller.signal);
       if (!response || response.statusCode !== 200) {
         throw new Error('SC3 conversion server returned status ' + response?.statusCode);
       }
@@ -3126,8 +3131,17 @@ async function createWindow() {
         url: `file:///${outPath.replace(/\\/g, '/')}`
       };
     } catch (error) {
-      return { ok: false, error: error.message };
+      return { ok: false, cancelled: error?.name === 'AbortError', error: error.message };
+    } finally {
+      if (activeVoiceGeneration.get(ownerId) === controller) activeVoiceGeneration.delete(ownerId);
     }
+  });
+  ipcMain.handle('cancel-voice-generation', event => {
+    const controller = activeVoiceGeneration.get(event.sender.id);
+    if (!controller) return { ok: true, cancelled: false };
+    controller.abort();
+    activeVoiceGeneration.delete(event.sender.id);
+    return { ok: true, cancelled: true };
   });
 
   ipcMain.handle('presentator-agent-generate-image', async (event, request) => {
@@ -5356,11 +5370,49 @@ ipcMain.handle('open-file', async (event, filePath) => {
       const safeBase = path.basename(String(options.fileName || `Legendary-Quote-${Date.now()}.mp4`), path.extname(String(options.fileName || 'video.mp4'))).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 140);
       const downloads = path.join(os.homedir(), 'Downloads'); fs.mkdirSync(downloads, { recursive: true });
       let outputPath = path.join(downloads, `${safeBase}.mp4`); if (fs.existsSync(outputPath)) outputPath = path.join(downloads, `${safeBase}-${Date.now()}.mp4`);
-      const ffmpeg = findFFmpegExecutable(); const input = Buffer.concat(entry.chunks);
+      const ffmpeg = findFFmpegExecutable();
       const preset = String(options.preset || 'premium'); const crf = preset === 'master' ? '10' : preset === 'ultra' ? '12' : '15';
       const codec = String(options.codec || 'h264') === 'hevc' ? 'libx265' : 'libx264';
-      const args = ['-y','-hide_banner','-loglevel','error','-f','webm','-i','pipe:0','-map','0:v:0','-map','0:a:0','-c:v',codec,'-preset','slow','-crf',crf,'-pix_fmt','yuv420p','-c:a','aac','-b:a',String(options.audioBitrate || '320k'),'-ar','48000','-ac','2','-movflags','+faststart',outputPath];
-      await new Promise((resolve,reject)=>{const proc=spawn(ffmpeg,args,{windowsHide:true,stdio:['pipe','ignore','pipe']});let stderr='';proc.stderr.on('data',d=>stderr+=d);proc.on('error',reject);proc.on('exit',code=>code===0?resolve():reject(new Error(stderr.slice(-1200)||`FFmpeg exited ${code}`)));proc.stdin.on('error',()=>{});proc.stdin.end(input)});
+      // Keep quote mastering inside a predictable memory envelope. Buffer.concat used
+      // to duplicate the complete browser render immediately before x264 allocated its
+      // frame buffers, which could exhaust Windows commit even on otherwise healthy
+      // 16 GB systems. Feed the existing chunks with backpressure instead, and limit
+      // encoder/filter concurrency so 4K exports cannot create an unbounded RAM spike.
+      const args = ['-y','-hide_banner','-loglevel','error','-filter_threads','1','-filter_complex_threads','1','-f','webm','-i','pipe:0','-map','0:v:0','-map','0:a:0','-c:v',codec,'-preset','medium','-threads','2','-crf',crf,'-pix_fmt','yuv420p','-c:a','aac','-b:a',String(options.audioBitrate || '320k'),'-ar','48000','-ac','2','-movflags','+faststart',outputPath];
+      await new Promise((resolve,reject)=>{
+        const proc=spawn(ffmpeg,args,{windowsHide:true,stdio:['pipe','ignore','pipe']});
+        let stderr=''; let settled=false;
+        const fail=error=>{if(settled)return;settled=true;reject(error)};
+        proc.stderr.on('data',data=>{stderr=(stderr+data.toString()).slice(-32768)});
+        proc.on('error',fail);
+        proc.on('exit',code=>{
+          if(settled)return;
+          settled=true;
+          if(code===0)return resolve();
+          const detail=stderr.slice(-1600)||`FFmpeg exited ${code}`;
+          const lowMemory=/malloc|cannot allocate memory|out of memory/i.test(detail);
+          reject(new Error(lowMemory
+            ? `Export ran out of system memory. Close voice/AI processes or choose 1080p, then retry.\n${detail}`
+            : detail));
+        });
+        proc.stdin.on('error',error=>{
+          // FFmpeg's exit handler includes the useful encoder diagnostic. Only reject
+          // immediately when the process itself has not already begun shutting down.
+          if(!proc.killed && proc.exitCode==null && error?.code!=='EPIPE')fail(error);
+        });
+        (async()=>{
+          try{
+            while(entry.chunks.length){
+              const chunk=entry.chunks.shift();
+              if(!proc.stdin.write(chunk)) await new Promise(done=>proc.stdin.once('drain',done));
+            }
+            proc.stdin.end();
+          }catch(error){
+            try{proc.stdin.destroy()}catch(_){}
+            fail(error);
+          }
+        })();
+      });
       const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i,'ffprobe'));
       const probe = await new Promise((resolve,reject)=>execFile(ffprobe,['-v','error','-show_entries','stream=codec_type,codec_name,width,height,sample_rate','-show_entries','format=duration','-of','json',outputPath],{windowsHide:true},(error,stdout)=>error?reject(error):resolve(JSON.parse(stdout))));
       const streams = probe.streams || []; const video = streams.find(s=>s.codec_type==='video'); const audio = streams.find(s=>s.codec_type==='audio');
@@ -6088,8 +6140,9 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
       const baseFontSize = Math.max(24, Math.min(84, Number(opts?.captionFontSize) || 42));
       const fontSize = Math.round(baseFontSize * height / 1080);
       const maxChars = Math.max(16, Math.min(60, Number(opts?.captionMaxChars) || 36));
+      const customCaptionColor = assColor(opts?.captionColor || '#ffffff');
       const style = {
-        classic: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
+        classic: { primary: customCaptionColor, secondary: customCaptionColor, back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: opts?.captionBold === false ? 0 : -1 },
         box: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H50000000', border: 3, outline: 0, shadow: 0, bold: -1 },
         yellow: { primary: '&H0000E8FF', secondary: '&H0000E8FF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
         karaoke: { primary: '&H0000E8FF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
@@ -6097,6 +6150,8 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
         'karaoke-green': { primary: '&H0000FF00', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
         'karaoke-magenta': { primary: '&H00FF00FF', secondary: '&H00FFFFFF', back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: -1 },
       }[styleName];
+      style.outline = 0;
+      style.shadow = 0;
       const wrapText = value => {
         const words = String(value || '').replace(/[{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/);
         const lines = []; let line = '';
@@ -6142,7 +6197,11 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
         const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\\\N');
         return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${assColor(item.color)}}${text}`;
       }).join('\n');
-      const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,Arial,${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,100,100,0,0,${style.border},${style.outline},${style.shadow},${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
+      const captionFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
+      const captionFont = captionFonts.has(opts?.captionFontFamily) ? opts.captionFontFamily : 'Arial';
+      const captionScaleX = Math.max(30, Math.min(100, Number(opts?.captionWidth) || 100));
+      const captionScaleY = Math.max(70, Math.min(140, Number(opts?.captionHeight) || 100));
+      const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,${captionFont},${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,${captionScaleX},${captionScaleY},0,0,${style.border},0,0,${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
       fs.writeFileSync(assPath, ass, 'utf8');
       const escaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
       subtitleFilter = `subtitles='${escaped}'`;
@@ -6191,13 +6250,46 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
 
 // ── Multi-voice pool: female & male EdgeTTS voices per language ─────────────
 const MY_EXPORTER_VOICE_POOL = {
-  'hi-IN-SwaraNeural':   { female: ['hi-IN-SwaraNeural', 'hi-IN-AnanyaNeural'], male: ['hi-IN-MadhurNeural'] },
+  // Ananya currently returns HTTP 500/no audio from EdgeTTS. Keep the verified
+  // Swara model for Hindi female speakers so long exports cannot fail midway.
+  'hi-IN-SwaraNeural':   { female: ['hi-IN-SwaraNeural'], male: ['hi-IN-MadhurNeural'] },
   'te-IN-ShrutiNeural':  { female: ['te-IN-ShrutiNeural'],  male: ['te-IN-MohanNeural']    },
   'ta-IN-PallaviNeural': { female: ['ta-IN-PallaviNeural'], male: ['ta-IN-ValluvarNeural'] },
   'kn-IN-SapnaNeural':   { female: ['kn-IN-SapnaNeural'],   male: ['kn-IN-GaganNeural']   },
   'ml-IN-SobhanaNeural': { female: ['ml-IN-SobhanaNeural'], male: ['ml-IN-MidhunNeural']  },
+  'bn-IN-TanishaaNeural': { female: ['bn-IN-TanishaaNeural'], male: ['bn-IN-BashkarNeural'] },
+  'gu-IN-DhwaniNeural': { female: ['gu-IN-DhwaniNeural'], male: ['gu-IN-NiranjanNeural'] },
+  'mr-IN-AarohiNeural': { female: ['mr-IN-AarohiNeural'], male: ['mr-IN-ManoharNeural'] },
+  'ur-IN-GulNeural': { female: ['ur-IN-GulNeural'], male: ['ur-IN-SalmanNeural'] },
   'en-IN-NeerjaNeural':  { female: ['en-IN-NeerjaNeural'],  male: ['en-IN-PrabhatNeural'] },
 };
+
+const MY_EXPORTER_VOICE_FALLBACK = {
+  hi: 'hi-IN-SwaraNeural', te: 'te-IN-ShrutiNeural', ta: 'ta-IN-PallaviNeural',
+  kn: 'kn-IN-SapnaNeural', ml: 'ml-IN-SobhanaNeural', bn: 'bn-IN-TanishaaNeural',
+  gu: 'gu-IN-DhwaniNeural', mr: 'mr-IN-AarohiNeural', ur: 'ur-IN-GulNeural', en: 'en-IN-NeerjaNeural'
+};
+
+async function generateSyncedEdgeTtsClip(text, requestedVoice, targetLanguage, attempts = 3) {
+  const languageCode = String(targetLanguage || requestedVoice || 'hi').slice(0, 2).toLowerCase();
+  const fallbackVoice = MY_EXPORTER_VOICE_FALLBACK[languageCode] || 'hi-IN-SwaraNeural';
+  const voices = [...new Set([requestedVoice, fallbackVoice].filter(Boolean))];
+  let lastResponse = null;
+  for (const candidateVoice of voices) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        lastResponse = await postJsonForBufferWithRecovery(8427, '/api/preview-mp3', {
+          text, voice: candidateVoice, rate: '+0%', pitch: '+0Hz'
+        }, 120000, 1);
+        if (lastResponse?.statusCode >= 200 && lastResponse.statusCode < 300 && lastResponse.buffer?.length > 256) {
+          return { response: lastResponse, voice: candidateVoice };
+        }
+      } catch (_) {}
+      if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 450 * attempt));
+    }
+  }
+  throw new Error(`EdgeTTS could not generate this sentence after automatic retries (requested voice: ${requestedVoice}, fallback: ${fallbackVoice}, last HTTP: ${lastResponse?.statusCode || 'none'}).`);
+}
 
 // Detect speaker gender for a time slice by comparing low-freq vs high-freq energy.
 // Male voices carry more energy below 165Hz; female voices above 200Hz.
@@ -6283,7 +6375,7 @@ function assignSegmentVoices(segments, detectedGenders, voicePool) {
 //   5. Mix all TTS clips at their exact timestamps into a single audio track
 //   6. Mux new audio into original video (copy video stream – no re-encode)
 ipcMain.handle('export-synced-translated-video', async (event, opts) => {
-  const { videoPath, segments, voice, outputName, targetLanguage } = opts || {};
+  const { videoPath, segments, voice, outputName, targetLanguage, singleVoice = false } = opts || {};
   if (!videoPath || !Array.isArray(segments) || !segments.length)
     return { ok: false, error: 'videoPath and segments are required.' };
   if (!fs.existsSync(videoPath))
@@ -6312,7 +6404,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     // STEP 2: Detect gender per segment
     send(8, `Detecting speakers in ${segments.length} segments…`);
     const voicePool      = MY_EXPORTER_VOICE_POOL[voice] || { female: [voice || 'hi-IN-SwaraNeural'], male: ['hi-IN-MadhurNeural'] };
-    const detectedGenders = segments.map((seg, i) => {
+    const detectedGenders = singleVoice ? segments.map(() => 'selected') : segments.map((seg, i) => {
       const dur = Number(seg.end || 0) - Number(seg.start || 0);
       return detectSegmentGender(ffmpeg, videoPath, Number(seg.start || 0), dur);
     });
@@ -6322,7 +6414,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     send(15, `Detected ${uniqueGenders.length} speaker type(s): ${uniqueGenders.join(', ')}`);
 
     // STEP 3: Assign per-segment voices
-    const segmentVoices = assignSegmentVoices(segments, detectedGenders, voicePool);
+    const segmentVoices = singleVoice ? segments.map(() => voice) : assignSegmentVoices(segments, detectedGenders, voicePool);
 
     // STEP 4: Generate TTS MP3 per segment
     const clipPaths = [];
@@ -6334,25 +6426,33 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       const segVoice = segmentVoices[i] || voice || 'hi-IN-SwaraNeural';
       send(
         Math.round(18 + (i / segments.length) * 42),
-        `Generating ${detectedGenders[i]} voice for segment ${i + 1}/${segments.length}…`
+        `Generating ${singleVoice ? 'consistent' : detectedGenders[i]} voice for segment ${i + 1}/${segments.length}…`
       );
 
       const clipPath = path.join(workDir, `clip_${String(i).padStart(4, '0')}.mp3`);
-      const ttsResp  = await postJsonForBuffer(8427, '/api/preview-mp3', {
-        text,
-        voice: segVoice,
-        rate:  '+0%',
-        pitch: '+0Hz',
-      }, 90000);
-
-      if (!ttsResp || ttsResp.statusCode < 200 || ttsResp.statusCode >= 300)
-        throw new Error(`EdgeTTS returned HTTP ${ttsResp?.statusCode || 'no response'} for segment ${i + 1} (voice: ${segVoice}).`);
+      const generated = await generateSyncedEdgeTtsClip(text, segVoice, targetLanguage);
+      const ttsResp = generated.response;
+      if (generated.voice !== segVoice) {
+        send(Math.round(18 + (i / segments.length) * 42), `Segment ${i + 1}: ${segVoice} unavailable; continued with ${generated.voice}.`);
+      }
 
       fs.writeFileSync(clipPath, ttsResp.buffer);
-      clipPaths.push({ path: clipPath, startSec: Number(seg.start || 0) });
+      const startSec = Math.max(0, Number(seg.start || 0));
+      const endSec = Math.max(startSec + 0.12, Number(seg.end || startSec + 0.12));
+      const generatedDuration = Math.max(0.01, Number(myExporterProbePath(clipPath).duration) || (endSec - startSec));
+      clipPaths.push({ path: clipPath, startSec, endSec, generatedDuration });
     }
 
     if (!clipPaths.length) throw new Error('No TTS audio was generated — check that translated segments have text.');
+
+    // Whisper timestamps can themselves touch or overlap slightly. Give every
+    // clip an exclusive boundary at the next clip's start as a second guard.
+    for (let i = 0; i < clipPaths.length - 1; i++) {
+      clipPaths[i].endSec = Math.max(
+        clipPaths[i].startSec + 0.12,
+        Math.min(clipPaths[i].endSec, clipPaths[i + 1].startSec)
+      );
+    }
 
     // STEP 5: Mix TTS clips into one full-length audio track
     // Write filter to FILE to avoid Windows 32,767-char CLI limit (ENAMETOOLONG)
@@ -6365,8 +6465,14 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
 
     const mixFilterParts = [`[0:a]apad=whole_dur=${totalDuration}[base]`];
     for (let i = 0; i < clipPaths.length; i++) {
-      const delayMs = Math.round(clipPaths[i].startSec * 1000);
-      mixFilterParts.push(`[${i + 1}:a]adelay=${delayMs}|${delayMs}[c${i}]`);
+      const clip = clipPaths[i];
+      const delayMs = Math.round(clip.startSec * 1000);
+      const slotDuration = Math.max(0.12, clip.endSec - clip.startSec);
+      // A generated sentence can be longer than its Whisper time slot. Fit it
+      // into that slot and trim at the boundary so adjacent voices never overlap.
+      const tempo = Math.max(1, clip.generatedDuration / slotDuration);
+      const tempoFilter = tempo > 1.005 ? `atempo=${tempo.toFixed(6)},` : '';
+      mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[c${i}]`);
     }
     const mixLabels = ['[base]', ...clipPaths.map((_, i) => `[c${i}]`)].join('');
     mixFilterParts.push(`${mixLabels}amix=inputs=${clipPaths.length + 1}:normalize=0,atrim=end=${totalDuration}[aout]`);
@@ -6422,6 +6528,146 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
   } finally {
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
   }
+});
+
+// ── Video Ratio Master: real whole-video FFmpeg resizing/reframing ──────────
+ipcMain.handle('video-resizer-pick-video', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Choose a source video',
+    properties: ['openFile'],
+    filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v'] }]
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { ok: false, cancelled: true };
+  return { ok: true, filePath: result.filePaths[0] };
+});
+
+ipcMain.handle('video-resizer-probe', async (_event, opts = {}) => {
+  const filePath = path.resolve(String(opts.filePath || ''));
+  if (!filePath || !fs.existsSync(filePath)) return { ok: false, error: 'Source video was not found.' };
+  const ffmpeg = findFFmpegExecutable();
+  const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i, 'ffprobe'));
+  return new Promise(resolve => {
+    execFile(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', filePath], { windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) return resolve({ ok: false, error: `Video metadata failed: ${String(stderr || error.message).trim()}` });
+      try {
+        const data = JSON.parse(stdout);
+        const video = (data.streams || []).find(stream => stream.codec_type === 'video');
+        const audio = (data.streams || []).find(stream => stream.codec_type === 'audio');
+        if (!video) return resolve({ ok: false, error: 'The selected file contains no video stream.' });
+        const rotation = Number(video.tags?.rotate || video.side_data_list?.find(item => Number.isFinite(Number(item.rotation)))?.rotation || 0);
+        const fpsParts = String(video.avg_frame_rate || video.r_frame_rate || '0/1').split('/').map(Number);
+        resolve({ ok: true, filePath, name: path.basename(filePath), width: Number(video.width), height: Number(video.height), duration: Number(data.format?.duration || video.duration || 0), fps: fpsParts[1] ? fpsParts[0] / fpsParts[1] : 0, codec: video.codec_name || '', audioCodec: audio?.codec_name || '', hasAudio: Boolean(audio), rotation });
+      } catch (parseError) { resolve({ ok: false, error: `Invalid video metadata: ${parseError.message}` }); }
+    });
+  });
+});
+
+ipcMain.handle('video-resizer-export', async (event, opts = {}) => {
+  const inputPath = path.resolve(String(opts.inputPath || ''));
+  if (!inputPath || !fs.existsSync(inputPath)) return { ok: false, error: 'Source video was not found.' };
+  const width = Math.max(2, Math.round(Number(opts.width) || 1080) & ~1);
+  const height = Math.max(2, Math.round(Number(opts.height) || 1920) & ~1);
+  if (width > 7680 || height > 7680) return { ok: false, error: 'Maximum supported output dimension is 7680 pixels.' };
+  const duration = Math.max(0.1, Number(opts.duration) || 1);
+  const jobId = String(opts.jobId || crypto.randomUUID());
+  const ratioName = String(opts.ratioName || `${width}x${height}`).replace(/[^a-z0-9]+/gi, 'x').replace(/^x|x$/g, '');
+  const format = ['mp4', 'mov', 'webm'].includes(String(opts.format)) ? String(opts.format) : 'mp4';
+  const baseName = path.basename(inputPath, path.extname(inputPath)).replace(/[<>:"/\\|?*]+/g, '_');
+  const outputPath = path.join(app.getPath('downloads'), `${baseName}_${ratioName}_${width}x${height}.${format}`);
+  const ffmpeg = findFFmpegExecutable();
+  const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i, 'ffprobe'));
+  const requestedMode = String(opts.mode || 'fit');
+  const sourceWidth = Math.max(0, Number(opts.sourceWidth) || 0);
+  const sourceHeight = Math.max(0, Number(opts.sourceHeight) || 0);
+  const orientationMismatch = Boolean(sourceWidth && sourceHeight && ((sourceHeight > sourceWidth && width > height) || (sourceWidth > sourceHeight && height > width)));
+  // Smart framing never destroys portrait/landscape content when crossing
+  // orientations. Extend the canvas and retain the complete source subject.
+  const mode = orientationMismatch && ['smart-crop', 'auto', 'expand'].includes(requestedMode)
+    ? 'expand'
+    : orientationMismatch && requestedMode === 'extender'
+    ? 'extender'
+    : requestedMode;
+  const x = Math.max(0, Math.min(1, Number(opts.x) || 0.5));
+  const y = Math.max(0, Math.min(1, Number(opts.y) || 0.5));
+  const zoom = Math.max(1, Math.min(4, 1 + (Number(opts.zoom) || 0) / 100));
+  const color = /^#[0-9a-f]{6}$/i.test(String(opts.color || '')) ? `0x${String(opts.color).slice(1)}` : 'black';
+  const rotation = [0, 90, 180, 270].includes(Number(opts.rotation)) ? Number(opts.rotation) : 0;
+  const transforms = [];
+  if (rotation === 90) transforms.push('transpose=1');
+  else if (rotation === 180) transforms.push('hflip,vflip');
+  else if (rotation === 270) transforms.push('transpose=2');
+  if (opts.flipH) transforms.push('hflip');
+  if (opts.flipV) transforms.push('vflip');
+  const prefix = transforms.length ? `${transforms.join(',')},` : '';
+  let filter;
+  if (mode === 'expand') {
+    filter = `${prefix}scale=${width}:${height}:flags=lanczos`;
+  } else if (mode === 'blur' || mode === 'extender') {
+    filter = `${prefix}split=2[bg][fg];[bg]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${Math.max(4, Math.min(80, Number(opts.blur) || 28))}[bg];[fg]scale='min(${width},iw*${zoom})':'min(${height},ih*${zoom})':force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)*${x}:(H-h)*${y}`;
+  } else if (mode === 'mirror') {
+    filter = `${prefix}split=2[bg][fg];[bg]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},hflip[bg];[fg]scale=${width}:${height}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)*${x}:(H-h)*${y}`;
+  } else if (mode === 'mobile-fill' || mode === 'crop' || mode === 'smart-crop' || mode === 'auto') {
+    filter = `${prefix}scale='${width}*${zoom}':'${height}*${zoom}':force_original_aspect_ratio=increase,crop=${width}:${height}:'(iw-ow)*${x}':'(ih-oh)*${y}'`;
+  } else {
+    filter = `${prefix}scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)*${x}:(oh-ih)*${y}:color=${color}`;
+  }
+  // Portrait sources can carry a non-square sample-aspect ratio. Without
+  // resetting it, a physically correct 1920x1080 export may still be displayed
+  // by players as 9:16. Every resized output uses square pixels.
+  filter = `${filter},setsar=1`;
+  const quality = String(opts.quality || 'high');
+  const crf = Number.isFinite(Number(opts.crf)) ? Math.max(10, Math.min(40, Number(opts.crf))) : ({ fast: 27, balanced: 23, high: 18, maximum: 15 }[quality] || 18);
+  const codec = String(opts.codec || 'h264');
+  const videoCodec = format === 'webm' ? 'libvpx-vp9' : codec === 'h265' ? 'libx265' : 'libx264';
+  const preset = quality === 'fast' ? 'veryfast' : quality === 'maximum' ? 'slow' : quality === 'high' ? 'medium' : 'fast';
+  const args = ['-y', '-i', inputPath, '-map', '0:v:0', ...(opts.audio === 'mute' ? [] : ['-map', '0:a?']), '-vf', filter, '-c:v', videoCodec];
+  if (videoCodec === 'libvpx-vp9') args.push('-crf', String(crf), '-b:v', '0');
+  else args.push('-preset', preset, '-crf', String(crf));
+  if (codec === 'h265' && format === 'mp4') args.push('-tag:v', 'hvc1');
+  if (opts.fps && opts.fps !== 'original') args.push('-r', String(Number(opts.fps)));
+  if (opts.audio !== 'mute') args.push('-c:a', format === 'webm' ? 'libopus' : 'aac', '-b:a', '192k');
+  args.push('-pix_fmt', 'yuv420p');
+  if (format !== 'webm') args.push('-movflags', '+faststart');
+  args.push('-progress', 'pipe:2', '-nostats', outputPath);
+
+  return new Promise(resolve => {
+    const proc = spawn(ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    activeVideoResizerProcesses.set(jobId, proc);
+    let stderr = '';
+    let lastPercent = -1;
+    proc.stderr.on('data', chunk => {
+      const text = chunk.toString(); stderr = (stderr + text).slice(-16000);
+      const matches = [...text.matchAll(/out_time_(?:ms|us)=(\d+)/g)];
+      if (matches.length) {
+        const micros = Number(matches.at(-1)[1]);
+        const percent = Math.max(0, Math.min(99, Math.round((micros / 1000000 / duration) * 100)));
+        if (percent !== lastPercent) { lastPercent = percent; event.sender.send('video-resizer-progress', { jobId, percent, phase: 'Processing every video frame', elapsed: micros / 1000000 }); }
+      }
+    });
+    proc.on('error', error => { activeVideoResizerProcesses.delete(jobId); resolve({ ok: false, error: `FFmpeg could not start: ${error.message}` }); });
+    proc.on('exit', code => {
+      activeVideoResizerProcesses.delete(jobId);
+      if (code !== 0 || !fs.existsSync(outputPath)) return resolve({ ok: false, error: stderr.match(/(?:Error|Invalid|Unsupported)[^\r\n]*/i)?.[0] || `Video processing failed with FFmpeg code ${code}.` });
+      execFile(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,duration,sample_aspect_ratio,display_aspect_ratio', '-of', 'json', outputPath], { windowsHide: true }, (probeError, stdout) => {
+        if (probeError) return resolve({ ok: false, error: 'Export finished but failed playable-file validation.' });
+        try {
+          const stream = JSON.parse(stdout)?.streams?.[0];
+          if (Number(stream?.width) !== width || Number(stream?.height) !== height) return resolve({ ok: false, error: `Export failed validation: expected ${width}x${height}, received ${stream?.width}x${stream?.height}.` });
+          if (stream?.sample_aspect_ratio && stream.sample_aspect_ratio !== '1:1') return resolve({ ok: false, error: `Export failed validation: pixels are ${stream.sample_aspect_ratio} instead of square 1:1 pixels.` });
+          event.sender.send('video-resizer-progress', { jobId, percent: 100, phase: 'Validated and complete', outputPath });
+          resolve({ ok: true, jobId, outputPath, width, height, fileName: path.basename(outputPath) });
+        } catch (error) { resolve({ ok: false, error: `Export validation failed: ${error.message}` }); }
+      });
+    });
+  });
+});
+
+ipcMain.handle('video-resizer-cancel', async (_event, opts = {}) => {
+  const proc = activeVideoResizerProcesses.get(String(opts.jobId || ''));
+  if (!proc) return { ok: true, cancelled: false };
+  try { proc.kill('SIGTERM'); } catch (_) {}
+  activeVideoResizerProcesses.delete(String(opts.jobId || ''));
+  return { ok: true, cancelled: true };
 });
 
 ipcMain.handle('my-exporter-cancel', async (event, opts) => {

@@ -7,6 +7,7 @@ const translateDubProgressHandlers = new Map();
 const myExporterProgressHandlers = new Map();
 const agentProgressHandlers = new Map();
 const transcribeProgressHandlers = new Map();
+const videoResizerProgressHandlers = new Map();
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -178,6 +179,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   presentatorAgentMorphAudio: (request) =>
     ipcRenderer.invoke('presentator-agent-morph-audio', request),
+  cancelVoiceGeneration: () =>
+    ipcRenderer.invoke('cancel-voice-generation'),
 
   // ── Server management ──────────────────────────────────────────────────────
 
@@ -256,6 +259,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   pickSingSongVideoFolder: (options = {}) =>
     ipcRenderer.invoke('sing-song-pick-video-folder', options),
+
+  videoResizerPickVideo: () => ipcRenderer.invoke('video-resizer-pick-video'),
+  videoResizerProbe: (filePath) => ipcRenderer.invoke('video-resizer-probe', { filePath }),
+  videoResizerExport: (options) => ipcRenderer.invoke('video-resizer-export', options),
+  videoResizerCancel: (jobId) => ipcRenderer.invoke('video-resizer-cancel', { jobId }),
+  onVideoResizerProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    videoResizerProgressHandlers.set(callback, handler);
+    ipcRenderer.on('video-resizer-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('video-resizer-progress', handler);
+      videoResizerProgressHandlers.delete(callback);
+    };
+  },
 
   // Replace video audio with SC3 voice — all heavy work runs in main process:
   // FFmpeg extracts audio → SC3 server converts → FFmpeg muxes back into video.

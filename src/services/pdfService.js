@@ -1,7 +1,9 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Use standard CDN for worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// Bundle the matching worker with the app. This avoids a runtime CDN dependency
+// and guarantees that the API and worker stay on the same secure PDF.js version.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export async function extractTextFromPDF(base64) {
   try {
@@ -12,7 +14,11 @@ export async function extractTextFromPDF(base64) {
       bytes[i] = binaryString.charCodeAt(i);
     }
 
-    const loadingTask = pdfjsLib.getDocument({ data: bytes });
+    const loadingTask = pdfjsLib.getDocument({
+      data: bytes,
+      isEvalSupported: false,
+      enableXfa: false,
+    });
     const pdf = await loadingTask.promise;
     const pagesContent = [];
 

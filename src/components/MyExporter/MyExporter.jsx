@@ -5,7 +5,7 @@ import { transcribeLocalMediaPath } from '../../caption/transcribe';
 const fileUrl = value => encodeURI(`file:///${String(value || '').replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
 const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const PROJECT_KEY = 'pattan-my-exporter-project-v1';
-const DEFAULT_SETTINGS = { resolution: '1080p', fps: 30, quality: 'balanced', framing: 'contain', musicVolume: 0.18, burnCaptions: true, captionStyle: 'classic', captionPosition: 'bottom', captionFontSize: 42, captionMaxChars: 36, watermarkPosition: 'bottom-right', watermarkX: 90, watermarkY: 90, watermarkScale: 16, watermarkOpacity: .85 };
+const DEFAULT_SETTINGS = { resolution: '1080p', fps: 30, quality: 'balanced', framing: 'contain', musicVolume: 0.18, burnCaptions: true, captionStyle: 'classic', captionPosition: 'bottom', captionFontSize: 42, captionMaxChars: 36, captionFontFamily: 'Arial', captionBold: true, captionColor: '#ffffff', captionWidth: 100, captionHeight: 100, watermarkPosition: 'bottom-right', watermarkX: 90, watermarkY: 90, watermarkScale: 16, watermarkOpacity: .85 };
 const WATERMARK_POSITIONS = { 'top-left': [10, 10], 'top-right': [90, 10], 'bottom-left': [10, 90], 'bottom-right': [90, 90], center: [50, 50] };
 const loadProject = () => {
   try { return JSON.parse(localStorage.getItem(PROJECT_KEY) || 'null') || {}; }
@@ -31,6 +31,11 @@ const serialCollator = new Intl.Collator(undefined, { numeric: true, sensitivity
 const serialSort = items => [...items].sort((a, b) => serialCollator.compare(a.name || '', b.name || ''));
 const CAPTION_LANGUAGE_NAMES = { auto: 'Auto-Detect', en: 'English', te: 'Telugu', hi: 'Hindi', ta: 'Tamil', kn: 'Kannada', ml: 'Malayalam' };
 const VOICE_MODELS = { en: 'en-IN-NeerjaNeural', hi: 'hi-IN-SwaraNeural', te: 'te-IN-ShrutiNeural', ta: 'ta-IN-PallaviNeural', kn: 'kn-IN-SapnaNeural', ml: 'ml-IN-SobhanaNeural' };
+const VOICE_GENDER_MODELS = {
+  en: { female: 'en-IN-NeerjaNeural', male: 'en-IN-PrabhatNeural' }, hi: { female: 'hi-IN-SwaraNeural', male: 'hi-IN-MadhurNeural' },
+  te: { female: 'te-IN-ShrutiNeural', male: 'te-IN-MohanNeural' }, ta: { female: 'ta-IN-PallaviNeural', male: 'ta-IN-ValluvarNeural' },
+  kn: { female: 'kn-IN-SapnaNeural', male: 'kn-IN-GaganNeural' }, ml: { female: 'ml-IN-SobhanaNeural', male: 'ml-IN-MidhunNeural' },
+};
 const DEFAULT_LOGO = { name: 'info kids logo.png', path: 'D:\\desktop\\NEVER DELETE\\info kids logo.png', preview: '' };
 const textToBase64 = value => {
   const bytes = new TextEncoder().encode(value); let binary = '';
@@ -77,6 +82,7 @@ export default function MyExporter({ active = true }) {
   const [detectedStutters, setDetectedStutters] = useState([]);
   const [captionLanguage, setCaptionLanguage] = useState(() => loadProject().captionLanguage || 'auto');
   const [voiceLanguage, setVoiceLanguage] = useState(() => loadProject().voiceLanguage || 'hi');
+  const [voiceGender, setVoiceGender] = useState('female');
   const [voiceChanging, setVoiceChanging] = useState(false);
   const [targetMorphVoice, setTargetMorphVoice] = useState('sc3');
   const [audioMorphing, setAudioMorphing] = useState(false);
@@ -1046,6 +1052,12 @@ export default function MyExporter({ active = true }) {
     } finally {
       setAudioMorphing(false);
     }
+  };
+
+  const cancelVoiceGeneration = async () => {
+    try { await window.electronAPI?.cancelVoiceGeneration?.(); } catch (_) {}
+    setAudioMorphing(false);
+    setProgress({ pct: 0, phase: 'Voice generation cancelled. Choose another voice and try again.' });
   };
 
   const addTextOverlay = () => {
@@ -2197,7 +2209,7 @@ export default function MyExporter({ active = true }) {
         translatedSegments.push({ ...segment, translatedText: await translateTextLocal(segment.text, voiceLanguage) });
       }
       setProgress({ pct: 65, phase: `Generating synchronized ${CAPTION_LANGUAGE_NAMES[voiceLanguage]} voice` });
-      const response = await window.electronAPI.exportSyncedTranslatedVideo({ videoPath: selected.path, segments: translatedSegments, voice: VOICE_MODELS[voiceLanguage], targetLanguage: voiceLanguage, outputName: `${selected.name.replace(/\.[^.]+$/, '')}-${voiceLanguage}-synced.mp4` });
+      const response = await window.electronAPI.exportSyncedTranslatedVideo({ videoPath: selected.path, segments: translatedSegments, voice: VOICE_GENDER_MODELS[voiceLanguage]?.[voiceGender] || VOICE_MODELS[voiceLanguage], singleVoice: true, targetLanguage: voiceLanguage, outputName: `${selected.name.replace(/\.[^.]+$/, '')}-${voiceLanguage}-synced.mp4` });
       if (!response?.ok || !response.outputPath) throw new Error(response?.error || 'Synchronized translated video was not created.');
       patchScene(selected.id, { path: response.outputPath, name: `${selected.name.replace(/\s*\[[^\]]+ voice\]$/i, '')} [${CAPTION_LANGUAGE_NAMES[voiceLanguage]} voice]`, hasAudio: true, muted: false, voiceLanguage });
       setAudioTracks(current => current.filter(track => track.detachedFromSceneId !== selected.id));
@@ -2708,6 +2720,11 @@ export default function MyExporter({ active = true }) {
     bottom: 'auto',
     transform: captionPosition === 'middle' ? 'translate(-50%,-50%)' : captionPosition === 'bottom' ? 'translate(-50%,-100%)' : 'translateX(-50%)',
     fontSize: `${previewFontPx}px`,
+    fontFamily: settings.captionFontFamily || 'Arial',
+    fontWeight: settings.captionBold === false ? 400 : 800,
+    color: settings.captionColor || '#ffffff',
+    width: `${Math.max(30, Math.min(100, Number(settings.captionWidth) || 100))}%`,
+    lineHeight: `${Math.max(.7, Math.min(1.4, (Number(settings.captionHeight) || 100) / 100))}`,
     width: previewFrame.width ? `${Math.min(previewFrame.width * .9, previewFontPx * .62 * Number(settings.captionMaxChars || 36))}px` : '80%',
     maxWidth: previewFrame.width ? `${previewFrame.width * .9}px` : '80%',
     whiteSpace: 'pre-line',
@@ -3162,12 +3179,14 @@ export default function MyExporter({ active = true }) {
           <div className="mx-panel-title">Translate video voice</div>
           <div className="mx-inspector-note">Select a video on the timeline. Its spoken audio will be translated and replaced while keeping every sentence synchronized to the original picture.</div>
           <label>Voice language<select value={voiceLanguage} onChange={event => setVoiceLanguage(event.target.value)}><option value="en">English / Indian English</option><option value="hi">Hindi</option><option value="te">Telugu</option><option value="ta">Tamil</option><option value="kn">Kannada</option><option value="ml">Malayalam</option></select></label>
+          <label>Narration voice<select value={voiceGender} onChange={event => setVoiceGender(event.target.value)} disabled={voiceChanging}><option value="female">Consistent female voice</option><option value="male">Consistent male voice</option></select></label>
            <button className="mx-wide mx-voice-change" onClick={changeSelectedVideoVoice} disabled={!selected || selected.kind !== 'video' || voiceChanging}>{voiceChanging ? 'Translating and synchronizing voice…' : `Change Selected Video Voice to ${CAPTION_LANGUAGE_NAMES[voiceLanguage]}`}</button>
           <div className="mx-divider" />
           <div className="mx-panel-title">Vocal Morphing Studio</div>
           <div className="mx-inspector-note">Morph the timbre of any audio track on the timeline to match another voice profile offline.</div>
           <label>Target voice timbre<select value={targetMorphVoice} onChange={event => setTargetMorphVoice(event.target.value)}><option value="sc3">SC3 Default Voice</option><option value="female">Standard Female Voice</option><option value="male">Standard Male Voice</option></select></label>
           <button className="mx-wide" onClick={morphSelectedAudio} disabled={!selectedAudio || audioMorphing}>{audioMorphing ? 'Morphing voice timbre...' : 'Morph Selected Audio Timbre'}</button>
+          {audioMorphing && <button className="mx-wide mx-danger" onClick={cancelVoiceGeneration}>Cancel current voice generation</button>}
           <div className="mx-divider" />
           <div className="mx-panel-title">Automatic captions</div>
           <label>Caption language<select value={captionLanguage} onChange={event => setCaptionLanguage(event.target.value)}><option value="auto">Same as spoken video / detect</option><option value="en">English / Indian English</option><option value="te">Telugu</option><option value="hi">Hindi</option><option value="ta">Tamil</option><option value="kn">Kannada</option><option value="ml">Malayalam</option></select></label>
@@ -3181,6 +3200,14 @@ export default function MyExporter({ active = true }) {
           <label>Caption style<select value={settings.captionStyle || 'classic'} onChange={event => setSettings(value => ({ ...value, captionStyle: event.target.value }))}><option value="classic">Classic white</option><option value="box">Readable black box</option><option value="yellow">Cinema yellow</option><option value="karaoke">Karaoke highlight</option></select></label>
           <label>Position<select value={settings.captionPosition || 'bottom'} onChange={event => setSettings(value => ({ ...value, captionPosition: event.target.value }))}><option value="bottom">Bottom</option><option value="middle">Middle</option><option value="top">Top</option></select></label>
           <label>Text size — {settings.captionFontSize || 42}<input type="range" min="24" max="84" step="2" value={settings.captionFontSize || 42} onChange={event => setSettings(value => ({ ...value, captionFontSize: Number(event.target.value) }))} /></label>
+          <details className="mx-caption-advanced"><summary>Advanced caption options</summary><div>
+            <label>Font style<select value={settings.captionFontFamily || 'Arial'} onChange={event => setSettings(value => ({ ...value, captionFontFamily: event.target.value }))}><option>Arial</option><option>Segoe UI</option><option>Georgia</option><option>Impact</option><option>Comic Sans MS</option></select></label>
+            <label className="mx-check"><input type="checkbox" checked={settings.captionBold !== false} onChange={event => setSettings(value => ({ ...value, captionBold: event.target.checked }))} /> Bold</label>
+            <label>Color<input type="color" value={settings.captionColor || '#ffffff'} onChange={event => setSettings(value => ({ ...value, captionColor: event.target.value }))} /></label>
+            <label>Width — {settings.captionWidth || 100}%<input type="range" min="30" max="100" value={settings.captionWidth || 100} onChange={event => setSettings(value => ({ ...value, captionWidth: Number(event.target.value) }))} /></label>
+            <label>Height — {settings.captionHeight || 100}%<input type="range" min="70" max="140" value={settings.captionHeight || 100} onChange={event => setSettings(value => ({ ...value, captionHeight: Number(event.target.value) }))} /></label>
+            <div className="mx-inspector-note">Caption outline is disabled in preview and export.</div>
+          </div></details>
           <label>Line length — {settings.captionMaxChars || 36} characters<input type="range" min="16" max="60" step="2" value={settings.captionMaxChars || 36} onChange={event => setSettings(value => ({ ...value, captionMaxChars: Number(event.target.value) }))} /></label>
           {hasRealCaptions ? <div className="mx-preview-truth"><strong>Real captions active</strong><span>The demo caption is disabled. Preview uses the same timing, wrapping, size, position and style sent to export.</span></div> : <button className="mx-wide" onClick={() => setCaptionSampleVisible(value => !value)}>{captionSampleVisible ? 'Hide Caption Sample' : 'Show Caption Sample'}</button>}
           {captions.length > 0 && <button className="mx-wide" onClick={() => setCaptionEditorOpen(true)}>Edit All Captions on Timeline</button>}

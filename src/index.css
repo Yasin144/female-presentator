@@ -5318,3 +5318,35 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--m5-primary-str
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Playground Joy presentation theme */
+.tpl3d-card[data-template="playground-joy"]:hover .tpl3d-inner {
+  transform: rotateY(-5deg) rotateX(-4deg) translateY(-9px) scale(1.06);
+  box-shadow: 8px 22px 48px rgba(0,0,0,.52), 0 0 0 2px rgba(255,226,74,.72), 0 0 30px rgba(40,190,255,.42);
+  border-color: rgba(255,226,74,.95);
+}
+.tpl3d-card[data-template="playground-joy"].is-active .tpl3d-inner {
+  border-color: rgba(255,226,74,1) !important;
+  box-shadow: 0 0 0 2px rgba(255,226,74,.5), 0 8px 40px rgba(40,190,255,.4) !important;
+}
+.tpl3d-preview-playground {
+  background-image: linear-gradient(180deg,rgba(4,36,82,.22),rgba(4,36,82,0) 50%), url('/themes/children-playground.png');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 5px 4px;
+}
+.tpl-playground-title {
+  color: #fff36b;
+  font: 900 19px/1 "Nunito", sans-serif;
+  -webkit-text-stroke: 2px #062456;
+  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.tpl-playground-kids {
+  font-size: 16px;
+  letter-spacing: 2px;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.35));
+}

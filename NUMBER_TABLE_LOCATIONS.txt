@@ -1,0 +1,11 @@
+NUMBER TABLE FEATURE LOCATIONS
+
+Open: D:\voice\script.js
+
+Search these exact words with Ctrl+F:
+1. function getNumberTableData
+2. function getNumberTableNarrationText
+3. function drawNumberTableBoard
+4. const numberTableData
+
+Use in app: Presentator lesson input -> table from 101 to 200 -> Show Screen -> Read Lesson

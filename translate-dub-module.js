@@ -11,6 +11,10 @@
     { code: "ta", label: "Tamil", voice: "ta-IN-PallaviNeural", voices: [{ id: "ta-IN-PallaviNeural", name: "Pallavi — Female" }, { id: "ta-IN-ValluvarNeural", name: "Valluvar — Male" }] },
     { code: "kn", label: "Kannada", voice: "kn-IN-SapnaNeural", voices: [{ id: "kn-IN-SapnaNeural", name: "Sapna — Female" }, { id: "kn-IN-GaganNeural", name: "Gagan — Male" }] },
     { code: "ml", label: "Malayalam", voice: "ml-IN-SobhanaNeural", voices: [{ id: "ml-IN-SobhanaNeural", name: "Sobhana — Female" }, { id: "ml-IN-MidhunNeural", name: "Midhun — Male" }] },
+    { code: "bn", label: "Bengali", voice: "bn-IN-TanishaaNeural", voices: [{ id: "bn-IN-TanishaaNeural", name: "Tanishaa — Female" }, { id: "bn-IN-BashkarNeural", name: "Bashkar — Male" }] },
+    { code: "gu", label: "Gujarati", voice: "gu-IN-DhwaniNeural", voices: [{ id: "gu-IN-DhwaniNeural", name: "Dhwani — Female" }, { id: "gu-IN-NiranjanNeural", name: "Niranjan — Male" }] },
+    { code: "mr", label: "Marathi", voice: "mr-IN-AarohiNeural", voices: [{ id: "mr-IN-AarohiNeural", name: "Aarohi — Female" }, { id: "mr-IN-ManoharNeural", name: "Manohar — Male" }] },
+    { code: "ur", label: "Urdu", voice: "ur-IN-GulNeural", voices: [{ id: "ur-IN-GulNeural", name: "Gul — Female" }, { id: "ur-IN-SalmanNeural", name: "Salman — Male" }] },
   ];
 
   const state = {
@@ -37,6 +41,10 @@
     { code: "English", label: "English" },
     { code: "Telugu", label: "Telugu" },
     { code: "Hindi", label: "Hindi" },
+    { code: "Tamil", label: "Tamil" }, { code: "Kannada", label: "Kannada" },
+    { code: "Malayalam", label: "Malayalam" }, { code: "Bengali", label: "Bengali" },
+    { code: "Gujarati", label: "Gujarati" }, { code: "Marathi", label: "Marathi" },
+    { code: "Urdu", label: "Urdu" },
   ];
 
   let root;
@@ -91,6 +99,10 @@
     if (value.startsWith("ta") || value === "tamil") return "Tamil";
     if (value.startsWith("kn") || value === "kannada") return "Kannada";
     if (value.startsWith("ml") || value === "malayalam") return "Malayalam";
+    if (value.startsWith("bn") || value === "bengali") return "Bengali";
+    if (value.startsWith("gu") || value === "gujarati") return "Gujarati";
+    if (value.startsWith("mr") || value === "marathi") return "Marathi";
+    if (value.startsWith("ur") || value === "urdu") return "Urdu";
     return "Auto Detect";
   }
 
@@ -332,7 +344,7 @@
     }
     const captions = captionItemsFromSegments(state.captionSegments.length ? state.captionSegments : (state.translatedSegments.length ? state.translatedSegments : state.segments));
     const captionCode = captionLanguageCode(resolvedCaptionLanguage(false));
-    const fontName = ["te", "hi", "ta", "kn", "ml"].includes(captionCode) ? "Nirmala UI" : "Arial";
+    const fontName = ["te", "hi", "ta", "kn", "ml", "bn", "gu", "mr", "ur"].includes(captionCode) ? "Nirmala UI" : "Arial";
     const fontSize = Math.max(30, Math.round(height * 0.052));
     const marginV = Math.max(42, Math.round(height * 0.09));
     const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Karaoke,${fontName},${fontSize},&H0000FFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,4,1,2,50,50,${marginV},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
@@ -463,7 +475,7 @@
   }
 
   function captionLanguageCode(label) {
-    return { English: "en", Telugu: "te", Hindi: "hi", Tamil: "ta", Kannada: "kn", Malayalam: "ml" }[label] || "";
+    return { English: "en", Telugu: "te", Hindi: "hi", Tamil: "ta", Kannada: "kn", Malayalam: "ml", Bengali: "bn", Gujarati: "gu", Marathi: "mr", Urdu: "ur" }[label] || "";
   }
 
   async function refreshCaptionSegments() {
@@ -882,6 +894,10 @@
       '          <option value="Tamil">Tamil</option>',
       '          <option value="Kannada">Kannada</option>',
       '          <option value="Malayalam">Malayalam</option>',
+      '          <option value="Bengali">Bengali</option>',
+      '          <option value="Gujarati">Gujarati</option>',
+      '          <option value="Marathi">Marathi</option>',
+      '          <option value="Urdu">Urdu</option>',
       '        </select>',
       '      </div>',
       '      <div class="tdub-actions">',
