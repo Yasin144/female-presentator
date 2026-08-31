@@ -83,6 +83,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   presentatorAgentThink: (payload) =>
     ipcRenderer.invoke('presentator-agent-think', payload),
 
+  generateRiddlePackage: (payload) =>
+    ipcRenderer.invoke('generate-riddle-package', payload),
+
+  onRiddleGenerationProgress: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('riddle-generation-progress', handler);
+    return () => ipcRenderer.removeListener('riddle-generation-progress', handler);
+  },
+
   presentatorAgentCancel: () =>
     ipcRenderer.invoke('presentator-agent-cancel'),
   presentatorAgentStopProcess: () =>

@@ -68,8 +68,16 @@ function captionBottomSafety(fontSize: number, lineCount = 1) {
 function normalizeDisplayedCaptionWords(input: WordItem[]): WordItem[] {
   const words = input.map(word => ({
     ...word,
-    text: String(word.text || '').replace(/\binfo\s*kids\b/i, 'Info Kids').trim(),
+    text: String(word.text || '').trim(),
   }));
+  for (let index = 0; index < words.length - 1; index += 1) {
+    const current = words[index].text.replace(/[^A-Za-z]/g, '').toLowerCase();
+    const next = words[index + 1].text.replace(/[^A-Za-z]/g, '').toLowerCase();
+    if (current === 'info' && (next === 'kits' || next === 'kids')) {
+      words[index] = { ...words[index], text: 'Info' };
+      words[index + 1] = { ...words[index + 1], text: 'Kids' };
+    }
+  }
   const letterCounts = new Map<string, number>();
   for (const word of words) {
     const token = word.text.replace(/[^A-Za-z]/g, '').toUpperCase();
@@ -327,17 +335,19 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
       const validWords = words.filter(w => w.end > w.start);
       const activeLines = validWords.map((word, activeIndex) => {
           const nextWord = validWords[activeIndex + 1];
-          const shortGapEnd = nextWord && nextWord.start > word.end && nextWord.start - word.end <= SPEECH_GAP_SECONDS
-            ? nextWord.start
-            : word.end;
-          const lineEnd = Math.max(word.start + 0.05, Math.min(shortGapEnd, c.end));
-          // Reveal only words that have actually started. Previously the full
-          // six-word card was rendered immediately, exposing future narration.
-          const revealedWords = validWords.slice(0, activeIndex + 1);
+          // Keep the current karaoke state visible until the next spoken word.
+          // Ending at Whisper's very short word.end made quick words (and even
+          // whole short sentences) appear to have no karaoke highlight at 25fps.
+          const visibleUntil = nextWord?.start ?? c.end;
+          const lineEnd = Math.max(word.start + 0.08, Math.min(visibleUntil, c.end));
+          // Display the complete sentence in white, then highlight only the
+          // word currently being spoken. This is standard karaoke behavior.
+          const revealedWords = validWords;
           const posPrefix = posPrefixFor(revealedWords);
           let tokenCursor = 0;
           const styledText = wrapWordsForAss(revealedWords).map(line => (
             line.map((token) => {
+              // Every other word remains white; only the spoken word is yellow.
               const color = tokenCursor === activeIndex ? pri : sec;
               tokenCursor += 1;
               return `{\\alpha&H00&\\1c${color}}${escapeAssText(token.text)}`;
@@ -354,8 +364,8 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     // at "am" show I am; at "Ali" show I am Ali—never future words.
     return words.flatMap((word, activeIndex) => {
       const nextWord = words[activeIndex + 1];
-      const lineEnd = Math.max(word.start + 0.05,
-        Math.min(nextWord && nextWord.start - word.end <= SPEECH_GAP_SECONDS ? nextWord.start : word.end, c.end));
+      const lineEnd = Math.max(word.start + 0.08,
+        Math.min(nextWord?.start ?? c.end, c.end));
       const revealedWords = words.slice(0, activeIndex + 1);
       const text = wrapWordsForAss(revealedWords)
         .map(line => shapeCaptionText(line.map(token => token.text).join(' '), s))
@@ -426,6 +436,7 @@ export async function burnCaptions(
       try {
         const result = await api.burnCaptions({
           videoPath,
+          sourceFileName: file.name,
           captions: caps,
           fontSize: settings.fontSize,
           position: settings.position,

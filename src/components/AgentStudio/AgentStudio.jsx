@@ -787,7 +787,7 @@ export default function AgentStudio() {
     const isVisualCodeRequest = isCodeRequest
       && /\b(app|application|website|webpage|component|game|dashboard|calculator|html|css|javascript|react|layout|preview)\b/i.test(request)
       && /\b(write|create|build|develop|implement|design|modify|edit|update|fix|repair|layout|preview)\b/i.test(request);
-    const visualSubjectRequest = /\b(moon|stars?|sun|sky|space|planet|galaxy|landscape|mountain|ocean|forest|animal|kitten|cat|dog|flower|portrait|character|castle|house|car|background|wallpaper|poster|logo|illustration|artwork|picture|photo|image)\b/i.test(request)
+    const visualSubjectRequest = /\b(moon|stars?|sun|sky|space|planet|galaxy|landscape|mountain|ocean|forest|animal|kitten|cat|dog|flower|portrait|character|girls?|boys?|women|woman|men|man|people|person|couple|family|children|kids?|castle|house|car|background|wallpaper|poster|logo|illustration|artwork|picture|photo|image)\b/i.test(request)
       && !/\b(explain|describe|define|what is|why|how|question|code|website|webpage|app|application)\b/i.test(request);
     const isDirectImageRequest = (explicitImageRequest || visualSubjectRequest) && !wantsVideo;
     const uploadedImagePath = activeChat.references.find(reference => reference.kind === 'image')?.filePath || '';

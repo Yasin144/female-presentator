@@ -6,7 +6,7 @@ Strategy:
   2. tiny model first (fast), small model if result is garbage
   3. Returns real word-level timestamps for perfect caption sync
 """
-import sys, json, os, re, subprocess, tempfile
+import sys, json, os, re, subprocess, tempfile, wave
 from collections import Counter
 
 if len(sys.argv) < 2:
@@ -99,7 +99,7 @@ def clean(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False):
+def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False, clip_timestamps="0"):
     """Run faster-whisper with speech and confidence filtering using a preloaded model."""
     segs, info = m.transcribe(
         audio_path,
@@ -111,6 +111,7 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False)
         compression_ratio_threshold=2.4 if lenient else 2.0,
         condition_on_previous_text=False,           # prevent runaway loops
         word_timestamps=True,                      # real word-level timestamps
+        clip_timestamps=clip_timestamps,
         # The retry pass disables VAD because short child words over music are
         # commonly classified as non-speech before Whisper can decode them.
         vad_filter=not lenient,
@@ -158,16 +159,142 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False)
     return full, info.language, seg_list, word_list
 
 
-def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
-    """Retry sparse nursery results without VAD, accepting the retry only when it adds reliable words."""
+def audio_duration_seconds(audio_path: str) -> float:
+    try:
+        with wave.open(audio_path, "rb") as wav_file:
+            return wav_file.getnframes() / max(1, wav_file.getframerate())
+    except Exception:
+        return 0.0
+
+
+def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 8.0):
+    """Return substantial timeline holes which may contain skipped narration."""
+    ordered = sorted(
+        (w for w in words if isinstance(w, dict)),
+        key=lambda w: float(w.get("start", 0.0)),
+    )
+    if duration <= 0:
+        return []
+    if not ordered:
+        return [(0.0, duration)]
+    gaps = []
+    cursor = 0.0
+    for word in ordered:
+        start = max(0.0, float(word.get("start", 0.0)))
+        end = max(start, float(word.get("end", start)))
+        if start - cursor >= minimum_gap:
+            gaps.append((cursor, start))
+        cursor = max(cursor, end)
+    if duration - cursor >= minimum_gap:
+        gaps.append((cursor, duration))
+    return gaps
+
+
+def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current):
+    """Decode only uncovered ranges and merge genuine recovered words into the timeline."""
     text, detected, segs, words = current
-    if len(words) >= 4 or len(text.split()) >= 4:
+    duration = audio_duration_seconds(audio_path)
+    gaps = uncovered_audio_ranges(words, duration)
+    if not gaps:
         return current
-    print("[Whisper] Sparse result; retrying child-speech/music mode without VAD...", flush=True)
+
+    merged_words = list(words)
+    merged_segments = list(segs)
+    recovered_count = 0
+    for gap_start, gap_end in gaps:
+        clip_start = max(0.0, gap_start - 0.75)
+        clip_end = min(duration, gap_end + 0.75)
+        print(
+            f"[Whisper] Checking uncovered narration {gap_start:.1f}s-{gap_end:.1f}s...",
+            flush=True,
+        )
+        gap_text, _, _, gap_words = run_whisper_with_model(
+            m, audio_path, lang, lenient=True,
+            clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
+        )
+        accepted = []
+        for word in gap_words:
+            start = float(word.get("start", 0.0))
+            end = float(word.get("end", start))
+            midpoint = (start + end) / 2.0
+            if gap_start <= midpoint <= gap_end:
+                accepted.append(word)
+        if not accepted or is_repetition_loop(gap_text):
+            continue
+        accepted.sort(key=lambda w: float(w.get("start", 0.0)))
+        recovered_count += len(accepted)
+        merged_words.extend(accepted)
+        merged_segments.append({
+            "start": round(float(accepted[0]["start"]), 2),
+            "end": round(float(accepted[-1]["end"]), 2),
+            "text": clean(" ".join(str(w.get("word", "")) for w in accepted)),
+        })
+
+    if not recovered_count:
+        return current
+
+    merged_words.sort(key=lambda w: (float(w.get("start", 0.0)), float(w.get("end", 0.0))))
+    deduped_words = []
+    for word in merged_words:
+        normalized = re.sub(r"\W+", "", str(word.get("word", "")).lower())
+        duplicate = any(
+            normalized
+            and normalized == re.sub(r"\W+", "", str(previous.get("word", "")).lower())
+            and abs(float(word.get("start", 0.0)) - float(previous.get("start", 0.0))) < 0.45
+            for previous in deduped_words[-3:]
+        )
+        if not duplicate:
+            deduped_words.append(word)
+    merged_segments.sort(key=lambda s: float(s.get("start", 0.0)))
+    merged_text = clean(" ".join(str(w.get("word", "")) for w in deduped_words))
+    print(f"[Whisper] Gap repair recovered {recovered_count} additional words.", flush=True)
+    return merged_text, detected, merged_segments, deduped_words
+
+
+def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
+    """Retry incomplete results without VAD and keep only a demonstrably fuller transcript."""
+    text, detected, segs, words = current
+    ordered_words = sorted(
+        (w for w in words if isinstance(w, dict)),
+        key=lambda w: float(w.get("start", 0.0)),
+    )
+    largest_internal_gap = max(
+        (
+            max(0.0, float(next_word.get("start", 0.0)) - float(word.get("end", word.get("start", 0.0))))
+            for word, next_word in zip(ordered_words, ordered_words[1:])
+        ),
+        default=0.0,
+    )
+    try:
+        with wave.open(audio_path, "rb") as wav_file:
+            audio_duration = wav_file.getnframes() / max(1, wav_file.getframerate())
+    except Exception:
+        audio_duration = float(ordered_words[-1].get("end", 0.0)) if ordered_words else 0.0
+    leading_gap = float(ordered_words[0].get("start", 0.0)) if ordered_words else audio_duration
+    trailing_gap = max(
+        0.0,
+        audio_duration - float(ordered_words[-1].get("end", ordered_words[-1].get("start", 0.0))),
+    ) if ordered_words else audio_duration
+    largest_gap = max(leading_gap, largest_internal_gap, trailing_gap)
+    sparse_word_count = len(words) < 4 and len(text.split()) < 4
+    suspicious_missing_section = audio_duration > 20.0 and largest_gap > 10.0
+    if not sparse_word_count and not suspicious_missing_section:
+        return current
+    reason = (
+        f"{largest_gap:.1f}s uncovered audio section"
+        if suspicious_missing_section
+        else "too few detected words"
+    )
+    print(f"[Whisper] Incomplete result ({reason}); retrying without VAD...", flush=True)
     retry = run_whisper_with_model(m, audio_path, lang, lenient=True)
     retry_text, _, _, retry_words = retry
     if not is_repetition_loop(retry_text) and len(retry_words) > len(words):
+        print(
+            f"[Whisper] Coverage repair accepted: {len(words)} -> {len(retry_words)} words.",
+            flush=True,
+        )
         return retry
+    print("[Whisper] Coverage retry was not more complete; keeping the safer original result.", flush=True)
     return current
 
 
@@ -275,6 +402,9 @@ try:
             text, lang, segs, words = retry_sparse_with_child_speech_mode(
                 m_small, norm_path, lang_hint, (text, lang, segs, words)
             )
+            text, lang, segs, words = repair_remaining_audio_gaps(
+                m_small, norm_path, lang_hint, (text, lang, segs, words)
+            )
     else:
         primary_model = "small"
         fallback_model = "tiny"
@@ -283,6 +413,9 @@ try:
         primary = get_whisper_model(primary_model)
         text, lang, segs, words = run_whisper_with_model(primary, norm_path, lang_hint)
         text, lang, segs, words = retry_sparse_with_child_speech_mode(
+            primary, norm_path, lang_hint, (text, lang, segs, words)
+        )
+        text, lang, segs, words = repair_remaining_audio_gaps(
             primary, norm_path, lang_hint, (text, lang, segs, words)
         )
         

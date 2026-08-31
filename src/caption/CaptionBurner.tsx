@@ -521,7 +521,7 @@ export default function CaptionBurner({ onClose }: Props) {
           duration: item.video.duration,
         },
       );
-      const outputName = `${sanify(item.video.name)}_captioned_${Date.now()}.mp4`;
+      const outputName = item.video.name || 'video.mp4';
       
       let saved = { filePath: '', fileName: '' };
       let outputUrl = '';
@@ -817,14 +817,44 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const saveCaptionText = (capIndex: number) => {
     if (!activeId || !activeItem?.captions) return;
+    const cleanText = editingCapText.replace(/\s+/g, ' ').trim();
+    if (!cleanText) {
+      setError('Caption text cannot be empty. Use Delete if you want to remove this caption.');
+      return;
+    }
     const updatedCaps = [...activeItem.captions];
-    updatedCaps[capIndex] = { ...updatedCaps[capIndex], text: editingCapText };
+    const current = updatedCaps[capIndex];
+    const tokens = cleanText.split(/\s+/).filter(Boolean);
+    const existingWords = current.words?.filter(word => Number.isFinite(word.start) && Number.isFinite(word.end)) || [];
+    const captionStart = existingWords.length ? existingWords[0].start : current.start;
+    const captionEnd = existingWords.length ? existingWords[existingWords.length - 1].end : current.end;
+    const safeDuration = Math.max(0.05, captionEnd - captionStart);
+    const editedWords = tokens.map((text, index) => {
+      if (existingWords.length === tokens.length) {
+        return { ...existingWords[index], text };
+      }
+      return {
+        text,
+        start: captionStart + (index / tokens.length) * safeDuration,
+        end: captionStart + ((index + 1) / tokens.length) * safeDuration,
+      };
+    });
+    updatedCaps[capIndex] = {
+      ...current,
+      text: cleanText,
+      words: editedWords,
+    };
     upd(activeId, {
       captions: updatedCaps,
       status: 'transcribed',
-      message: 'Edited · ready to re-burn',
+      message: 'Edit saved with original timing · ready to burn',
       progress: 0,
+      outputUrl: undefined,
+      outputPath: undefined,
+      outputFileName: undefined,
     });
+    setBurnedVideoUrl(null);
+    setError(null);
     setEditingCapIndex(null);
   };
 
@@ -836,7 +866,7 @@ export default function CaptionBurner({ onClose }: Props) {
       const zip = new JSZip();
       await Promise.all(done.map(async i => {
         const fileData = await fetch(i.outputUrl!).then(r => r.arrayBuffer());
-        zip.file(`${sanify(i.video.name)}_captioned.mp4`, fileData);
+        zip.file(i.video.name || 'video.mp4', fileData);
       }));
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const saved = await saveBlobToDownloads(zipBlob, `captioned_videos_${Date.now()}.zip`);
@@ -919,7 +949,7 @@ export default function CaptionBurner({ onClose }: Props) {
     }
     if (activeItem.outputUrl) {
       const blob = await fetch(activeItem.outputUrl).then(r => r.blob());
-      const saved = await saveBlobToDownloads(blob, activeItem.outputFileName || `${sanify(activeItem.video.name)}_captioned.mp4`);
+      const saved = await saveBlobToDownloads(blob, activeItem.outputFileName || activeItem.video.name || 'video.mp4');
       notify('Download complete', saved.filePath ? `Saved ${saved.fileName} to Downloads` : 'Download started');
     }
   };
@@ -1225,16 +1255,16 @@ export default function CaptionBurner({ onClose }: Props) {
                                 && (!next || t < next.start);
                             });
                           }
-                          // Show the complete current phrase, then apply karaoke
-                          // highlighting to the word being narrated. The next
-                          // phrase remains hidden until its caption start time.
+                          // Reveal only the current phrase as it is narrated.
+                          // Completed words remain highlighted so short words do
+                          // not lose their karaoke state between video frames.
                           const safeIndex = activeIndex >= 0 ? activeIndex : 0;
                           const groupStart = Math.floor(safeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT;
                           // Match exported captions: reveal the current phrase
                           // progressively and never preview words from the future.
                           const wordsToShow = allWords.slice(groupStart, Math.max(groupStart + 1, safeIndex + 1));
                           return wordsToShow.map((w, i) => {
-                            const lit = t >= w.start && t <= w.end;
+                            const lit = i <= safeIndex - groupStart;
                             return (
                               <span
                                 key={i}
@@ -1315,7 +1345,7 @@ export default function CaptionBurner({ onClose }: Props) {
                   style={{ padding: '10px 14px', borderRadius: 14, background: 'linear-gradient(135deg,rgba(16,185,129,0.12),rgba(5,150,105,0.08))', border: '1px solid rgba(16,185,129,0.28)' }}
                 >
                   <span className="text-[9px] font-black text-emerald-300 shrink-0">✓ Ready</span>
-                  <span className="text-[9px] text-slate-400 truncate flex-1">{activeItem.outputFileName || 'captioned_video.mp4'}</span>
+                  <span className="text-[9px] text-slate-400 truncate flex-1">{activeItem.outputFileName || activeItem.video.name || 'video.mp4'}</span>
                   {/* Play in OS media player */}
                   <button
                     onClick={() => {
@@ -1348,7 +1378,7 @@ export default function CaptionBurner({ onClose }: Props) {
                   {activeItem.outputUrl && (
                     <a
                       href={activeItem.outputUrl}
-                      download={activeItem.outputFileName || 'captioned_video.mp4'}
+                      download={activeItem.outputFileName || activeItem.video.name || 'video.mp4'}
                       className="flex items-center gap-1.5 rounded-xl text-[9px] font-bold text-indigo-300 transition-all shrink-0 no-underline"
                       style={{ padding: '7px 14px', background: 'rgba(99,102,241,0.14)', border: '1px solid rgba(99,102,241,0.30)' }}
                     >

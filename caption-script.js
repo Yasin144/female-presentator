@@ -22,6 +22,7 @@ const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function normalizeNurseryCaptionText(value) {
     return String(value || '')
+        .replace(/\binfo\s+kits\b/gi, 'Info Kids')
         .replace(/\b(?:horsen|hors)\b/gi, (word) => {
             if (word === word.toUpperCase()) return 'HORSE';
             if (word[0] === word[0]?.toUpperCase()) return 'Horse';
@@ -1140,6 +1141,7 @@ function bootCaptionStudio() {
         try {
             const result = await window.electronAPI.burnCaptions({
                 videoPath: filePath,
+                sourceFileName: item.file && item.file.name ? item.file.name : '',
                 captions: captionsForBurn,
                 style: styleSelect ? styleSelect.value : 'white-yellow',
                 fontSize: QUEUE_EXPORT_FONT_SIZE,
@@ -2509,6 +2511,9 @@ function bootCaptionStudio() {
 
                 for(let w = 0; w < wds.length; w++) {
                     const bw = getW(wds[w]);
+                    // No future words are shown. Keep completed words white and
+                    // highlight only the word being spoken so karaoke motion is
+                    // visible instead of the whole revealed caption staying yellow.
                     const isFocus = (wordCursorStart + w === activeWordIndex);
                     const ogAlpha = ctx.globalAlpha;
                     const ogFill = ctx.fillStyle;
@@ -3018,7 +3023,15 @@ function bootCaptionStudio() {
             if (!textTokens.length || !Array.isArray(caption.timestamp)) continue;
             const capStart = Math.max(0, Number(caption.timestamp[0]) + syncOffset);
             const capEnd = Math.max(capStart + 0.1, Number(caption.timestamp[1]) + syncOffset);
-            const sourceWords = Array.isArray(caption.words) && caption.words.length === textTokens.length
+            const hasCompleteWordTimeline = Array.isArray(caption.words)
+                && caption.words.length === textTokens.length
+                && caption.words.every((word) => {
+                    const stamp = Array.isArray(word.timestamp) ? word.timestamp : [];
+                    return Number.isFinite(Number(stamp[0]))
+                        && Number.isFinite(Number(stamp[1]))
+                        && Number(stamp[1]) > Number(stamp[0]);
+                });
+            const sourceWords = hasCompleteWordTimeline
                 ? caption.words.map((word, index) => {
                     const stamp = Array.isArray(word.timestamp) ? word.timestamp : [];
                     return {
@@ -3062,25 +3075,26 @@ function bootCaptionStudio() {
                     return;
                 }
 
-                // Display the complete current phrase while karaoke timing
-                // progressively highlights each narrated word.
-                let tokenCursor = 0;
-                const karaokeText = wrappedTokenLines.map(lineTokens => {
-                    const lineText = lineTokens.map((token) => {
-                        const wordIndex = tokenCursor;
-                        tokenCursor += 1;
-                        const word = group.words[wordIndex];
-                        const nextWord = group.words[wordIndex + 1];
-                        const wordStart = Number.isFinite(word?.start) ? word.start : group.start;
-                        const wordEnd = Number.isFinite(nextWord?.start)
-                            ? Math.min(group.end, nextWord.start)
-                            : (Number.isFinite(word?.end) ? Math.min(group.end, word.end) : group.end);
-                        const centiseconds = Math.max(1, Math.round((wordEnd - wordStart) * 100));
-                        return `{\\kf${centiseconds}}${escapeAssCaptionText(token)}`;
-                    }).join(' ');
-                    return lineText;
-                }).join('\\N');
-                events.push(`Dialogue: 0,${toAssTimestamp(group.start)},${toAssTimestamp(group.end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${karaokeText}`);
+                // Show the complete sentence in white from its start. Highlight
+                // only the currently spoken word in yellow for true karaoke.
+                group.words.forEach((word, activeIndex) => {
+                    const nextWord = group.words[activeIndex + 1];
+                    const start = Number.isFinite(word?.start) ? word.start : group.start;
+                    const end = Math.max(start + 0.08, Math.min(
+                        Number.isFinite(nextWord?.start) ? nextWord.start : group.end,
+                        group.end,
+                    ));
+                    const revealedTokens = group.tokens;
+                    let revealedCursor = 0;
+                    const revealedText = wrapTokensForAss(revealedTokens)
+                        .map(line => line.map(token => {
+                            const color = revealedCursor === activeIndex ? activeColor : inactiveColor;
+                            revealedCursor += 1;
+                            return `{\\1c${color}}${escapeAssCaptionText(token)}`;
+                        }).join(' '))
+                        .join('\\N');
+                    events.push(`Dialogue: 0,${toAssTimestamp(start)},${toAssTimestamp(end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${emojiPrefix}${revealedText}`);
+                });
             });
         }
 
@@ -3247,6 +3261,9 @@ function bootCaptionStudio() {
                 try {
                     _result = await window.electronAPI.burnCaptions({
                         videoPath: _filePath,
+                        sourceFileName: captionVideoQueue[captionQueueIndex] && captionVideoQueue[captionQueueIndex].file
+                            ? captionVideoQueue[captionQueueIndex].file.name
+                            : '',
                         captions: captionsForBurn,
                         style: _styleName,
                         fontSize: _fontSize,
@@ -3376,15 +3393,20 @@ function bootCaptionStudio() {
             const _blob = new Blob(_chunks, { type: _opts.mimeType.split(';')[0] });
             const _url  = URL.createObjectURL(_blob);
             const _a    = document.createElement('a');
-            _a.href = _url; _a.download = 'captioned_video.' + _ext; _a.click();
+            const _sourceName = captionVideoQueue[captionQueueIndex] && captionVideoQueue[captionQueueIndex].file
+                ? captionVideoQueue[captionQueueIndex].file.name
+                : `video.${_ext}`;
+            const _sourceBase = _sourceName.replace(/\.[^/.]+$/, '') || 'video';
+            const _exactExportName = `${_sourceBase}.${_ext}`;
+            _a.href = _url; _a.download = _exactExportName; _a.click();
             URL.revokeObjectURL(_url);
 
             isRecording = false;
             exportBtn.textContent = 'Export Result';
             exportBtn.disabled    = false;
-            statusText.innerHTML  = '\u2705 Export complete! <strong>captioned_video.' + _ext + '</strong> saved to Downloads.';
-            speakCaptionStudio(`Exporting done. captioned_video.${_ext}`);
-            notifyCaptionStudio('Exporting done', `captioned_video.${_ext}`);
+            statusText.innerHTML  = '\u2705 Export complete! <strong>' + _exactExportName + '</strong> saved to Downloads.';
+            speakCaptionStudio(`Exporting done. ${_exactExportName}`);
+            notifyCaptionStudio('Exporting done', _exactExportName);
 
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             sourceVideo.muted = _origMuted; sourceVideo.volume = _origVolume;

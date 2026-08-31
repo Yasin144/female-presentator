@@ -1,0 +1,10 @@
+.rs-progress { display:flex; gap:14px; align-items:center; background:#17251d; color:#fff; border-radius:13px; padding:16px 18px; margin-bottom:18px; box-shadow:0 12px 30px #18332222; }
+.rs-spinner { width:30px; height:30px; border:4px solid #ffffff2e; border-top-color:#d8ef72; border-radius:50%; animation:rs-spin .8s linear infinite; flex:0 0 auto; }
+.rs-progress-copy { display:grid; gap:4px; flex:1; }
+.rs-progress-copy strong { font-size:13px; }
+.rs-progress-copy span, .rs-progress-copy small { font-size:11px; color:#cbd7cf; }
+.rs-progress-track { height:5px; background:#ffffff1e; border-radius:99px; overflow:hidden; margin:4px 0; }
+.rs-progress-track i { display:block; height:100%; background:linear-gradient(90deg,#d8ef72,#69c987); border-radius:99px; transition:width .35s ease; position:relative; }
+.rs-progress-track i::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,#fff8,transparent); animation:rs-shimmer 1.2s infinite; }
+@keyframes rs-spin { to { transform:rotate(360deg); } }
+@keyframes rs-shimmer { from { transform:translateX(-100%); } to { transform:translateX(100%); } }

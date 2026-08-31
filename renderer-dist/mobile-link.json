@@ -2,8 +2,7 @@
   "wifiUrl": "http://192.168.29.161:8433",
   "mobileUrl": "",
   "active": false,
-  "updatedAt": "",
+  "updatedAt": "2026-08-31T10:21:49.993Z",
   "status": "inactive",
-  "verified": false,
-  "provider": ""
+  "stoppedAt": "2026-08-31T10:21:49.983Z"
 }

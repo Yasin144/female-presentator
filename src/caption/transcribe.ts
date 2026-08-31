@@ -13,7 +13,11 @@ const CAPTION_SILENCE_GAP_SECONDS = 0.75;
 const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
 function normalizeNurseryCaptionText(value: string): string {
-  return String(value || '').replace(/\b(?:horsen|hors)\b/gi, (word) => {
+  return String(value || '')
+    // Protected brand name: Whisper frequently hears the final /dz/ as /ts/.
+    // Keep the correction phrase-scoped so ordinary uses of "kits" remain valid.
+    .replace(/\binfo\s+kits\b/gi, 'Info Kids')
+    .replace(/\b(?:horsen|hors)\b/gi, (word) => {
     if (word === word.toUpperCase()) return 'HORSE';
     if (word[0] === word[0]?.toUpperCase()) return 'Horse';
     return 'horse';
@@ -1218,9 +1222,10 @@ Example output format:
         if (match && match.text) {
           // If we had word-level timestamps from voice detection, we MUST preserve them!
           // Since the spelling changed, we re-distribute the new words across the original exact time bounds.
+          const correctedText = normalizeNurseryCaptionText(match.text);
           let newWords = undefined;
           if (cap.words && cap.words.length > 0) {
-            const newTokens = match.text.trim().split(/\s+/);
+            const newTokens = correctedText.trim().split(/\s+/);
             const origWords = cap.words;
             newWords = newTokens.map((token: string, tokenIdx: number) => {
               // Proportionally map the new token index to the original word index
@@ -1233,7 +1238,7 @@ Example output format:
               return { text: token, start, end };
             });
           }
-          return { ...cap, text: match.text, words: newWords }; 
+          return { ...cap, text: correctedText, words: newWords };
         }
         return cap;
       });

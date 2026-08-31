@@ -146,7 +146,7 @@ function mobileBridgeSource() {
       'export-translated-video','export-synced-translated-video','sc3-replace-video-audio',
       'sc3-singing-replace-video','transcribe-video','transcribe-video-groq',
       'generate-lyria-song',
-      'presentator-agent-think','presentator-agent-generate-image','presentator-agent-create-video',
+      'presentator-agent-think','generate-riddle-package','presentator-agent-generate-image','presentator-agent-create-video',
       'presentator-agent-generate-true-video','presentator-agent-generate-sfx','presentator-agent-morph-audio'
     ]);
     const query = new URLSearchParams(location.search);
@@ -2153,7 +2153,7 @@ async function createWindow() {
       const directRequest = String(payload?.userRequest || '');
       const directImageRequest =
         /\b(create|generate|make|draw|design|produce|render)\b/i.test(directRequest)
-        && /\b(images?|pictures?|photos?|illustrations?|artworks?|posters?|wallpapers?|renders?)\b/i.test(directRequest)
+        && /\b(images?|pictures?|photos?|illustrations?|artworks?|posters?|wallpapers?|renders?|portraits?|girls?|boys?|women|woman|men|man|people|person|couple|family|children|kids?|characters?|animals?|kittens?|cats?|dogs?)\b/i.test(directRequest)
         && !/\b(video|animate|animation|mp4)\b/i.test(directRequest);
       if (directImageRequest) {
         return {
@@ -3134,6 +3134,71 @@ async function createWindow() {
       return { ok: false, cancelled: error?.name === 'AbortError', error: error.message };
     } finally {
       if (activeVoiceGeneration.get(ownerId) === controller) activeVoiceGeneration.delete(ownerId);
+    }
+  });
+
+  ipcMain.handle('generate-riddle-package', async (event, payload) => {
+    const startedAt = Date.now();
+    let generatedCharacters = 0;
+    const report = stage => {
+      try { event.sender.send('riddle-generation-progress', { stage, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000), generatedCharacters }); } catch (_) {}
+    };
+    const heartbeat = setInterval(() => report(generatedCharacters ? 'writing' : 'loading'), 1000);
+    try {
+      report('loading');
+      await ensureLocalAgentBrain();
+      const language = String(payload?.language || 'English').slice(0, 40);
+      const count = Math.max(1, Math.min(20, Number(payload?.count) || 15));
+      const thinkingSeconds = Math.max(5, Math.min(30, Number(payload?.thinkingSeconds) || 12));
+      const prompt = `Create a complete ${language} production package for a 16:9 long-form YouTube riddle video.
+Riddles: exactly ${count}. Target duration: ${Number(payload?.duration) || 12} minutes. Difficulty: ${String(payload?.difficulty || 'Easy to medium')}. Audience: ${String(payload?.audience || 'Family audience')}. Theme: ${String(payload?.theme || 'Mixed clever riddles')}.
+Write all audience-facing content in natural ${language}. English is required only inside flowPrompt.
+Every riddle must have exactly one defensible answer. Silently test every clue, remove ambiguity, avoid copied famous riddles, duplicate concepts, factual uncertainty, and translated-sounding language. Keep questions concise and narration conversational.
+Each flowPrompt must request a cinematic landscape 16:9 visual, clear caption space, no answer reveal, no text, letters, numbers, subtitles, logos, dialogue, lip-sync, or watermark.
+thumbnailText must be at most four words. Include a strong intro, score-based outro, description and hashtags. Return the required JSON only.`;
+      const response = await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: PRESENTATOR_LOCAL_MODEL, stream: true, think: false, format: RIDDLE_PACKAGE_FORMAT, keep_alive: '20m',
+          messages: [{ role: 'system', content: 'You are a meticulous multilingual riddle writer and YouTube script editor. Follow the requested language exactly and output valid JSON only.' }, { role: 'user', content: prompt }],
+          options: { temperature: 0.45, num_ctx: 8192, num_predict: Math.min(4200, 700 + count * 260), top_p: 0.9, repeat_penalty: 1.12 }
+        })
+      });
+      if (!response.ok) throw new Error((await response.text()) || `Local AI returned HTTP ${response.status}.`);
+      if (!response.body) throw new Error('Local AI returned no output stream.');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = '';
+      let generatedText = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split('\n');
+        pending = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const chunk = JSON.parse(line);
+          generatedText += String(chunk?.message?.content || '');
+          generatedCharacters = generatedText.length;
+          report('writing');
+        }
+      }
+      if (pending.trim()) {
+        const chunk = JSON.parse(pending);
+        generatedText += String(chunk?.message?.content || '');
+        generatedCharacters = generatedText.length;
+      }
+      const packageData = JSON.parse(jsonrepair(generatedText || '{}'));
+      if (!Array.isArray(packageData.riddles) || packageData.riddles.length !== count) throw new Error(`Local AI returned ${packageData.riddles?.length || 0} of ${count} requested riddles. Please generate again.`);
+      packageData.riddles = packageData.riddles.map((riddle, index) => ({ ...riddle, number: index + 1, thinkingSeconds }));
+      report('complete');
+      return { ok: true, model: PRESENTATOR_LOCAL_MODEL, package: packageData };
+    } catch (error) {
+      console.error('[RiddleStudio] Generation failed:', error.message);
+      return { ok: false, error: error.message };
+    } finally {
+      clearInterval(heartbeat);
     }
   });
   ipcMain.handle('cancel-voice-generation', event => {
@@ -4285,10 +4350,16 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     try { event.sender.send('caption-transcribe-progress', 3); } catch (_) {}
 
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
-    const venvPy     = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
+    // Caption Whisper is substantially faster in the voice-clone runtime on
+    // this machine. The singing runtime can take longer than the watchdog and
+    // cause the same file to be started again through the HTTP fallback.
+    const voiceVenvPy = path.join(ROOT, '.voiceclone-venv', 'Scripts', 'python.exe');
+    const singingVenvPy = path.join(ROOT, '.singing-venv', 'Scripts', 'python.exe');
     const captionScript = path.join(ROOT, 'whisper-transcribe-caption.py');
     const whisperScript = path.join(ROOT, 'whisper-transcribe.py');
-    const pyExe      = fs.existsSync(venvPy) ? venvPy : 'python';
+    const pyExe      = fs.existsSync(voiceVenvPy)
+      ? voiceVenvPy
+      : (fs.existsSync(singingVenvPy) ? singingVenvPy : 'python');
     const scriptPath = fs.existsSync(captionScript) ? captionScript : whisperScript;
 
     console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
@@ -4323,7 +4394,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const timer = setTimeout(() => {
         killProcessTree(proc);
         reject(new Error('Whisper timeout (12min)'));
-      }, 720000);
+      }, 1200000);
       proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
         clearTimeout(timer);
@@ -5086,7 +5157,7 @@ ipcMain.handle('export-translated-video', async (_event, opts) => {
 // ————————————— IPC: Burn Captions via FFmpeg (Express Export) ———————————————————
 // Uses FFmpeg to burn subtitle text directly onto video frames.
 // Audio is COPIED (no re-encode) → zero quality loss, instant mux.
-// Saves to Downloads as captioned_video_<timestamp>.mp4
+  // Saves directly to Downloads with the exact uploaded filename.
 function findCaptionFFmpegPath() {
   try {
     const { execSync } = require('child_process');
@@ -5126,7 +5197,7 @@ ipcMain.handle('probe-video-meta', async (event, opts) => {
 });
 
 ipcMain.handle('burn-captions', async (event, opts) => {
-  const { videoPath, captions, fontSize = 28, position = 'bottom', assContent } = opts || {};
+  const { videoPath, sourceFileName, captions, fontSize = 28, position = 'bottom', assContent } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!assContent && (!captions || !captions.length)) return { ok: false, error: 'No captions or assContent provided.' };
 
@@ -5137,13 +5208,13 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const FFMPEG = findFFmpegPath();
   const tmpDir  = ensureCaptionWorkDir('burn-subtitles');
   const stamp   = Date.now();
-  const baseName = path.basename(videoPath, path.extname(videoPath));
   const downloadsDir = path.join(os.homedir(), 'Downloads');
-  const preferredOutFile = path.join(downloadsDir, baseName + '_captioned.mp4');
-  const outFile = fs.existsSync(preferredOutFile)
-    ? path.join(downloadsDir, baseName + '_captioned_' + stamp + '.mp4')
-    : preferredOutFile;
-  const partialOutFile = path.join(os.homedir(), 'Downloads', baseName + '_captioned.' + stamp + '.part.mp4');
+  const requestedName = path.basename(String(sourceFileName || path.basename(videoPath)))
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'video.mp4';
+  const parsedName = path.parse(requestedName);
+  const exactFileName = `${parsedName.name}${parsedName.ext || '.mp4'}`;
+  const outFile = path.join(downloadsDir, exactFileName);
+  const partialOutFile = path.join(tmpDir, `caption-export-${stamp}.part${parsedName.ext || '.mp4'}`);
   const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
 
   let assPath = '';
@@ -5288,9 +5359,30 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     });
 
     try {
-      if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
-      fs.renameSync(partialOutFile, outFile);
+      if (fs.existsSync(outFile)) {
+        throw new Error(`Downloads already contains "${exactFileName}". Move or rename that existing file, then export again.`);
+      }
+      try {
+        // rename is fast and atomic when the work file and Downloads are on
+        // the same volume. Windows reports EXDEV when they are on different
+        // volumes (for example D:\\voice -> C:\\Users\\...\\Downloads).
+        fs.renameSync(partialOutFile, outFile);
+      } catch (renameErr) {
+        if (!renameErr || renameErr.code !== 'EXDEV') throw renameErr;
+
+        fs.copyFileSync(partialOutFile, outFile, fs.constants.COPYFILE_EXCL);
+        const sourceSize = fs.statSync(partialOutFile).size;
+        const outputSize = fs.statSync(outFile).size;
+        if (sourceSize <= 0 || outputSize !== sourceSize) {
+          throw new Error(`Cross-drive copy verification failed (${outputSize}/${sourceSize} bytes)`);
+        }
+        fs.unlinkSync(partialOutFile);
+      }
     } catch (moveErr) {
+      // Do not leave a corrupt/partial file looking like a successful export.
+      try {
+        if (fs.existsSync(outFile) && fs.existsSync(partialOutFile)) fs.unlinkSync(outFile);
+      } catch (_) {}
       throw new Error('Could not finalize captioned video: ' + (moveErr.message || String(moveErr)));
     }
 
@@ -5530,13 +5622,14 @@ ipcMain.handle('open-file', async (event, filePath) => {
 
   // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
-    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, imageGeneratorAlive, viteAlive] = await Promise.all([
+    const [anjaliAlive, edgeTtsAlive, transcribeAlive, videoExportAlive, sc3SingingAlive, imageGeneratorAlive, translationAlive, viteAlive] = await Promise.all([
       pingPort(8426),
       pingPort(8427),
       pingPort(8428),
       pingPort(8430),
       pingPort(8431),
       pingPort(8432, '/health'),
+      pingPort(8434, '/health'),
       pingPort(5173, '/')
     ]);
     return {
@@ -5546,6 +5639,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
       videoExport: videoExportAlive,
       sc3Singing:  sc3SingingAlive,
       imageGenerator: imageGeneratorAlive,
+      translation: translationAlive,
       vite:        viteAlive,
       configured: {
         anjali: Boolean(servers.AnjaliAI),
@@ -5554,6 +5648,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
         videoExport: Boolean(servers.FFmpegServer),
         sc3Singing: Boolean(servers.Sc3Singing),
         imageGenerator: Boolean(servers.ImageGenerator),
+        translation: Boolean(servers.TranslationServer),
       },
       timestamp: Date.now()
     };
@@ -6262,6 +6357,18 @@ const MY_EXPORTER_VOICE_POOL = {
   'mr-IN-AarohiNeural': { female: ['mr-IN-AarohiNeural'], male: ['mr-IN-ManoharNeural'] },
   'ur-IN-GulNeural': { female: ['ur-IN-GulNeural'], male: ['ur-IN-SalmanNeural'] },
   'en-IN-NeerjaNeural':  { female: ['en-IN-NeerjaNeural'],  male: ['en-IN-PrabhatNeural'] },
+};
+const RIDDLE_PACKAGE_FORMAT = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' }, thumbnailText: { type: 'string' }, description: { type: 'string' },
+    hashtags: { type: 'array', items: { type: 'string' } }, intro: { type: 'string' }, outro: { type: 'string' },
+    riddles: { type: 'array', items: { type: 'object', properties: {
+      number: { type: 'integer' }, question: { type: 'string' }, answer: { type: 'string' }, explanation: { type: 'string' },
+      voiceover: { type: 'string' }, screenText: { type: 'string' }, flowPrompt: { type: 'string' }, sfx: { type: 'string' },
+      thinkingSeconds: { type: 'integer' }, qualityCheck: { type: 'string' }
+    }, required: ['number','question','answer','explanation','voiceover','screenText','flowPrompt','sfx','thinkingSeconds','qualityCheck'] } }
+  }, required: ['title','thumbnailText','description','hashtags','intro','outro','riddles']
 };
 
 const MY_EXPORTER_VOICE_FALLBACK = {

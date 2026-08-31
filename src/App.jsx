@@ -8,11 +8,12 @@ import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
 import OllamaTools from './components/OllamaTools/OllamaTools';
 import QuoteStudio from './components/QuoteStudio/QuoteStudio';
 import VideoResizer from './components/VideoResizer/VideoResizer';
+import RiddleStudio from './components/RiddleStudio/RiddleStudio';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'quotes', 'director', 'exporter', 'resizer', 'ai-tools']);
+const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'riddles', 'quotes', 'director', 'exporter', 'resizer', 'ai-tools']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'presentator';
 
 class CaptionErrorBoundary extends React.Component {
@@ -633,6 +634,19 @@ function App() {
             >Quote Studio</button>
             <button
               className="app-nav-button"
+              data-active={currentModule === 'riddles'}
+              onClick={() => { setCaptionOpen(false); setCurrentModule('riddles'); }}
+              style={{
+                padding: '6px 14px', borderRadius: '20px', border: 'none',
+                background: currentModule === 'riddles' ? 'linear-gradient(135deg,#d8ef72,#5e9c65)' : 'transparent',
+                color: currentModule === 'riddles' ? '#142018' : 'rgba(255,255,255,0.5)',
+                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: currentModule === 'riddles' ? '0 4px 12px rgba(126,180,94,0.3)' : 'none',
+                fontFamily: 'system-ui'
+              }}
+            >Riddle Studio</button>
+            <button
+              className="app-nav-button"
               data-active={currentModule === 'director'}
               onClick={() => { setCaptionOpen(false); setCurrentModule('director'); }}
               style={{
@@ -867,6 +881,12 @@ function App() {
         </div>
 
         {/* ── Viral Quote Studio ── */}
+        <div style={{ display: (!captionOpen && currentModule === 'riddles') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <ModuleErrorBoundary moduleName="Riddle Studio">
+            <RiddleStudio />
+          </ModuleErrorBoundary>
+        </div>
+
         <div style={{ display: (!captionOpen && currentModule === 'quotes') ? 'block' : 'none', height: '100vh', overflow: 'auto', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="Viral Quote Studio">
             <QuoteStudio />

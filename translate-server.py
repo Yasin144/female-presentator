@@ -2,8 +2,8 @@
 translate-server.py
 ====================
 Offline-capable translation server for Voice Presentator Caption Studio.
-Uses the local Presentator AI for context-aware Telugu narration, with Google
-Translate as a compatibility fallback.
+Uses Gemini when configured, local Ollama for reliable offline translation,
+and Google only as a last compatibility fallback.
 
 API:
   POST /api/translate  { text, target, source? }  → { translated, target }
@@ -14,7 +14,7 @@ Ports: 8434
 """
 
 import sys, json, re, os, time, urllib.parse, urllib.request
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 if hasattr(sys.stdout, "reconfigure"):
     try: sys.stdout.reconfigure(encoding="utf-8")
@@ -78,10 +78,20 @@ Rules:
 
 def local_ai_translate_batch(texts, target, source="auto"):
     """Translate a complete caption sequence with shared narrative context."""
-    if normalize_lang(target) != "te":
-        raise ValueError("Local narration translation is currently enabled for Telugu only")
+    target_code = normalize_lang(target)
+    target_label = LANG_LABELS.get(target_code, target_code)
 
     cleaned = [str(item or "").strip() for item in texts]
+    if source != "auto" and normalize_lang(source) == target_code:
+        return cleaned
+    system_prompt = TELUGU_NARRATION_PROMPT if target_code == "te" else f"""You are a professional caption translator.
+Translate every supplied caption into natural, fluent {target_label}.
+Preserve meaning, names, numbers, punctuation, tone, and caption order.
+Do not summarize, omit, explain, censor, or invent anything.
+Return exactly one translated string for every input item, in the same order.
+Read all items as one continuous narration so split sentences remain coherent.
+Output only a valid JSON array of strings. Do not use Markdown.
+"""
     request_body = json.dumps({
         "model": OLLAMA_MODEL,
         "stream": False,
@@ -90,7 +100,7 @@ def local_ai_translate_batch(texts, target, source="auto"):
         "keep_alive": "10m",
         "options": {"temperature": 0.2, "num_ctx": 4096, "num_predict": 4096},
         "messages": [
-            {"role": "system", "content": TELUGU_NARRATION_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(cleaned, ensure_ascii=False)},
         ],
     }, ensure_ascii=False).encode("utf-8")
@@ -196,7 +206,15 @@ def translate_text(text, target, source="auto"):
             print(f"[Translate] Telugu narration via Gemini: {text[:80]!r} -> {result[:120]!r}", flush=True)
             return result
         except Exception as e:
-            print(f"[Translate] Gemini Telugu narration unavailable; using Google fallback: {e}", flush=True)
+            print(f"[Translate] Gemini Telugu narration unavailable; using local AI: {e}", flush=True)
+
+    try:
+        result = local_ai_translate_batch([text], target, source)[0]
+        _cache[cache_key] = result
+        print(f"[Translate] Local AI ({target}): {text[:80]!r} -> {result[:120]!r}", flush=True)
+        return result
+    except Exception as e:
+        print(f"[Translate] Local AI unavailable; using compatibility fallback: {e}", flush=True)
 
     engines = (
         (google_translate_direct, deep_translate)
@@ -235,7 +253,13 @@ def translate_batch(texts, target, source="auto"):
             print(f"[Translate] Telugu narrative batch via Gemini: {len(results)} captions", flush=True)
             return results
         except Exception as e:
-            print(f"[Translate] Gemini Telugu narrative batch failed; using Google fallback: {e}", flush=True)
+            print(f"[Translate] Gemini Telugu narrative batch failed; using local AI: {e}", flush=True)
+    try:
+        results = local_ai_translate_batch(texts, target, source)
+        print(f"[Translate] Local AI batch: {len(results)} captions -> {normalize_lang(target)}", flush=True)
+        return results
+    except Exception as e:
+        print(f"[Translate] Local AI batch failed; using compatibility fallback: {e}", flush=True)
     return [translate_text(t, target, source) for t in texts]
 
 
@@ -287,8 +311,12 @@ class TranslateHandler(BaseHTTPRequestHandler):
             if not text:
                 self._send_json({"error": "text required"}, 400)
                 return
-            result = translate_text(text, target, source)
-            self._send_json({"translated": result, "target": normalize_lang(target)})
+            try:
+                result = translate_text(text, target, source)
+                self._send_json({"translated": result, "target": normalize_lang(target)})
+            except Exception as exc:
+                print(f"[Translate] Request failed safely: {exc}", flush=True)
+                self._send_json({"error": str(exc)}, 502)
 
         elif path == "/api/translate/batch":
             texts  = [str(t) for t in payload.get("texts", [])]
@@ -297,8 +325,12 @@ class TranslateHandler(BaseHTTPRequestHandler):
             if not texts:
                 self._send_json({"error": "texts array required"}, 400)
                 return
-            results = translate_batch(texts, target, source)
-            self._send_json({"results": results, "target": normalize_lang(target)})
+            try:
+                results = translate_batch(texts, target, source)
+                self._send_json({"results": results, "target": normalize_lang(target)})
+            except Exception as exc:
+                print(f"[Translate] Batch request failed safely: {exc}", flush=True)
+                self._send_json({"error": str(exc)}, 502)
 
         else:
             self._send_json({"error": "Unknown endpoint"}, 404)
@@ -310,19 +342,20 @@ if __name__ == "__main__":
     print("  Caption Translation Server", flush=True)
     print(f"  Port  : {PORT}", flush=True)
     print("  Langs : English | हिंदी | తెలుగు | தமிழ் | اردو | العربية", flush=True)
-    print("  Engine: Gemini narration (Telugu) + Google fallback", flush=True)
+    print("  Engine: Gemini (Telugu) + Local Ollama + Google last fallback", flush=True)
     print("=" * 55, flush=True)
 
-    # Verify deep-translator
+    # Verify installation only. Do not spend provider quota or trigger HTTP 429
+    # by sending online translations every time the desktop app starts.
     try:
-        from deep_translator import GoogleTranslator
-        test = GoogleTranslator(source="en", target="hi").translate("hello")
-        print(f"[OK] deep-translator works: 'hello' → '{test}'", flush=True)
+        import deep_translator
+        print(f"[OK] deep-translator installed ({getattr(deep_translator, '__version__', 'version unknown')})", flush=True)
     except Exception as e:
-        print(f"[WARN] deep-translator test failed: {e}", flush=True)
-        print("       Install with: pip install deep-translator", flush=True)
+        print(f"[WARN] deep-translator is not installed: {e}", flush=True)
 
-    server = HTTPServer(("127.0.0.1", PORT), TranslateHandler)
+    # A slow cloud/local-AI request must not block health checks or other jobs.
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), TranslateHandler)
+    server.daemon_threads = True
     print(f"\n[Ready] Listening on http://127.0.0.1:{PORT}/", flush=True)
     try:
         server.serve_forever()
