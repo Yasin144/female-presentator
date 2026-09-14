@@ -1,0 +1,8 @@
+/* Keep the caption size controls reachable at narrow desktop/phone widths. */
+@media (max-width: 800px) {
+  .cb-page .cb-editor-layout { flex-direction: column; flex: none; }
+  .cb-page .cb-editor-layout > aside { width: 100% !important; min-width: 0 !important; min-height: 240px; }
+  .cb-page .cb-editor-layout > div { min-height: 700px !important; flex: none; }
+  .cb-page .cb-options-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .cb-page .cb-editor-layout > div > div:first-child { flex-wrap: wrap; gap: 12px; }
+}

@@ -4,21 +4,35 @@ import { useStore } from "../store/useStore";
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
 
+  const openExportControls = () => {
+    const previewButton = document.getElementById("showScreenBtn");
+    if (!previewButton || previewButton.disabled) return;
+    previewButton.click();
+    // Opening the existing controls does not start an export or bypass its locks.
+    const stage = document.getElementById("stagePanel");
+    const exportControls = document.getElementById("stageExportControls");
+    if (stage && !stage.classList.contains("hidden") && exportControls) {
+      exportControls.open = true;
+      exportControls.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      exportControls.querySelector("summary")?.focus({ preventScroll: true });
+    }
+  };
+
   return (
     <>
     <section className="panel panel-input" id="inputPanel">
       <div className="panel-head">
         <div className="panel-copy">
-          <h1>Presentator Workspace</h1>
+          <p className="classic-workspace-kicker">VOICE PRESENTATOR</p>
+          <h1>Your next lesson starts here.</h1>
           <p className="subcopy">
-            A premium, dynamic environment. Type your lesson once. The narration and presentation update
-            automatically with a beautiful, organized workflow.
+            Bring a PDF or write a lesson. Choose your voice, preview the presentation, then save your video.
           </p>
         </div>
 
         <div className="theme-card hero-stage-card">
           <div className="hero-stage-topbar">
-            <p className="hero-stage-note">Classroom board style</p>
+            <p className="hero-stage-note">Workspace settings</p>
             <div className="hero-stage-actions">
               <button id="resetInputsBtn" className="primary-btn reset-btn ghost-btn" type="button">Reset</button>
               <select id="subjectSelect" className="theme-select text-style-select" aria-label="Choose subject" style={{ marginRight: "8px" }} defaultValue="maths">
@@ -26,9 +40,9 @@ function InputPanel() {
                 <option value="english">English</option>
               </select>
               <button id="showScreenBtn" className="primary-btn input-show-screen-btn hero-show-screen-btn"
-                type="button">Show Screen</button>
-              <label className="theme-toggle theme-toggle-standalone" htmlFor="themeToggle" title="Toggle day and dark theme">
-                <input id="themeToggle" className="theme-toggle-input" type="checkbox" aria-label="Toggle dark mode" />
+                type="button">Open preview &rarr;</button>
+              <label className="theme-toggle theme-toggle-standalone" htmlFor="themeToggle" title="Presentation background: day or dark">
+                <input id="themeToggle" className="theme-toggle-input" type="checkbox" aria-label="Use dark presentation background" />
                 <span className="theme-toggle-track">
                   <span className="theme-toggle-thumb"></span>
                 </span>
@@ -44,56 +58,156 @@ function InputPanel() {
         </div>
       </div>
 
-      <section className="workflow-surface" aria-label="Lesson workflow">
-        <div className="workflow-story">
-          <p className="workflow-eyebrow">Workflow</p>
-          <h2 className="workflow-title">Build the lesson once, then open the screen when everything feels ready.</h2>
-          <p className="workflow-copy">
-            Keep your current working logic safe. This layout simply organizes the flow into a clearer order:
-            write the lesson, optionally pick a screen template, add support tools only when needed, then show
-            the presentation.
-          </p>
-        </div>
-        <div className="workflow-lane" role="list" aria-label="Workflow steps">
-          <button className="workflow-step" type="button" data-workflow-target="lessonContentSection">
+      <section className="workflow-surface classic-workflow" aria-label="Three steps to your video">
+        <div className="workflow-lane" aria-label="Workflow shortcuts">
+          <button className="workflow-step" type="button" data-workflow-target="pdfSection">
             <span className="workflow-step-index">01</span>
             <span className="workflow-step-copy">
-              <strong>Lesson Input</strong>
-              <span>Write, translate, and style the maths content.</span>
+              <strong>Prepare</strong>
+              <span>Add your content and choose a voice.</span>
             </span>
           </button>
-          <button className="workflow-step" type="button" data-workflow-target="templateWorkflowSection">
+          <button className="workflow-step" type="button" data-workflow-target="showScreenBtn">
             <span className="workflow-step-index">02</span>
             <span className="workflow-step-copy">
-              <strong>Template</strong>
-              <span>Optional. Keep Classic or switch the stage look.</span>
+              <strong>Preview</strong>
+              <span>Check the screen and listen before saving.</span>
             </span>
           </button>
-          <button className="workflow-step" type="button" data-workflow-target="mediaSection">
+          <button className="workflow-step" type="button" onClick={openExportControls}>
             <span className="workflow-step-index">03</span>
             <span className="workflow-step-copy">
-              <strong>Media And Voice</strong>
-              <span>Add images, stage video, and Anjali narration only if needed.</span>
-            </span>
-          </button>
-          <button className="workflow-step workflow-step-show" type="button" data-workflow-target="showScreenBtn">
-            <span className="workflow-step-index">04</span>
-            <span className="workflow-step-copy">
-              <strong>Show Screen</strong>
-              <span>Open the presentation when the lesson is ready to present.</span>
+              <strong>Export</strong>
+              <span>Open the video and audio download options.</span>
             </span>
           </button>
         </div>
       </section>
 
-      <details className="section-card template-section-card" id="templateWorkflowSection" open>
+      <nav className="classic-source-links" aria-label="Jump to preparation tools">
+        <span>Start with</span>
+        <button type="button" data-workflow-target="pdfSection">A PDF document</button>
+        <button type="button" data-workflow-target="lessonContentSection">A written lesson</button>
+        <span className="classic-source-divider" aria-hidden="true" />
+        <button type="button" data-workflow-target="narrationSection">Narration &amp; audio</button>
+        <button type="button" data-workflow-target="mediaSection">Images &amp; video</button>
+      </nav>
+
+      <details className="section-card classic-prepare-section" id="pdfSection" open>
+        <summary className="section-summary">
+          <span className="summary-head">
+            <span className="section-icon">PDF</span>
+            <span className="summary-copy">
+              <span className="section-title">Present a PDF</span>
+              <span className="section-meta">Choose a document, select your pages and hear it narrated.</span>
+            </span>
+          </span>
+        </summary>
+        <div className="section-content">
+          <div className="pdf-upload-grid">
+            <div className="upload-block pdf-upload-block">
+              <label className="field-label" htmlFor="pdfInput">1. Choose your PDF</label>
+              <p className="upload-copy">Page previews appear below after upload. Your original document stays unchanged.</p>
+              <input id="pdfInput" className="image-input" type="file" accept="application/pdf,.pdf" />
+              <label className="style-field" htmlFor="pdfVoiceSelect">
+                <span className="style-label">2. Choose the narration voice</span>
+                <select id="pdfVoiceSelect" className="theme-select text-style-select" aria-describedby="pdfVoiceHint" defaultValue="anjali">
+                  <option value="anjali">English — SC3 voice (local)</option>
+                  <option value="pattan">English — Pattan voice (local)</option>
+                  <option value="hindi">Hindi — Reference voice (local)</option>
+                  <option value="telugu">Telugu — Reference voice (local)</option>
+                  <option value="edge">Edge TTS — Indian English (online, faster)</option>
+                </select>
+              </label>
+              <p className="upload-copy" id="pdfVoiceHint">Your chosen voice is used for PDF reading and video export.</p>
+              <label className="style-field" htmlFor="pdfCountingDisplaySelect">
+                <span className="style-label">Counting view</span>
+                <select id="pdfCountingDisplaySelect" className="theme-select text-style-select" defaultValue="reveal" aria-describedby="pdfCountingDisplayHint">
+                  <option value="reveal">Realistic objects + number words</option>
+                  <option value="original">Original PDF with number labels</option>
+                </select>
+              </label>
+              <p className="upload-copy" id="pdfCountingDisplayHint">For clear English counts from 1–20, saved pictures and number words appear with the narration. Unclear pages stay original for review.</p>
+              <details className="pdf-counting-library">
+                <summary>Local object picture library</summary>
+                <p className="upload-copy">Dogs, books, candies, birds, bananas, butterflies, gifts, ants, leaves and stars are included. For a new object, add one whole realistic transparent PNG once. The app reuses it automatically; it does not generate new pictures or verify their subject itself.</p>
+                <label className="style-field" htmlFor="pdfCountingPictureNoun">
+                  <span>Object name (for example: cats)</span>
+                  <input id="pdfCountingPictureNoun" type="text" maxLength="40" placeholder="cats" />
+                </label>
+                <label className="style-field" htmlFor="pdfCountingPictureAliases">
+                  <span>Other exact names, separated by commas (for example: cat)</span>
+                  <input id="pdfCountingPictureAliases" type="text" maxLength="240" placeholder="cat" />
+                </label>
+                <label className="style-field" htmlFor="pdfCountingPictureInput">
+                  <span>One complete object, transparent PNG, up to 5 MB</span>
+                  <input id="pdfCountingPictureInput" type="file" accept="image/png,.png" />
+                </label>
+                <button id="pdfCountingPictureSave" type="button" className="ghost-btn">Save local picture</button>
+                <p id="pdfCountingLibraryStatus" className="upload-copy" role="status">Pictures and page corrections stay on this device. No API key or cloud generation is used.</p>
+              </details>
+              <div className="toolbar toolbar-compact">
+                <button id="pdfShowBtn" className="primary-btn" type="button" disabled>Preview pages</button>
+                <button id="pdfPresentBtn" className="accent-btn" type="button" disabled>Read &amp; present</button>
+                <button id="clearPdfBtn" className="ghost-btn" type="button" disabled>Clear PDF</button>
+              </div>
+              <div id="pdfProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div className="progress-track">
+                  <span id="pdfProgressBar" className="progress-fill"></span>
+                </div>
+                <p id="pdfProgressLabel" className="upload-copy">0% complete</p>
+              </div>
+              <p className="upload-copy" id="pdfStatus">No PDF selected.</p>
+              <p className="upload-copy" id="pdfPageSelectionSummary">Select a PDF to choose which pages should appear on
+                the screen.</p>
+            </div>
+
+            <div className="tool-card pdf-preview-card">
+              <div className="tool-card-head">
+                <span className="module-icon">TXT</span>
+                <p className="tool-card-title">Text preview</p>
+              </div>
+              <p className="upload-copy" id="pdfMeta">Upload a PDF to preview the extracted text before showing it on the
+                slide.</p>
+              <div id="pdfPreviewList" className="pdf-preview-list hidden" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div className="tool-card pdf-pages-card">
+            <div className="tool-card-head pdf-pages-head">
+              <div className="pdf-pages-head-copy">
+                <span className="module-icon">PGS</span>
+                <p className="tool-card-title">3. Select the pages to present</p>
+              </div>
+              <div className="pdf-page-bulk-actions" aria-label="PDF page bulk selection controls">
+                <button id="pdfSelectAllBtn" className="ghost-btn pdf-page-bulk-btn" type="button" disabled
+                  title="Select all PDF pages" aria-label="Select all PDF pages">&#10003; All</button>
+                <button id="pdfClearSelectionBtn" className="ghost-btn pdf-page-bulk-btn" type="button" disabled
+                  title="Deselect all PDF pages" aria-label="Deselect all PDF pages">&#10005; All</button>
+                <label className="pdf-page-range" title="Replace the current selection with this page range">
+                  <span>Pages</span>
+                  <input id="pdfRangeFromInput" type="number" min="1" step="1" placeholder="From" disabled aria-label="First PDF page" />
+                  <span>to</span>
+                  <input id="pdfRangeToInput" type="number" min="1" step="1" placeholder="To" disabled aria-label="Last PDF page" />
+                  <button id="pdfSelectRangeBtn" className="ghost-btn pdf-page-bulk-btn" type="button" disabled>Select range</button>
+                </label>
+              </div>
+            </div>
+            <p className="upload-copy">Rendered page thumbnails keep the PDF layout exactly as it appears in the file. Tick
+              only the pages you want to present.</p>
+            <div id="pdfPageList" className="pdf-page-list hidden" aria-live="polite"></div>
+          </div>
+        </div>
+      </details>
+
+      <details className="section-card classic-prepare-section template-section-card" id="templateWorkflowSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">TPL</span>
             <span className="summary-copy">
-              <span className="section-title">Presentation Template</span>
-              <span className="section-meta">Optional. The Classic stage stays as the default until you choose another
-                template.</span>
+              <span className="section-title">Presentation template</span>
+              <span className="section-meta">Optional · Change the stage design. Classic is the default.</span>
             </span>
           </span>
         </summary>
@@ -355,17 +469,24 @@ function InputPanel() {
         </div>
       </details>
 
-      <details className="section-card" id="lessonContentSection">
+      <details className="section-card classic-prepare-section" id="lessonContentSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">TXT</span>
             <span className="summary-copy">
-              <span className="section-title">Maths Lesson Content</span>
-              <span className="section-meta">Write the maths text that will appear on the teaching slide.</span>
+              <span className="section-title">Write a lesson</span>
+              <span className="section-meta">Type or paste your text. Translation, number tables and styling are optional.</span>
             </span>
           </span>
         </summary>
         <div className="section-content">
+          <div className="input-module-head" style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
+            <label className="field-label maths-label" htmlFor="lessonInput">Maths lesson text</label>
+            <label className="field-label english-label" htmlFor="lessonInput">English lesson text</label>
+          </div>
+          <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
+          <details className="classic-optional-tools">
+            <summary>Lesson helpers <span>Translation, place values, number tables and alphabet boards</span></summary>
           <div className="tool-card maths-translator-card">
             <div className="tool-card-head">
               <span className="module-icon">TRN</span>
@@ -506,11 +627,44 @@ plz open ur books!"></textarea>
             </div>
             <p className="upload-copy" id="numberTableToolStatus">Use this for number grids like 101 to 200.</p>
           </div>
-          <div className="input-module-head" style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
-            <label className="field-label maths-label" htmlFor="lessonInput">Translated Maths Lesson</label>
-            <label className="field-label english-label" htmlFor="lessonInput">English Lesson Content</label>
+          <div className="tool-card alphabet-say-aloud-card">
+            <div className="tool-card-head">
+              <span className="module-icon" style={{background:'#3b92b8'}}>ABC</span>
+              <p className="tool-card-title">Alphabet Say Aloud</p>
+            </div>
+            <p className="upload-copy">Creates an A–Z picture board and automatically says each letter and object in order.</p>
+            <label className="style-field" htmlFor="alphabetNarrationStyleSelect">
+              <span className="style-label">Speaking Style</span>
+              <select id="alphabetNarrationStyleSelect" className="theme-select text-style-select" defaultValue="for">
+                <option value="for">A for Apple</option>
+                <option value="is">A is for Apple</option>
+                <option value="word">A, Apple</option>
+              </select>
+            </label>
+            <label className="style-field" htmlFor="alphabetTemplateSelect" style={{marginTop:'8px'}}>
+              <span className="style-label">Presentation Template</span>
+              <select id="alphabetTemplateSelect" className="theme-select text-style-select" defaultValue="realistic">
+                <option value="realistic">🏆 Realistic 3D Studio — like reference</option>
+                <option value="slides">🖼 Color Picture Slides — one at a time</option>
+                <option value="flashcard">🎴 Classroom Flash Card — one at a time</option>
+                <option value="split">✨ Letter + Object Split — one at a time</option>
+                <option value="board">🔤 Complete A–Z Board</option>
+              </select>
+            </label>
+            <label className="toggle-check" htmlFor="alphabetIntroEnabled" style={{marginTop:'8px'}}>
+              <input id="alphabetIntroEnabled" type="checkbox" defaultChecked />
+              <span>🎬 Play Intro Before Alphabet</span>
+            </label>
+            <div className="toolbar toolbar-compact" style={{marginTop:'8px'}}>
+              <button id="applyAlphabetBtn" className="primary-btn" type="button">Create Alphabet</button>
+              <button id="showAlphabetBtn" className="accent-btn" type="button">Display</button>
+              <button id="readAlphabetBtn" className="primary-btn" type="button">Display &amp; Say Aloud</button>
+            </div>
+            <p className="upload-copy" id="alphabetToolStatus">Ready to create the complete A–Z lesson.</p>
           </div>
-          <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
+          </details>
+          <details className="classic-optional-tools">
+            <summary>Text formatting <span>Line breaks, exact text, colours and layout</span></summary>
           <div id="lineBreakCard" className="display-style-card">
             <p className="field-label">Screen Line Breaks</p>
             <p className="upload-copy">Choose how the Voice Presentator screen should split the lesson text into lines.</p>
@@ -1006,73 +1160,8 @@ plz open ur books!"></textarea>
 
             <p className="upload-copy" id="alignmentModelStatus" style={{marginTop:"10px"}}>Classic model active. Left-aligned, white text.</p>
           </div>
+          </details>
 
-        </div>
-      </details>
-
-      <details className="section-card" id="pdfSection">
-        <summary className="section-summary">
-          <span className="summary-head">
-            <span className="section-icon">PDF</span>
-            <span className="summary-copy">
-              <span className="section-title">Upload PDF</span>
-              <span className="section-meta">Extract text from a PDF, fit it to the slide automatically, and present
-                it.</span>
-            </span>
-          </span>
-        </summary>
-        <div className="section-content">
-          <div className="pdf-upload-grid">
-            <div className="upload-block pdf-upload-block">
-              <label className="field-label" htmlFor="pdfInput">PDF File</label>
-              <p className="upload-copy">Upload a PDF and the app will read the text from each page, place it in the lesson
-                box, and keep the presentation layout responsive for longer documents.</p>
-              <input id="pdfInput" className="image-input" type="file" accept="application/pdf,.pdf" />
-              <div className="toolbar toolbar-compact">
-                <button id="pdfShowBtn" className="primary-btn" type="button" disabled>Show Screen</button>
-                <button id="pdfPresentBtn" className="accent-btn" type="button" disabled>Read And Present Context</button>
-                <button id="clearPdfBtn" className="ghost-btn" type="button" disabled>Clear PDF</button>
-              </div>
-              <div id="pdfProgress" className="progress-indicator hidden" role="progressbar" aria-live="polite"
-                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                <div className="progress-track">
-                  <span id="pdfProgressBar" className="progress-fill"></span>
-                </div>
-                <p id="pdfProgressLabel" className="upload-copy">0% complete</p>
-              </div>
-              <p className="upload-copy" id="pdfStatus">No PDF selected.</p>
-              <p className="upload-copy" id="pdfPageSelectionSummary">Select a PDF to choose which pages should appear on
-                the screen.</p>
-            </div>
-
-            <div className="tool-card pdf-preview-card">
-              <div className="tool-card-head">
-                <span className="module-icon">TXT</span>
-                <p className="tool-card-title">Extracted PDF Content</p>
-              </div>
-              <p className="upload-copy" id="pdfMeta">Upload a PDF to preview the extracted text before showing it on the
-                slide.</p>
-              <div id="pdfPreviewList" className="pdf-preview-list hidden" aria-live="polite"></div>
-            </div>
-          </div>
-
-          <div className="tool-card pdf-pages-card">
-            <div className="tool-card-head pdf-pages-head">
-              <div className="pdf-pages-head-copy">
-                <span className="module-icon">PGS</span>
-                <p className="tool-card-title">PDF Page Picker</p>
-              </div>
-              <div className="pdf-page-bulk-actions" aria-label="PDF page bulk selection controls">
-                <button id="pdfSelectAllBtn" className="ghost-btn pdf-page-bulk-btn" type="button" disabled
-                  title="Select all PDF pages" aria-label="Select all PDF pages">&#10003; All</button>
-                <button id="pdfClearSelectionBtn" className="ghost-btn pdf-page-bulk-btn" type="button" disabled
-                  title="Deselect all PDF pages" aria-label="Deselect all PDF pages">&#10005; All</button>
-              </div>
-            </div>
-            <p className="upload-copy">Rendered page thumbnails keep the PDF layout exactly as it appears in the file. Tick
-              only the pages you want to present.</p>
-            <div id="pdfPageList" className="pdf-page-list hidden" aria-live="polite"></div>
-          </div>
         </div>
       </details>
 
@@ -1182,12 +1271,12 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="serverControlsSection">
+      <details className="section-card classic-prepare-section" id="serverControlsSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">SVC</span>
             <span className="summary-copy">
-              <span className="section-title">Server Controls</span>
+              <span className="section-title">Local service status</span>
               <span className="section-meta">Start and check the local narration, Anjali clone, transcription, and export
                 helpers.</span>
             </span>
@@ -1212,7 +1301,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="speechToolsSection">
+      <details className="section-card classic-prepare-section" id="speechToolsSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">MIC</span>
@@ -1322,14 +1411,14 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               </button>
             </div>
             <label className="field-label" htmlFor="anjaliSampleAudio">Anjali voice sample</label>
-            <p className="upload-copy">This bundled MP3 is available as a reference sample. Generated narration uses the
-              Anjali voice flow.</p>
-            <audio id="anjaliSampleAudio" className="audio-preview" controls preload="metadata"></audio>
+            <p className="upload-copy">No bundled reference sample is installed. Upload your own narration or use
+              Read Lesson with your selected voice.</p>
+            <audio id="anjaliSampleAudio" className="audio-preview" controls preload="none" hidden></audio>
             <div className="toolbar toolbar-compact">
-              <button id="useAnjaliSampleBtn" className="ghost-btn" type="button">Try Sample As Narration</button>
+              <button id="useAnjaliSampleBtn" className="ghost-btn" type="button" disabled>Sample Not Installed</button>
             </div>
             <p className="upload-copy" id="mathsHelperStatus">Maths practice is ready. Load starter lessons, boxed tables,
-              mixed sums, listen to the sample, or use the sample as short narration.</p>
+              or mixed sums, then use Read Lesson with your selected voice.</p>
           </div>
 
           <div className="tool-status-card">
@@ -1343,7 +1432,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="audioToTextSection">
+      <details className="section-card classic-prepare-section" id="audioToTextSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">AUD</span>
@@ -1665,8 +1754,14 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                     <span className="style-label">Caption Font Size</span>
                     <span id="captionSizeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>43% · 50px</span>
                   </div>
-                  <input type="range" id="captionSizeSlider" min="20" max="90" defaultValue="50" />
+                  <input type="range" id="captionSizeSlider" min="20" max="140" defaultValue="50" />
+                  <span style={{ display: 'block', marginTop: 8, color: '#cbd5e1', fontSize: 12 }}>Caption size preview · output pixels at 50% viewing scale (sample only)</span>
+                  <span style={{ display: 'block', maxHeight: 220, overflow: 'auto', marginTop: 6, padding: 12, background: '#15232d', border: '1px solid #526571', borderRadius: 8, zoom: 0.5 }}><span id="captionSizePreviewText" style={{ fontSize: 50, fontWeight: 900, lineHeight: 1.2, color: '#fff', overflowWrap: 'anywhere' }}>Caption size sample</span></span>
                 </label>
+                <div style={{ gridColumn: '1 / -1' }}><button id="captionSizePreviewBtn" className="ghost-btn" type="button" disabled>Preview caption on video</button><p style={{ fontSize: 12 }}>Generate captions first. Then check their size on the original video before exporting. Existing burned-in text cannot be changed by this preview.</p></div>
+                <label>Caption position<select id="captionPositionPreset" defaultValue="middle"><option value="middle">Middle</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="custom">Custom</option></select></label>
+                <label>Horizontal position <output id="captionPositionXValue">50%</output><input id="captionPositionX" type="range" min="5" max="95" defaultValue="50" /></label>
+                <label>Vertical position <output id="captionPositionYValue">50%</output><input id="captionPositionY" type="range" min="5" max="95" defaultValue="50" /></label>
                 <label className="style-field">
                   <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
                     <span className="style-label">Line Spacing Gap</span>
@@ -1756,14 +1851,13 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="mediaSection">
+      <details className="section-card classic-prepare-section" id="mediaSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">IMG</span>
             <span className="summary-copy">
-              <span className="section-title">Optional Media</span>
-              <span className="section-meta">Upload images and manage multiple stage videos
-                for the blue screen.</span>
+              <span className="section-title">Images &amp; video</span>
+              <span className="section-meta">Optional · Add pictures, stage videos, an intro or a poster.</span>
             </span>
           </span>
         </summary>
@@ -1879,13 +1973,13 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <details className="section-card" id="narrationSection">
+      <details className="section-card classic-prepare-section" id="narrationSection">
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">REC</span>
             <span className="summary-copy">
-              <span className="section-title">Narration Audio</span>
-              <span className="section-meta">Upload, record, or generate Anjali narration.</span>
+              <span className="section-title">Narration &amp; audio</span>
+              <span className="section-meta">Upload, record or generate a voice track for your written lesson.</span>
             </span>
           </span>
         </summary>

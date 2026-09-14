@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "id": "builtin:dogs",
+      "noun": "dogs",
+      "aliases": [
+        "dogs",
+        "dog"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/dogs.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        117,
+        102,
+        1090,
+        1059
+      ]
+    },
+    {
+      "id": "builtin:books",
+      "noun": "books",
+      "aliases": [
+        "books",
+        "book"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/books.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        257,
+        85,
+        744,
+        1102
+      ]
+    },
+    {
+      "id": "builtin:candies",
+      "noun": "candies",
+      "aliases": [
+        "candies",
+        "candy"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/candies.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        94,
+        431,
+        1074,
+        393
+      ]
+    },
+    {
+      "id": "builtin:birds",
+      "noun": "birds",
+      "aliases": [
+        "birds",
+        "bird"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/birds.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        142,
+        181,
+        929,
+        917
+      ]
+    },
+    {
+      "id": "builtin:bananas",
+      "noun": "bananas",
+      "aliases": [
+        "bananas",
+        "banana"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/bananas.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        59,
+        194,
+        1136,
+        858
+      ]
+    },
+    {
+      "id": "builtin:butterflies",
+      "noun": "butterflies",
+      "aliases": [
+        "butterflies",
+        "butterfly"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/butterflies.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        37,
+        212,
+        1182,
+        822
+      ]
+    },
+    {
+      "id": "builtin:gifts",
+      "noun": "gifts",
+      "aliases": [
+        "gifts",
+        "gift"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/gifts.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        108,
+        86,
+        1048,
+        1075
+      ]
+    },
+    {
+      "id": "builtin:ants",
+      "noun": "ants",
+      "aliases": [
+        "ants",
+        "ant"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/ants.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        134,
+        35,
+        986,
+        1148
+      ]
+    },
+    {
+      "id": "builtin:leaves",
+      "noun": "leaves",
+      "aliases": [
+        "leaves",
+        "leaf"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/leaves.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        314,
+        126,
+        728,
+        1044
+      ]
+    },
+    {
+      "id": "builtin:stars",
+      "noun": "stars",
+      "aliases": [
+        "stars",
+        "star"
+      ],
+      "src": "assets/pdf-counting/realistic-v2/stars.png",
+      "width": 1254,
+      "height": 1254,
+      "contentBounds": [
+        106,
+        109,
+        1041,
+        998
+      ]
+    }
+  ]
+}

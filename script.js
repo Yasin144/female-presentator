@@ -93,6 +93,13 @@ const numberTableToolStatus = document.getElementById("numberTableToolStatus");
 const numberTableThemeSelect = document.getElementById("numberTableThemeSelect");
 const numberTableIntroEnabled = document.getElementById("numberTableIntroEnabled");
 const numberTableIntroStatus = document.getElementById("numberTableIntroStatus");
+const alphabetNarrationStyleSelect = document.getElementById("alphabetNarrationStyleSelect");
+const alphabetTemplateSelect = document.getElementById("alphabetTemplateSelect");
+const alphabetIntroEnabled = document.getElementById("alphabetIntroEnabled");
+const applyAlphabetBtn = document.getElementById("applyAlphabetBtn");
+const showAlphabetBtn = document.getElementById("showAlphabetBtn");
+const readAlphabetBtn = document.getElementById("readAlphabetBtn");
+const alphabetToolStatus = document.getElementById("alphabetToolStatus");
 const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
 const presentationTemplateToggle = document.getElementById("presentationTemplateOutcomesToggle");
 const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
@@ -265,6 +272,9 @@ const previewIndianFemaleBtn = document.getElementById("previewIndianFemaleBtn")
 const previewFreshBtn = document.getElementById("previewFreshBtn");
 const previewAnjaliBtn = document.getElementById("previewAnjaliBtn");
 const slideVoiceSelect = document.getElementById("slideVoiceSelect");
+const pdfVoiceSelect = document.getElementById("pdfVoiceSelect");
+const pdfCountingDisplaySelect = document.getElementById("pdfCountingDisplaySelect");
+const pdfVoiceHint = document.getElementById("pdfVoiceHint");
 const speechToolsStatus = document.getElementById("speechToolsStatus");
 const loadMathsNumbersBtn = document.getElementById("loadMathsNumbersBtn");
 const loadMathsOperationsBtn = document.getElementById("loadMathsOperationsBtn");
@@ -285,6 +295,9 @@ const pdfShowBtn = document.getElementById("pdfShowBtn");
 const pdfPresentBtn = document.getElementById("pdfPresentBtn");
 const pdfSelectAllBtn = document.getElementById("pdfSelectAllBtn");
 const pdfClearSelectionBtn = document.getElementById("pdfClearSelectionBtn");
+const pdfRangeFromInput = document.getElementById("pdfRangeFromInput");
+const pdfRangeToInput = document.getElementById("pdfRangeToInput");
+const pdfSelectRangeBtn = document.getElementById("pdfSelectRangeBtn");
 const clearPdfBtn = document.getElementById("clearPdfBtn");
 const pdfProgress = document.getElementById("pdfProgress");
 const pdfProgressBar = document.getElementById("pdfProgressBar");
@@ -360,12 +373,16 @@ const PREVIEW_ZOOM_STEP = 0.1;
 const FONT_SCALE_MIN = 0.8;
 const FONT_SCALE_MAX = 2.2;
 const FONT_SCALE_STEP = 0.1;
-const PDF_JS_FILE = "pdf.min.js";
-const PDF_JS_WORKER_FILE = "pdf.worker.min.js";
-const PDF_RENDER_SCALE_MIN = 1.6;
-const PDF_RENDER_SCALE_MAX = 3.2;
-const PDF_RENDER_TARGET_MAX_WIDTH_PX = 2200;
-const PDF_RENDER_TARGET_MAX_HEIGHT_PX = 2800;
+const PDF_ASSET_ROOT = window.location.protocol === "app:" ? "app://voice/" : "/";
+const PDF_JS_FILE = `${PDF_ASSET_ROOT}pdf.min.js`;
+const PDF_JS_WORKER_FILE = `${PDF_ASSET_ROOT}pdf.worker.min.js`;
+// A whole course book can contain dozens of image-heavy pages. Keeping every
+// page at print resolution made upload look frozen and could retain nearly 1 GB
+// of canvas pixels. This is still sharper than the 1280x720 presentation stage.
+const PDF_RENDER_SCALE_MIN = 1.15;
+const PDF_RENDER_SCALE_MAX = 1.65;
+const PDF_RENDER_TARGET_MAX_WIDTH_PX = 1280;
+const PDF_RENDER_TARGET_MAX_HEIGHT_PX = 1800;
 const PDF_STAGE_SEEK_STEP_MS = 5000;
 const PDF_FACE_MASK_PADDING_X = 1.2;
 const PDF_FACE_MASK_PADDING_TOP = 1.4;
@@ -382,7 +399,8 @@ const STAGE_VIDEO_EDGE_FEATHER = 22;
 const DEFAULT_INTRO_VIDEO_FILE = "default-intro-optimized.mp4";
 const DEFAULT_INTRO_VIDEO_FALLBACK_FILE = "default-intro.mp4";
 const LEGACY_DEFAULT_INTRO_VIDEO_FILE = "INTRO.mp4";
-const ANJALI_SAMPLE_AUDIO_FILE = "voice-preview-anjali.mp3";
+// The optional legacy sample is not shipped with this local installation.
+const ANJALI_SAMPLE_AUDIO_FILE = "";
 const SC3_NARRATION_VOICE = "anjali";
 const EDGE_NARRATION_VOICE = "edge";
 const HINDI_NARRATION_VOICE = "hindi";
@@ -429,6 +447,54 @@ var _playgroundJoyImage = new Image();
 _playgroundJoyImage.decoding = 'async';
 _playgroundJoyImage.onload = function() { if (typeof markSceneDirty === 'function') markSceneDirty(); };
 _playgroundJoyImage.src = 'themes/children-playground.png';
+var _alphabetRealisticAtlas = new Image();
+var _alphabetRealisticCells = [];
+_alphabetRealisticAtlas.decoding = 'async';
+_alphabetRealisticAtlas.onload = function() {
+  _alphabetRealisticCells = buildAlphabetRealisticCells(_alphabetRealisticAtlas);
+  if (typeof markSceneDirty === 'function') markSceneDirty();
+};
+// Version the URL because the mobile server caches renderer assets aggressively.
+// Use the lossless 4x master for equal preview/export clarity. WebP compression
+// made fine fur, leaf and letter-edge detail look softer after recording.
+_alphabetRealisticAtlas.src = '/assets/alphabet-realistic-object-atlas-4x-v2.png?v=4';
+
+function buildAlphabetRealisticCells(atlasImage) {
+  if (!atlasImage?.naturalWidth || !atlasImage?.naturalHeight || typeof document === 'undefined') return [];
+  const cols = 5;
+  const rows = 6;
+  const sourceWidth = atlasImage.naturalWidth / cols;
+  const sourceHeight = atlasImage.naturalHeight / rows;
+  return Array.from({ length: 26 }, (_, index) => {
+    const cell = document.createElement('canvas');
+    cell.width = Math.max(1, Math.round(sourceWidth));
+    cell.height = Math.max(1, Math.round(sourceHeight));
+    const cellContext = cell.getContext('2d');
+    cellContext.imageSmoothingEnabled = true;
+    cellContext.imageSmoothingQuality = 'high';
+    cellContext.drawImage(
+      atlasImage,
+      (index % cols) * sourceWidth + 4,
+      Math.floor(index / cols) * sourceHeight + 4,
+      sourceWidth - 8,
+      sourceHeight - 8,
+      0,
+      0,
+      cell.width,
+      cell.height
+    );
+    // Feather only the neutral studio edges. The centered object stays fully
+    // opaque while the resized cell blends invisibly into the master backdrop.
+    cellContext.globalCompositeOperation = 'destination-in';
+    cellContext.filter = `blur(${Math.max(18, Math.round(cell.width * 0.035))}px)`;
+    cellContext.fillStyle = '#fff';
+    const inset = Math.max(22, Math.round(cell.width * 0.045));
+    cellContext.fillRect(inset, inset, cell.width - inset * 2, cell.height - inset * 2);
+    cellContext.filter = 'none';
+    cellContext.globalCompositeOperation = 'source-over';
+    return cell;
+  });
+}
 
 _BACKDROP_REGISTRY['playground-joy'] = function() {
   var W = canvas.width, H = canvas.height;
@@ -2143,6 +2209,59 @@ async function ensurePreparedLessonExport(options = {}) {
   }
 }
 
+// Terminal notifications are best-effort side effects, never part of a media
+// job's success criteria. Do not report individual TTS clips or retry failures.
+function createWhatsAppBrowserJob(processName, options = {}) {
+  createWhatsAppBrowserJob.sequence = (createWhatsAppBrowserJob.sequence || 0) + 1;
+  return {
+    id: `browser-${Date.now()}-${createWhatsAppBrowserJob.sequence}-${Math.random().toString(36).slice(2, 10)}`,
+    processName,
+    isCurrent: options.isCurrent,
+    settled: false
+  };
+}
+
+function finishWhatsAppBrowserJob(job, status, details = "") {
+  try {
+    if (!job || job.settled || !["completed", "failed"].includes(status)) return;
+    job.settled = true;
+    if (details?.name === "AbortError" || details?.name === "CanceledError") return;
+    if (typeof job.isCurrent === "function" && !job.isCurrent()) return;
+    const api = window.electronAPI;
+    if (typeof api?.reportWhatsAppJob !== "function") return;
+    const reason = status === "failed" ? (details?.message || details || "The job failed.") : details;
+    void Promise.resolve(api.reportWhatsAppJob({
+      id: job.id,
+      status,
+      processName: job.processName,
+      details: String(reason).replace(/\s+/g, " ").trim().slice(0, 600)
+    })).catch(() => {});
+  } catch (_) { /* Notifications must never interrupt narration or export. */ }
+}
+
+function getWhatsAppOutputName(fileName) {
+  return String(fileName || "output").split(/[\\/]/).pop().slice(0, 160);
+}
+
+async function downloadWithWhatsAppJob(blob, fileName, processName, job = createWhatsAppBrowserJob(processName)) {
+  try {
+    if (!(blob instanceof Blob) || !blob.size) {
+      throw new Error("The generated file was empty or unavailable.");
+    }
+    const result = await triggerFileDownload(blob, fileName);
+    if (result?.status === "saved" || result?.status === "download-started") {
+      const prefix = result.status === "saved" ? "Saved: " : "Ready for download: ";
+      finishWhatsAppBrowserJob(job, "completed", prefix + getWhatsAppOutputName(fileName));
+    } else if (result?.status === "failed") {
+      finishWhatsAppBrowserJob(job, "failed", result.error);
+    }
+    return result;
+  } catch (error) {
+    finishWhatsAppBrowserJob(job, "failed", error);
+    throw error;
+  }
+}
+
 async function beginExportFromUi(task, options = {}) {
   const startingLabel = isPdfPresentationMode() ? "Starting PDF export..." : "Starting video export...";
   setStatus(startingLabel);
@@ -2173,7 +2292,7 @@ async function beginExportFromUi(task, options = {}) {
     const lessonExportSource = getLessonExportSource();
     const preparedKey = getPreparedLessonExportKey(lessonExportSource);
     if (state.preparedLessonExport.blob && state.preparedLessonExport.key === preparedKey) {
-      triggerFileDownload(state.preparedLessonExport.blob, suggestedName);
+      await downloadWithWhatsAppJob(state.preparedLessonExport.blob, suggestedName, "Lesson video export");
       updateTaskProgressUi(1, true, { label: "Downloading prepared video..." });
       setStatus("Video downloaded from the prepared export.");
       window.setTimeout(() => resetTaskProgressUi(), 120);
@@ -2183,17 +2302,18 @@ async function beginExportFromUi(task, options = {}) {
     if (state.preparedLessonExport.promise && state.preparedLessonExport.key === preparedKey) {
       setStatus("Finishing the prepared video so it can download directly...");
       updateTaskProgressUi(0.2, true, { label: "Finishing prepared video..." });
+      let preparedBlob = null;
       try {
-        const preparedBlob = await state.preparedLessonExport.promise;
-        if (preparedBlob instanceof Blob && preparedBlob.size) {
-          triggerFileDownload(preparedBlob, suggestedName);
-          updateTaskProgressUi(1, true, { label: "Downloading prepared video..." });
-          setStatus("Video downloaded from the prepared export.");
-          window.setTimeout(() => resetTaskProgressUi(), 120);
-          return;
-        }
+        preparedBlob = await state.preparedLessonExport.promise;
       } catch (error) {
         console.error(error);
+      }
+      if (preparedBlob instanceof Blob && preparedBlob.size) {
+        await downloadWithWhatsAppJob(preparedBlob, suggestedName, "Lesson video export");
+        updateTaskProgressUi(1, true, { label: "Downloading prepared video..." });
+        setStatus("Video downloaded from the prepared export.");
+        window.setTimeout(() => resetTaskProgressUi(), 120);
+        return;
       }
     }
   }
@@ -3607,7 +3727,7 @@ async function triggerFileDownload(blob, fileName) {
           ],
         buttonLabel: isAudio ? 'Save Audio' : 'Save Video'
       });
-      if (result.canceled || !result.filePath) return;
+      if (result.canceled || !result.filePath) return { status: "cancelled" };
 
       setStatus(isAudio ? "Writing audio to disk..." : "Writing video to disk...");
       const arrayBuffer = await blob.arrayBuffer();
@@ -3622,10 +3742,11 @@ async function triggerFileDownload(blob, fileName) {
       if (writeResult.ok) {
         setStatus(`${isAudio ? "Audio" : "Video"} saved: ${result.filePath}`);
         window.electronAPI.showItemInFolder(result.filePath);
+        return { status: "saved" };
       } else {
         setStatus(`Error saving ${isAudio ? "audio" : "video"}: ${writeResult.error}`, { error: true });
+        return { status: "failed", error: writeResult.error || "Could not write the file." };
       }
-      return;
     } catch (err) {
       console.error('[Electron save]', err);
       // fall through to browser download
@@ -3644,6 +3765,7 @@ async function triggerFileDownload(blob, fileName) {
     anchor.remove();
     URL.revokeObjectURL(url);
   }, 1500);
+  return { status: "download-started" };
 }
 
 function sanitizeDownloadFileName(fileName, fallbackName = "sc3-output.mp3") {
@@ -4340,6 +4462,113 @@ function getNumberTableNarrationChunkEntries(text = "") {
   return entries.length ? entries : null;
 }
 
+const ALPHABET_SAY_ALOUD_ITEMS = [
+  ["A", "Apple", "🍎"], ["B", "Ball", "🏐"], ["C", "Cat", "🐱"], ["D", "Dog", "🐶"],
+  ["E", "Elephant", "🐘"], ["F", "Fish", "🐠"], ["G", "Grapes", "🍇"], ["H", "Hat", "👒"],
+  ["I", "Ice cream", "🍦"], ["J", "Jug", "🏺"], ["K", "Kite", "🪁"], ["L", "Lion", "🦁"],
+  ["M", "Mango", "🥭"], ["N", "Nest", "🪺"], ["O", "Orange", "🍊"], ["P", "Parrot", "🦜"],
+  ["Q", "Queen", "👸"], ["R", "Rabbit", "🐰"], ["S", "Sun", "🌞"], ["T", "Tiger", "🐯"],
+  ["U", "Umbrella", "☂️"], ["V", "Van", "🚐"], ["W", "Watch", "⌚"], ["X", "Xylophone", "🎼"],
+  ["Y", "Yak", "🐂"], ["Z", "Zebra", "🦓"]
+].map(([letter, word, emoji]) => ({ letter, word, emoji }));
+const ALPHABET_ITEM_DURATION_MS = 5000;
+
+function getAlphabetSayAloudData(textValue = "") {
+  const safeText = String(textValue || "").replace(/\u00a0/g, " ").trim();
+  if (!/\balphabet\s+say\s+aloud\b/i.test(safeText)) return null;
+  const styleMatch = safeText.match(/\bspeaking\s+style\s*:\s*(for|is|word)\b/i);
+  const templateMatch = safeText.match(/\bpresentation\s+template\s*:\s*(realistic|slides|flashcard|split|board)\b/i);
+  return {
+    title: "ALPHABET",
+    style: styleMatch?.[1]?.toLowerCase() || "for",
+    template: templateMatch?.[1]?.toLowerCase() || "realistic",
+    items: ALPHABET_SAY_ALOUD_ITEMS
+  };
+}
+
+function getAlphabetPhrase(item, style = "for") {
+  if (style === "is") return `${item.letter} is for ${item.word}.`;
+  if (style === "word") return `${item.letter}. ${item.word}.`;
+  // The cloned voice was rushing S and T together. A full sentence boundary
+  // preserves the words while forcing a clear teacher-paced beat.
+  if (item.letter === "S" || item.letter === "T") return `${item.letter}. For ${item.word}.`;
+  return `${item.letter} for ${item.word}.`;
+}
+
+function getAlphabetNarrationText(textValue = "") {
+  const alphabet = getAlphabetSayAloudData(textValue);
+  return alphabet ? alphabet.items.map(item => getAlphabetPhrase(item, alphabet.style)).join(" ") : "";
+}
+
+function getAlphabetNarrationChunkEntries(textValue = "") {
+  const alphabet = getAlphabetSayAloudData(textValue);
+  if (!alphabet) return null;
+  return alphabet.items.map((item, index) => ({
+    text: getAlphabetPhrase(item, alphabet.style),
+    // The final hold is calculated after the real clip duration is measured,
+    // making every alphabet scene exactly five seconds rather than estimating.
+    gapAfterMs: 0
+  }));
+}
+
+function getVisibleAlphabetCount(alphabetData) {
+  if (!alphabetData) return 0;
+  if (!state.speaking && !state.exportingVideo) {
+    return alphabetData.template === "board" ? alphabetData.items.length : 1;
+  }
+  const elapsedMs = state.exportingVideo
+    ? Math.max(0, Math.round(Number(state.exportCapture?.elapsedMs) || 0))
+    : Math.max(0, Math.round((state.activeAudio?.currentTime || 0) * 1000));
+  const units = state.narration?.syncProfile?.profile?.units || [];
+  const exactSlideStarts = state.narration?.syncProfile?.profile?.alphabetSlideStartsMs
+    || state.narration?.syncProfile?.profile?.chunkStartsMs;
+  if (Array.isArray(exactSlideStarts) && exactSlideStarts.length >= alphabetData.items.length) {
+    let exactVisible = 0;
+    for (let index = 0; index < alphabetData.items.length; index += 1) {
+      if (elapsedMs >= Math.max(0, Number(exactSlideStarts[index]) || 0)) exactVisible += 1;
+      else break;
+    }
+    return exactVisible;
+  }
+  const spokenUnits = units.filter(unit => String(unit?.spokenText || unit?.displayText || "").trim());
+  const normalizedUnits = spokenUnits.map(unit => ({
+    unit,
+    key: String(unit?.spokenText || unit?.displayText || "").toLowerCase().replace(/[^a-z]/g, "")
+  }));
+  const startsByWord = new Map();
+  let searchFrom = 0;
+  alphabetData.items.forEach(item => {
+    const key = item.word.toLowerCase().split(/\s+/)[0].replace(/[^a-z]/g, "");
+    const foundIndex = normalizedUnits.findIndex((entry, index) => index >= searchFrom && (
+      entry.key === key || entry.key.endsWith(key) || entry.key.includes(key)
+    ));
+    if (foundIndex < 0) return;
+    const found = normalizedUnits[foundIndex];
+    // A whole phrase may be represented by one timing unit. Otherwise step
+    // back to its opening letter so the new visual appears exactly when the
+    // teacher begins saying "A for Apple", not after "Apple" has begun.
+    const phraseLeadUnits = alphabetData.style === "is" ? 3 : alphabetData.style === "word" ? 1 : 2;
+    const phraseStartIndex = found.key === key
+      ? Math.max(searchFrom, foundIndex - phraseLeadUnits)
+      : foundIndex;
+    startsByWord.set(key, Number(normalizedUnits[phraseStartIndex]?.unit?.speechStartMs) || 0);
+    searchFrom = foundIndex + 1;
+  });
+  let visible = 0;
+  for (const item of alphabetData.items) {
+    const key = item.word.toLowerCase().split(/\s+/)[0].replace(/[^a-z]/g, "");
+    const start = startsByWord.get(key);
+    if (Number.isFinite(start) && elapsedMs >= start) visible += 1;
+    else break;
+  }
+  // Only trust the timestamp path when the first alphabet phrase was found.
+  // A generic lesson/configuration profile used to contain unrelated units,
+  // which locked the realistic slide permanently on A.
+  if (startsByWord.has("apple")) return visible;
+  const durationMs = Math.max(1, Number(state.narration?.durationMs) || Number(state.activeAudio?.duration || 0) * 1000);
+  return clamp(Math.floor((elapsedMs / durationMs) * alphabetData.items.length) + (elapsedMs > 0 ? 1 : 0), 0, alphabetData.items.length);
+}
+
 function getVisibleNumberTableCount(tableData) {
   if (!tableData) return 0;
   if (!state.speaking && !state.exportingVideo) return 0;
@@ -4719,7 +4948,8 @@ function buildNarrationText(text) {
   // Number tables: enumerate every number so TTS reads each one individually.
   // The sync engine then lights up each grid cell exactly as its number is spoken.
   const numberTableNarration = getNumberTableNarrationText(mainText);
-  const mainNarration = numberTableNarration || buildNarrationLines(mainText).join(" ");
+  const alphabetNarration = getAlphabetNarrationText(mainText);
+  const mainNarration = alphabetNarration || numberTableNarration || buildNarrationLines(mainText).join(" ");
 
   return mainNarration;
 }
@@ -5556,8 +5786,10 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
 
   let globalCursorMs = 0;
   const normalizedUnits = [];
+  const chunkStartsMs = [];
 
   safeDurations.forEach((chunkDurationMs, chunkIndex) => {
+    chunkStartsMs.push(globalCursorMs);
     const chunkUnits = unitsByChunk[chunkIndex] || [];
     if (!chunkUnits.length) {
       globalCursorMs += chunkDurationMs;
@@ -5610,7 +5842,10 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
 
   return {
     units: normalizedUnits,
-    totalDurationMs: Math.max(1, globalCursorMs)
+    totalDurationMs: Math.max(1, globalCursorMs),
+    // These are measured boundaries of the actual generated audio clips. They
+    // are immune to Whisper spelling mistakes and global proportional drift.
+    chunkStartsMs
   };
 }
 
@@ -5741,7 +5976,14 @@ function requireNarrationVoiceId(voice = state?.preferredNarrationVoice) {
 
 function persistPreferredNarrationVoice(voice) {
   const voiceId = requireNarrationVoiceId(voice);
+  const changed = state.preferredNarrationVoice !== voiceId;
   state.preferredNarrationVoice = voiceId;
+  if (changed && state.pdf?.pages?.length) {
+    if (isPdfPresentationMode()) stopPlayback(false);
+    invalidatePdfPresentationRequest();
+    resetPdfNarrationState();
+    resetPdfPlaybackState(true);
+  }
   try {
     localStorage.setItem(EDGE_TTS_VOICE_STORAGE_KEY, voiceId);
   } catch (error) {
@@ -6950,7 +7192,12 @@ function applyMathsLessonTemplate(text, helperMessage) {
 
 function initializeMathsTeacherAssets() {
   if (anjaliSampleAudio) {
-    anjaliSampleAudio.src = resolveProjectAssetUrl(ANJALI_SAMPLE_AUDIO_FILE);
+    anjaliSampleAudio.hidden = !ANJALI_SAMPLE_AUDIO_FILE;
+    if (ANJALI_SAMPLE_AUDIO_FILE) anjaliSampleAudio.src = resolveProjectAssetUrl(ANJALI_SAMPLE_AUDIO_FILE);
+  }
+  if (useAnjaliSampleBtn) {
+    useAnjaliSampleBtn.disabled = !ANJALI_SAMPLE_AUDIO_FILE;
+    useAnjaliSampleBtn.title = ANJALI_SAMPLE_AUDIO_FILE ? "Use the installed sample" : "No bundled sample is installed. Upload narration or use Read Lesson.";
   }
 
   if (mathsAutoTranslateToggle) {
@@ -6960,10 +7207,14 @@ function initializeMathsTeacherAssets() {
   setMathsTranslateLoading(false, "Translation complete.");
   updateMathsTranslationPreview("");
   setMathsTranslatorStatus("Maths translator is ready. Paste plain text and the lesson box will receive the translated maths version.");
-  setMathsHelperStatus("Maths practice is ready. Load starter lessons, boxed tables, mixed sums, listen to the sample, or use the sample as short narration.");
+  setMathsHelperStatus("Maths practice is ready. Load starter lessons, boxed tables or mixed sums, then use Read Lesson with your selected voice.");
 }
 
 async function useBundledAnjaliSampleAsNarration() {
+  if (!ANJALI_SAMPLE_AUDIO_FILE) {
+    setMathsHelperStatus("No bundled voice sample is installed. Upload your own narration or use Read Lesson with the selected voice.");
+    return;
+  }
   const assetUrl = resolveProjectAssetUrl(ANJALI_SAMPLE_AUDIO_FILE);
 
   try {
@@ -6971,6 +7222,7 @@ async function useBundledAnjaliSampleAsNarration() {
     const durationMs = Number.isFinite(audioElement.duration)
       ? Math.max(1000, Math.ceil(audioElement.duration * 1000))
       : getDefaultNarrationDurationMs();
+    disposeRuntimeAudio(audioElement);
 
     resetNarrationState();
     invalidateNarrationDependentExports();
@@ -7008,6 +7260,17 @@ function updatePreferredVoiceUi() {
   state.preferredNarrationVoice = voice;
   if (slideVoiceSelect) {
     slideVoiceSelect.value = voice;
+  }
+  if (pdfVoiceSelect) pdfVoiceSelect.value = voice;
+  const stageSelect = document.getElementById("stageVoiceSelect");
+  if (stageSelect) stageSelect.value = voice;
+  const stageBadge = document.getElementById("stageVoiceBadge");
+  if (stageBadge) stageBadge.textContent = getNarrationVoiceLabel(voice);
+  if (pdfVoiceHint) {
+    pdfVoiceHint.textContent = `${getNarrationVoiceLabel(voice)} will read and export the PDF. `
+      + (voice === EDGE_NARRATION_VOICE
+        ? "Online voice: prepares several clips at once. Prepared clips are reused while the app stays open."
+        : "Local voice: first-time preparation can take longer. Prepared clips are reused while the app stays open.");
   }
 }
 
@@ -7323,7 +7586,7 @@ function shouldPreferPdfScreenFromInput() {
 
 function getPdfPresentationText() {
   return getPdfSelectedPages()
-    .map((page) => page.text.trim())
+    .map((page) => String(page.narrationText || page.text || "").trim())
     .filter(Boolean)
     .join("\n\n");
 }
@@ -7335,6 +7598,11 @@ function getPdfRenderMode() {
 function setPdfRenderMode(renderMode = "context") {
   state.pdf.renderMode = renderMode === "exact" ? "exact" : "context";
   state.pdf.autoImageSyncKey = "";
+}
+
+function getPdfCountingDisplayMode() {
+  const mode = state.exportingVideo ? state.pdf?.exportCountingDisplayMode ?? state.pdf?.countingDisplayMode : state.pdf?.countingDisplayMode;
+  return mode === "original" ? "original" : "reveal";
 }
 
 function invalidatePdfPresentationRequest() {
@@ -7555,17 +7823,27 @@ function shouldRenderAnimatedSceneFrame(nowMs, options = {}) {
 }
 
 function estimatePdfPageDurationMs(page) {
-  if (page?.wordCount) {
-    return clamp((page.wordCount * 430) + estimatePauseMsFromText(page?.text || ""), 3200, 24000);
+  const narrationText = String(page?.narrationText || page?.text || "");
+  const narrationWordCount = splitIntoWords(narrationText).length;
+  if (narrationWordCount) {
+    return clamp((narrationWordCount * 430) + estimatePauseMsFromText(narrationText), 3200, 30000);
   }
 
-  return clamp(5000 + estimatePauseMsFromText(page?.text || ""), 5000, 24000);
+  return clamp(5000 + estimatePauseMsFromText(narrationText), 5000, 30000);
 }
 
 function buildPdfPresentationSchedule(totalDurationMs = 0) {
   const presentationPages = getPdfPresentationPages();
   if (!presentationPages.length) {
     return [];
+  }
+  const measured = state.pdf.narration.pdfTiming;
+  if (getPdfRenderMode() === "exact" && measured?.length === presentationPages.length
+      && measured.every((item, index) => item.pageIndex === presentationPages[index].index)) {
+    return measured.map((item, selectionIndex) => ({
+      selectionIndex, originalPageIndex: item.pageIndex, page: presentationPages[selectionIndex],
+      startMs: item.startMs, endMs: item.endMs, durationMs: item.endMs - item.startMs
+    }));
   }
 
   const baseDurations = presentationPages.map((page) => estimatePdfPageDurationMs(page));
@@ -7892,6 +8170,10 @@ function renderPdfPreview() {
     : "No readable PDF text was found, but the rendered page images are ready to present.";
   pdfMeta.textContent = `${state.pdf.fileName} | ${state.pdf.pageCount} PDF page${state.pdf.pageCount === 1 ? "" : "s"} | ${textSummary}`;
 
+  const automaticCounts = state.pdf.pages.filter(page => page.countingPreparation?.status === "ready").length;
+  const reviewCounts = state.pdf.pages.filter(page => page.countingPreparation?.status === "review").length;
+  pdfMeta.textContent += ` Local preparation: ${automaticCounts} counting page(s) ready; ${reviewCounts} need review. Original-page object positions are never guessed.`;
+
   state.pdf.pageTexts.forEach((pageText, index) => {
     const page = state.pdf.pages[index] || {};
     const exampleImages = Array.isArray(page.exampleImages) ? page.exampleImages : [];
@@ -8055,6 +8337,7 @@ function renderPdfPageList() {
     const thumb = document.createElement("img");
     thumb.className = "pdf-page-thumb";
     thumb.src = page.thumbnailUrl;
+    thumb.dataset.pdfPageNumber = String(page.pageNumber);
     thumb.alt = `Preview of PDF page ${page.pageNumber}`;
     thumb.loading = "lazy";
     thumb.addEventListener("click", async (event) => {
@@ -8089,6 +8372,7 @@ function renderPdfPageList() {
     card.appendChild(checkboxLabel);
     card.appendChild(thumb);
     card.appendChild(meta);
+    appendPdfCountingReviewControls(card, page);
     card.addEventListener("click", async () => {
       if (state.pdfLoading) {
         return;
@@ -8110,24 +8394,39 @@ function updatePdfUi() {
   const hasSelection = Boolean(getPdfSelectedPageCount());
   const allSelected = hasLoadedPdf && getPdfSelectedPageCount() === state.pdf.pages.length;
   const isBusy = state.pdfLoading;
+  if (pdfCountingDisplaySelect) {
+    pdfCountingDisplaySelect.value = getPdfCountingDisplayMode();
+    pdfCountingDisplaySelect.disabled = isBusy || state.exportingVideo || state.speaking;
+  }
 
   pdfInput.disabled = isBusy;
   pdfShowBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
   pdfPresentBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
   pdfSelectAllBtn.disabled = isBusy || !hasLoadedPdf || allSelected;
   pdfClearSelectionBtn.disabled = isBusy || !hasLoadedPdf || !hasSelection;
+  if (pdfRangeFromInput) {
+    pdfRangeFromInput.disabled = isBusy || !hasLoadedPdf;
+    pdfRangeFromInput.max = hasLoadedPdf ? String(state.pdf.pages.length) : "";
+  }
+  if (pdfRangeToInput) {
+    pdfRangeToInput.disabled = isBusy || !hasLoadedPdf;
+    pdfRangeToInput.max = hasLoadedPdf ? String(state.pdf.pages.length) : "";
+  }
+  if (pdfSelectRangeBtn) {
+    pdfSelectRangeBtn.disabled = isBusy || !hasLoadedPdf;
+  }
   clearPdfBtn.disabled = isBusy || (!hasSelectedFile && !hasLoadedPdf);
 
   if (pdfShowBtn) {
-    pdfShowBtn.textContent = "Show Screen";
+    pdfShowBtn.textContent = "Preview PDF";
   }
 
   if (pdfPresentBtn) {
-    pdfPresentBtn.textContent = "Read And Present Context";
+    pdfPresentBtn.textContent = "Read PDF";
   }
 
   if (showScreenBtn) {
-    showScreenBtn.textContent = "Show Screen";
+    showScreenBtn.textContent = "Preview";
   }
 }
 
@@ -8269,6 +8568,45 @@ function buildPdfPageText(items = []) {
 
   flushLine();
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function createPdfThumbnailPlaceholder(pageNumber) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300"><rect width="220" height="300" rx="16" fill="#eef6fb"/><rect x="14" y="14" width="192" height="272" rx="12" fill="white" stroke="#b9d7e8"/><text x="110" y="138" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="700" fill="#0d7ea9">Page ${pageNumber}</text><text x="110" y="172" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">Loading preview...</text></svg>`)}`;
+}
+
+async function populatePdfThumbnailPreviews(pages = [], pdfDocument = null) {
+  if (!pdfDocument || !Array.isArray(pages)) return;
+  let nextPageIndex = 0;
+  const renderNextThumbnail = async () => {
+    const pageData = pages[nextPageIndex++];
+    if (!pageData) return;
+    if (state.pdf.document !== pdfDocument) return;
+    try {
+      const pdfPage = await pdfDocument.getPage(pageData.pageNumber);
+      const sourceViewport = pdfPage.getViewport({ scale: 1 });
+      const scale = Math.min(1, 220 / Math.max(1, sourceViewport.width));
+      const viewport = pdfPage.getViewport({ scale });
+      const thumbnailCanvas = document.createElement("canvas");
+      thumbnailCanvas.width = Math.max(1, Math.ceil(viewport.width));
+      thumbnailCanvas.height = Math.max(1, Math.ceil(viewport.height));
+      const thumbnailContext = thumbnailCanvas.getContext("2d", { alpha: false });
+      thumbnailContext.fillStyle = "#ffffff";
+      thumbnailContext.fillRect(0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+      applyHighQualityImageRendering(thumbnailContext);
+      await pdfPage.render({ canvasContext: thumbnailContext, viewport, background: "rgba(255,255,255,1)" }).promise;
+      pageData.thumbnailUrl = thumbnailCanvas.toDataURL("image/jpeg", 0.78);
+      const preview = pdfPageList?.querySelector(`img[data-pdf-page-number="${pageData.pageNumber}"]`);
+      if (preview) preview.src = pageData.thumbnailUrl;
+      thumbnailCanvas.width = 1;
+      thumbnailCanvas.height = 1;
+      pdfPage.cleanup();
+    } catch (error) {
+      console.error(`Could not render PDF thumbnail ${pageData.pageNumber}.`, error);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await renderNextThumbnail();
+  };
+  await Promise.all(Array.from({ length: Math.min(3, pages.length) }, () => renderNextThumbnail()));
 }
 
 function escapeHtml(text) {
@@ -8751,6 +9089,651 @@ async function createFilteredPdfPageCanvas(sourceCanvas) {
   }
 }
 
+const PDF_COUNTING_WORDS = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"
+];
+
+// These coordinates were checked against this document's actual artwork, not
+// inferred from its headings. Never reuse a layout just because a noun matches.
+const PDF_COUNTING_DOCUMENT_ID = "dd93e8325ce5eb4987e70ff85fc82bc9";
+const PDF_COUNTING_LAYOUTS = {
+  26: { noun: "dogs", radius: .017,
+    points: [[.275,.625],[.407,.610],[.531,.633],[.636,.633],[.737,.618],[.189,.708],[.310,.727],[.436,.790],[.575,.711],[.711,.704],[.839,.704]] },
+  27: { noun: "books", radius: .012,
+    points: [[.47,.344],[.47,.376],[.47,.404],[.47,.430],[.47,.454],[.47,.479],[.47,.504],[.47,.529],[.47,.553],[.47,.579],[.47,.604],[.47,.631]],
+    labels: [[.303,.344],[.303,.376],[.303,.404],[.303,.430],[.303,.454],[.303,.479],[.303,.504],[.303,.529],[.303,.553],[.303,.579],[.303,.604],[.303,.631]] },
+  28: { noun: "candies", radius: .014,
+    points: [[.314,.459],[.186,.496],[.436,.483],[.256,.518],[.376,.512],[.181,.568],[.301,.555],[.475,.556],[.411,.577],[.203,.633],[.316,.611],[.433,.630],[.313,.661]] },
+  29: { noun: "birds", radius: .017,
+    points: [[.73815,.39231],[.61964,.44444],[.30248,.50684],[.77991,.55897],[.26749,.73846],[.38375,.74786],[.71783,.76410],[.19187,.78803],[.32167,.78974],[.84086,.78547],[.23815,.84615],[.80474,.82991],[.38036,.86581],[.68623,.86581]] },
+  30: { noun: "bananas", radius: .014,
+    points: [[.47178,.38462],[.50451,.38803],[.56546,.40427],[.60948,.40769],[.48081,.48547],[.51580,.49402],[.55079,.49487],[.58804,.50256],[.45372,.56667],[.48871,.57009],[.52596,.57521],[.57449,.57778],[.44244,.61624],[.43679,.64017],[.57336,.64103]],
+    labels: [[.399,.384],[.462,.353],[.553,.350],[.650,.404],[.400,.485],[.491,.460],[.558,.460],[.651,.503],[.400,.550],[.459,.530],[.526,.550],[.631,.570],[.360,.602],[.359,.655],[.640,.645]] },
+  31: { noun: "butterflies", radius: .017,
+    points: [[.63544,.30256],[.17381,.38462],[.83296,.37607],[.39729,.46239],[.61851,.43077],[.17156,.52650],[.82957,.52137],[.38826,.60256],[.61738,.57949],[.17494,.66667],[.82957,.66239],[.39616,.73504],[.61174,.70513],[.18284,.80513],[.60948,.84615],[.82844,.80513]] },
+  32: { noun: "gifts", radius: .017,
+    points: [[.70203,.34530],[.64334,.42564],[.76524,.42564],[.60045,.50513],[.69639,.50769],[.80361,.50598],[.57788,.60171],[.68736,.60342],[.81490,.60427],[.53950,.69829],[.63995,.69658],[.74492,.69915],[.85440,.69915],[.51129,.78974],[.68962,.80598],[.87359,.79658],[.80700,.82650]] },
+  33: { noun: "ants", radius: .017,
+    points: [[.40971,.36923],[.68736,.36923],[.86569,.37863],[.27201,.44701],[.67043,.45128],[.89391,.46325],[.15124,.52051],[.60497,.49487],[.53950,.54274],[.43454,.59145],[.81038,.56496],[.34424,.63932],[.25282,.68462],[.66591,.69658],[.19752,.75812],[.34763,.80940],[.61174,.82821],[.85214,.78376]] },
+  34: { noun: "leaves", radius: .017,
+    points: [[.52596,.32650],[.44357,.35214],[.60271,.35726],[.26862,.41880],[.44357,.42051],[.60835,.42137],[.34312,.45641],[.72348,.44957],[.80587,.45641],[.22799,.48547],[.67607,.51368],[.80587,.52308],[.21332,.55556],[.83409,.59060],[.21219,.61197],[.80023,.64872],[.26072,.65556],[.32957,.67179],[.72460,.67607]] },
+  35: { noun: "stars", radius: .014, labelOffset: [.031,.008],
+    points: [[.51129,.14530],[.64447,.13675],[.65237,.19402],[.56208,.24701],[.69977,.26325],[.79233,.26581],[.88826,.28462],[.58126,.30427],[.68736,.31795],[.49774,.33419],[.77540,.33590],[.63431,.36667],[.72686,.38889],[.86343,.40171],[.53612,.43162],[.65124,.42821],[.74492,.44359],[.63318,.48547],[.74718,.51368],[.87472,.51368]] }
+};
+
+function getPdfCountingActivity(pageText = "", source = {}) {
+  const knownLayout = source.fingerprint === PDF_COUNTING_DOCUMENT_ID ? PDF_COUNTING_LAYOUTS[source.pageNumber] : null;
+  // Unknown documents use the conservative preparation result, never a number
+  // phrase found somewhere in prose. Artwork identity is separate from anchors.
+  const prepared = source.preparation;
+  if (prepared?.status === "original" && prepared.reviewed) return null;
+  if (prepared?.status === "ready" && (!knownLayout || prepared.reviewed)) {
+    if (!Number.isInteger(prepared.count) || prepared.count < 1 || prepared.count > 20
+        || !/^[a-z]+(?:[ -][a-z]+)*$/.test(prepared.noun || "") || !prepared.assetId
+        || !source.fingerprint || !Number.isInteger(Number(source.pageNumber)) || Number(source.pageNumber) < 1) return null;
+    const title = `${PDF_COUNTING_WORDS[prepared.count]} ${prepared.noun}`;
+    return { count: prepared.count, noun: prepared.noun, title,
+      narrationText: `${title}. Let us count the ${prepared.noun}. ${PDF_COUNTING_WORDS.slice(1, prepared.count + 1).join(", ")}. There ${prepared.count === 1 ? "is" : "are"} ${title}.`,
+      markersVerified: false, markerPoints: [], markerLabels: null, markerLabelOffset: [0, 0], markerRadius: .014,
+      objectSource: "local-library", objectAssetId: prepared.assetId,
+      objectDocumentId: source.fingerprint, objectPageNumber: Number(source.pageNumber) };
+  }
+  if (!knownLayout) return null;
+  const normalized = normalizePdfLine(pageText).toLowerCase();
+  if (!normalized) return null;
+
+  // Match the number together with its noun. A stray "one" in an instruction
+  // must not override "thirteen candies", nor may a PDF footer be the count.
+  const headings = new RegExp(`(?=\\b(${PDF_COUNTING_WORDS.slice(2).join("|")}|20|1[0-9]|[2-9])\\s+([a-z][a-z-]{2,})\\b)`, "gi");
+  const candidates = Array.from(normalized.matchAll(headings)).filter(match =>
+    !PDF_COUNTING_WORDS.includes(match[2]) && !["and", "the", "are", "for", "nursery"].includes(match[2]));
+  const titleMatch = knownLayout
+    ? candidates.find(match => match[2] === knownLayout.noun
+        && (Number(match[1]) || PDF_COUNTING_WORDS.indexOf(match[1])) === knownLayout.points.length)
+    : candidates[0];
+  if (!titleMatch) return null;
+  const count = Number(titleMatch[1]) || PDF_COUNTING_WORDS.indexOf(titleMatch[1]);
+  const noun = titleMatch[2];
+  const numberList = PDF_COUNTING_WORDS.slice(1, count + 1).join(", ");
+  const title = `${PDF_COUNTING_WORDS[count]} ${noun}`;
+  return {
+    count,
+    noun,
+    title,
+    narrationText: `${title}. Let us count the ${noun}. ${numberList}. There are ${PDF_COUNTING_WORDS[count]} ${noun}.`,
+    markersVerified: Boolean(knownLayout),
+    markerPoints: knownLayout?.points.map(point => point.slice()) || [],
+    markerLabels: knownLayout?.labels?.map(point => point.slice()) || null,
+    markerLabelOffset: knownLayout?.labelOffset?.slice() || [0, 0],
+    markerRadius: knownLayout?.radius || .014,
+    objectDocumentId: knownLayout ? source.fingerprint : "",
+    objectPageNumber: knownLayout ? Number(source.pageNumber) : 0
+  };
+}
+
+function getPdfCountingStarts(page, presentationIndex) {
+  const measured = state.pdf.narration.pdfTiming?.find(item => item.pageIndex === page?.index);
+  const starts = measured?.countStarts;
+  // No percentage-of-page or guessed word durations: an unknown timing must
+  // not teach a number on an unrelated spoken word.
+  return Array.isArray(starts) && starts.length === page?.countingActivity?.count
+    && starts.every((time, index) => Number.isFinite(time) && time >= 0 && (!index || time > starts[index - 1]))
+    ? starts : [];
+}
+
+function getPdfCountingVisibleCount(page, presentationIndex) {
+  const activity = page?.countingActivity;
+  if (!activity?.count) return 0;
+  const starts = getPdfCountingStarts(page, presentationIndex);
+  return starts.filter(start => state.pdf.currentTimeMs >= start).length;
+}
+
+function getPdfCountingMarkerGeometry(activity, drawX, drawY, drawWidth, drawHeight) {
+  if (!activity?.markersVerified || activity.markerPoints?.length !== activity.count) return [];
+  const points = activity.markerPoints;
+  const validPoint = point => Array.isArray(point) && point.length === 2
+    && point.every(value => Number.isFinite(value) && value >= 0 && value <= 1);
+  if (!points.every(validPoint)) return [];
+  const labels = activity.markerLabels || points.map(point => [
+    point[0] + (activity.markerLabelOffset?.[0] || 0),
+    point[1] + (activity.markerLabelOffset?.[1] || 0)
+  ]);
+  if (labels.length !== points.length || !labels.every(validPoint)) return [];
+  const baseRadius = Math.min(28, drawWidth * (activity.markerRadius || .014));
+  return points.map((point, index) => {
+    const label = labels[index];
+    let radius = baseRadius;
+    labels.forEach((other, otherIndex) => {
+      if (otherIndex === index) return;
+      const separation = Math.hypot((label[0] - other[0]) * drawWidth, (label[1] - other[1]) * drawHeight);
+      radius = Math.min(radius, Math.max(0, separation * .45));
+    });
+    return {
+      anchorX: drawX + point[0] * drawWidth, anchorY: drawY + point[1] * drawHeight,
+      x: drawX + label[0] * drawWidth, y: drawY + label[1] * drawHeight, radius
+    };
+  });
+}
+
+// Complete realistic pictures are used only in counting view. Legacy source
+// anchors stay bound to the verified document. Automatic replacement scenes
+// require a clear heading or saved review and a local picture, never copied anchors.
+const pdfCountingManifestPromises = new Map();
+const pdfCountingImagePromises = new Map();
+const pdfCountingScriptUrl = typeof document !== "undefined" ? document.currentScript?.src : "";
+let pdfCountingPreparation = null;
+let pdfCountingPreparationPromise = null;
+
+async function ensurePdfCountingAutomationLoaded() {
+  if (!pdfCountingPreparationPromise) {
+    const url = new URL("pdf-counting-preparation.js", pdfCountingScriptUrl || new URL("script.js", document.baseURI));
+    pdfCountingPreparationPromise = import(url.href).then(module => module.loadPdfCountingPreparation()).then(preparation => {
+      pdfCountingPreparation = preparation;
+      return preparation;
+    }).catch(error => { pdfCountingPreparationPromise = null; throw error; });
+  }
+  return pdfCountingPreparationPromise;
+}
+
+function shouldRevealPdfCountingObjects(page) {
+  const activity = page?.countingActivity;
+  if (getPdfCountingDisplayMode() === "reveal" && activity?.objectSource === "local-library") {
+    return activity.objectDocumentId === page.sourceFingerprint
+      && activity.objectPageNumber === Number(page.pageNumber)
+      && Number.isInteger(activity.count) && activity.count >= 1 && activity.count <= 20
+      && Boolean(pdfCountingPreparation?.getAsset(activity.objectAssetId));
+  }
+  return getPdfCountingDisplayMode() === "reveal"
+    && activity?.objectDocumentId === PDF_COUNTING_DOCUMENT_ID
+    && activity?.objectPageNumber === Number(page.pageNumber)
+    && PDF_COUNTING_LAYOUTS[page.pageNumber]?.points.length === activity.count;
+}
+
+function validatePdfCountingObjectManifest(manifest, page) {
+  const activity = page?.countingActivity;
+  const profile = manifest?.pages?.[page?.pageNumber];
+  const validBounds = object => Array.isArray(object.contentBounds) && object.contentBounds.length === 4
+    && object.contentBounds.every(Number.isFinite)
+    && object.contentBounds[0] >= 0 && object.contentBounds[1] >= 0
+    && object.contentBounds[2] > 0 && object.contentBounds[3] > 0
+    && object.contentBounds[0] + object.contentBounds[2] <= object.width
+    && object.contentBounds[1] + object.contentBounds[3] <= object.height;
+  if (manifest?.schemaVersion !== 2 || manifest?.assetStyle !== "photorealistic"
+      || manifest?.fingerprint !== activity?.objectDocumentId || !profile?.verified
+      || profile.noun !== activity.noun || profile.count !== activity.count
+      || !Array.isArray(profile.objects) || profile.objects.length !== activity?.count
+      || !profile.objects.every((object, index) => object?.number === index + 1
+        && Number.isFinite(object.width) && object.width > 0
+        && Number.isFinite(object.height) && object.height > 0
+        && validBounds(object)
+        && object.src === `../realistic-v2/${activity.noun}.png`)) {
+    throw new Error(`Verified object artwork is unavailable for PDF page ${page?.pageNumber}. Choose Original PDF in Counting view.`);
+  }
+  return profile.objects;
+}
+
+async function ensurePdfCountingObjectsLoaded(page) {
+  if (!shouldRevealPdfCountingObjects(page)) return null;
+  if (page.countingObjectImages?.length === page.countingActivity.count) return page.countingObjectImages;
+  if (page.countingObjectPromise) return page.countingObjectPromise;
+  const fingerprint = page.countingActivity.objectDocumentId;
+  const loadingActivity = page.countingActivity;
+  const loadRevision = (page.countingObjectRevision || 0) + 1;
+  page.countingObjectRevision = loadRevision;
+  const stillCurrent = () => page.countingActivity === loadingActivity && page.countingObjectRevision === loadRevision;
+  const scriptUrl = pdfCountingScriptUrl || new URL("script.js", document.baseURI).href;
+  const manifestUrl = new URL(`assets/pdf-counting/${fingerprint}/manifest-realistic-v2.json`, scriptUrl);
+  page.countingObjectPromise = (async () => {
+    const localAsset = page.countingActivity.objectSource === "local-library"
+      ? pdfCountingPreparation?.getAsset(page.countingActivity.objectAssetId) : null;
+    if (!localAsset && !pdfCountingManifestPromises.has(fingerprint)) {
+      const manifestPromise = fetch(manifestUrl).then(response => {
+        if (!response.ok) throw new Error("Counting artwork could not be loaded. Choose Original PDF in Counting view.");
+        return response.json();
+      });
+      pdfCountingManifestPromises.set(fingerprint, manifestPromise);
+      manifestPromise.catch(() => pdfCountingManifestPromises.delete(fingerprint));
+    }
+    const objects = localAsset
+      ? Array.from({ length: page.countingActivity.count }, (_, index) => ({ ...localAsset, number: index + 1 }))
+      : validatePdfCountingObjectManifest(await pdfCountingManifestPromises.get(fingerprint), page);
+    // A single complete realistic picture is instanced once per count. Decode each URL once,
+    // not 11–20 times; every instance still has its own number and spoken cue.
+    const decoded = [];
+    for (const object of objects) {
+      const imageUrl = new URL(object.src, localAsset ? scriptUrl : manifestUrl).href;
+      if (!pdfCountingImagePromises.has(imageUrl)) {
+        const imagePromise = (async () => {
+          const image = new Image();
+          image.decoding = "async";
+          await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = () => reject(new Error(`The complete ${page.countingActivity.noun} picture could not be loaded.`));
+            image.src = imageUrl;
+          });
+          if (typeof image.decode === "function") await image.decode();
+          if (!image.naturalWidth || !image.naturalHeight) throw new Error("A counting object has no visible image.");
+          return image;
+        })();
+        pdfCountingImagePromises.set(imageUrl, imagePromise);
+        imagePromise.catch(() => pdfCountingImagePromises.delete(imageUrl));
+      }
+      const image = await pdfCountingImagePromises.get(imageUrl);
+      if (image.naturalWidth !== object.width || image.naturalHeight !== object.height) {
+        throw new Error("The counting picture dimensions do not match the reviewed asset.");
+      }
+      decoded.push({ ...object, image, width: object.contentBounds[2], height: object.contentBounds[3] });
+    }
+    if (!stillCurrent()) throw new DOMException("Counting picture preparation was superseded.", "AbortError");
+    page.countingObjectImages = decoded;
+    page.countingObjectError = "";
+    return decoded;
+  })().catch(error => {
+    if (stillCurrent()) {
+      page.countingObjectError = error.message || "Counting artwork could not be loaded.";
+      // Explicit Play can retry a transient failure; redraws cannot auto-loop.
+      page.countingObjectPromise = null;
+    }
+    throw error;
+  });
+  return page.countingObjectPromise;
+}
+
+async function preparePdfCountingObjects(options = {}) {
+  if (getPdfRenderMode() !== "exact") return;
+  const preparingPdfState = state.pdf;
+  preparingPdfState.preparingArtwork = (preparingPdfState.preparingArtwork || 0) + 1;
+  try {
+  const pages = getPdfPresentationPages("exact").filter(shouldRevealPdfCountingObjects);
+  for (let index = 0; index < pages.length; index += 1) {
+    assertPdfNarrationRequestActive(options);
+    if (!pages[index].countingObjectImages) {
+      options.onProgress?.(`Preparing counting artwork: page ${pages[index].pageNumber} (${index + 1}/${pages.length})`);
+    }
+    await ensurePdfCountingObjectsLoaded(pages[index]);
+  }
+  assertPdfNarrationRequestActive(options);
+  } finally { preparingPdfState.preparingArtwork = Math.max(0, preparingPdfState.preparingArtwork - 1); }
+}
+
+function buildPdfCountingSetup(text, items, fingerprint, pageNumber) {
+  const preparation = pdfCountingPreparation?.prepare({ text, items, fingerprint, pageNumber });
+  const countingActivity = getPdfCountingActivity(text, { fingerprint, pageNumber, preparation });
+  return {
+    sourceFingerprint: fingerprint,
+    countingTextItems: items,
+    countingPreparation: countingActivity && countingActivity.objectSource !== "local-library"
+      ? { status: "ready", reason: "Prepared nursery counting page.", count: countingActivity.count, noun: countingActivity.noun, assetId: `builtin:${countingActivity.noun}`, analysis: preparation?.analysis }
+      : preparation || { status: "review", reason: "Automatic preparation is unavailable. The original page is unchanged." },
+    countingActivity,
+    narrationText: countingActivity?.narrationText || text
+  };
+}
+
+function isPdfCountingPreparationBusy() {
+  return state.pdfLoading || state.speaking || state.exportingVideo || state.generatingNarration || state.pdf.preparingNarration || state.pdf.preparingArtwork || Boolean(state.activeAudio);
+}
+
+function refreshPdfCountingPreparation() {
+  invalidatePdfPresentationRequest();
+  resetPdfNarrationState();
+  state.pdf.contextPages = [];
+  state.pdf.contextPagesKey = "";
+  state.pdf.pages.forEach(page => {
+    Object.assign(page, buildPdfCountingSetup(page.text, page.countingTextItems || [], page.sourceFingerprint, page.pageNumber));
+    page.countingObjectImages = null;
+    page.countingObjectPromise = null;
+    page.countingObjectError = "";
+  });
+  state.pdf.currentTimeMs = 0;
+  rebuildPdfPresentationSchedule({ preserveTime: false });
+  renderPdfPreview(); renderPdfPageList(); updatePdfUi();
+  if (isPdfPresentationMode()) { markSceneDirty(); drawScene(state.mouthOpen); }
+}
+
+function appendPdfCountingReviewControls(card, page) {
+  const preparation = page.countingPreparation;
+  if (!preparation) return;
+  const status = document.createElement("p");
+  status.className = "upload-copy";
+  status.textContent = `${preparation.status === "ready" ? "Auto-ready" : preparation.status === "review" ? "Needs review" : "Original page"}: ${preparation.reason || ""} ${page.ocrNote || ""}`;
+  card.appendChild(status);
+  if (!pdfCountingPreparation || !page.sourceFingerprint) return;
+  const details = document.createElement("details");
+  details.className = "pdf-counting-review";
+  details.addEventListener("click", event => event.stopPropagation());
+  const summary = document.createElement("summary");
+  summary.textContent = "Review counting setup";
+  details.appendChild(summary);
+  const label = document.createElement("label");
+  label.textContent = "Number of objects (1–20)";
+  const countInput = document.createElement("input");
+  countInput.type = "number"; countInput.min = "1"; countInput.max = "20"; countInput.step = "1";
+  countInput.value = preparation.count || preparation.analysis?.count || "";
+  countInput.setAttribute("aria-label", `Object count for PDF page ${page.pageNumber}`);
+  label.appendChild(countInput); details.appendChild(label);
+  const select = document.createElement("select");
+  select.className = "theme-select";
+  select.setAttribute("aria-label", `Local object picture for PDF page ${page.pageNumber}`);
+  const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose a local picture"; select.appendChild(placeholder);
+  pdfCountingPreparation.listAssets().forEach(asset => {
+    const option = document.createElement("option"); option.value = asset.id; option.textContent = asset.noun; select.appendChild(option);
+  });
+  select.value = preparation.assetId || ""; details.appendChild(select);
+  const nounLabel = document.createElement("label"); nounLabel.textContent = "Spoken object name (singular for one)";
+  const spokenNoun = document.createElement("select"); spokenNoun.className = "theme-select";
+  spokenNoun.setAttribute("aria-label", `Spoken object name for PDF page ${page.pageNumber}`);
+  nounLabel.appendChild(spokenNoun); details.appendChild(nounLabel);
+  const updateSpokenNames = () => {
+    const asset = pdfCountingPreparation.getAsset(select.value);
+    spokenNoun.replaceChildren();
+    const empty = document.createElement("option"); empty.value = ""; empty.textContent = "Choose the correct spoken name"; spokenNoun.appendChild(empty);
+    for (const noun of asset?.aliases || []) {
+      const option = document.createElement("option"); option.value = noun; option.textContent = noun; spokenNoun.appendChild(option);
+    }
+    const count = Number(countInput.value);
+    // Only the bundled catalog has a declared singular alias order. A custom
+    // alias is an alternate name, not an inferred grammatical singular.
+    spokenNoun.value = asset ? count === 1
+      ? preparation.count === 1 && asset.aliases.includes(preparation.noun) ? preparation.noun
+        : asset.id.startsWith("builtin:") ? asset.aliases[1] : ""
+      : asset.noun : "";
+  };
+  select.addEventListener("change", updateSpokenNames); countInput.addEventListener("change", updateSpokenNames); updateSpokenNames();
+  const picture = document.createElement("img"); picture.className = "pdf-counting-sample";
+  const showPicture = () => {
+    const asset = pdfCountingPreparation.getAsset(select.value);
+    picture.hidden = !asset;
+    if (asset) { picture.src = new URL(asset.src, pdfCountingScriptUrl || document.baseURI).href; picture.alt = `Local teaching picture: ${asset.noun}`; }
+  };
+  select.addEventListener("change", showPicture); showPicture(); details.appendChild(picture);
+  const save = document.createElement("button"); save.type = "button"; save.className = "primary-btn"; save.textContent = "Save counting setup";
+  const original = document.createElement("button"); original.type = "button"; original.className = "ghost-btn"; original.textContent = "Keep original page";
+  const message = document.createElement("p"); message.className = "upload-copy"; message.setAttribute("role", "status");
+  const saveReview = async mode => {
+    if (isPdfCountingPreparationBusy()) { message.textContent = "Wait until playback, preparation and export finish before changing this page."; return; }
+    const count = Number(countInput.value), asset = pdfCountingPreparation.getAsset(select.value);
+    if (mode === "counting" && (!Number.isInteger(count) || count < 1 || count > 20 || !asset || !asset.aliases.includes(spokenNoun.value))) { message.textContent = "Choose a picture, the correct spoken name, and a whole number from 1 to 20."; return; }
+    const fingerprint = page.sourceFingerprint, currentDocument = state.pdf.document;
+    const review = { id: `${fingerprint}:${page.pageNumber}`, fingerprint, pageNumber: page.pageNumber, mode };
+    if (mode === "counting") Object.assign(review, { count, noun: spokenNoun.value, assetId: asset.id });
+    save.disabled = original.disabled = true;
+    try {
+      await pdfCountingPreparation.saveReview(review);
+      if (state.pdf.document !== currentDocument || isPdfCountingPreparationBusy()) { message.textContent = "Saved locally. This setup will apply on the next PDF load; current work was not changed."; return; }
+      refreshPdfCountingPreparation();
+      setPdfStatus(`Saved page ${page.pageNumber} locally. This PDF will reuse your choice automatically.`);
+    } catch (error) { message.textContent = `Could not save: ${error.message}`; }
+    finally { save.disabled = original.disabled = false; }
+  };
+  save.addEventListener("click", () => void saveReview("counting"));
+  original.addEventListener("click", () => void saveReview("original"));
+  details.append(save, original, message); card.appendChild(details);
+}
+
+async function importPdfCountingLocalPicture() {
+  const status = document.getElementById("pdfCountingLibraryStatus");
+  const fileInput = document.getElementById("pdfCountingPictureInput");
+  const nounInput = document.getElementById("pdfCountingPictureNoun");
+  const aliasesInput = document.getElementById("pdfCountingPictureAliases");
+  const button = document.getElementById("pdfCountingPictureSave");
+  if (!status) return;
+  if (isPdfCountingPreparationBusy()) { status.textContent = "Wait until playback, preparation and export finish before adding a picture."; return; }
+  button.disabled = true;
+  try {
+    const preparation = await ensurePdfCountingAutomationLoaded();
+    const file = fileInput.files?.[0], noun = String(nounInput.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!/^[a-z]+(?:[ -][a-z]+)*$/.test(noun) || noun.length > 40) throw new Error("Enter a short English object name, such as cats.");
+    if (!file || !/\.png$/i.test(file.name) || file.size > 5 * 1024 * 1024) throw new Error("Choose a transparent PNG smaller than 5 MB.");
+    const src = await readFileAsDataUrl(file);
+    const image = new Image(); image.src = src; await image.decode();
+    const width = image.naturalWidth, height = image.naturalHeight;
+    if (width < 32 || height < 32 || width > 4096 || height > 4096) throw new Error("Use a PNG between 32 and 4096 pixels on each side.");
+    const probe = document.createElement("canvas"); probe.width = width; probe.height = height;
+    const context = probe.getContext("2d", { willReadFrequently: true }); context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    let left = width, top = height, right = -1, bottom = -1, clear = 0, visible = 0;
+    for (let index = 3; index < pixels.length; index += 4) {
+      const alpha = pixels[index], position = (index - 3) / 4, x = position % width, y = Math.floor(position / width);
+      if (!alpha) clear++;
+      if (alpha >= 16) { visible++; left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y); }
+    }
+    if (clear < width * height * .05 || visible < width * height * .005) throw new Error("The PNG needs a visible whole object and a genuinely transparent background.");
+    if (left < 2 || top < 2 || right > width - 3 || bottom > height - 3) throw new Error("The object touches an image edge. Choose a complete picture with transparent padding around it.");
+    const aliases = Array.from(new Set([noun, ...String(aliasesInput.value || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean)]));
+    const asset = { id: `custom:${noun.replace(/[ -]+/g, "-")}`, noun, aliases, src, width, height, contentBounds: [left - 2, top - 2, right - left + 5, bottom - top + 5] };
+    if (preparation.getAsset(asset.id)) throw new Error("That object name is already saved. Choose a different name to preserve your existing picture.");
+    const currentDocument = state.pdf.document;
+    await preparation.saveAsset(asset);
+    if (!isPdfCountingPreparationBusy() && state.pdf.document === currentDocument && state.pdf.pages.length) refreshPdfCountingPreparation();
+    fileInput.value = "";
+    status.textContent = `Saved ${noun} locally. Clear matching headings can now use it automatically in future PDFs. Check the preview to confirm the picture shows one complete object.`;
+  } catch (error) { status.textContent = error.message || "The picture could not be saved."; }
+  finally { button.disabled = false; }
+}
+
+function getPdfCountingObjectSlots(count, width, height, sourceSizes = []) {
+  if (!Number.isInteger(count) || count < 1 || count > 20 || width <= 0 || height <= 0) return [];
+  const left = width * .055, top = height * .25;
+  const areaWidth = width * .89, areaHeight = height * .66;
+  const gap = Math.min(width, height) * .018;
+  let best = null;
+  for (let columns = 1; columns <= Math.min(6, count); columns += 1) {
+    const rows = Math.ceil(count / columns);
+    const cellWidth = (areaWidth - gap * (columns - 1)) / columns;
+    const cellHeight = (areaHeight - gap * (rows - 1)) / rows;
+    if (cellWidth <= 0 || cellHeight <= 0) continue;
+    const score = Array.from({ length: count }, (_, index) => {
+      const source = sourceSizes[index];
+      const aspect = source?.width > 0 && source?.height > 0 ? source.width / source.height : 1;
+      const w = Math.min(cellWidth * .82, cellHeight * .53 * aspect);
+      return w * w / aspect;
+    }).reduce((sum, area) => sum + area, 0) * (1 - (rows * columns - count) * .006);
+    if (!best || score > best.score) best = { columns, rows, cellWidth, cellHeight, score };
+  }
+  if (!best) return [];
+  return Array.from({ length: count }, (_, index) => {
+    const row = Math.floor(index / best.columns), col = index % best.columns;
+    const x = left + col * (best.cellWidth + gap), y = top + row * (best.cellHeight + gap);
+    const source = sourceSizes[index];
+    const aspect = source?.width > 0 && source?.height > 0 ? source.width / source.height : 1;
+    const imageWidth = Math.min(best.cellWidth * .82, best.cellHeight * .53 * aspect);
+    const imageHeight = imageWidth / aspect;
+    return {
+      x, y, width: best.cellWidth, height: best.cellHeight,
+      imageX: x + (best.cellWidth - imageWidth) / 2,
+      // Three separate bands: numeral above, whole object in the middle,
+      // spelling below. Labels never cover ears, wings, feet or book edges.
+      imageY: y + best.cellHeight * .25 + (best.cellHeight * .53 - imageHeight) / 2,
+      imageWidth, imageHeight,
+      badgeX: x + best.cellWidth / 2, badgeY: y + best.cellHeight * .12,
+      badgeRadius: Math.min(best.cellWidth * .10, best.cellHeight * .08),
+      wordX: x + best.cellWidth / 2, wordY: y + best.cellHeight * .90,
+      wordFontSize: Math.min(28 * Math.min(width / 1920, height / 1080), best.cellHeight * .12, best.cellWidth * .16),
+      wordMaxWidth: best.cellWidth * .88
+    };
+  });
+}
+
+function drawPdfCountingObjectScene(page, presentationIndex) {
+  if (!shouldRevealPdfCountingObjects(page)) return false;
+  const activity = page.countingActivity;
+  const objects = page.countingObjectImages;
+  const visibleCount = getPdfCountingVisibleCount(page, presentationIndex);
+  const starts = getPdfCountingStarts(page, presentationIndex);
+  const colors = ["#bd174a", "#a84708", "#12694f", "#086d91", "#6740b6", "#a7237b"];
+  const scale = Math.min(canvas.width / 1920, canvas.height / 1080);
+  ctx.save();
+  const background = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  background.addColorStop(0, "#effafe");
+  background.addColorStop(1, "#fff3df");
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#0b7184";
+  ctx.font = `800 ${Math.max(12, 24 * scale)}px "Nunito", sans-serif`;
+  ctx.fillText("LET'S COUNT", canvas.width * .055, canvas.height * .07);
+  ctx.fillStyle = "#172b45";
+  ctx.font = `900 ${Math.max(20, 58 * scale)}px "Nunito", sans-serif`;
+  ctx.fillText(activity.title.charAt(0).toUpperCase() + activity.title.slice(1), canvas.width * .055, canvas.height * .135, canvas.width * .69);
+  ctx.fillStyle = "#52677e";
+  ctx.font = `700 ${Math.max(11, 22 * scale)}px "Nunito", sans-serif`;
+  ctx.fillText("One spoken number. One new object.", canvas.width * .055, canvas.height * .20, canvas.width * .69);
+  ctx.textAlign = "right";
+  ctx.fillStyle = colors[Math.max(0, visibleCount - 1) % colors.length];
+  ctx.font = `900 ${Math.max(22, 72 * scale)}px "Nunito", sans-serif`;
+  ctx.fillText(`${visibleCount} / ${activity.count}`, canvas.width * .945, canvas.height * .13, canvas.width * .22);
+
+  if (!objects || objects.length !== activity.count) {
+    // A missing cutout must never reveal every object from the original PDF.
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#52677e";
+    ctx.font = `700 ${Math.max(13, 28 * scale)}px "Nunito", sans-serif`;
+    ctx.fillText(page.countingObjectError ? "Artwork unavailable — select Original PDF in Counting view." : "Preparing the realistic objects…", canvas.width / 2, canvas.height * .53, canvas.width * .88);
+    if (!page.countingObjectPromise && !page.countingObjectError) {
+      void ensurePdfCountingObjectsLoaded(page).then(() => {
+        if (isPdfPresentationMode()) { markSceneDirty(); drawScene(state.mouthOpen); }
+      }).catch(() => {
+        if (isPdfPresentationMode()) { markSceneDirty(); drawScene(state.mouthOpen); }
+      });
+    }
+    ctx.restore();
+    return true;
+  }
+
+  const slots = getPdfCountingObjectSlots(activity.count, canvas.width, canvas.height, objects);
+  // Every frame is reconstructed from the audio clock; seeking backwards also
+  // removes later objects, and paused frames cannot advance on wall-clock time.
+  objects.slice(0, visibleCount).forEach((object, index) => {
+    const slot = slots[index];
+    const progress = clamp((state.pdf.currentTimeMs - starts[index]) / 220, 0, 1);
+    const pop = .88 + .12 * Math.sin(progress * Math.PI / 2);
+    const color = colors[index % colors.length];
+    ctx.save();
+    ctx.translate(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    ctx.scale(pop, pop);
+    ctx.translate(-slot.x - slot.width / 2, -slot.y - slot.height / 2);
+    // A dark card gives the metallic star ornament a clear five-point outline.
+    ctx.fillStyle = activity.noun === "stars" ? "#18344c" : "rgba(255,255,255,.85)";
+    ctx.beginPath();
+    ctx.roundRect(slot.x, slot.y, slot.width, slot.height, Math.min(slot.width, slot.height) * .12);
+    ctx.fill();
+    ctx.strokeStyle = index === visibleCount - 1 ? color : "#d8e4eb";
+    ctx.lineWidth = Math.max(1, 3 * scale);
+    ctx.stroke();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    if (object.contentBounds) {
+      ctx.drawImage(object.image, ...object.contentBounds, slot.imageX, slot.imageY, slot.imageWidth, slot.imageHeight);
+    } else {
+      ctx.drawImage(object.image, slot.imageX, slot.imageY, slot.imageWidth, slot.imageHeight);
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(slot.badgeX, slot.badgeY, slot.badgeRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.font = `900 ${slot.badgeRadius * 1.3}px "Nunito", sans-serif`;
+    ctx.fillText(String(index + 1), slot.badgeX, slot.badgeY + scale);
+    ctx.fillStyle = activity.noun === "stars" ? "#ffffff" : color;
+    ctx.font = `800 ${slot.wordFontSize}px "Nunito", sans-serif`;
+    ctx.fillText(PDF_COUNTING_WORDS[index + 1], slot.wordX, slot.wordY, slot.wordMaxWidth);
+    ctx.restore();
+  });
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#52677e";
+  ctx.font = `800 ${Math.max(11, 22 * scale)}px "Nunito", sans-serif`;
+  ctx.fillText(visibleCount === activity.count ? `There ${activity.count === 1 ? "is" : "are"} ${activity.title}.` : !visibleCount ? "Ready? Listen for one…" : "Keep counting!", canvas.width / 2, canvas.height * .958, canvas.width * .88);
+  ctx.restore();
+  return true;
+}
+
+function drawPdfCountingMarkers(page, drawX, drawY, drawWidth, drawHeight, presentationIndex) {
+  const activity = page?.countingActivity;
+  const visibleCount = getPdfCountingVisibleCount(page, presentationIndex);
+  // Keep the page clean before narration starts. Each number is introduced only
+  // when its matching word is spoken, both on stage and in the exported video.
+  if (!activity || !visibleCount) return;
+  const markers = getPdfCountingMarkerGeometry(activity, drawX, drawY, drawWidth, drawHeight);
+  const starts = getPdfCountingStarts(page, presentationIndex);
+  const revealProgress = clamp((state.pdf.currentTimeMs - starts[visibleCount - 1]) / 180, 0, 1);
+  const currentScale = .7 + (Math.sin(revealProgress * Math.PI * .5) * .3);
+  const markerColors = ["#c9184a", "#b84a05", "#ffd166", "#087f5b", "#076e9b", "#6d28d9", "#b41373"];
+
+  markers.slice(0, visibleCount).forEach((marker, index) => {
+    const { x, y, anchorX, anchorY } = marker;
+    const isCurrent = index === visibleCount - 1;
+    const radius = marker.radius * (isCurrent ? currentScale : 1);
+    if (radius < 1) return;
+    const color = markerColors[index % markerColors.length];
+    ctx.save();
+    const separation = Math.hypot(x - anchorX, y - anchorY);
+    if (separation > radius * 1.2) {
+      // Leader ends at a verified object, while the readable badge stays clear
+      // of faces, book spines and tiny stars/overlapping bananas.
+      const endX = x + (anchorX - x) * radius / separation;
+      const endY = y + (anchorY - y) * radius / separation;
+      ctx.beginPath();
+      ctx.moveTo(anchorX, anchorY);
+      ctx.lineTo(endX, endY);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = Math.max(2, drawWidth * .004);
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, drawWidth * .002);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(anchorX, anchorY, Math.max(2, radius * .2), 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    ctx.shadowColor = "rgba(0,0,0,.5)";
+    ctx.shadowBlur = isCurrent ? 7 : 3;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.lineWidth = Math.max(1, radius * .12);
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+    ctx.fillStyle = index % markerColors.length === 2 ? "#182234" : "#ffffff";
+    ctx.font = `900 ${Math.round(radius * 1.3)}px "Nunito", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(index + 1), x, y + 1);
+    ctx.restore();
+  });
+
+  // A large synchronized readout in the unused side margin keeps thin-object
+  // labels legible without enlarging them over the artwork. No fake anchors
+  // are drawn for an unreviewed document.
+  if (drawX > canvas.width * .12) {
+    const sideX = drawX / 2;
+    const sideWidth = drawX - 28;
+    const size = Math.min(canvas.height * .16, sideWidth * .58);
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const readoutColors = ["#ff6688", "#ffac66", "#ffd166", "#46edbb", "#58cbff", "#c5a3ff", "#ff91cf"];
+    ctx.fillStyle = readoutColors[(visibleCount - 1) % readoutColors.length];
+    ctx.font = `900 ${size}px "Nunito", sans-serif`;
+    ctx.fillText(String(visibleCount), sideX, canvas.height * .47);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `800 ${Math.min(30, sideWidth * .09)}px "Nunito", sans-serif`;
+    ctx.fillText(`of ${activity.count} ${activity.noun}`, sideX, canvas.height * .59, sideWidth);
+    if (!markers.length) {
+      ctx.fillStyle = "#fcd34d";
+      ctx.font = `700 ${Math.min(18, sideWidth * .065)}px sans-serif`;
+      ctx.fillText("Object positions not verified", sideX, canvas.height * .65, sideWidth);
+    }
+    ctx.restore();
+  }
+}
+
 async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
   const sourceViewport = pdfPage.getViewport({ scale: 1 });
   const renderScale = Math.max(
@@ -8779,8 +9762,15 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
     background: "rgba(255,255,255,1)"
   }).promise;
 
-  const filteredPage = await createFilteredPdfPageCanvas(renderCanvas);
-  const presentationCanvas = filteredPage.canvas || renderCanvas;
+  // Preserve the user's complete page. Running face detection on every page is
+  // both destructive to lesson artwork and the main cause of long PDF stalls.
+  const filteredPage = {
+    canvas: renderCanvas,
+    humanContentMasked: false,
+    maskedFaceCount: 0,
+    maskRects: []
+  };
+  const presentationCanvas = renderCanvas;
 
   const thumbCanvas = document.createElement("canvas");
   const thumbWidth = 220;
@@ -8792,8 +9782,18 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
   thumbContext.fillStyle = "#eef6fb";
   thumbContext.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
   thumbContext.drawImage(presentationCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+  const renderedWidth = presentationCanvas.width;
+  const renderedHeight = presentationCanvas.height;
+  const renderDataUrl = presentationCanvas.toDataURL("image/jpeg", 0.9);
 
-  const pageText = buildPdfPageText(textContent.items);
+  const existingPage = state.pdf.pages.find(page => page.pageNumber === pageNumber);
+  const pageText = existingPage?.text || buildPdfPageText(textContent.items);
+  // Lazy image decoding cannot apply newly saved reviews mid-playback/export.
+  const countingSetup = existingPage ? {
+    sourceFingerprint: existingPage.sourceFingerprint, countingTextItems: existingPage.countingTextItems,
+    countingPreparation: existingPage.countingPreparation, countingActivity: existingPage.countingActivity,
+    narrationText: existingPage.narrationText, ocrNote: existingPage.ocrNote
+  } : buildPdfCountingSetup(pageText, textContent.items, state.pdf.document?.fingerprints?.[0], pageNumber);
   const wordCount = splitIntoWords(pageText).length;
   const exampleImages = extractPdfExampleImageAssets(
     textContent.items,
@@ -8808,12 +9808,17 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
     index: pageNumber - 1,
     pageNumber,
     text: pageText,
+    ...countingSetup,
     wordCount,
     exampleImages,
-    renderCanvas: presentationCanvas,
+    // Store compressed pixels instead of 48 live canvases/GPU textures. The
+    // active page is decoded lazily when it is actually shown.
+    renderDataUrl,
+    renderImage: null,
+    renderImagePromise: null,
     thumbnailUrl: thumbCanvas.toDataURL("image/png"),
-    width: presentationCanvas.width,
-    height: presentationCanvas.height,
+    width: renderedWidth,
+    height: renderedHeight,
     humanContentMasked: filteredPage.humanContentMasked,
     maskedFaceCount: filteredPage.maskedFaceCount
   };
@@ -8821,6 +9826,9 @@ async function renderPdfPageAssets(pdfPage, pageNumber, textContent) {
 
 async function extractPdfContent(file) {
   const pdfjsLib = await ensurePdfLibraryLoaded();
+  let automationWarning = "";
+  try { await ensurePdfCountingAutomationLoaded(); automationWarning = pdfCountingPreparation.storageWarning; }
+  catch (error) { automationWarning = error.message; }
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(arrayBuffer),
@@ -8834,11 +9842,46 @@ async function extractPdfContent(file) {
   for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
     const page = await pdfDocument.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const renderedPage = await renderPdfPageAssets(page, pageNumber, textContent);
-    const pageText = renderedPage.text;
+    const sourceViewport = page.getViewport({ scale: 1 });
+    let pageText = buildPdfPageText(textContent.items), countingItems = textContent.items, ocrNote = "";
+    if (pageText.trim().length < 12 && typeof window.electronAPI?.pdfCountingOcr === "function") {
+      setPdfProgress(18 + Math.round((pageNumber / totalPages) * 72), `Reading scanned page ${pageNumber} locally`);
+      try {
+        const ocrViewport = page.getViewport({ scale: Math.min(2, 1600 / Math.max(sourceViewport.width, sourceViewport.height)) });
+        const ocrCanvas = document.createElement("canvas"); ocrCanvas.width = Math.ceil(ocrViewport.width); ocrCanvas.height = Math.ceil(ocrViewport.height);
+        await page.render({ canvasContext: ocrCanvas.getContext("2d", { alpha: false }), viewport: ocrViewport, background: "rgb(255,255,255)" }).promise;
+        const result = await window.electronAPI.pdfCountingOcr({ dataUrl: ocrCanvas.toDataURL("image/png") });
+        ocrCanvas.width = ocrCanvas.height = 1;
+        if (result?.ok && String(result.text || "").trim()) {
+          pageText = result.text; countingItems = result.items || []; ocrNote = "Windows OCR text: check recognition against the original preview.";
+        } else { ocrNote = result?.error || "Windows OCR found no readable text. Review this page."; }
+      } catch (error) { ocrNote = `Local OCR unavailable: ${error.message}`; }
+    }
+    const countingSetup = buildPdfCountingSetup(pageText, countingItems, pdfDocument.fingerprints?.[0], pageNumber);
+    const thumbnailUrl = createPdfThumbnailPlaceholder(pageNumber);
     pageTexts.push(pageText);
-    pages.push(renderedPage);
+    pages.push({
+      index: pageNumber - 1,
+      pageNumber,
+      text: pageText,
+      ...countingSetup,
+      ocrNote,
+      wordCount: splitIntoWords(pageText).length,
+      exampleImages: [],
+      pdfPage: null,
+      renderDataUrl: "",
+      renderImage: null,
+      renderImagePromise: null,
+      thumbnailUrl,
+      width: sourceViewport.width,
+      height: sourceViewport.height,
+      humanContentMasked: false,
+      maskedFaceCount: 0
+    });
+    page.cleanup();
     setPdfProgress(18 + Math.round((pageNumber / totalPages) * 72), `Reading page ${pageNumber} of ${totalPages}`);
+    // Let the progress label paint and keep the window responsive between pages.
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
 
   const extractedText = pageTexts
@@ -8850,7 +9893,9 @@ async function extractPdfContent(file) {
     extractedText,
     pageTexts,
     pageCount: totalPages,
-    pages
+    pages,
+    automationWarning,
+    document: pdfDocument
   };
 }
 
@@ -8885,11 +9930,12 @@ async function loadSelectedPdf(forceReload = false) {
       pageTexts: payload.pageTexts,
       pageCount: payload.pageCount,
       pages: payload.pages,
+      document: payload.document,
       contextPages: [],
       contextPagesKey: "",
       autoImageSyncKey: "",
       lessonAutoImageSyncKey: "",
-      selectedPageIndexes: [],
+      selectedPageIndexes: payload.pages.map((page) => page.index),
       renderMode: "context",
       currentTimeMs: 0,
       totalDurationMs: 0,
@@ -8926,23 +9972,27 @@ async function loadSelectedPdf(forceReload = false) {
 
     renderPdfPreview();
     renderPdfPageList();
+    void populatePdfThumbnailPreviews(payload.pages, payload.document);
     preloadPdfExampleImages(payload.pages);
     syncExtractedPdfLessonImages({ skipDraw: true });
     setPdfProgress(100, "Ready");
+    const libraryStatus = document.getElementById("pdfCountingLibraryStatus");
+    if (libraryStatus) libraryStatus.textContent = payload.automationWarning
+      || "Local auto-preparation is ready. New pictures and reviewed page setups are saved on this device.";
     const maskedPageCount = payload.pages.filter((page) => page.humanContentMasked).length;
     const maskSummary = maskedPageCount
       ? ` Human photos were hidden on ${maskedPageCount} PDF page${maskedPageCount === 1 ? "" : "s"} when the browser could detect them, while maths and diagram visuals stay visible.`
       : "";
     setPdfStatus(
       payload.extractedText
-        ? `Loaded ${file.name}. No pages are selected yet. Tick the pages you want, then show or present them.${maskSummary}`
-        : `Loaded ${file.name}. No pages are selected yet, but the exact PDF page images are ready when you choose pages to show on screen.${maskSummary}`
+        ? `Loaded ${file.name}. All ${payload.pageCount} pages are selected and ready. Click Read PDF to begin.${maskSummary}`
+        : `Loaded ${file.name}. All ${payload.pageCount} page images are selected and ready to show.${maskSummary}`
       );
     setSpeechToolsStatus(
       payload.extractedText
         ? (shouldLoadExtractedTextIntoLesson
-          ? "PDF text is in the lesson box now. Tick the PDF pages you want, and their example images will follow onto the matching lesson pages."
-          : "PDF text is ready in the extracted PDF section. Copy a page into the content box only where you want it.")
+          ? "PDF text is in the lesson box and every page is selected. Click Read PDF to begin."
+          : "PDF text is ready in the extracted PDF section and every page is selected for presentation.")
         : "The PDF page images are ready. This file may be image-based, so reading may need OCR text from another source."
     );
     return true;
@@ -9032,7 +10082,7 @@ async function showPdfOnScreen() {
     return;
   }
 
-  showPdfScreen("context");
+  showPdfScreen("exact");
 }
 
 async function presentPdf() {
@@ -9041,7 +10091,7 @@ async function presentPdf() {
     return;
   }
 
-  showPdfScreen("context");
+  showPdfScreen("exact");
   await playSlide();
 }
 function isPdfPresentationMode() {
@@ -9289,6 +10339,27 @@ function clearSelectedPdfPages() {
   applyPdfPageSelection([]);
 }
 
+function selectPdfPageRange() {
+  const pageCount = state.pdf.pages.length;
+  if (!pageCount) {
+    setPdfStatus("Upload a PDF before selecting a page range.");
+    return;
+  }
+
+  const from = Math.round(Number(pdfRangeFromInput?.value));
+  const to = Math.round(Number(pdfRangeToInput?.value));
+  if (!Number.isInteger(from) || !Number.isInteger(to)) {
+    setPdfStatus("Enter both a first and last page number, for example 26 to 35.");
+    return;
+  }
+
+  const start = clamp(Math.min(from, to), 1, pageCount);
+  const end = clamp(Math.max(from, to), 1, pageCount);
+  const indexes = Array.from({ length: end - start + 1 }, (_, index) => start - 1 + index);
+  applyPdfPageSelection(indexes);
+  setPdfStatus(`Selected PDF pages ${start} to ${end}. Click Read PDF when ready.`);
+}
+
 function updateStageTimelineUi() {
   const pdfMode = isPdfPresentationMode();
   if (stageTimelineCard) {
@@ -9360,6 +10431,8 @@ function updateStageTimelineUi() {
 
 function updateStageModeUi() {
   const pdfMode = isPdfPresentationMode();
+  if (pdfVoiceSelect) pdfVoiceSelect.disabled = state.exportingVideo;
+  if (pdfCountingDisplaySelect) pdfCountingDisplaySelect.disabled = state.exportingVideo || state.speaking || state.pdfLoading;
 
   if (stageModeBadge) {
     stageModeBadge.textContent = pdfMode ? "PDF" : "LESSON";
@@ -9386,7 +10459,7 @@ function updateStageModeUi() {
   if (downloadBtn) {
     const downloadLabel = state.exportingVideo
       ? (pdfMode ? "Exporting PDF..." : "Exporting Video...")
-      : (pdfMode ? (getPdfRenderMode() === "exact" ? "Export Exact PDF" : "Export PDF Context") : "Export Video");
+      : (pdfMode ? (getPdfRenderMode() === "exact" ? "Export All Selected PDF Pages" : "Export Selected PDF Context") : "Export Video");
     downloadBtn.textContent = downloadLabel;
     downloadBtn.setAttribute("aria-label", downloadLabel);
     downloadBtn.title = downloadLabel;
@@ -9472,6 +10545,7 @@ async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource =
 
   try {
     const audioElement = await createLoadedAudio(nextUrl);
+    assertPdfNarrationRequestActive(options);
     const durationMs = Number.isFinite(audioElement.duration)
       ? Math.max(1000, Math.ceil(audioElement.duration * 1000))
       : getPdfScheduleTotalDuration(buildPdfPresentationSchedule());
@@ -9488,6 +10562,7 @@ async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource =
       blob,
       textSource,
       voice,
+      pdfTiming: options.syncProfile?.pdfTiming || null,
       syncProfile: syncProfile
         ? {
           text: textSource,
@@ -9505,35 +10580,232 @@ async function setPdfNarrationFromBlob(blob, fileName, sourceLabel, textSource =
   }
 }
 
+// Keep a bounded session cache, separated by voice. Re-selecting a range or
+// exporting in the same voice reuses number clips without running TTS again.
+const pdfNarrationClipCache = new Map();
+const pdfNarrationClipsInFlight = new Map();
+const PDF_NARRATION_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+
+function getPdfNarrationAudibleOnsetMs(decoded) {
+  const sampleRate = Number(decoded?.sampleRate);
+  const durationMs = Number(decoded?.duration) * 1000;
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0 || !Number.isFinite(durationMs)
+    || durationMs <= 0 || typeof decoded?.getChannelData !== "function") return 0;
+  const channelCount = Math.min(8, Math.max(0, Math.floor(Number(decoded.numberOfChannels) || 0)));
+  if (!channelCount) return 0;
+  const channels = Array.from({ length: channelCount }, (_, index) => decoded.getChannelData(index));
+  const sampleCount = Math.min(Math.floor(sampleRate * 3), ...channels.map(channel => channel.length));
+  if (!sampleCount) return 0;
+
+  // Inspect only the first three seconds. Short RMS windows and sustained
+  // activity ignore isolated padding clicks, including on stereo voice clips.
+  const windowSamples = Math.max(1, Math.round(sampleRate * 0.005));
+  const sampleStep = Math.max(1, Math.ceil(sampleRate / 16000));
+  const levels = [];
+  let loudest = 0, noiseFloor = Infinity;
+  for (let start = 0; start < sampleCount; start += windowSamples) {
+    const end = Math.min(sampleCount, start + windowSamples);
+    let level = 0;
+    for (const channel of channels) {
+      let squareSum = 0, measured = 0;
+      for (let index = start; index < end; index += sampleStep) {
+        const sample = Number.isFinite(channel[index]) ? channel[index] : 0;
+        squareSum += sample * sample;
+        measured++;
+      }
+      level = Math.max(level, Math.sqrt(squareSum / Math.max(1, measured)));
+    }
+    levels.push(level);
+    loudest = Math.max(loudest, level);
+    noiseFloor = Math.min(noiseFloor, level);
+  }
+  const threshold = Math.max(0.0008, noiseFloor * 3, loudest * 0.01);
+  const quietThreshold = Math.max(0.0004, noiseFloor * 1.5, threshold * 0.25);
+  const requiredWindows = Math.min(3, levels.length);
+  let activeWindows = 0;
+  for (let index = 0; index < levels.length; index++) {
+    activeWindows = levels[index] >= threshold ? activeWindows + 1 : 0;
+    if (activeWindows < requiredWindows) continue;
+    let firstWindow = index - requiredWindows + 1;
+    // Include a quiet consonant immediately before the sustained word. This
+    // moves only the label timestamp; the original audio is never trimmed.
+    for (let earlier = Math.max(0, firstWindow - 6); earlier < firstWindow; earlier++) {
+      if (levels[earlier] >= quietThreshold) { firstWindow = earlier; break; }
+    }
+    return Math.max(0, Math.min(durationMs, firstWindow * windowSamples * 1000 / sampleRate));
+  }
+  return 0;
+}
+
+async function getPdfNarrationClip(part, voice, options, audioContext) {
+  const key = JSON.stringify([voice, part]);
+  const cached = pdfNarrationClipCache.get(key);
+  if (cached) {
+    pdfNarrationClipCache.delete(key);
+    pdfNarrationClipCache.set(key, cached);
+    return cached;
+  }
+  if (pdfNarrationClipsInFlight.has(key)) return pdfNarrationClipsInFlight.get(key);
+  const pending = (async () => {
+    const result = await generateNarrationChunkWithFallback(part, voice, { ...options, onProgress: undefined });
+    const durations = [], onsetsMs = [];
+    for (const blob of result.blobs) {
+      const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer());
+      // The shared lesson measurement has a 1-second minimum. Counting must
+      // match the actual decoded audio, including clips shorter than a second.
+      durations.push(decoded.duration * 1000);
+      onsetsMs.push(getPdfNarrationAudibleOnsetMs(decoded));
+    }
+    const clip = { ...result, durations, onsetsMs };
+    pdfNarrationClipCache.set(key, clip);
+    let bytes = Array.from(pdfNarrationClipCache.values()).reduce((sum, entry) =>
+      sum + entry.blobs.reduce((size, blob) => size + blob.size, 0), 0);
+    while (pdfNarrationClipCache.size > 256 || bytes > PDF_NARRATION_CACHE_MAX_BYTES) {
+      const oldestKey = pdfNarrationClipCache.keys().next().value;
+      const oldest = pdfNarrationClipCache.get(oldestKey);
+      bytes -= oldest.blobs.reduce((size, blob) => size + blob.size, 0);
+      pdfNarrationClipCache.delete(oldestKey);
+    }
+    return clip;
+  })();
+  pdfNarrationClipsInFlight.set(key, pending);
+  try { return await pending; }
+  finally { pdfNarrationClipsInFlight.delete(key); }
+}
+
+function assertPdfNarrationRequestActive(options) {
+  if (options.isCurrent && !options.isCurrent()) {
+    throw new DOMException("PDF narration preparation cancelled.", "AbortError");
+  }
+}
+
+async function requestPdfNarrationBlob(text, voice, options = {}) {
+  voice = requireNarrationVoiceId(voice);
+  const pages = getPdfSelectedPages();
+  if (!pages.some(page => page.countingActivity)) return requestNarrationBlob(text, voice, options);
+  const blobs = [], entries = [], pdfTiming = [];
+  const clips = new Map();
+  const pageParts = pages.map(page => {
+    const activity = page.countingActivity;
+    return activity
+      ? [`${activity.title}. Let us count the ${activity.noun}.`,
+          ...PDF_COUNTING_WORDS.slice(1, activity.count + 1),
+          `There ${activity.count === 1 ? "is" : "are"} ${PDF_COUNTING_WORDS[activity.count]} ${activity.noun}.`]
+      : [String(page.narrationText || page.text || "").trim()].filter(Boolean);
+  });
+  const uniqueParts = Array.from(new Set(pageParts.flat()));
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) throw new Error("Audio preparation is unavailable in this browser.");
+  const audioContext = new AudioContextConstructor();
+  let nextPart = 0, completed = 0, failed = false;
+  const report = label => options.onProgress?.({ label, progress: completed / Math.max(1, uniqueParts.length) });
+  report(`Preparing ${getNarrationVoiceLabel(voice)}: 0 of ${uniqueParts.length} voice clips`);
+  try {
+    const worker = async () => {
+      try {
+        while (!failed && nextPart < uniqueParts.length) {
+          assertPdfNarrationRequestActive(options);
+          const part = uniqueParts[nextPart++];
+          clips.set(part, await getPdfNarrationClip(part, voice, options, audioContext));
+          assertPdfNarrationRequestActive(options);
+          completed++;
+          report(`Preparing ${getNarrationVoiceLabel(voice)}: ${completed} of ${uniqueParts.length} voice clips`);
+        }
+      } catch (error) { failed = true; throw error; }
+    };
+    const workers = await Promise.allSettled(Array.from({ length: Math.min(voice === EDGE_NARRATION_VOICE ? 3 : 1, uniqueParts.length) }, worker));
+    const failure = workers.find(result => result.status === "rejected");
+    if (failure) throw failure.reason;
+  } finally { await audioContext.close(); }
+  assertPdfNarrationRequestActive(options);
+  let cursorMs = 0;
+  for (const [pageOffset, page] of pages.entries()) {
+    const activity = page.countingActivity;
+    const parts = pageParts[pageOffset];
+    const timing = { pageIndex: page.index, startMs: cursorMs, countStarts: [] };
+    if (!parts.length) {
+      // Keep image-only pages in a mixed PDF without sending empty text to TTS.
+      const lead = entries.length ? 80 : 0;
+      blobs.push(createSilentWavBlob(3000));
+      entries.push({ text: "[silent PDF page]", gapAfterMs: 250 });
+      cursorMs += lead + 3000 + 250;
+    }
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index];
+      const clip = clips.get(part);
+      // Same lead-in and gaps as combineNarrationBlobs; no proportional timing.
+      const leadIn = entries.length && entries[entries.length - 1].gapAfterMs > 200 ? 80 : 0;
+      if (activity && index > 0 && index <= activity.count) {
+        timing.countStarts.push(cursorMs + leadIn + (clip.onsetsMs?.[0] || 0));
+      }
+      clip.blobs.forEach((blob, chunkIndex) => {
+        const gapAfterMs = 250;
+        const lead = entries.length && entries[entries.length - 1].gapAfterMs > 200 ? 80 : 0;
+        blobs.push(blob);
+        entries.push({ text: clip.chunks[chunkIndex], gapAfterMs });
+        cursorMs += lead + clip.durations[chunkIndex] + gapAfterMs;
+      });
+    }
+    timing.endMs = cursorMs;
+    pdfTiming.push(timing);
+  }
+  report("Joining the prepared PDF narration...");
+  const blob = await combineNarrationBlobs(blobs, entries);
+  assertPdfNarrationRequestActive(options);
+  const profile = getSpeechSyncProfile(text, cursorMs + 200);
+  options.onSyncProfile?.({ ...profile, pdfTiming });
+  return blob;
+}
+
 async function ensurePdfNarrationReadyForPresentation(options = {}) {
   const pdfText = getPdfPresentationText();
   if (!pdfText) {
     throw new Error("No readable PDF text was found in the selected pages.");
   }
 
-  const voice = "anjali";
-  if (
-    state.pdf.narration.url
-    && state.pdf.narration.textSource === pdfText
-    && state.pdf.narration.voice === voice
-  ) {
+  const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  if (hasMatchingPdfNarration(voice, pdfText)) {
     return;
   }
 
   const label = `Generated ${getNarrationVoiceLabel(voice).toLowerCase()} PDF narration`;
   const fileName = `generated-${voice}-pdf-narration.wav`;
+  const requestId = state.pdf.requestId;
+  const isCurrent = () => requestId === state.pdf.requestId
+    && voice === normalizeNarrationVoiceId(state.preferredNarrationVoice)
+    && pdfText === getPdfPresentationText();
   let syncProfile = null;
-  const blob = await requestNarrationBlob(pdfText, voice, {
-    ...options,
-    timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
-    onSyncProfile: (profile) => {
-      syncProfile = profile;
-      if (typeof options.onSyncProfile === "function") {
-        options.onSyncProfile(profile);
+  const preparingPdfState = state.pdf;
+  preparingPdfState.preparingNarration = (preparingPdfState.preparingNarration || 0) + 1;
+  const whatsAppJob = createWhatsAppBrowserJob("PDF narration preparation", { isCurrent });
+  try {
+    const blob = await requestPdfNarrationBlob(pdfText, voice, {
+      ...options,
+      isCurrent,
+      timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
+      onSyncProfile: (profile) => {
+        syncProfile = profile;
+        if (typeof options.onSyncProfile === "function") {
+          options.onSyncProfile(profile);
+        }
       }
-    }
-  });
-  await setPdfNarrationFromBlob(blob, fileName, label, pdfText, voice, { syncProfile });
+    });
+    assertPdfNarrationRequestActive({ isCurrent });
+    await setPdfNarrationFromBlob(blob, fileName, label, pdfText, voice, { syncProfile, isCurrent });
+    finishWhatsAppBrowserJob(whatsAppJob, "completed", "Prepared: " + getWhatsAppOutputName(fileName));
+  } catch (error) {
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
+    throw error;
+  } finally { preparingPdfState.preparingNarration = Math.max(0, preparingPdfState.preparingNarration - 1); }
+}
+
+function hasMatchingPdfNarration(voice, text = getPdfPresentationText()) {
+  const narration = state.pdf.narration;
+  const pages = getPdfSelectedPages();
+  return Boolean(narration.url && narration.blob && narration.voice === voice && narration.textSource === text
+    && (!pages.some(page => page.countingActivity)
+      || (narration.pdfTiming?.length === pages.length
+        && narration.pdfTiming.every((item, index) => item.pageIndex === pages[index].index))));
 }
 
 function getSelectedEdgeExportVoice() {
@@ -9553,10 +10825,22 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
   syncExportVoiceSelection();
   const exportVoice = getSelectedEdgeExportVoice();
   const exportText = String(options.textSource || commitLatestLessonText()).trim();
+  const alphabetData = getAlphabetSayAloudData(exportText);
+  const alphabetStarts = state.narration?.syncProfile?.profile?.alphabetSlideStartsMs;
+  const minimumAlphabetDurationMs = alphabetData
+    ? alphabetData.items.length * ALPHABET_ITEM_DURATION_MS
+    : 0;
+  const alphabetNarrationIsCurrent = !alphabetData || Boolean(
+    Array.isArray(alphabetStarts)
+    && alphabetStarts.length === alphabetData.items.length
+    && alphabetStarts.every((start, index) => Math.abs(Number(start) - (index * ALPHABET_ITEM_DURATION_MS)) <= 120)
+    && Number(state.narration?.durationMs || 0) >= minimumAlphabetDurationMs
+  );
   const hasMatchingNarration = Boolean(
     state.narration.blob
     && state.narration.voice === exportVoice
     && state.narration.textSource === exportText
+    && alphabetNarrationIsCurrent
   );
 
   if (hasMatchingNarration) {
@@ -9600,19 +10884,20 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
 
   syncExportVoiceSelection();
   const exportVoice = getSelectedEdgeExportVoice();
+  const requestId = state.pdf.requestId;
+  const isCurrent = () => requestId === state.pdf.requestId
+    && exportVoice === normalizeNarrationVoiceId(state.preferredNarrationVoice)
+    && pdfText === getPdfPresentationText();
 
-  const hasMatchingNarration = Boolean(
-    state.pdf.narration.blob
-    && state.pdf.narration.voice === exportVoice
-    && state.pdf.narration.textSource === pdfText
-  );
+  const hasMatchingNarration = hasMatchingPdfNarration(exportVoice, pdfText);
   if (hasMatchingNarration) {
     return state.pdf.narration.blob;
   }
 
   let syncProfile = null;
-  const blob = await requestNarrationBlob(pdfText, exportVoice, {
+  const blob = await requestPdfNarrationBlob(pdfText, exportVoice, {
     ...options,
+    isCurrent,
     timeoutMs: options.timeoutMs || getLongNarrationRequestTimeoutMs(pdfText),
     onSyncProfile: (profile) => {
       syncProfile = profile;
@@ -9627,7 +10912,7 @@ async function ensureAnjaliPdfNarrationReadyForExport(options = {}) {
     `Generated ${getNarrationVoiceLabel(exportVoice).toLowerCase()} PDF narration`,
     pdfText,
     exportVoice,
-    { syncProfile }
+    { syncProfile, isCurrent }
   );
   return blob;
 }
@@ -9731,8 +11016,9 @@ function startPdfPlaybackLoop(options = {}) {
 }
 
 async function startPdfNarrationPlayback(statusMessage) {
-  const resumeTimeMs = clamp(state.pdf.currentTimeMs, 0, state.pdf.totalDurationMs || 0);
+  let resumeTimeMs = clamp(state.pdf.currentTimeMs, 0, state.pdf.totalDurationMs || 0);
   stopPlayback(false);
+  const signal = getPlaybackSignal();
   resetTaskProgressUi();
   state.pdf.currentTimeMs = resumeTimeMs;
   syncPdfPreviewPageFromTime(state.pdf.currentTimeMs);
@@ -9741,7 +11027,22 @@ async function startPdfNarrationPlayback(statusMessage) {
     true
   );
 
-  const audioElement = await createLoadedAudio(state.pdf.narration.url);
+  const requestId = state.pdf.requestId;
+  const narrationUrl = state.pdf.narration.url;
+  const displayMode = getPdfCountingDisplayMode();
+  const isCurrent = () => !signal.aborted && requestId === state.pdf.requestId && narrationUrl === state.pdf.narration.url
+    && displayMode === getPdfCountingDisplayMode() && !state.exportingVideo;
+  await preparePdfCountingObjects({ isCurrent, onProgress: label => {
+    setStatus(label);
+    setPdfStatus(label);
+  } });
+  assertPdfNarrationRequestActive({ isCurrent });
+  const audioElement = await createLoadedAudio(narrationUrl, { signal });
+  if (!isCurrent()) disposeRuntimeAudio(audioElement);
+  assertPdfNarrationRequestActive({ isCurrent });
+  // A page click/seek made while artwork was decoding takes precedence over
+  // the position captured before preparation started.
+  resumeTimeMs = clamp(state.pdf.currentTimeMs, 0, state.pdf.totalDurationMs || 0);
   audioElement.currentTime = resumeTimeMs / 1000;
   applyNaturalVoicePlayback(audioElement, getPdfPlaybackRate());
   audioElement.muted = false;
@@ -9763,7 +11064,23 @@ async function startPdfNarrationPlayback(statusMessage) {
     console.error(error);
     return null;
   });
-  await audioElement.play();
+  const ownsPlayback = () => state.activeAudio === audioElement && state.speaking && isCurrent();
+  try {
+    assertPdfNarrationRequestActive({ isCurrent: ownsPlayback });
+    await audioElement.play();
+    assertPdfNarrationRequestActive({ isCurrent: ownsPlayback });
+  } catch (error) {
+    audioElement.pause();
+    if (state.activeAudio === audioElement) {
+      stopActiveAudio();
+      state.speaking = false;
+      state.pdf.audioDriven = false;
+      state.pdf.paused = true;
+      updateStageModeUi();
+      drawScene(0.12);
+    }
+    throw error;
+  }
 
   const completionPromise = new Promise((resolve, reject) => {
     startPdfPlaybackLoop({
@@ -9775,11 +11092,13 @@ async function startPdfNarrationPlayback(statusMessage) {
 
   completionPromise
     .then(() => {
-      finishPlayback("PDF presentation complete.");
+      if (ownsPlayback()) finishPlayback("PDF presentation complete.");
     })
     .catch((error) => {
-      console.error(error);
-      finishPlayback(error?.message || "PDF narration playback failed.");
+      if (ownsPlayback()) {
+        console.error(error);
+        finishPlayback(error?.message || "PDF narration playback failed.");
+      }
     });
 }
 
@@ -9833,13 +11152,16 @@ async function playPdfPresentation() {
     syncPdfPreviewPageFromTime(0);
   }
 
-  if (state.pdf.paused && state.pdf.currentTimeMs > 0 && !state.pdf.narration.url) {
-    startTimedPdfPresentation("PDF presentation resumed with the timeline controls.");
-    return;
-  }
-
-  if (state.pdf.narration.url) {
-    await startPdfNarrationPlayback("PDF presentation is playing with generated narration.");
+  const selectedVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  if (hasMatchingPdfNarration(selectedVoice)) {
+    try {
+      await startPdfNarrationPlayback(`PDF presentation is playing with ${getNarrationVoiceLabel(selectedVoice)}.`);
+    } catch (error) {
+      if (error?.name !== "AbortError" && requestId === state.pdf.requestId) {
+        setStatus(error.message || "PDF playback could not be prepared.");
+        setPdfStatus(error.message || "PDF playback could not be prepared.");
+      }
+    }
     return;
   }
 
@@ -9849,34 +11171,29 @@ async function playPdfPresentation() {
     return;
   }
 
-  if (normalizeNarrationVoiceId(state.preferredNarrationVoice) !== EDGE_NARRATION_VOICE) {
-    const narrationServerReady = await ensureAnjaliCloneServer();
-    if (!narrationServerReady) {
-      startTimedPdfPresentation(`The local sc3 voice server is offline, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
-      return;
-    }
-  }
-
   try {
-    setStatus("Preparing PDF narration...");
+    setStatus(`Preparing PDF narration with ${getNarrationVoiceLabel(selectedVoice)}...`);
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
-    await ensurePdfNarrationReadyForPresentation();
+    await ensurePdfNarrationReadyForPresentation({ onProgress: ({ label, progress }) => {
+      if (requestId !== state.pdf.requestId) return;
+      setStatus(label);
+      setPdfStatus(label);
+      updateTaskProgressUi(0.2 + clamp(Number(progress) || 0, 0, 1) * 0.65, true, { mirrorStage: true, label });
+    } });
     if (requestId !== state.pdf.requestId) {
       resetTaskProgressUi();
       return;
     }
     updateTaskProgressUi(0.88, true, { mirrorStage: true });
     resetTaskProgressUi();
-    await startPdfNarrationPlayback("PDF presentation is playing with generated narration.");
+    await startPdfNarrationPlayback(`PDF presentation is playing with ${getNarrationVoiceLabel(selectedVoice)}.`);
   } catch (error) {
+    if (error?.name === "AbortError" || requestId !== state.pdf.requestId) return;
     console.error(error);
     resetTaskProgressUi();
-    if (getPdfRenderMode() === "context" && pdfText) {
-      setStatus(`PDF context narration could not be prepared: ${error.message || "unknown error"}.`);
-      return;
-    }
-
-    startTimedPdfPresentation(`Generated PDF narration is unavailable right now, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
+    const message = `${getNarrationVoiceLabel(selectedVoice)} PDF narration could not be prepared: ${error.message || "unknown error"}. Choose another voice or try again.`;
+    setStatus(message);
+    setPdfStatus(message);
   }
 }
 
@@ -10848,6 +12165,22 @@ async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null
   }
 }
 
+async function discardMuxUploadSession(sessionId) {
+  if (!sessionId) return;
+  try {
+    // Only discard the partial upload we own. Never complete a partial export,
+    // restart the service, or replace the original upload error with cleanup.
+    const response = await fetchWithTimeout(`${state.videoExportServerUrl}/api/mux-upload-cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId })
+    }, 1500);
+    if (!response.ok) console.warn("[video-export] Partial upload cleanup was not acknowledged.");
+  } catch (error) {
+    console.warn("[video-export] Partial upload cleanup could not reach the server:", error);
+  }
+}
+
 function shouldUseSegmentedLessonExport(totalDurationMs = 0, options = {}) {
   if (Boolean(options.includeIntro)) {
     return false;
@@ -10925,7 +12258,8 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      videoFileName: "canvas-export.webm",
+      videoFileName,
+      pdfExactTimeline: options.pdfExactTimeline === true,
       audioFileName,
       musicFileName: musicBlob?.size ? (state.music.fileName || "background-music.wav") : "",
       audioSpeed,
@@ -10953,6 +12287,7 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
   }
 
   let uploadedBytes = 0;
+  try {
   for (const item of uploadPlan) {
     await uploadBlobToMuxSession(sessionId, item.key, item.blob, (itemUploadedBytes, itemTotalBytes) => {
       const overallUploadedBytes = uploadedBytes + itemUploadedBytes;
@@ -10963,6 +12298,10 @@ async function muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, options 
       });
     });
     uploadedBytes += Number(item.blob?.size || 0);
+  }
+  } catch (error) {
+    await discardMuxUploadSession(sessionId);
+    throw error;
   }
 
   const completeResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
@@ -11071,6 +12410,7 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
   }
 
   let uploadedBytes = 0;
+  try {
   for (const item of uploadPlan) {
     await uploadBlobToMuxSession(sessionId, item.key, item.blob, (itemUploadedBytes) => {
       const overallUploadedBytes = uploadedBytes + itemUploadedBytes;
@@ -11081,6 +12421,10 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
       });
     });
     uploadedBytes += Number(item.blob?.size || 0);
+  }
+  } catch (error) {
+    await discardMuxUploadSession(sessionId);
+    throw error;
   }
 
   const completeResponse = await fetchVideoExportEndpoint(`${state.videoExportServerUrl}/api/mux-upload-complete`, {
@@ -12385,10 +13729,18 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   const numberTableNarrationChunks = options.rawNarrationText === true || voice === EDGE_NARRATION_VOICE
     ? null
     : getNumberTableNarrationChunkEntries(text);
+  // Use one independently measured audio chunk per letter for every voice.
+  // Edge previously bypassed this path, which made visuals advance around
+  // twice as fast as its single continuous A-Z narration.
+  const alphabetNarrationChunks = options.rawNarrationText === true
+    ? null
+    : getAlphabetNarrationChunkEntries(text);
   const chunkEntries = glossaryNarrationChunks?.length
     ? glossaryNarrationChunks
-    : numberTableNarrationChunks?.length
-      ? numberTableNarrationChunks
+    : alphabetNarrationChunks?.length
+      ? alphabetNarrationChunks
+      : numberTableNarrationChunks?.length
+        ? numberTableNarrationChunks
       : normalizeNarrationChunkEntries(
         narrationText.length > chunkConfig.threshold
           ? splitNarrationTextIntoChunks(narrationText, chunkConfig.maxChunkLength).map((chunk, index, source) => ({
@@ -12493,18 +13845,45 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       window.clearInterval(progressTimerId);
     }
 
+    const alphabetSlideStartsMs = alphabetNarrationChunks?.length === chunkEntries.length ? [] : null;
+    let alphabetAudioCursorMs = 0;
     parallelResults.forEach((chunkResult, index) => {
       const chunk = chunkEntries[index];
-      blobs.push(...chunkResult.blobs);
-      chunkDurationsMs.push(...chunkResult.durations);
-      resolvedChunks.push(...normalizeNarrationChunkEntries(
+      const resolvedEntriesForChunk = normalizeNarrationChunkEntries(
         chunkResult.chunks.map((chunkText, chunkIndex, source) => ({
           text: chunkText,
           gapAfterMs: chunkIndex < (source.length - 1)
             ? NARRATION_CHUNK_JOIN_GAP_MS
             : chunk.gapAfterMs
         }))
-      ));
+      );
+      if (alphabetSlideStartsMs) {
+        const speechDurationMs = chunkResult.durations.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+        const internalGapMs = resolvedEntriesForChunk.slice(0, -1)
+          .reduce((sum, entry) => sum + Math.max(0, Number(entry.gapAfterMs) || 0), 0);
+        const currentLeadInMs = index > 0 ? 80 : 0;
+        const internalLeadInMs = resolvedEntriesForChunk.slice(0, -1)
+          .reduce((sum, entry) => sum + (Number(entry.gapAfterMs) > 200 ? 80 : 0), 0);
+        const nextLeadInMs = index < chunkEntries.length - 1 ? 80 : 0;
+        const finalEntryIndex = resolvedEntriesForChunk.length - 1;
+        if (finalEntryIndex >= 0) {
+          resolvedEntriesForChunk[finalEntryIndex] = {
+            ...resolvedEntriesForChunk[finalEntryIndex],
+            // Include the combiner's real 80ms lead-in before the next clip.
+            // Omitting it accumulated 640ms by I and made J/K appear early.
+            gapAfterMs: Math.max(
+              0,
+              ALPHABET_ITEM_DURATION_MS - speechDurationMs - internalGapMs - internalLeadInMs - nextLeadInMs
+            )
+          };
+        }
+        alphabetSlideStartsMs.push(alphabetAudioCursorMs + currentLeadInMs);
+        alphabetAudioCursorMs += currentLeadInMs + speechDurationMs + internalLeadInMs;
+        alphabetAudioCursorMs += resolvedEntriesForChunk.reduce((sum, entry) => sum + Math.max(0, Number(entry.gapAfterMs) || 0), 0);
+      }
+      blobs.push(...chunkResult.blobs);
+      chunkDurationsMs.push(...chunkResult.durations);
+      resolvedChunks.push(...resolvedEntriesForChunk);
     });
 
     updateTaskProgressUi(0.74, true, { label: "All narration parts ready." });
@@ -12518,6 +13897,9 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
 
     const combinedBlob = await combineNarrationBlobs(blobs, resolvedChunks);
     const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, resolvedChunks, chunkDurationsMs);
+    if (syncProfile && alphabetSlideStartsMs?.length === alphabetNarrationChunks.length) {
+      syncProfile.alphabetSlideStartsMs = alphabetSlideStartsMs;
+    }
     if (typeof options.onSyncProfile === "function" && syncProfile) {
       options.onSyncProfile(syncProfile);
     }
@@ -12798,6 +14180,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   if (shouldForceChunkedForFileSave || shouldUseChunkedMuxUpload(videoBlob, audioBlob, musicBlob, { preferChunked: Boolean(getElectronOutputPath(saveHandle)) })) {
     return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
       audioFileName,
+      videoFileName,
+      pdfExactTimeline: options.pdfExactTimeline === true,
       audioSpeed,
       videoSpeed,
       targetDurationMs,
@@ -12809,6 +14193,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
   }
   const requestBody = buildMuxBinaryRequestBlob(videoBlob, audioBlob, musicBlob, {
     videoFileName,
+    pdfExactTimeline: options.pdfExactTimeline === true,
     audioFileName,
     musicFileName: musicBlob ? (state.music.fileName || "background-music.wav") : "",
     audioSpeed,
@@ -12844,6 +14229,8 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
     if (outputPath && isFetchConnectionError(error)) {
       return muxVideoAndAudioChunked(videoBlob, audioBlob, musicBlob, {
         audioFileName,
+        videoFileName,
+        pdfExactTimeline: options.pdfExactTimeline === true,
         audioSpeed,
         videoSpeed,
         targetDurationMs,
@@ -12857,6 +14244,7 @@ async function muxVideoAndAudio(videoBlob, audioBlob, options = {}) {
       videoBase64: await blobToBase64(videoBlob),
       audioBase64: await blobToBase64(audioBlob),
       videoFileName,
+      pdfExactTimeline: options.pdfExactTimeline === true,
       audioFileName,
       musicFileName: musicBlob ? (state.music.fileName || "background-music.wav") : "",
       audioSpeed,
@@ -15701,6 +17089,33 @@ async function applyNumberTableBuilder(options = {}) {
   }
 }
 
+async function applyAlphabetSayAloudBuilder(options = {}) {
+  const style = ["for", "is", "word"].includes(alphabetNarrationStyleSelect?.value)
+    ? alphabetNarrationStyleSelect.value
+    : "for";
+  const template = ["realistic", "slides", "flashcard", "split", "board"].includes(alphabetTemplateSelect?.value)
+    ? alphabetTemplateSelect.value
+    : "realistic";
+  lessonInput.value = `# Say Aloud\nAlphabet say aloud\nSpeaking style: ${style}\nPresentation template: ${template}`;
+  handleLessonInputChange();
+  if (mathsSourceInput) mathsSourceInput.value = "";
+  state.mathsTranslator.lastSource = "";
+  state.mathsTranslator.lastTranslated = "";
+  state.numberTableIntroSuppressed = !(alphabetIntroEnabled?.checked ?? true);
+  if (alphabetToolStatus) alphabetToolStatus.textContent = template === "board"
+    ? "Complete A–Z board created with synchronized picture narration."
+    : "A–Z picture slides created. One large letter and object will appear at a time.";
+  setStatus(options.readAfterShow
+    ? "Alphabet created. Opening the board and starting Say Aloud."
+    : (options.showScreenAfter ? "Alphabet board opened." : "Alphabet lesson created in the lesson box."));
+  try {
+    if (options.showScreenAfter || options.readAfterShow) await showScreen();
+    if (options.readAfterShow) await playSlide();
+  } finally {
+    state.numberTableIntroSuppressed = false;
+  }
+}
+
 function drawPlaceValueSummaryCard(x, y, width, height, label, value, accentColor) {
   ctx.save();
   ctx.shadowColor = "rgba(5, 24, 31, 0.2)";
@@ -15996,6 +17411,268 @@ function drawNumberTableBoard(contentArea, tableData) {
     });
   });
 
+  ctx.restore();
+}
+
+function drawAlphabetSayAloudBoard(contentArea, alphabetData) {
+  if (!alphabetData?.items?.length) return;
+  if (alphabetData.template !== "board") {
+    drawAlphabetSingleSlide(contentArea, alphabetData);
+    return;
+  }
+  const visibleCount = getVisibleAlphabetCount(alphabetData);
+  const progressive = Boolean(state.speaking || state.exportingVideo);
+  const panelX = contentArea.x + 18;
+  const panelY = contentArea.y + 8;
+  const panelWidth = contentArea.width - 36;
+  const headerHeight = 110;
+  const cols = 4;
+  const rows = 7;
+  const gapX = 16;
+  const gapY = 8;
+  const cellWidth = (panelWidth - gapX * (cols - 1)) / cols;
+  const cellHeight = Math.max(70, (contentArea.height - headerHeight - gapY * (rows - 1) - 20) / rows);
+
+  ctx.save();
+  const pillWidth = Math.min(520, panelWidth * 0.62);
+  const pillX = panelX + (panelWidth - pillWidth) / 2;
+  drawRoundedRect(pillX, panelY, pillWidth, 46, 24, "#3b92b8");
+  ctx.fillStyle = "#ffffff";
+  ctx.font = '900 27px "Nunito", "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Say Aloud", panelX + panelWidth / 2, panelY + 23);
+  ctx.font = '900 43px "Nunito", "Segoe UI", sans-serif';
+  ctx.fillStyle = "#f8fafc";
+  ctx.shadowColor = "rgba(20,80,120,.34)";
+  ctx.shadowBlur = 8;
+  ctx.fillText("ALPHABET", panelX + panelWidth / 2, panelY + 82);
+  ctx.shadowBlur = 0;
+
+  alphabetData.items.forEach((item, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const x = panelX + col * (cellWidth + gapX);
+    const y = panelY + headerHeight + row * (cellHeight + gapY);
+    const revealed = !progressive || index < visibleCount;
+    const active = progressive && index === visibleCount - 1;
+    ctx.save();
+    ctx.globalAlpha = revealed ? 1 : 0.13;
+    drawRoundedRect(x, y, cellWidth, cellHeight, 18, active ? "rgba(253,224,71,.30)" : "rgba(255,255,255,.10)");
+    if (active) {
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 4;
+      drawRoundedRectAtOrigin(x, y, cellWidth, cellHeight, 18);
+      ctx.stroke();
+    }
+    const palette = ["#ff9f8a", "#87bff2", "#aed581", "#ffd166", "#d6a5df", "#ffb273"];
+    ctx.fillStyle = palette[index % palette.length];
+    ctx.font = `900 ${Math.min(58, cellHeight * 0.60)}px "Nunito", "Segoe UI", sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(item.letter, x + 18, y + cellHeight / 2);
+    ctx.font = `${Math.min(44, cellHeight * 0.50)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    ctx.fillText(item.emoji, x + Math.min(90, cellWidth * 0.31), y + cellHeight / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `800 ${Math.min(23, cellHeight * 0.25)}px "Nunito", "Segoe UI", sans-serif`;
+    ctx.fillText(item.word, x + Math.min(148, cellWidth * 0.52), y + cellHeight / 2 + 1, cellWidth * 0.45);
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+function drawAlphabetSingleSlide(contentArea, alphabetData) {
+  const visibleCount = getVisibleAlphabetCount(alphabetData);
+  const itemIndex = clamp(Math.max(0, visibleCount - 1), 0, alphabetData.items.length - 1);
+  const item = alphabetData.items[itemIndex];
+  const template = alphabetData.template || "slides";
+  const colors = ["#ef476f", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4"];
+  const accent = colors[itemIndex % colors.length];
+  const x = contentArea.x + 42;
+  const y = contentArea.y + 26;
+  const width = contentArea.width - 84;
+  const height = contentArea.height - 52;
+
+  if (template === "realistic") {
+    ctx.save();
+    const atlasCols = 5;
+    const atlasRows = 6;
+    const atlasReady = isImageReady(_alphabetRealisticAtlas);
+    const sourceWidth = atlasReady ? _alphabetRealisticAtlas.naturalWidth / atlasCols : 0;
+    const sourceHeight = atlasReady ? _alphabetRealisticAtlas.naturalHeight / atlasRows : 0;
+
+    // Use one of the atlas's unused cells as the complete studio backdrop. The
+    // object cell then has the exact same pixels/lighting, so it cannot look
+    // like a pasted rectangular patch.
+    if (atlasReady) {
+      ctx.drawImage(
+        _alphabetRealisticAtlas,
+        sourceWidth * 4 + 4,
+        sourceHeight * 5 + 4,
+        sourceWidth - 8,
+        sourceHeight - 8,
+        contentArea.x,
+        contentArea.y,
+        contentArea.width,
+        contentArea.height
+      );
+    } else {
+      const studio = ctx.createLinearGradient(x, y, x, y + height);
+      studio.addColorStop(0, "#b7b8b8");
+      studio.addColorStop(0.72, "#c9caca");
+      studio.addColorStop(1, "#e0e0df");
+      ctx.fillStyle = studio;
+      ctx.fillRect(contentArea.x, contentArea.y, contentArea.width, contentArea.height);
+    }
+    const floorY = y + height * 0.76;
+
+    // Deep soft floor shadows make the canvas letter look like a physical 3D object.
+    ctx.save();
+    ctx.filter = "blur(18px)";
+    ctx.fillStyle = "rgba(45,45,45,.27)";
+    ctx.beginPath();
+    ctx.ellipse(x + width * 0.31, floorY + 34, width * 0.18, 25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    const letterFontFamily = '"Arial Black", "Nunito", sans-serif';
+    let physicalLetterSize = Math.min(720, height * 0.76);
+    const maximumLetterWidth = width * 0.43;
+    const maximumLetterHeight = height * 0.67;
+    // Fit every glyph independently. Wide letters (M/W) and deep letters
+    // (Q/J) retain the largest possible size without touching any canvas edge.
+    for (let fitAttempt = 0; fitAttempt < 8; fitAttempt += 1) {
+      ctx.font = `900 ${physicalLetterSize}px ${letterFontFamily}`;
+      const metrics = ctx.measureText(item.letter);
+      const measuredWidth = Math.max(1, metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight);
+      const measuredHeight = Math.max(1, metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent);
+      const fitScale = Math.min(1, maximumLetterWidth / measuredWidth, maximumLetterHeight / measuredHeight);
+      if (fitScale >= 0.995) break;
+      physicalLetterSize = Math.max(220, Math.floor(physicalLetterSize * fitScale * 0.98));
+    }
+    ctx.font = `900 ${physicalLetterSize}px ${letterFontFamily}`;
+    ctx.lineJoin = "round";
+    for (let depth = 34; depth >= 1; depth -= 1) {
+      const shade = 142 + Math.round(depth * 1.25);
+      ctx.strokeStyle = `rgb(${shade},${shade},${shade})`;
+      ctx.lineWidth = 17;
+      ctx.strokeText(item.letter, x + width * 0.29 + depth * 0.48, floorY + depth * 0.30);
+    }
+    const letterFill = ctx.createLinearGradient(x, y + 120, x, floorY);
+    letterFill.addColorStop(0, "#ffffff");
+    letterFill.addColorStop(0.55, "#eeeeec");
+    letterFill.addColorStop(1, "#d4d4d1");
+    ctx.shadowColor = "rgba(0,0,0,.24)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 10;
+    ctx.fillStyle = letterFill;
+    ctx.strokeStyle = "#eeeeec";
+    ctx.lineWidth = 10;
+    ctx.strokeText(item.letter, x + width * 0.29, floorY);
+    ctx.fillText(item.letter, x + width * 0.29, floorY);
+    // Fine bevel highlights make the face read as a solid studio prop.
+    ctx.shadowColor = "transparent";
+    ctx.strokeStyle = "rgba(255,255,255,.88)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(item.letter, x + width * 0.29 - 2, floorY - 3);
+    ctx.shadowColor = "transparent";
+
+    if (atlasReady) {
+      const sourceCol = itemIndex % atlasCols;
+      const sourceRow = Math.floor(itemIndex / atlasCols);
+      const cropInset = 4;
+      const objectHeight = contentArea.height * 0.78;
+      const objectWidth = objectHeight * ((sourceWidth - cropInset * 2) / (sourceHeight - cropInset * 2));
+      const objectX = contentArea.x + contentArea.width * 0.72 - objectWidth / 2;
+      const objectY = contentArea.y + (contentArea.height - objectHeight) * 0.55;
+      const preparedCell = _alphabetRealisticCells[itemIndex];
+      if (preparedCell) {
+        ctx.drawImage(preparedCell, objectX, objectY, objectWidth, objectHeight);
+      } else {
+        ctx.drawImage(
+          _alphabetRealisticAtlas,
+          sourceCol * sourceWidth + cropInset,
+          sourceRow * sourceHeight + cropInset,
+          sourceWidth - cropInset * 2,
+          sourceHeight - cropInset * 2,
+          objectX,
+          objectY,
+          objectWidth,
+          objectHeight
+        );
+      }
+    } else {
+      ctx.font = `${Math.min(350, height * 0.48)}px "Segoe UI Emoji", sans-serif`;
+      ctx.fillText(item.emoji, x + width * 0.71, y + height * 0.60);
+    }
+    ctx.restore();
+    return;
+  }
+
+  ctx.save();
+  const background = ctx.createLinearGradient(x, y, x + width, y + height);
+  if (template === "flashcard") {
+    background.addColorStop(0, "#fffdf7");
+    background.addColorStop(1, "#eaf7ff");
+  } else if (template === "split") {
+    background.addColorStop(0, "#172554");
+    background.addColorStop(1, "#164e63");
+  } else {
+    background.addColorStop(0, "#0f3d68");
+    background.addColorStop(0.55, "#115e72");
+    background.addColorStop(1, "#312e81");
+  }
+  ctx.shadowColor = "rgba(0,0,0,.32)";
+  ctx.shadowBlur = 28;
+  ctx.shadowOffsetY = 12;
+  drawRoundedRect(x, y, width, height, 42, background);
+  ctx.shadowColor = "transparent";
+
+  ctx.fillStyle = template === "flashcard" ? "#334155" : "rgba(255,255,255,.92)";
+  ctx.font = '900 31px "Nunito", "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SAY ALOUD", x + width / 2, y + 42);
+  ctx.fillStyle = accent;
+  drawRoundedRect(x + width / 2 - 92, y + 68, 184, 8, 4, accent);
+
+  if (template === "split") {
+    ctx.strokeStyle = "rgba(255,255,255,.18)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + width / 2, y + 108);
+    ctx.lineTo(x + width / 2, y + height - 100);
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.font = `900 ${Math.min(330, height * 0.48)}px "Nunito", "Segoe UI", sans-serif`;
+    ctx.fillText(item.letter, x + width * 0.25, y + height * 0.49);
+    ctx.font = `${Math.min(280, height * 0.40)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    ctx.fillText(item.emoji, x + width * 0.75, y + height * 0.49);
+  } else {
+    const circleRadius = Math.min(width, height) * (template === "flashcard" ? 0.22 : 0.19);
+    ctx.fillStyle = template === "flashcard" ? "rgba(255,255,255,.94)" : "rgba(255,255,255,.11)";
+    ctx.beginPath();
+    ctx.arc(x + width * 0.69, y + height * 0.48, circleRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.font = `900 ${Math.min(350, height * 0.49)}px "Nunito", "Segoe UI", sans-serif`;
+    ctx.fillText(item.letter, x + width * 0.28, y + height * 0.49);
+    ctx.font = `${Math.min(280, height * 0.39)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    ctx.fillText(item.emoji, x + width * 0.69, y + height * 0.49);
+  }
+
+  const footerText = getAlphabetPhrase(item, alphabetData.style).replace(/[.]+$/, "");
+  ctx.fillStyle = template === "flashcard" ? "#172554" : "#ffffff";
+  ctx.font = `900 ${Math.min(72, height * 0.10)}px "Nunito", "Segoe UI", sans-serif`;
+  ctx.fillText(footerText, x + width / 2, y + height - 76, width - 120);
+  ctx.fillStyle = template === "flashcard" ? "#64748b" : "rgba(255,255,255,.70)";
+  ctx.font = '800 22px "Nunito", "Segoe UI", sans-serif';
+  ctx.textAlign = "right";
+  ctx.fillText(`${itemIndex + 1} / ${alphabetData.items.length}`, x + width - 30, y + height - 28);
   ctx.restore();
 }
 
@@ -16484,7 +18161,7 @@ infoKidsLogoImg.onload = function() {
 infoKidsLogoImg.onerror = function() {
   console.warn('[Logo] Failed to load infoKidsLogoImg');
 };
-infoKidsLogoImg.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArQAAADwCAYAAADxaPeJAAAACXBIWXMAAAsTAAALEwEAmpwYAAAE8WlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgMTAuMC1jMDAwIDI1LkcuZDIwZTQ2NiwgMjAyNS8xMi8wOC0yMDo1MDoyMSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDI3LjQgKFdpbmRvd3MpIiB4bXA6Q3JlYXRlRGF0ZT0iMjAyNi0wMy0zMVQxOTozOToyMSswNTozMCIgeG1wOk1vZGlmeURhdGU9IjIwMjYtMDQtMDFUMTI6NDc6MDQrMDU6MzAiIHhtcDpNZXRhZGF0YURhdGU9IjIwMjYtMDQtMDFUMTI6NDc6MDQrMDU6MzAiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOmU1ZWYwNzliLWFkNWItNWY0ZC04ZjU5LWNiNDc0NmM3MDlmZCIgeG1wTU06RG9jdW1lbnRJ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恩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";
+infoKidsLogoImg.src = resolveProjectAssetUrl("assets/info-kids-logo-transparent.png");
 
 
 function isInfoKidsTitleEnabled() {
@@ -17497,7 +19174,7 @@ function requestCanvasExportFrame() {
 function drawPdfContextScene() {
   state.stageVideoRenderBox = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawTeachingStageBackdrop(mouthOpen);
+  drawTeachingStageBackdrop(state.mouthOpen);
   drawSceneVfx();
 
   syncPdfContextStageImages({ skipDraw: true });
@@ -17648,6 +19325,58 @@ function drawPdfContextScene() {
   requestCanvasExportFrame();
 }
 
+function ensurePdfPageRenderImageLoaded(page) {
+  if (!page) return Promise.resolve(null);
+  if (page.renderImage?.complete && page.renderImage.naturalWidth) return Promise.resolve(page.renderImage);
+  if (page.renderImagePromise) return page.renderImagePromise;
+
+  page.renderImagePromise = (async () => {
+    if (!page.renderDataUrl) {
+      const pdfPage = page.pdfPage || await state.pdf?.document?.getPage?.(page.pageNumber);
+      if (!pdfPage) return null;
+      page.pdfPage = pdfPage;
+      const sourceViewport = pdfPage.getViewport({ scale: 1 });
+      const scale = Math.max(
+        PDF_RENDER_SCALE_MIN,
+        Math.min(PDF_RENDER_SCALE_MAX, PDF_RENDER_TARGET_MAX_WIDTH_PX / sourceViewport.width, PDF_RENDER_TARGET_MAX_HEIGHT_PX / sourceViewport.height)
+      );
+      const viewport = pdfPage.getViewport({ scale });
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = Math.ceil(viewport.width);
+      pageCanvas.height = Math.ceil(viewport.height);
+      const pageContext = pageCanvas.getContext("2d", { alpha: false });
+      pageContext.fillStyle = "#ffffff";
+      pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      applyHighQualityImageRendering(pageContext);
+      await pdfPage.render({ canvasContext: pageContext, viewport, background: "rgba(255,255,255,1)" }).promise;
+      page.width = pageCanvas.width;
+      page.height = pageCanvas.height;
+      page.renderDataUrl = pageCanvas.toDataURL("image/jpeg", 0.9);
+      pageCanvas.width = 1;
+      pageCanvas.height = 1;
+      pdfPage.cleanup();
+      page.pdfPage = null;
+    }
+    if (!page.renderDataUrl) return null;
+    return loadImageFromDataUrl(page.renderDataUrl);
+  })()
+    .then((image) => {
+      page.renderImage = image;
+      page.renderImagePromise = null;
+      if (isPdfPresentationMode() && !stagePanel.classList.contains("hidden")) {
+        drawScene(state.mouthOpen);
+      }
+      return image;
+    })
+    .catch((error) => {
+      console.error(error);
+      page.renderImagePromise = null;
+      page.renderImageFailed = true;
+      return null;
+    });
+  return page.renderImagePromise;
+}
+
 function drawPdfScene() {
   state.stageVideoRenderBox = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -17658,6 +19387,18 @@ function drawPdfScene() {
   const totalPageCount = Math.max(1, selectedPages.length);
   const currentPageIndex = clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
   const currentPage = selectedPages[currentPageIndex] || null;
+
+  selectedPages.forEach((page, index) => {
+    // Keep the current slide and the next two slides decoded. This removes the
+    // blank/loading gap when narration advances to the next PDF page.
+    if (Math.abs(index - currentPageIndex) > 2 && page?.renderImage && !page.renderImagePromise) {
+      page.renderImage = null;
+    }
+  });
+  selectedPages
+    .slice(currentPageIndex + 1, currentPageIndex + 3)
+    .filter((page) => !shouldRevealPdfCountingObjects(page))
+    .forEach((page) => { void ensurePdfPageRenderImageLoaded(page); });
 
   state.previewPageIndex = currentPageIndex;
   state.renderedPageCount = totalPageCount;
@@ -17679,6 +19420,13 @@ function drawPdfScene() {
     return;
   }
 
+  // Branch before the original PDF is painted: zero counted objects means an
+  // empty stage, not an already-populated page with numbers painted over it.
+  if (drawPdfCountingObjectScene(currentPage, currentPageIndex)) {
+    requestCanvasExportFrame();
+    return;
+  }
+
   const pageArea = {
     x: 20,
     y: 20,
@@ -17695,9 +19443,24 @@ function drawPdfScene() {
   ctx.shadowColor = "rgba(0, 0, 0, 0.34)";
   ctx.shadowBlur = 34;
   ctx.shadowOffsetY = 18;
-  // Draw the live video frame directly!
-  ctx.drawImage(transparentAnjaliCanvas, finalX, finalY, finalWidth, finalHeight);
+  const renderSource = currentPage.renderImage || currentPage.renderCanvas || null;
+  if (renderSource && (renderSource.tagName !== "IMG" || (renderSource.complete && renderSource.naturalWidth))) {
+    applyHighQualityImageRendering(ctx);
+    ctx.drawImage(renderSource, drawX, drawY, drawWidth, drawHeight);
+  } else {
+    void ensurePdfPageRenderImageLoaded(currentPage);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(drawX, drawY, drawWidth, drawHeight);
+    ctx.fillStyle = "#334155";
+    ctx.font = '800 28px "Nunito"';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Loading PDF page...", drawX + (drawWidth / 2), drawY + (drawHeight / 2));
+  }
   ctx.restore();
+
+  drawPdfCountingMarkers(currentPage, drawX, drawY, drawWidth, drawHeight, currentPageIndex);
+  requestCanvasExportFrame();
 }
 
 // ---------------------------------------------------------------------------
@@ -17783,6 +19546,12 @@ function markSceneDirty() {
 
 function isSceneActuallyDirty(mouthOpen) {
   if (_sceneIsDirty) return true;
+  // PDF counting animates with the audio clock even while the page, text and
+  // mouth stay unchanged. Keep drawing at the playback loop's capped rate.
+  if (state.speaking && isPdfPresentationMode() && getPdfRenderMode() === "exact") {
+    const page = getPdfSelectedPages()[state.previewPageIndex];
+    if (page?.countingActivity?.count) return true;
+  }
   let numberTableActive = false;
   // Animated backdrops use performance.now() for time-based animation
   // They must redraw every frame even when speech/text is idle
@@ -17794,6 +19563,7 @@ function isSceneActuallyDirty(mouthOpen) {
     'desert-dunes','aurora-borealis','lightning-storm','mountain-mist','rainbow-garden'];
   if (_animTpl && _animatedBackdrops.indexOf(_animTpl) >= 0) return true;
   if (state.exportingVideo || state.exportVideoTrack?.readyState === "live") return true;
+  if (state.speaking && typeof getAlphabetSayAloudData === "function" && getAlphabetSayAloudData(state.text)) return true;
   if (state.speaking && typeof getCachedNumberTableData === "function") {
     const numberTable = getCachedNumberTableData(state.text, state.displayedText || state.text);
     if (numberTable) {
@@ -17886,6 +19656,26 @@ function drawScene(mouthOpen = 0.12) {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
   const boardData = getMathPlaceValueBoardData(boardSourceText) || (isAnimatingContent ? getMathPlaceValueBoardData(state.text) : null);
+  const alphabetSayAloudData = getAlphabetSayAloudData(state.text) || getAlphabetSayAloudData(boardSourceText);
+  if (alphabetSayAloudData) {
+    const isRealisticAlphabet = alphabetSayAloudData.template === "realistic";
+    const contentArea = isRealisticAlphabet
+      ? { x: 0, y: 0, width: canvas.width, height: canvas.height }
+      : { x: 42, y: 44, width: canvas.width - 84, height: canvas.height - 88 };
+    state.previewPageIndex = 0;
+    state.renderedPageCount = 1;
+    state.contentScrollOffset = 0;
+    updateStagePageUi(0, 1);
+    if (!isRealisticAlphabet) {
+      drawInfoKidsLogo();
+      drawContentHighlightPanel(contentArea, { insetX: 24, insetY: 20, radius: 30 });
+    }
+    drawAlphabetSayAloudBoard(contentArea, alphabetSayAloudData);
+    if (!isRealisticAlphabet) drawInfoKidsLogo({ skipAnimatedHeader: true });
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
   const numberTableData = getCachedNumberTableData(state.text, boardSourceText);
   if (numberTableData) {
     _lastDrawnNumberTableVisibleCount = getVisibleNumberTableCount(numberTableData);
@@ -18900,7 +20690,8 @@ function createLoadedVideo(url, options = {}) {
 }
 
 async function playVideoWithAutoplayRecovery(videoElement, options = {}) {
-  if (!videoElement) {
+  const isCurrent = options.isCurrent || (() => true);
+  if (!videoElement || !isCurrent()) {
     return false;
   }
 
@@ -18914,19 +20705,23 @@ async function playVideoWithAutoplayRecovery(videoElement, options = {}) {
     videoElement.muted = requestedMuted;
     videoElement.volume = requestedVolume;
     await videoElement.play();
+    if (!isCurrent()) { videoElement.pause(); return false; }
     return true;
   } catch (error) {
     console.error(error);
   }
 
+  if (!isCurrent()) return false;
   try {
     videoElement.defaultMuted = true;
     videoElement.muted = true;
     videoElement.volume = 0;
     await videoElement.play();
+    if (!isCurrent()) { videoElement.pause(); return false; }
 
     if (!requestedMuted) {
       window.setTimeout(() => {
+        if (!isCurrent()) return;
         try {
           videoElement.defaultMuted = false;
           videoElement.muted = false;
@@ -18945,7 +20740,8 @@ async function playVideoWithAutoplayRecovery(videoElement, options = {}) {
 }
 
 async function playAudioWithRecovery(audioElement, options = {}) {
-  if (!audioElement) {
+  const isCurrent = options.isCurrent || (() => true);
+  if (!audioElement || !isCurrent()) {
     return false;
   }
 
@@ -18957,16 +20753,20 @@ async function playAudioWithRecovery(audioElement, options = {}) {
     audioElement.muted = false;
     audioElement.volume = requestedVolume;
     await audioElement.play();
+    if (!isCurrent()) { audioElement.pause(); return false; }
     return true;
   } catch (error) {
     console.error(error);
   }
 
+  if (!isCurrent()) return false;
   try {
     audioElement.muted = true;
     audioElement.volume = 0;
     await audioElement.play();
+    if (!isCurrent()) { audioElement.pause(); return false; }
     window.setTimeout(() => {
+      if (!isCurrent()) return;
       try {
         audioElement.muted = false;
         audioElement.volume = requestedVolume;
@@ -19344,6 +21144,7 @@ async function startStageVideoPlayback(options = {}) {
 }
 
 async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON_DELAY_MS, options = {}) {
+  const signal = getPlaybackSignal();
   const safeDurationMs = Math.max(0, Math.round(Number(durationMs) || 0));
   if (!safeDurationMs) {
     return;
@@ -19365,6 +21166,7 @@ async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON
   const startedAt = performance.now();
   try {
     while ((performance.now() - startedAt) < safeDurationMs) {
+      if (!exportMode && signal.aborted) return;
       drawScene(0.12);
       if (exportMode) {
         requestExportVideoFrame();
@@ -19373,15 +21175,16 @@ async function playPostIntroBlankTransition(durationMs = DEFAULT_INTRO_TO_LESSON
       await delay(frameIntervalMs);
     }
   } finally {
-    state.sceneTransition.blankActive = false;
-    drawScene(0.12);
-    if (exportMode) {
-      requestExportVideoFrame();
+    if (exportMode || !signal.aborted) {
+      state.sceneTransition.blankActive = false;
+      drawScene(0.12);
+      if (exportMode) requestExportVideoFrame();
     }
   }
 }
 
 async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION_MS, options = {}) {
+  const signal = getPlaybackSignal();
   // Guard: need an actual loaded poster image — do NOT require introPlayback.enabled
   // so the poster shows even when no intro video is configured.
   if (!state.introPoster.available || !state.introPoster.image || !state.introPoster.dataUrl) {
@@ -19405,6 +21208,7 @@ async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION
   const startedAt = performance.now();
   try {
     while ((performance.now() - startedAt) < safeDurationMs) {
+      if (!exportMode && signal.aborted) return false;
       const progress = clamp((performance.now() - startedAt) / safeDurationMs, 0, 1);
       updatePlaybackProgressUi(progress, true);
       drawScene(0.12);
@@ -19421,8 +21225,10 @@ async function playIntroPosterSegment(durationMs = DEFAULT_INTRO_POSTER_DURATION
     }
     return true;
   } finally {
-    state.introPoster.active = false;
-    updatePlaybackProgressUi(0, false);
+    if (exportMode || !signal.aborted) {
+      state.introPoster.active = false;
+      updatePlaybackProgressUi(0, false);
+    }
     // Do NOT call drawScene here — it causes a 1-frame lesson content flash
     // before the narration loop draws its first frame.
   }
@@ -19500,12 +21306,13 @@ function scheduleStageVideoStartAfterDelay(options = {}) {
 }
 
 async function playIntroClipIfEnabled() {
+  const signal = getPlaybackSignal();
   if (isPdfPresentationMode() || !state.introPlayback.enabled || state.numberTableIntroSuppressed) {
     return;
   }
 
   const ready = await ensureDefaultIntroClip();
-  if (!ready || !state.introPlayback.element) {
+  if (signal.aborted || !ready || !state.introPlayback.element) {
     return;
   }
 
@@ -19536,11 +21343,18 @@ async function playIntroClipIfEnabled() {
     console.error(error);
   }
 
-  const introFinished = new Promise((resolve, reject) => {
-    const handleEnded = () => resolve();
-    const handleError = () => reject(new Error("The intro clip could not be played."));
+  let cleanupIntroListeners = () => {};
+  const introFinished = new Promise((resolve) => {
+    const handleEnded = () => { cleanupIntroListeners(); resolve(null); };
+    const handleError = () => { cleanupIntroListeners(); resolve(new Error("The intro clip could not be played.")); };
+    cleanupIntroListeners = () => {
+      introElement.removeEventListener("ended", handleEnded);
+      introElement.removeEventListener("error", handleError);
+      signal.removeEventListener("abort", handleEnded);
+    };
     introElement.addEventListener("ended", handleEnded, { once: true });
     introElement.addEventListener("error", handleError, { once: true });
+    signal.addEventListener("abort", handleEnded, { once: true });
   });
 
   const tick = () => {
@@ -19559,16 +21373,22 @@ async function playIntroClipIfEnabled() {
   };
 
   try {
-    const started = await playVideoWithAutoplayRecovery(introElement, { muted: false, volume: STRICT_VOICE_VOLUME });
+    const started = await playVideoWithAutoplayRecovery(introElement, { muted: false, volume: STRICT_VOICE_VOLUME, isCurrent: () => !signal.aborted });
+    if (signal.aborted) return;
     if (!started) {
       throw new Error("The intro clip could not be played.");
     }
     state.animationFrame = requestAnimationFrame(tick);
-    await introFinished;
+    const playbackError = await introFinished;
+    if (playbackError) throw playbackError;
   } catch (error) {
-    console.error(error);
-    setIntroClipStatus("The intro clip could not start, so the lesson continued without it.");
+    if (!signal.aborted) {
+      console.error(error);
+      setIntroClipStatus("The intro clip could not start, so the lesson continued without it.");
+    }
   } finally {
+    cleanupIntroListeners();
+    if (signal.aborted) return;
     state.introPlayback.active = false;
     introElement.pause();
     try {
@@ -20031,6 +21851,134 @@ async function renderNarrationFromAudioClockForExport(audioElement, options = {}
   await waitForNextPaint();
 }
 
+function buildPdfExactExportFramePlan(sourceDurationMs, playbackRate = 1, frameRate = 30) {
+  const duration = Number(sourceDurationMs);
+  const rate = Number(playbackRate);
+  const fps = Number(frameRate);
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(rate) || rate < 0.5 || rate > 2.5
+      || !Number.isInteger(fps) || fps < 1 || fps > 60) {
+    throw new Error("The PDF export timeline is invalid.");
+  }
+  const frameCount = Math.max(1, Math.ceil((duration / rate) * fps / 1000));
+  return { sourceDurationMs: duration, playbackRate: rate, frameRate: fps, frameCount, durationMs: frameCount * 1000 / fps };
+}
+
+function buildPdfIvfBlob(encodedFrames, width, height, frameRate, expectedFrameCount) {
+  if (!encodedFrames.length || encodedFrames.length !== expectedFrameCount || width < 1 || height < 1 || width > 65535 || height > 65535) {
+    throw new Error("PDF frame encoding ended early. No incomplete video was saved.");
+  }
+  const header = new ArrayBuffer(32);
+  const view = new DataView(header);
+  new Uint8Array(header, 0, 4).set([68, 75, 73, 70]); // DKIF
+  view.setUint16(4, 0, true);
+  view.setUint16(6, 32, true);
+  new Uint8Array(header, 8, 4).set([86, 80, 56, 48]); // VP80
+  view.setUint16(12, width, true);
+  view.setUint16(14, height, true);
+  view.setUint32(16, frameRate, true);
+  view.setUint32(20, 1, true);
+  view.setUint32(24, encodedFrames.length, true);
+  const parts = [header];
+  encodedFrames.forEach((frame, index) => {
+    const timestamp = Math.round(frame.timestamp * frameRate / 1000000);
+    if (timestamp !== index || !frame.bytes.byteLength) {
+      throw new Error("PDF encoder returned an incomplete or out-of-order frame timeline.");
+    }
+    const frameHeader = new ArrayBuffer(12);
+    const frameView = new DataView(frameHeader);
+    frameView.setUint32(0, frame.bytes.byteLength, true);
+    frameView.setUint32(4, timestamp >>> 0, true);
+    frameView.setUint32(8, Math.floor(timestamp / 4294967296), true);
+    parts.push(frameHeader, frame.bytes);
+  });
+  return new Blob(parts, { type: "video/x-ivf" });
+}
+
+async function encodePdfExactTimelineForExport(options = {}) {
+  // Encode explicit presentation timestamps. Browser paint cadence, slow PDF
+  // decoding, and encoder backpressure may change export speed, never A/V sync.
+  if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") {
+    throw new Error("Accurate PDF export needs the desktop app's frame encoder. This browser cannot export a synchronized PDF video.");
+  }
+  const plan = buildPdfExactExportFramePlan(options.durationMs, options.playbackRate, options.frameRate || 30);
+  const config = {
+    codec: "vp8", width: canvas.width, height: canvas.height,
+    bitrate: getPdfExportBitrate(getEffectiveExportQuality(), "exact"),
+    framerate: plan.frameRate, latencyMode: "quality"
+  };
+  const supported = await VideoEncoder.isConfigSupported(config);
+  if (!supported.supported) {
+    throw new Error("This device cannot encode the selected PDF video size accurately. Choose a lower export quality.");
+  }
+  const encodedFrames = [];
+  let encoderError = null;
+  const encoder = new VideoEncoder({
+    output: chunk => {
+      const bytes = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(bytes);
+      encodedFrames.push({ timestamp: chunk.timestamp, bytes });
+    },
+    error: error => { encoderError = error; }
+  });
+  let preparedSelectionIndex = -1;
+  state.pdf.audioDriven = false;
+  state.pdf.paused = false;
+  state.pdf.timelineStartedAt = 0;
+  state.pdf.timelineStartOffsetMs = 0;
+  state.speaking = true;
+  try {
+    encoder.configure(supported.config || config);
+    for (let frameIndex = 0; frameIndex < plan.frameCount; frameIndex += 1) {
+      if (encoderError) throw encoderError;
+      const sourceTimeMs = Math.min(Math.max(0, plan.sourceDurationMs - 0.001), frameIndex * 1000 / plan.frameRate * plan.playbackRate);
+      state.pdf.currentTimeMs = sourceTimeMs;
+      state.exportCapture.elapsedMs = sourceTimeMs;
+      syncPdfPreviewPageFromTime(sourceTimeMs);
+      const selectionIndex = getPdfSelectionIndexForTime(sourceTimeMs);
+      const page = getPdfPresentationPages("exact")[selectionIndex];
+      const pageChanged = selectionIndex !== preparedSelectionIndex;
+      if (pageChanged) {
+        if (shouldRevealPdfCountingObjects(page)) {
+          await ensurePdfCountingObjectsLoaded(page);
+        } else {
+          const image = await ensurePdfPageRenderImageLoaded(page);
+          if (!image) throw new Error(`PDF page ${page?.pageNumber || selectionIndex + 1} could not be rendered. Export stopped before saving incomplete pages.`);
+        }
+        preparedSelectionIndex = selectionIndex;
+      }
+      drawScene(0.12);
+      const timestamp = Math.round(frameIndex * 1000000 / plan.frameRate);
+      const nextTimestamp = Math.round((frameIndex + 1) * 1000000 / plan.frameRate);
+      const frame = new VideoFrame(canvas, { timestamp, duration: nextTimestamp - timestamp });
+      try {
+        encoder.encode(frame, { keyFrame: pageChanged || frameIndex % (plan.frameRate * 2) === 0 });
+      } finally {
+        frame.close();
+      }
+      // Keep decoded frames bounded and allow the UI/error callback to run.
+      while (encoder.encodeQueueSize >= 4) {
+        if (encoderError) throw encoderError;
+        await new Promise(resolve => setTimeout(resolve, 4));
+      }
+      if (frameIndex % 6 === 0 || frameIndex === plan.frameCount - 1) {
+        const progress = (frameIndex + 1) / plan.frameCount;
+        updatePlaybackProgressUi(progress, true);
+        updateTaskProgressUi(0.26 + progress * 0.54, true, { mirrorStage: true });
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    await encoder.flush();
+    if (encoderError) throw encoderError;
+    return {
+      blob: buildPdfIvfBlob(encodedFrames, config.width, config.height, plan.frameRate, plan.frameCount),
+      durationMs: plan.durationMs,
+      frameCount: plan.frameCount
+    };
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
+  }
+}
+
 async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), options = {}) {
   const safeRenderMode = renderMode === "exact" ? "exact" : "context";
   const renderSpeedMultiplier = Number.isFinite(Number(options.renderSpeedMultiplier)) && Number(options.renderSpeedMultiplier) > 0
@@ -20039,9 +21987,13 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
   const frameRate = getAcceleratedExportCaptureRate(getPdfExportCaptureRate(safeRenderMode), renderSpeedMultiplier);
   const frameDurationMs = Math.max(4, Math.round(1000 / frameRate));
   const targetTimelineMs = Math.max(1, Math.round(state.pdf.totalDurationMs || 1000));
-  const timelineAdvanceRate = Math.max(0.1, getPdfPlaybackRate()) * renderSpeedMultiplier;
+  const playbackRate = Number.isFinite(Number(options.playbackRate)) && Number(options.playbackRate) > 0
+    ? clamp(Number(options.playbackRate), 0.5, 2.5)
+    : getPdfPlaybackRate();
+  const timelineAdvanceRate = Math.max(0.1, playbackRate) * renderSpeedMultiplier;
   const startedAt = performance.now();
   let realElapsedMs = 0;
+  let preparedSelectionIndex = -1;
 
   state.pdf.audioDriven = false;
   state.pdf.paused = false;
@@ -20051,6 +22003,14 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
   state.speaking = true;
   state.mouthOpen = 0.12;
   syncPdfPreviewPageFromTime(0);
+  if (safeRenderMode === "exact") {
+    const firstPage = getPdfPresentationPages()[0] || null;
+    if (firstPage) {
+      if (shouldRevealPdfCountingObjects(firstPage)) await ensurePdfCountingObjectsLoaded(firstPage);
+      else await ensurePdfPageRenderImageLoaded(firstPage);
+      preparedSelectionIndex = 0;
+    }
+  }
   updatePlaybackProgressUi(0, true);
   drawScene(0.12);
   requestExportVideoFrame();
@@ -20067,6 +22027,13 @@ async function renderPdfTimelineForExport(renderMode = getPdfRenderMode(), optio
 
     const activeSelectionIndex = getPdfSelectionIndexForTime(elapsedMs);
     const activePage = getPdfPresentationPages()[activeSelectionIndex] || null;
+    // Do not record a loading placeholder: render each PDF page before its
+    // first captured frame. The canvas keeps only nearby pages in memory.
+    if (safeRenderMode === "exact" && activePage && activeSelectionIndex !== preparedSelectionIndex) {
+      if (shouldRevealPdfCountingObjects(activePage)) await ensurePdfCountingObjectsLoaded(activePage);
+      else await ensurePdfPageRenderImageLoaded(activePage);
+      preparedSelectionIndex = activeSelectionIndex;
+    }
     const visibleState = safeRenderMode === "context"
       ? getPdfContextVisibleText(activePage, activeSelectionIndex)
       : null;
@@ -21814,7 +23781,24 @@ function teardownAudioGraph() {
   state.audioGraph = null;
 }
 
+function getPlaybackSignal() {
+  if (!state.playbackAbortController || state.playbackAbortController.signal.aborted) {
+    state.playbackAbortController = new AbortController();
+  }
+  return state.playbackAbortController.signal;
+}
+
+function disposeRuntimeAudio(audio) {
+  if (!audio) return;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  if (audio.dataset?.runtimeAudio === "true") audio.remove();
+}
+
 function stopActiveAudio() {
+  // Cancel pending decodes/loads too: they may not have an active element yet.
+  state.playbackAbortController?.abort();
   if (state.activeAudio) {
     state.activeAudio.pause();
     state.activeAudio.removeAttribute("src");
@@ -21856,6 +23840,8 @@ function stopPlayback(restoreFullText = true) {
   }
   state.introPlayback.active = false;
   state.introPlayback.previewVisible = false;
+  state.titleIntroActive = false;
+  state.introPoster.active = false;
   state.sceneTransition.blankActive = false;
   clearStageVideoStartDelay();
   stopActiveAudio();
@@ -21974,8 +23960,13 @@ function finishPlayback(message) {
   }
 }
 
-function createLoadedAudio(url) {
+function createLoadedAudio(url, options = {}) {
   return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      reject(new DOMException("Playback stopped.", "AbortError"));
+      return;
+    }
     const audio = document.createElement("audio");
     audio.preload = "auto";
     audio.src = url;
@@ -21985,19 +23976,29 @@ function createLoadedAudio(url) {
     audio.setAttribute("aria-hidden", "true");
     document.body.appendChild(audio);
 
-    const handleLoaded = () => resolve(audio);
-    const handleError = () => {
-      audio.remove();
-      reject(new Error("The narration audio could not be loaded."));
+    let timeoutId;
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      audio.removeEventListener("loadedmetadata", handleLoaded);
+      audio.removeEventListener("error", handleError);
+      signal?.removeEventListener("abort", handleAbort);
     };
+    const handleLoaded = () => { cleanup(); resolve(audio); };
+    const fail = error => { cleanup(); disposeRuntimeAudio(audio); reject(error); };
+    const handleError = () => {
+      fail(new Error("The narration audio could not be loaded."));
+    };
+    const handleAbort = () => fail(new DOMException("Playback stopped.", "AbortError"));
 
     if (audio.readyState >= 1) {
-      resolve(audio);
+      handleLoaded();
       return;
     }
 
     audio.addEventListener("loadedmetadata", handleLoaded, { once: true });
     audio.addEventListener("error", handleError, { once: true });
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    timeoutId = window.setTimeout(() => fail(new Error("Audio loading timed out. Please try again.")), 60000);
     audio.load();
   });
 }
@@ -22007,7 +24008,14 @@ async function startBackgroundMusicPlayback() {
     return null;
   }
 
-  const musicAudio = await createLoadedAudio(state.music.url);
+  const signal = getPlaybackSignal();
+  const musicUrl = state.music.url;
+  const musicAudio = await createLoadedAudio(musicUrl, { signal });
+  if (signal.aborted || !state.music.enabled || state.music.url !== musicUrl) {
+    disposeRuntimeAudio(musicAudio);
+    return null;
+  }
+  disposeRuntimeAudio(state.activeMusic);
   musicAudio.loop = true;
   musicAudio.volume = Math.min(STRICT_BACKGROUND_MUSIC_VOLUME, Number(state.music.volume) || STRICT_BACKGROUND_MUSIC_VOLUME);
   state.activeMusic = musicAudio;
@@ -22015,9 +24023,13 @@ async function startBackgroundMusicPlayback() {
   try {
     await musicAudio.play();
   } catch (error) {
-    console.error(error);
+    if (!signal.aborted) console.error(error);
   }
 
+  if (signal.aborted || state.activeMusic !== musicAudio) {
+    disposeRuntimeAudio(musicAudio);
+    return null;
+  }
   return musicAudio;
 }
 
@@ -22038,8 +24050,9 @@ async function ensureAudioContext() {
   return state.audioContext;
 }
 
-async function connectAudioGraph(audioElement, includeExportTrack = false, monitorGain = 1) {
+async function connectAudioGraph(audioElement, includeExportTrack = false, monitorGain = 1, options = {}) {
   const audioContext = await ensureAudioContext();
+  if (options.signal?.aborted) return null;
   if (!audioContext) {
     state.audioGraph = null;
     return null;
@@ -22310,6 +24323,9 @@ function startNarrationLoop(audioElement) {
 async function playNarrationAudio() {
   const shouldPrepareAfterPlayback = state.preparedLessonExport.prepareAfterPlayback;
   stopPlayback(false);
+  const signal = getPlaybackSignal();
+  let audioElement = null;
+  const isCurrent = () => !signal.aborted;
   state.preparedLessonExport.prepareAfterPlayback = shouldPrepareAfterPlayback;
   resetTaskProgressUi();
   state.displayedText = "";
@@ -22325,37 +24341,41 @@ async function playNarrationAudio() {
       });
     }
 
-    const audioElement = await createLoadedAudio(state.narration.url);
+    audioElement = await createLoadedAudio(state.narration.url, { signal });
+    if (!isCurrent()) { disposeRuntimeAudio(audioElement); return; }
     applyNaturalVoicePlayback(audioElement, getLessonPlaybackRate());
     audioElement.muted = false;
     audioElement.volume = STRICT_VOICE_VOLUME;
     state.activeAudio = audioElement;
-    await connectAudioGraph(audioElement, false);
+    await connectAudioGraph(audioElement, false, 1, { signal });
+    if (!isCurrent()) return;
     await startBackgroundMusicPlayback();
+    if (!isCurrent()) return;
 
     audioElement.addEventListener("ended", () => {
       window.setTimeout(() => {
-        finishPlayback("Playback complete. The narration finished.");
+        if (isCurrent() && state.activeAudio === audioElement) finishPlayback("Playback complete. The narration finished.");
       }, STRICT_SCENE_END_BUFFER_MS);
     }, { once: true });
 
     audioElement.addEventListener("error", () => {
-      finishPlayback("Narration playback failed. Please upload or record the audio again.");
+      if (isCurrent() && state.activeAudio === audioElement) finishPlayback("Narration playback failed. Please upload or record the audio again.");
     }, { once: true });
 
     state.speaking = true;
     updateStageViewUi();
     updateStagePageUi(state.previewPageIndex, state.renderedPageCount);
     setStatus(`The slide is reading with ${state.narration.source.toLowerCase()} audio at ${getLessonPlaybackRate()}x with strict word sync.`);
-    const started = await playAudioWithRecovery(audioElement, { volume: STRICT_VOICE_VOLUME });
+    const started = await playAudioWithRecovery(audioElement, { volume: STRICT_VOICE_VOLUME, isCurrent });
+    if (!isCurrent()) { disposeRuntimeAudio(audioElement); return; }
     if (!started) {
       throw new Error("The narration audio could not start in this browser.");
     }
     startNarrationLoop(audioElement);
   } catch (error) {
+    if (!isCurrent()) return;
     console.error(error);
     finishPlayback(error.message || "Narration playback failed.");
-    setStatus("Generated Anjali playback failed. The app did not switch to another voice. Generate Anjali narration again or restart the local Anjali voice server on port 8426.");
   }
 }
 
@@ -22367,11 +24387,20 @@ function playSpeechFallback() {
 function hasFreshGeneratedAnjaliNarration(currentText = "") {
   const safeText = String(currentText || "").trim();
   const expectedVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  const alphabetData = getAlphabetSayAloudData(safeText);
+  const alphabetStarts = state.narration?.syncProfile?.profile?.alphabetSlideStartsMs;
+  const alphabetNarrationIsCurrent = !alphabetData || Boolean(
+    Array.isArray(alphabetStarts)
+    && alphabetStarts.length === alphabetData.items.length
+    && alphabetStarts.every((start, index) => Math.abs(Number(start) - (index * ALPHABET_ITEM_DURATION_MS)) <= 120)
+    && Number(state.narration?.durationMs || 0) >= alphabetData.items.length * ALPHABET_ITEM_DURATION_MS
+  );
   return Boolean(
     state.narration.url
     && state.narration.blob
     && state.narration.voice === expectedVoice
     && state.narration.textSource === safeText
+    && alphabetNarrationIsCurrent
     && !isNarrationDurationTooShortForText(buildNarrationText(safeText), state.narration.durationMs, expectedVoice)
     && /generated .*narration/i.test(state.narration.source || "")
   );
@@ -22547,17 +24576,30 @@ async function ensureNarrationReadyForSlide(options = {}) {
   const voice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   const label = `Generated ${getNarrationVoiceLabel(voice).toLowerCase()} narration`;
   const fileName = `generated-${voice}-narration.wav`;
-  let syncProfile = null;
-  const blob = await requestNarrationBlob(currentText, voice, {
-    ...options,
-    onSyncProfile: (profile) => {
-      syncProfile = profile;
-      if (typeof options.onSyncProfile === "function") {
-        options.onSyncProfile(profile);
+  const whatsAppJob = createWhatsAppBrowserJob("Lesson narration preparation", { isCurrent: options.notificationIsCurrent });
+  try {
+    let syncProfile = null;
+    const blob = await requestNarrationBlob(currentText, voice, {
+      ...options,
+      onSyncProfile: (profile) => {
+        syncProfile = profile;
+        if (typeof options.onSyncProfile === "function") {
+          options.onSyncProfile(profile);
+        }
       }
-    }
-  });
-  await setNarrationFromBlob(blob, fileName, label, currentText, voice, { syncProfile });
+    });
+    // Publishing new audio intentionally stops the old playback signal. Check
+    // user cancellation before that internal stop, not after successful loading.
+    let notifyPreparation = true;
+    try { notifyPreparation = !options.notificationIsCurrent || options.notificationIsCurrent(); }
+    catch (_) { notifyPreparation = false; }
+    whatsAppJob.isCurrent = () => notifyPreparation;
+    await setNarrationFromBlob(blob, fileName, label, currentText, voice, { syncProfile });
+    finishWhatsAppBrowserJob(whatsAppJob, "completed", "Prepared: " + getWhatsAppOutputName(fileName));
+  } catch (error) {
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
+    throw error;
+  }
 }
 
 async function createTitleNarrationForVoice(voice = state.preferredNarrationVoice || "anjali", options = {}) {
@@ -22589,6 +24631,7 @@ async function createTitleNarrationForVoice(voice = state.preferredNarrationVoic
 }
 
 async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice || "anjali") {
+  const signal = getPlaybackSignal();
   state.titleIntroActive = true;
   state.displayedText = "";
   state.exactCharCountFloat = 0;
@@ -22599,32 +24642,44 @@ async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice 
   let titleAudio = null;
   try {
     const titleNarration = await createTitleNarrationForVoice(voice);
-    if (!titleNarration?.blob) {
+    if (signal.aborted || !titleNarration?.blob) {
       return;
     }
 
     titleUrl = URL.createObjectURL(titleNarration.blob);
     await delay(EXPORT_TITLE_PREROLL_MS);
 
-    titleAudio = await createLoadedAudio(titleUrl);
+    titleAudio = await createLoadedAudio(titleUrl, { signal });
+    if (signal.aborted) { disposeRuntimeAudio(titleAudio); return; }
     applyNaturalVoicePlayback(titleAudio, getLessonPlaybackRate());
     titleAudio.muted = false;
     titleAudio.volume = STRICT_VOICE_VOLUME;
     state.activeAudio = titleAudio;
     setStatus(`Reading title: ${titleNarration.text}`);
     await new Promise((resolve, reject) => {
-      titleAudio.addEventListener("ended", resolve, { once: true });
-      titleAudio.addEventListener("error", () => reject(new Error("Title narration playback failed.")), { once: true });
-      playAudioWithRecovery(titleAudio, { volume: STRICT_VOICE_VOLUME })
+      const cleanup = () => {
+        titleAudio.removeEventListener("ended", complete);
+        titleAudio.removeEventListener("error", fail);
+        signal.removeEventListener("abort", complete);
+      };
+      const complete = () => { cleanup(); resolve(); };
+      const fail = () => { cleanup(); reject(new Error("Title narration playback failed.")); };
+      titleAudio.addEventListener("ended", complete, { once: true });
+      titleAudio.addEventListener("error", fail, { once: true });
+      signal.addEventListener("abort", complete, { once: true });
+      playAudioWithRecovery(titleAudio, { volume: STRICT_VOICE_VOLUME, isCurrent: () => !signal.aborted })
         .then((started) => {
           if (!started) {
-            reject(new Error("Title narration could not start."));
+            if (signal.aborted) complete(); else fail();
           }
         })
-        .catch(reject);
+        .catch(fail);
     });
-    state.activeAudio = null;
+    if (signal.aborted) return;
+    if (state.activeAudio === titleAudio) state.activeAudio = null;
     await delay(TITLE_TO_CONTEXT_GAP_MS);
+  } catch (error) {
+    if (!signal.aborted) throw error;
   } finally {
     if (titleAudio) {
       try {
@@ -22637,8 +24692,10 @@ async function playTitleIntroBeforeLesson(voice = state.preferredNarrationVoice 
     if (state.activeAudio === titleAudio) {
       state.activeAudio = null;
     }
-    state.titleIntroActive = false;
-    markSceneDirty();
+    if (!signal.aborted) {
+      state.titleIntroActive = false;
+      markSceneDirty();
+    }
     if (titleUrl) {
       URL.revokeObjectURL(titleUrl);
     }
@@ -22675,19 +24732,24 @@ async function playSlide() {
 
   stopDictation(false);
   stopInputPreview(false);
+  stopPlayback(false);
+  const signal = getPlaybackSignal();
   state.introPlayback.enabled = introClipRequested;
 
   if (!stagePanel || stagePanel.classList.contains("hidden")) {
     await showScreen();
   }
+  if (signal.aborted) return;
 
   if (allowIntroOnlyPlayback) {
     await playIntroClipIfEnabled();
+    if (signal.aborted) return;
     if (posterRequested) {
       await playIntroPosterSegment();
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
+    if (signal.aborted) return;
     finishPlayback("Playback complete. The default intro clip finished.");
     return;
   }
@@ -22698,12 +24760,15 @@ async function playSlide() {
   if (canReuseExistingNarration) {
     clearPlayLoadingOverlay();
     await playIntroClipIfEnabled();
+    if (signal.aborted) return;
     if (posterRequested) {
       await playIntroPosterSegment();
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
+    if (signal.aborted) return;
     await playTitleIntroBeforeLesson(normalizeNarrationVoiceId(state.preferredNarrationVoice));
+    if (signal.aborted) return;
     playNarrationAudio();
     return;
   }
@@ -22718,12 +24783,15 @@ async function playSlide() {
     updateTaskProgressUi(0.2, true, { mirrorStage: true });
     await ensureNarrationReadyForSlide({
       timeoutMs: getLongNarrationRequestTimeoutMs(currentText),
+      notificationIsCurrent: () => !signal.aborted,
       onProgress: ({ label, progress }) => {
+        if (signal.aborted) return;
         updateNarrationLiveProgress(label, Math.max(0.18, progress || 0.18));
         updatePlayLoadingProgress(0.18, label || "Generating narration");
       }
     });
     state.generatingNarration = false;
+    if (signal.aborted) return;
     // ── Step 2: Audio loaded ───────────────────────────────────────────────
     setPlayLoadingStep("audio");
     updatePlayLoadingProgress(0.62, "Loading generated audio");
@@ -22732,11 +24800,13 @@ async function playSlide() {
     setPlayLoadingStep("intro");
     updatePlayLoadingProgress(0.74, "Preparing intro");
     await playIntroClipIfEnabled();
+    if (signal.aborted) return;
     if (posterRequested) {
       await playIntroPosterSegment();
     } else if (state.introPlayback.enabled) {
       await playPostIntroBlankTransition();
     }
+    if (signal.aborted) return;
     // ── Step 4: Starting playback ─────────────────────────────────────────
     setPlayLoadingStep("starting");
     updatePlayLoadingProgress(0.9, "Starting lesson playback");
@@ -22744,10 +24814,12 @@ async function playSlide() {
     resetTaskProgressUi();
     clearPlayLoadingOverlay();
     await playTitleIntroBeforeLesson(normalizeNarrationVoiceId(state.preferredNarrationVoice));
+    if (signal.aborted) return;
     playNarrationAudio();
   } catch (error) {
-    console.error(error);
     state.generatingNarration = false;
+    if (signal.aborted) return;
+    console.error(error);
     finishNarrationLiveProgress(error.message || "Narration generation failed.", { error: true });
     state.preparedLessonExport.prepareAfterPlayback = false;
     resetTaskProgressUi();
@@ -23047,22 +25119,25 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   const modeLabel = normalizedRenderMode === "exact" ? "exact PDF" : "PDF context";
   const outputFileName = getPdfExportFileName(normalizedRenderMode);
   const effectiveExportQuality = getEffectiveExportQuality();
-  const pdfTimelineDurationMs = Math.max(1000, Math.round(state.pdf.totalDurationMs || 1000));
-  const pdfExportTargetDurationMs = pdfTimelineDurationMs + getExportCompletionTailMs();
+  let pdfTimelineDurationMs = Math.max(1000, Math.round(state.pdf.totalDurationMs || 1000));
+  let pdfExportTargetDurationMs = 0;
   const pdfBaseCaptureRate = getPdfExportCaptureRate(normalizedRenderMode);
-  const exportRenderSpeedMultiplier = getEffectiveExportRenderSpeedMultiplier(
+  let exportRenderSpeedMultiplier = getEffectiveExportRenderSpeedMultiplier(
     pdfBaseCaptureRate,
     pdfTimelineDurationMs
   );
   const previousRenderMode = getPdfRenderMode();
   const previousPresentationMode = state.presentationMode;
+  const pdfExportPlaybackRate = getPdfPlaybackRate();
+  state.pdf.exportCountingDisplayMode = getPdfCountingDisplayMode();
 
   stopDictation(false);
   stopInputPreview(false);
   stopPlayback(false);
   syncExportVoiceSelection();
   state.exportingVideo = true;
-  const preparingPdfExportMessage = `Preparing ${modeLabel} video with Anjali narration. Please wait...`;
+  const exportVoiceLabel = getNarrationVoiceLabel(state.preferredNarrationVoice);
+  const preparingPdfExportMessage = `Preparing ${modeLabel} video with ${exportVoiceLabel} narration. Please wait...`;
   setStatus(preparingPdfExportMessage);
   updateTaskProgressUi(0.06, true, { mirrorStage: true, label: preparingPdfExportMessage });
   updateStageModeUi();
@@ -23083,6 +25158,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   let frozenAvatarSnapshot = null;
   let videoSaveHandle = options.videoSaveHandle || null;
   const saveHandleRequested = Boolean(options.saveHandleRequested);
+  const whatsAppJob = createWhatsAppBrowserJob("PDF video export", { isCurrent: () => state.exportingVideo });
 
   try {
     if (saveHandleRequested && !videoSaveHandle) {
@@ -23119,12 +25195,15 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     if (pdfText) {
       try {
         updateTaskProgressUi(0.18, true, { mirrorStage: true });
-        exportAudioBlob = await ensureAnjaliPdfNarrationReadyForExport();
+        exportAudioBlob = await ensureAnjaliPdfNarrationReadyForExport({ onProgress: ({ label, progress }) => {
+          setStatus(label);
+          updateTaskProgressUi(0.18 + clamp(Number(progress) || 0, 0, 1) * 0.05, true, { mirrorStage: true, label });
+        } });
         exportAudioFileName = state.pdf.narration.fileName || exportAudioFileName;
-        audioStatusLabel = "Anjali narration";
+        audioStatusLabel = `${exportVoiceLabel} narration`;
       } catch (error) {
         console.error(error);
-        throw new Error(error?.message || "Anjali PDF narration could not be generated.");
+        throw new Error(error?.message || `${exportVoiceLabel} PDF narration could not be generated.`);
       }
     } else {
       exportAudioBlob = createSilentWavBlob(state.pdf.totalDurationMs || 5000);
@@ -23133,9 +25212,21 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
         : "silent-pdf-context-timeline.wav";
     }
 
+    // The selected voice can have a different duration from the page estimate
+    // or previous voice. Size the final video using the newly prepared audio.
+    pdfTimelineDurationMs = Math.max(1000, Math.round(state.pdf.totalDurationMs || 1000));
+    if (normalizedRenderMode === "exact") {
+      pdfTimelineDurationMs = Math.max(pdfTimelineDurationMs, Number(state.pdf.narration.durationMs) || 0);
+    }
+    pdfExportTargetDurationMs = normalizedRenderMode === "exact"
+      ? pdfTimelineDurationMs / pdfExportPlaybackRate
+      : pdfTimelineDurationMs / pdfExportPlaybackRate + getExportCompletionTailMs();
+    exportRenderSpeedMultiplier = normalizedRenderMode === "exact"
+      ? 1
+      : getEffectiveExportRenderSpeedMultiplier(pdfBaseCaptureRate, pdfTimelineDurationMs);
     await ensureVideoExportServer();
     const renderingPdfExportMessage = normalizedRenderMode === "exact"
-      ? `Rendering ${modeLabel} video with full page images and ${audioStatusLabel} at ${exportRenderSpeedMultiplier}x export speed. Please wait...`
+      ? `Rendering every selected PDF page with accurately timed counts and ${audioStatusLabel}. Please wait...`
       : `Rendering ${modeLabel} video with synced page text, visuals, and ${audioStatusLabel} at ${exportRenderSpeedMultiplier}x export speed. Please wait...`;
     setStatus(renderingPdfExportMessage);
     updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingPdfExportMessage });
@@ -23144,6 +25235,19 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     drawScene(0.12);
     requestExportVideoFrame();
 
+    let videoBlob;
+    if (normalizedRenderMode === "exact") {
+      frozenAvatarSnapshot = freezeAvatarForExport();
+      const encoded = await encodePdfExactTimelineForExport({
+        durationMs: pdfTimelineDurationMs,
+        playbackRate: pdfExportPlaybackRate,
+        frameRate: 30
+      });
+      videoBlob = encoded.blob;
+      pdfExportTargetDurationMs = encoded.durationMs;
+      state.speaking = false;
+      state.mouthOpen = 0.12;
+    } else {
     const captureRate = getAcceleratedExportCaptureRate(
       pdfBaseCaptureRate,
       exportRenderSpeedMultiplier
@@ -23207,7 +25311,8 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
 
     recorder.start(100);
     await renderPdfTimelineForExport(normalizedRenderMode, {
-      renderSpeedMultiplier: exportRenderSpeedMultiplier
+      renderSpeedMultiplier: exportRenderSpeedMultiplier,
+      playbackRate: pdfExportPlaybackRate
     });
 
     state.speaking = false;
@@ -23220,12 +25325,13 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     await waitForNextPaint();
     await stopExportMediaRecorder(recorder);
 
-    const videoBlob = await blobPromise;
+    videoBlob = await blobPromise;
     if (!videoBlob.type.startsWith("video/")) {
       throw new Error(`The browser returned ${videoBlob.type || "an unknown file"} instead of PDF video.`);
     }
+    }
 
-    const finalAudioLabel = audioStatusLabel === "generated narration" ? "narration" : "a timing track";
+    const finalAudioLabel = pdfText ? audioStatusLabel : "a timing track";
 
     const combiningPdfExportMessage = `Combining ${modeLabel} video${state.music.enabled ? `, ${finalAudioLabel}, and music` : ` and ${finalAudioLabel}`} with FFmpeg. Please wait...`;
     setStatus(combiningPdfExportMessage);
@@ -23233,8 +25339,10 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     const shouldSaveToDownloads = !videoSaveHandle;
     const finalResult = await muxVideoAndAudio(videoBlob, exportAudioBlob, {
       audioFileName: exportAudioFileName,
-      audioSpeed: getPdfPlaybackRate(),
+      audioSpeed: pdfExportPlaybackRate,
       videoSpeed: exportRenderSpeedMultiplier,
+      videoFileName: normalizedRenderMode === "exact" ? "pdf-exact-timeline.ivf" : "canvas-export.webm",
+      pdfExactTimeline: normalizedRenderMode === "exact",
       targetDurationMs: pdfExportTargetDurationMs,
       saveHandle: videoSaveHandle,
       saveToDefaultPath: shouldSaveToDownloads,
@@ -23253,17 +25361,20 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     if (videoSaveHandle) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`${modeLabel} video saved successfully.`);
+      finishWhatsAppBrowserJob(whatsAppJob, "completed", "Saved: " + getWhatsAppOutputName(videoSaveHandle.electronFilePath || videoSaveHandle.name || outputFileName));
     } else if (finalResult?.savedPath) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`${modeLabel} video downloaded to Downloads.`);
+      finishWhatsAppBrowserJob(whatsAppJob, "completed", "Saved: " + getWhatsAppOutputName(finalResult.savedPath));
     } else {
-      triggerFileDownload(finalResult, outputFileName);
+      await downloadWithWhatsAppJob(finalResult, outputFileName, "PDF video export", whatsAppJob);
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`${modeLabel} video downloaded successfully.`);
     }
   } catch (error) {
     console.error(error);
     const errorMessage = error?.message || "unknown error";
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     if (/Anjali (clone )?server|local Anjali voice server|local narration server/i.test(errorMessage)) {
       setStatus(`PDF export failed: ${errorMessage} Start the local Anjali voice server on port 8426, then export again.`);
     } else {
@@ -23275,6 +25386,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   } finally {
     allowBackgroundThrottling();
     state.exportingVideo = false;
+    delete state.pdf.exportCountingDisplayMode;
     cancelVisualLoop();
     stopActiveAudio();
     state.exportFallbackMode = false;
@@ -23808,6 +25920,7 @@ async function exportVideo(options = {}) {
   let frozenAvatarSnapshot = null;
   let videoSaveHandle = options.videoSaveHandle || null;
   const saveHandleRequested = Boolean(options.saveHandleRequested);
+  const whatsAppJob = cacheOnly ? null : createWhatsAppBrowserJob("Lesson video export", { isCurrent: () => state.exportingVideo });
 
   try {
     if (saveHandleRequested && !cacheOnly && !videoSaveHandle) {
@@ -23861,11 +25974,17 @@ async function exportVideo(options = {}) {
       updateTaskProgressUi(0.18, true, { mirrorStage: true, label: alignmentMessage });
       let exactProfile = null;
       let alignmentError = null;
+      const alphabetDataForExport = getAlphabetSayAloudData(exportText);
+      const measuredAlphabetStarts = alphabetDataForExport
+        ? (state.narration?.syncProfile?.profile?.alphabetSlideStartsMs
+          || state.narration?.syncProfile?.profile?.chunkStartsMs)
+        : null;
       for (let alignmentAttempt = 1; alignmentAttempt <= 2 && !exactProfile?.units?.length; alignmentAttempt += 1) {
         try {
+          const exactAlignmentText = getAlphabetNarrationText(exportText) || exportText;
           exactProfile = await buildExactWhisperSyncProfile(
             exportNarrationBlob,
-            exportText,
+            exactAlignmentText,
             exportNarrationDurationMs
           );
         } catch (error) {
@@ -23878,6 +25997,9 @@ async function exportVideo(options = {}) {
           `Exact narration-to-word alignment was unavailable${alignmentError?.message ? `: ${alignmentError.message}` : "."} `
           + "The export was stopped so an early, unsynchronized word animation is never saved."
         );
+      }
+      if (Array.isArray(measuredAlphabetStarts) && measuredAlphabetStarts.length >= alphabetDataForExport.items.length) {
+        exactProfile.alphabetSlideStartsMs = measuredAlphabetStarts.slice(0, alphabetDataForExport.items.length);
       }
       state.narration.syncProfile = {
         text: exportText,
@@ -24355,17 +26477,20 @@ async function exportVideo(options = {}) {
     if (videoSaveHandle) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video saved with${includedIntroInExport ? " intro and " : " "}narration audio.`);
+      finishWhatsAppBrowserJob(whatsAppJob, "completed", "Saved: " + getWhatsAppOutputName(videoSaveHandle.electronFilePath || videoSaveHandle.name || outputFileName));
     } else if (finalResult?.savedPath) {
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video downloaded to Downloads with${includedIntroInExport ? " intro and " : " "}narration audio.`);
+      finishWhatsAppBrowserJob(whatsAppJob, "completed", "Saved: " + getWhatsAppOutputName(finalResult.savedPath));
     } else {
-      triggerFileDownload(finalResult, outputFileName);
+      await downloadWithWhatsAppJob(finalResult, outputFileName, "Lesson video export", whatsAppJob);
       updateTaskProgressUi(1, true, { mirrorStage: true });
       setStatus(`Video downloaded with${includedIntroInExport ? " intro and " : " "}narration audio.`);
     }
   } catch (error) {
     console.error(error);
     const errorMessage = error?.message || "unknown error";
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     if (/Anjali (clone )?server|local Anjali voice server|local narration server/i.test(errorMessage)) {
       setStatus(`Video export failed: ${errorMessage} Start the local Anjali voice server on port 8426, then export again.`);
     } else {
@@ -25476,10 +27601,22 @@ async function processVideoQueue() {
 
   // ── Auto-retry failed videos (reset to pending, re-run the queue) ─────────────
   if (!sc3Queue.stopped && failC > 0) {
-    const _toRetry = sc3Queue.items.filter(i => i.status === 'error' && (i.retryCount || 0) < MAX_RETRIES);
+    const _toRetry = sc3Queue.items.filter(i => i.status === 'error' && (i.retryCount || 0) < MAX_RETRIES && !/cancel|not found|no file path|no clear speech|not installed|permission|ENOSPC|no space|unsupported|out of memory/i.test(i.errorMsg || ''));
     if (_toRetry.length > 0) {
+      // Keep ownership through backoff: upload/start must not replace this queue.
+      sc3Queue.processing = true;
+      state.singSong.processing = true;
+      if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = true;
+      if (_sc3StopBtn()) _sc3StopBtn().disabled = false;
       setSingSongStatus('\u26a0\ufe0f ' + _toRetry.length + ' video(s) failed. Auto-retrying in 3s\u2026');
       await new Promise(r => setTimeout(r, 3000));
+      if (sc3Queue.stopped) {
+        sc3Queue.processing = false;
+        state.singSong.processing = false;
+        if (sc3VideoReplaceBtn) sc3VideoReplaceBtn.disabled = false;
+        setSingSongStatus('Queue stopped. Completed videos are saved; failed items remain available.');
+        return;
+      }
       // Reset failed items to pending and increment retry counter
       _toRetry.forEach(_fi => {
         _fi.retryCount = (_fi.retryCount || 0) + 1;
@@ -25492,6 +27629,7 @@ async function processVideoQueue() {
       renderQueueList();
       setSingSongStatus('\ud83d\udd04 Re-running queue for ' + _toRetry.length + ' failed video(s)\u2026 (retry ' + (_toRetry[0].retryCount) + '/' + MAX_RETRIES + ')');
       // Re-run the queue — it will only process pending items
+      sc3Queue.processing = false;
       await processVideoQueue();
       return; // processVideoQueue will handle final summary
     }
@@ -25523,6 +27661,10 @@ async function processVideoQueue() {
 }
 
 function handleSc3VideoSelection(event) {
+  if (sc3Queue.processing || state.singSong.processing) {
+    setSingSongStatus('A job is running. Stop or finish the queue before replacing uploaded videos.');
+    return;
+  }
   const files = Array.from(event.target.files || []);
   clearSingSongResult();
 
@@ -25843,6 +27985,7 @@ async function _replaceVideoAudioRendererFallback(file) {
   setSingSongStatus('Replacing video audio with sc3 voice...');
 
   let progressTimer = 0;
+  const whatsAppJob = createWhatsAppBrowserJob("Sing Song video voice replacement", { isCurrent: () => state.singSong.processing });
   try {
     const [ffmpegReady, modelReady] = await Promise.all([
       ensureVideoExportServer(),
@@ -25923,9 +28066,11 @@ async function _replaceVideoAudioRendererFallback(file) {
       : 'Video audio replaced with sc3 voice. Preview it or use Download Replaced Video.');
     setStatus(savedPath ? 'sc3 video saved to Downloads: ' + savedPath : 'sc3 video replacement is ready.');
     notifySongCreationComplete('Video with sc3 voice is ready to preview or download.');
+    finishWhatsAppBrowserJob(whatsAppJob, "completed", (savedPath ? "Saved: " : "Prepared: ") + getWhatsAppOutputName(savedPath || state.singSong.videoResultFileName));
 
   } catch (error) {
     console.error(error);
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     setSingSongStatus(error.message || 'Video sc3 replacement failed.', { error: true });
     setSingSongProgress(0);
   } finally {
@@ -25977,6 +28122,7 @@ async function handleTranscribeAudioUpload() {
   state.transcribing = true;
   setTranscribeProgress(10, "Starting");
   updateSpeechToolsUi();
+  const whatsAppJob = createWhatsAppBrowserJob("Audio to Text", { isCurrent: () => state.transcribing });
 
   try {
     setTranscribeProgress(20, "Checking server");
@@ -26025,8 +28171,10 @@ async function handleTranscribeAudioUpload() {
     state.transcribeSelectedFile = null;
     transcribeAudioInput.value = "";
     handleLessonInputChange();
+    finishWhatsAppBrowserJob(whatsAppJob, "completed", "Transcription added to the lesson editor.");
   } catch (error) {
     console.error(error);
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     setTranscribeProgress(0, "Failed");
     setTranscribeStatus(error.message || "Audio transcription failed.");
   } finally {
@@ -26054,6 +28202,7 @@ async function generateNarrationDownload(voice) {
   state.generatingNarration = true;
   updateSpeechToolsUi();
   startNarrationLiveProgress(`Generating ${getNarrationVoiceLabel(voice).toLowerCase()} narration...`);
+  const whatsAppJob = createWhatsAppBrowserJob("Lesson narration download");
 
   try {
     const label = getNarrationVoiceLabel(voice);
@@ -26078,13 +28227,14 @@ async function generateNarrationDownload(voice) {
     const fileName = `${voice}-narration.wav`;
     await setNarrationFromBlob(blob, fileName, sourceLabel, text, voice, { syncProfile });
     updateTaskProgressUi(0.9, true, { label: `${label} narration is ready to download.` });
-    triggerFileDownload(blob, fileName);
+    await downloadWithWhatsAppJob(blob, fileName, "Lesson narration download", whatsAppJob);
     setNarrationGenStatus(`${label} narration downloaded and loaded into the app.`);
     setStatus(`${label} narration downloaded and loaded into the app.`);
     updateTaskProgressUi(1, true, { label: `${label} narration downloaded and loaded into the app.` });
     finishNarrationLiveProgress(`${label} narration ready.`);
   } catch (error) {
     console.error(error);
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     setNarrationGenStatus(error.message || "Narration generation failed.");
     setStatus(error.message || "Narration generation failed.", { error: true });
     finishNarrationLiveProgress(error.message || "Narration generation failed.", { error: true });
@@ -26132,6 +28282,7 @@ async function downloadNarrationMp3Only() {
 
   setStatus(`Generating ${label} narration MP3...`);
   updateTaskProgressUi(0.16, true, { label: `Generating ${label} narration MP3...` });
+  const whatsAppJob = createWhatsAppBrowserJob("Lesson narration MP3 download");
 
   try {
     const wavBlob = await requestNarrationBlob(text, voice, {
@@ -26144,11 +28295,12 @@ async function downloadNarrationMp3Only() {
     const filePrefix = getNarrationVoiceOption(voice)?.fileNamePrefix || voice;
     const mp3Blob = await convertAudioBlobToMp3(wavBlob, `${filePrefix}-narration.wav`);
     updateTaskProgressUi(0.94, true, { label: "Downloading MP3..." });
-    await triggerFileDownload(mp3Blob, `${filePrefix}-narration.mp3`);
+    await downloadWithWhatsAppJob(mp3Blob, `${filePrefix}-narration.mp3`, "Lesson narration MP3 download", whatsAppJob);
     updateTaskProgressUi(1, true, { label: `${label} MP3 is ready.` });
     setStatus(`${label} narration MP3 downloaded.`);
   } catch (error) {
     console.error(error);
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     setStatus(error.message || "MP3 download failed.", { error: true });
   } finally {
     resetTaskProgressUi();
@@ -26169,6 +28321,7 @@ async function loadGeneratedNarrationIntoApp(voice) {
   state.generatingNarration = true;
   updateSpeechToolsUi();
   startNarrationLiveProgress(`Generating ${getNarrationVoiceLabel(voice).toLowerCase()} narration for the app...`);
+  const whatsAppJob = createWhatsAppBrowserJob("Lesson narration generation");
 
   try {
     const label = getNarrationVoiceLabel(voice);
@@ -26204,8 +28357,10 @@ async function loadGeneratedNarrationIntoApp(voice) {
     }
     updateTaskProgressUi(1, true, { label: `${label} narration is loaded into the app.` });
     finishNarrationLiveProgress(`${label} narration is loaded into the app.`);
+    finishWhatsAppBrowserJob(whatsAppJob, "completed", "Prepared: " + getWhatsAppOutputName(fileName));
   } catch (error) {
     console.error(error);
+    finishWhatsAppBrowserJob(whatsAppJob, "failed", error);
     setNarrationGenStatus(error.message || "Narration generation failed.");
     setStatus(error.message || "Narration generation failed.", { error: true });
     finishNarrationLiveProgress(error.message || "Narration generation failed.", { error: true });
@@ -26432,6 +28587,21 @@ if (numberTableIntroEnabled) {
         ? "Intro will play before the number grid presentation when enabled."
         : "Intro is disabled for Number Table. Presentation starts immediately.";
     }
+  });
+}
+if (applyAlphabetBtn) {
+  applyAlphabetBtn.addEventListener("click", () => {
+    void runLockedAction("alphabetSayAloud", [applyAlphabetBtn, showAlphabetBtn, readAlphabetBtn], async () => applyAlphabetSayAloudBuilder());
+  });
+}
+if (showAlphabetBtn) {
+  showAlphabetBtn.addEventListener("click", () => {
+    void runLockedAction("alphabetSayAloud", [applyAlphabetBtn, showAlphabetBtn, readAlphabetBtn], async () => applyAlphabetSayAloudBuilder({ showScreenAfter: true }));
+  });
+}
+if (readAlphabetBtn) {
+  readAlphabetBtn.addEventListener("click", () => {
+    void runLockedAction("alphabetSayAloud", [applyAlphabetBtn, showAlphabetBtn, readAlphabetBtn], async () => applyAlphabetSayAloudBuilder({ readAfterShow: true }));
   });
 }
 lessonInput.addEventListener("input", () => {
@@ -27112,10 +29282,12 @@ if (previewAnjaliBtn) {
   previewAnjaliBtn.addEventListener("click", () => runLockedAction("preview", [previewTextBtn, previewAnjaliBtn], async () => startTextPreview(normalizeNarrationVoiceId(state.preferredNarrationVoice))));
 }
 if (slideVoiceSelect) {
+  slideVoiceSelect.innerHTML = NARRATION_VOICE_OPTIONS.map(option =>
+    `<option value="${option.id}">${option.label}</option>`).join("");
   slideVoiceSelect.addEventListener("change", () => {
     const voiceId = slideVoiceSelect.value;
-    state.preferredNarrationVoice = voiceId;
     persistPreferredNarrationVoice(voiceId);
+    updatePreferredVoiceUi();
     const stageSelect = document.getElementById("stageVoiceSelect");
     if (stageSelect) {
       stageSelect.value = voiceId;
@@ -27125,6 +29297,31 @@ if (slideVoiceSelect) {
       if (defName) defName.textContent = getNarrationVoiceOption(voiceId)?.label || getNarrationVoiceLabel(voiceId);
     }
   });
+}
+if (pdfCountingDisplaySelect) {
+  pdfCountingDisplaySelect.addEventListener("change", () => {
+    if (state.exportingVideo || state.speaking || state.pdfLoading) {
+      pdfCountingDisplaySelect.value = getPdfCountingDisplayMode();
+      return;
+    }
+    invalidatePdfPresentationRequest();
+    state.pdf.countingDisplayMode = pdfCountingDisplaySelect.value === "original" ? "original" : "reveal";
+    setPdfStatus(getPdfCountingDisplayMode() === "reveal"
+      ? "Prepared counting pages reveal complete realistic pictures, with numerals above and number words below, on screen and in video export. Other pages keep their PDF layout."
+      : "Original PDF artwork stays visible; number labels follow the narration, on screen and in video export.");
+    if (isPdfPresentationMode()) { markSceneDirty(); drawScene(state.mouthOpen); }
+  });
+}
+document.getElementById("pdfCountingPictureSave")?.addEventListener("click", () => void importPdfCountingLocalPicture());
+if (pdfVoiceSelect) {
+  pdfVoiceSelect.innerHTML = NARRATION_VOICE_OPTIONS.map(option =>
+    `<option value="${option.id}">${option.label}${option.id === EDGE_NARRATION_VOICE ? " — faster preparation" : " — local"}</option>`).join("");
+  pdfVoiceSelect.addEventListener("change", () => {
+    persistPreferredNarrationVoice(pdfVoiceSelect.value);
+    updatePreferredVoiceUi();
+    setPdfStatus(`${getNarrationVoiceLabel(state.preferredNarrationVoice)} selected for PDF reading and export. Click Read when ready.`);
+  });
+  updatePreferredVoiceUi();
 }
 stageToolbarGroups.forEach((group) => {
   group.addEventListener("toggle", () => {
@@ -27144,6 +29341,7 @@ pdfShowBtn.addEventListener("click", () => runLockedAction("pdfShow", [pdfShowBt
 pdfPresentBtn.addEventListener("click", () => runLockedAction("pdfPresent", [pdfPresentBtn, playBtn], presentPdf));
 pdfSelectAllBtn.addEventListener("click", selectAllPdfPages);
 pdfClearSelectionBtn.addEventListener("click", clearSelectedPdfPages);
+pdfSelectRangeBtn?.addEventListener("click", selectPdfPageRange);
 clearPdfBtn.addEventListener("click", () => clearPdfSelection({ keepLessonText: true }));
 // ── Dynamic Voice Picker ────────────────────────────────────────────────────
 (function initVoicePicker() {
@@ -27649,7 +29847,12 @@ if (sc3VideoReplaceBtn) {
       return;
     }
     // Reset pending statuses if re-running after stop
-    sc3Queue.items.forEach(i => { if (i.status === 'skipped') i.status = 'pending'; });
+    sc3Queue.items.forEach(i => {
+      if (i.status === 'skipped' || i.status === 'error') {
+        i.status = 'pending';
+        i.retryCount = 0;
+      }
+    });
     void processVideoQueue();
   });
 }
@@ -28162,6 +30365,7 @@ if (stagePlaybackSpeedSelect) {
   });
 }
 stopStageBtn.addEventListener("click", () => {
+  if (isPdfPresentationMode()) invalidatePdfPresentationRequest();
   stopPlayback();
   setStatus("Playback stopped.");
 });
@@ -28704,8 +30908,8 @@ if (resetInputsBtn) {
 
     // 1. Stop any active narration / audio playback so media elements
     //    don't block or error after the page reloads.
-    try { stopNarration?.(); }        catch (_) {}
-    try { stopBackgroundMusic?.(); }  catch (_) {}
+    try { stopPlayback(false); }     catch (_) {}
+    try { stopInputPreview(false); } catch (_) {}
     try {
       if (state.activeAudio && !state.activeAudio.paused) {
         state.activeAudio.pause();
@@ -29001,6 +31205,7 @@ if (autoExplainBtn) {
 
   // Ctrl+S = save immediately
   document.addEventListener("keydown", (e) => {
+    if (!canUsePresentatorKeyboardShortcuts()) return;
     if ((e.ctrlKey || e.metaKey) && e.key === "s" && !e.shiftKey) {
       if (document.getElementById("inputPanel") && !document.getElementById("inputPanel").classList.contains("hidden")) {
         e.preventDefault();
@@ -29157,6 +31362,25 @@ if (autoExplainBtn) {
 // Ctrl+Enter=ShowScreen, Ctrl+E=Export, Ctrl+P=Play, Escape=BackToInput,
 // Ctrl+↑/↓=Prev/Next slide. Shortcuts overlay toggle.
 // ═══════════════════════════════════════════════════════════════════════════
+function canUsePresentatorKeyboardShortcuts() {
+  const shell = document.querySelector(".simple-studio");
+  // Older standalone pages keep their original shortcut behavior.
+  if (!shell) return true;
+  const visible = (element) => {
+    if (!element || element.hidden || !element.getClientRects().length) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
+  };
+  if (shell.dataset.module !== "presentator" || shell.dataset.caption === "true" ||
+      document.body.classList.contains("tdub-open")) return false;
+  if (!visible(shell.querySelector('.studio-module[data-workspace="presentator"]'))) return false;
+  if (Array.from(document.querySelectorAll('.studio-modal-backdrop, [role="dialog"], dialog[open]')).some(visible)) return false;
+  if (visible(document.getElementById("stagePanel"))) return true;
+  // Other focused tools use their own controls, not lesson play/export keys.
+  return visible(document.getElementById("inputPanel")) &&
+    ["pdfSection", "lessonContentSection"].includes(shell.dataset.section);
+}
+
 (function initKeyboardShortcuts() {
   // Shortcuts overlay toggle
   const shortcutsHintBtn  = document.getElementById("shortcutsHintBtn");
@@ -29174,6 +31398,7 @@ if (autoExplainBtn) {
 
   // Global keyboard handler
   document.addEventListener("keydown", (e) => {
+    if (!canUsePresentatorKeyboardShortcuts()) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const tag = (e.target?.tagName || "").toUpperCase();
     const isTyping = ["INPUT","TEXTAREA","SELECT"].includes(tag) && !ctrl;

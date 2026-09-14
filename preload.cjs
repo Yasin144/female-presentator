@@ -12,6 +12,17 @@ const videoResizerProgressHandlers = new Map();
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
 
+  metaStatus: () => ipcRenderer.invoke('meta-status'),
+  metaSaveKey: input => ipcRenderer.invoke('meta-save-key', input),
+  metaForgetKey: kind => ipcRenderer.invoke('meta-forget-key', kind),
+  metaCheck: kind => ipcRenderer.invoke('meta-check', kind),
+  metaRun: input => ipcRenderer.invoke('meta-run', input),
+  metaCancel: () => ipcRenderer.invoke('meta-cancel'),
+
+  // On-demand local OCR for scanned PDF counting pages only.
+  pdfCountingOcr: request =>
+    ipcRenderer.invoke('presentator-pdf-counting-ocr', request),
+
   // Native save-file dialog
   showSaveDialog: (options) =>
     ipcRenderer.invoke('show-save-dialog', options),
@@ -69,6 +80,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   setWhatsAppAutoSend: (enabled) =>
     ipcRenderer.invoke('set-whatsapp-auto-send', enabled),
+
+  // Drafts open only after an explicit review action. Sending remains manual.
+  openWhatsAppDraft: (request) =>
+    ipcRenderer.invoke('open-whatsapp-draft', request),
+
+  dismissWhatsAppDraft: (id) =>
+    ipcRenderer.invoke('dismiss-whatsapp-draft', id),
+
+  reportWhatsAppJob: (job) =>
+    ipcRenderer.invoke('report-whatsapp-job', job),
 
   // Live mobile link real-time event
   onMobileLinkUpdated: (callback) => {

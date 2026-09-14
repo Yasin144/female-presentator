@@ -1,0 +1,180 @@
+/* Home is a simple tool launcher. These rules never style a tool's contents. */
+.simple-studio .studio-home {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1500px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 36px 42px 48px;
+  color: #243746;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.5;
+  text-align: left;
+}
+.simple-studio .studio-home * { box-sizing: border-box; }
+.simple-studio .studio-home-heading { margin: 0 0 27px; }
+.simple-studio .studio-home-heading h1 {
+  margin: 0 0 9px;
+  color: #142b3a;
+  font: 400 clamp(26px, 2.35vw, 36px)/1.2 Georgia, 'Times New Roman', serif;
+  letter-spacing: -.6px;
+}
+.simple-studio .studio-home-heading p {
+  margin: 0;
+  color: #5d6a72;
+  font-size: 15px;
+  font-weight: 400;
+}
+.simple-studio .studio-home-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+.simple-studio .studio-home .studio-home-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 190px;
+  margin: 0;
+  padding: 21px 23px;
+  overflow: visible;
+  border: 1px solid #d9dedf;
+  border-radius: 10px;
+  color: #243746;
+  background: #fff;
+  box-shadow: 0 2px 3px rgba(20, 43, 58, .025);
+  font: 400 14px/1.5 'Segoe UI', system-ui, sans-serif;
+  text-align: left;
+  white-space: normal;
+  letter-spacing: 0;
+  cursor: pointer;
+  transform: none;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.simple-studio .studio-home .studio-home-card::after,
+.simple-studio .studio-home .studio-home-helper::after { display: none; }
+.simple-studio .studio-home .studio-home-card:hover {
+  border-color: #849aa7;
+  background: #fdfefd;
+  box-shadow: 0 4px 12px rgba(20, 43, 58, .08);
+  transform: none;
+}
+.simple-studio .studio-home .studio-home-card:active {
+  background: #f2f5f5;
+  box-shadow: none;
+  transform: none;
+}
+.simple-studio .studio-home-card-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 13px;
+  border: 1px solid #e2e7e6;
+  border-radius: 9px;
+  color: #254b60;
+  background: #f1f5f4;
+}
+.simple-studio .studio-home-card-icon svg { flex-shrink: 0; }
+.simple-studio .studio-home-card-title {
+  display: block;
+  margin: 0 0 7px;
+  color: #142b3a;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.simple-studio .studio-home-card-description {
+  display: block;
+  max-width: 35ch;
+  margin: 0 0 15px;
+  color: #596870;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.simple-studio .studio-home-card-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  color: #254b60;
+  font-size: 12px;
+  font-weight: 600;
+}
+.simple-studio .studio-home-card-open > span { font-size: 17px; line-height: 1; }
+.simple-studio .studio-home-helpers {
+  margin-top: 29px;
+  padding-top: 23px;
+  border-top: 1px solid #dcded8;
+}
+.simple-studio .studio-home-helpers h2 {
+  margin: 0 0 10px;
+  color: #394c56;
+  font: 600 14px/1.4 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0;
+}
+.simple-studio .studio-home-helper-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 23px;
+}
+.simple-studio .studio-home .studio-home-helper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin: 0;
+  padding: 9px 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: #254b60;
+  font: 500 13px/1.5 'Segoe UI', system-ui, sans-serif;
+  text-align: left;
+  letter-spacing: 0;
+  transform: none;
+  transition: color .16s ease;
+}
+.simple-studio .studio-home .studio-home-helper:hover {
+  color: #142b3a;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transform: none;
+}
+.simple-studio .studio-home .studio-home-helper:active { transform: none; }
+.simple-studio .studio-home .studio-home-helper > span { font-size: 16px; }
+.simple-studio .studio-home :is(.studio-home-card, .studio-home-helper):focus-visible {
+  outline: 3px solid #a8874e !important;
+  outline-offset: 4px;
+}
+@media (min-width: 1280px) {
+  .simple-studio .studio-home-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .simple-studio .studio-home { padding: 28px 26px 40px; }
+  .simple-studio .studio-home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 580px) {
+  .simple-studio .studio-home { padding: 25px 18px 32px; }
+  .simple-studio .studio-home-heading { margin-bottom: 21px; }
+  .simple-studio .studio-home-heading h1 { max-width: 20ch; font-size: 28px; }
+  .simple-studio .studio-home-heading p { font-size: 14px; }
+  .simple-studio .studio-home-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .simple-studio .studio-home .studio-home-card { min-height: 0; padding: 19px 20px; }
+  .simple-studio .studio-home-card-icon { margin-bottom: 11px; }
+  .simple-studio .studio-home-card-description { max-width: none; margin-bottom: 12px; }
+  .simple-studio .studio-home-helper-links { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+  .simple-studio .studio-home .studio-home-helper { padding: 9px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .simple-studio .studio-home :is(.studio-home-card, .studio-home-helper) { transition: none; }
+}

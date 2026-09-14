@@ -428,7 +428,8 @@ try:
             except Exception:
                 pass
 
-    text, lang, segs, words = repair_known_nursery_lyrics(text, lang, segs, words)
+    # Keep only decoded speech. Never reconstruct lyrics from a filename and
+    # guessed timing: the recording may use a different version or omit lines.
 
     # Return result — even empty text is valid (video has no recognisable speech)
     print(json.dumps({

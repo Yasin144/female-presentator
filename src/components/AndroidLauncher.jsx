@@ -25,7 +25,7 @@ export default function AndroidLauncher() {
   const [serverUrl, setServerUrl] = useState(() => staleLink ? '' : (localStorage.getItem(LINK_KEY) || ''));
   const [status, setStatus] = useState(() => staleLink
     ? 'The previous Mobile Link expired. Generate a new link on your computer and paste it here.'
-    : 'Paste the secure Mobile Link shown by Pattan Presentator on your computer.');
+    : 'Paste the secure Mobile Link shown by Pattan Workspace on your computer.');
   const [connecting, setConnecting] = useState(false);
   const validUrl = useMemo(() => normalizeServerUrl(serverUrl), [serverUrl]);
 
@@ -59,11 +59,11 @@ export default function AndroidLauncher() {
       `}</style>
       <section className="android-card">
         <div className="android-logo">P</div>
-        <h1>Pattan Presentator</h1>
+        <h1>Pattan Workspace</h1>
         <p>Native Android companion for your full-quality Windows AI studio.</p>
         <label htmlFor="pattan-server">Secure computer link</label>
         <input id="pattan-server" value={serverUrl} onChange={event => setServerUrl(event.target.value)} placeholder="https://…trycloudflare.com/?mobileToken=…" autoCapitalize="none" autoCorrect="off" inputMode="url" />
-        <button type="button" disabled={!validUrl || connecting} onClick={() => connect()}>{connecting ? 'Connecting…' : 'Connect to Pattan Studio'}</button>
+        <button type="button" disabled={!validUrl || connecting} onClick={() => connect()}>{connecting ? 'Connecting…' : 'Connect to Pattan Workspace'}</button>
         <div className="android-status" role="status">{status}</div>
         <div className="android-points"><span>Maximum-quality processing stays on your computer</span><span>Uploads, live progress, stop/resume and downloads on mobile</span><span>The latest link is remembered for the next launch</span></div>
       </section>

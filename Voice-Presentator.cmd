@@ -15,6 +15,11 @@ if exist "%APP_DIR%\.groq_api_key" (
 title Voice Presentator
 cd /d "%APP_DIR%"
 
+REM Reuse this workspace's app without interrupting other Electron programs.
+powershell -NoProfile -Command "$exe=Join-Path $env:APP_DIR 'node_modules\electron\dist\electron.exe'; try { $running=Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.ExecutablePath -eq $exe -and $_.CommandLine -notmatch '(?:^|\s)--type=' }; if($running){exit 0}; exit 1 } catch { exit 2 }" >nul 2>&1
+if errorlevel 2 ( echo Could not check whether Presentator is already running. No processes were changed. & exit /b 1 )
+if not errorlevel 1 ( echo Presentator is already running. Use its existing window. & exit /b 0 )
+
 REM ---- Install Electron if missing ----
 if not exist "%ELECTRON%" (
   echo Installing Node dependencies...
@@ -33,24 +38,33 @@ if exist "%PYTHON_VENV%" (
 )
 
 REM ---- Start SC3 Chatterbox in a visible terminal window ----
-REM Restart it from this launcher so the user can see the live Chatterbox log.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'python*' -or $_.Name -like 'cmd*') -and $_.CommandLine -like '*anjali-chatterbox-server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-if exist "%PYTHON_VENV%" (
-  start "SC3 Chatterbox Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py""
+REM Keep healthy or loading servers intact; report an occupied port instead.
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8426 is occupied but not ready. The existing process was left running.
+) else if errorlevel 1 (
+  if exist "%PYTHON_VENV%" (
+    start "SC3 Chatterbox Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py""
+  )
+) else (
+  echo SC3 Chatterbox is already ready - reusing it.
 )
 
 REM ---- Edge TTS server (port 8427) ----
-powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8427 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8427 is occupied but not ready. The existing process was left running.
+) else if errorlevel 1 (
   if exist "%PYTHON_VENV%" (
     start "EdgeTTS Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\timed-voiceover-server.py""
   )
 )
 
 REM ---- Start SC3 Singing Server (port 8431) for Hindi/Telugu voice conversion ----
-powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8431/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8431/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8431 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8431 is occupied but not ready. The existing process was left running.
+) else if errorlevel 1 (
   if exist "%SINGING_PYTHON%" (
     start "SC3 Singing Python" cmd /k ""%SINGING_PYTHON%" -u "%APP_DIR%\sc3-singing-server.py""
   ) else if exist "%PYTHON_VENV%" (
@@ -61,8 +75,10 @@ if errorlevel 1 (
 REM ---- Caption translation server (port 8434) ----
 REM Caption Burner requires this before processing so the selected output
 REM language is translated instead of silently retaining the source captions.
-powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8434/health' -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8434/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8434 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8434 is occupied but not ready. The existing process was left running.
+) else if errorlevel 1 (
   if exist "%PYTHON_VENV%" (
     start "Caption Translation Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\translate-server.py""
   )
@@ -82,9 +98,7 @@ if %RESTART_COUNT% GTR 1 (
   ping 127.0.0.1 -n 3 >nul
 )
 
-REM Kill any stale Electron before launching fresh
-powershell -NoProfile -Command "Get-Process -Name electron -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue" >nul 2>&1
-ping 127.0.0.1 -n 2 >nul
+REM Restart only the app launched below; leave all other processes untouched.
 
 REM Launch with /wait - CMD blocks here until Electron exits
 start /wait "" "%ELECTRON%" "%APP_DIR%"

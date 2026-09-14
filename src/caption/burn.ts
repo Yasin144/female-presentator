@@ -11,8 +11,17 @@ interface BurnVideoMeta {
 }
 
 const SPEECH_GAP_SECONDS = 0.75;
-const CAPTION_WORD_LIMIT = 6;
+const CAPTION_WORD_LIMIT = 8;
 const CAPTION_BOTTOM_OFFSET_PX = 80;
+
+export function spokenPhraseStart(tokens: string[], activeIndex: number, limit = 8): number {
+  let start = 0;
+  for (let i = 1; i <= activeIndex; i++) {
+    const newAlphabetItem = /^[a-z]$/i.test(tokens[i] || '') && /^for\b/i.test(tokens[i + 1] || '');
+    if (i - start >= limit || /[,;:.!?]["'’)]?$/.test(tokens[i - 1] || '') || newAlphabetItem) start = i;
+  }
+  return start;
+}
 
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ff?.loaded) return ff;
@@ -66,31 +75,8 @@ function captionBottomSafety(fontSize: number, lineCount = 1) {
 }
 
 function normalizeDisplayedCaptionWords(input: WordItem[]): WordItem[] {
-  const words = input.map(word => ({
-    ...word,
-    text: String(word.text || '').trim(),
-  }));
-  for (let index = 0; index < words.length - 1; index += 1) {
-    const current = words[index].text.replace(/[^A-Za-z]/g, '').toLowerCase();
-    const next = words[index + 1].text.replace(/[^A-Za-z]/g, '').toLowerCase();
-    if (current === 'info' && (next === 'kits' || next === 'kids')) {
-      words[index] = { ...words[index], text: 'Info' };
-      words[index + 1] = { ...words[index + 1], text: 'Kids' };
-    }
-  }
-  const letterCounts = new Map<string, number>();
-  for (const word of words) {
-    const token = word.text.replace(/[^A-Za-z]/g, '').toUpperCase();
-    if (token.length === 1) letterCounts.set(token, (letterCounts.get(token) || 0) + 1);
-  }
-  const dominant = [...letterCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-  if (!dominant || dominant[1] < 2) return words;
-  const lessonLetter = dominant[0];
-  return words.map((word, index) => {
-    if (word.text.toLowerCase() !== 'for') return word;
-    const previous = String(words[index - 1]?.text || '').replace(/[^A-Za-z]/g, '').toUpperCase();
-    return previous === lessonLetter ? word : { ...word, text: `${lessonLetter} for` };
-  });
+  // The export must use the same transcribed/editor-approved words as preview.
+  return input.map(word => ({ ...word, text: String(word.text || '').trim() }));
 }
 
 function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionItem[] {
@@ -214,6 +200,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
   // if the user's language dropdown doesn't match the actual script being rendered.
   const allText = timelineCaps.map(c => c.text).join(' ');
   let fontName = 'Arial';
+  if (['Arial', 'Georgia', 'Verdana', 'Tahoma', 'Nirmala UI'].includes(s.fontFamily || '')) fontName = s.fontFamily!;
   
   let hasIndic = false, hasArabic = false;
   for (const ch of allText) {
@@ -229,23 +216,16 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
 
   const playResX = Math.max(1, Math.round(meta.width || 1920));
   const playResY = Math.max(1, Math.round(meta.height || 1080));
-  // Portrait clips are narrow: scale against both dimensions so captions never
-  // become giant merely because the video is tall.
-  const fs = Math.max(10, Math.min(
-    Math.round(playResY * 0.075),
-    Math.round(playResX * 0.078),
-    Math.round(s.fontSize || 35),
-  ));
+  // Output pixels match the size slider and preview, including portrait video.
+  const fs = Math.max(20, Math.min(140, Math.round(s.fontSize || 50)));
   
   // Swap primary and secondary colors for standard karaoke behavior:
   // - SecondaryColour (sec) is the inactive/unhighlighted color (normal text, e.g. White).
   // - PrimaryColour (pri) is the active/highlighted color (highlighted text, e.g. Yellow).
-  const pri = hexToAssColor(s.style === 'white-yellow' || s.style === 'karaoke' ? '#facc15' : (s.highlightColor || '#facc15'));
-  const sec = hexToAssColor(s.style === 'white-yellow' || s.style === 'karaoke'
-    ? '#ffffff'
-    : s.fontColor==='White'?'#ffffff':s.fontColor==='Yellow'?'#facc15':s.fontColor==='Cyan'?'#22d3ee':'#000000');
+  const pri = hexToAssColor(s.highlightColor || '#facc15');
+  const sec = hexToAssColor(s.fontColor==='White'?'#ffffff':s.fontColor==='Yellow'?'#facc15':s.fontColor==='Cyan'?'#22d3ee':'#000000');
 
-  const align = s.position==='top' ? 8 : 2;
+  const align = s.position==='bottom' ? 2 : 5;
   const encoding = 1;
 
   // Map BorderStyle, Outline, Shadow based on s.style
@@ -290,10 +270,10 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
   const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${playResX}\nPlayResY: ${playResY}\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fontName},${fs},${pri},${sec},${outColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,${marginV},${encoding}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
 
   const x = Math.round(playResX * Math.max(0, Math.min(100, s.xPos)) / 100);
-  const anchor = s.position === 'top' ? 8 : 2;
+  const anchor = s.position === 'bottom' ? 2 : 5;
   const wrapWordsForAss = (words: WordItem[]) => {
     if (!words.length) return [] as WordItem[][];
-    const availableWidth = Math.max(80, playResX * 0.85);
+    const availableWidth = Math.max(80, playResX * Math.max(20, Math.min(95, s.textWidth ?? 85)) / 100);
     let measure: CanvasRenderingContext2D | null = null;
     if (typeof document !== 'undefined') {
       const canvas = document.createElement('canvas');
@@ -321,7 +301,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     return Math.max(1, wrapWordsForAss(words).length);
   };
   const posPrefixFor = (words: WordItem[]) => {
-    const y = s.position === 'top'
+    const y = s.position !== 'bottom'
       ? Math.round(playResY * Math.max(0, Math.min(100, s.yPos)) / 100)
       : playResY - captionBottomSafety(fs, estimateLineCount(words));
     return `{\\an${anchor}\\pos(${x},${y})}`;
@@ -340,11 +320,11 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
           // whole short sentences) appear to have no karaoke highlight at 25fps.
           const visibleUntil = nextWord?.start ?? c.end;
           const lineEnd = Math.max(word.start + 0.08, Math.min(visibleUntil, c.end));
-          // Display the complete sentence in white, then highlight only the
-          // word currently being spoken. This is standard karaoke behavior.
-          const revealedWords = validWords;
+          // No upcoming words: only the already-spoken prefix is visible.
+          const phraseStart = spokenPhraseStart(validWords.map(w => w.text), activeIndex);
+          const revealedWords = validWords.slice(phraseStart, activeIndex + 1);
           const posPrefix = posPrefixFor(revealedWords);
-          let tokenCursor = 0;
+          let tokenCursor = phraseStart;
           const styledText = wrapWordsForAss(revealedWords).map(line => (
             line.map((token) => {
               // Every other word remains white; only the spoken word is yellow.
@@ -366,7 +346,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
       const nextWord = words[activeIndex + 1];
       const lineEnd = Math.max(word.start + 0.08,
         Math.min(nextWord?.start ?? c.end, c.end));
-      const revealedWords = words.slice(0, activeIndex + 1);
+      const revealedWords = words.slice(spokenPhraseStart(words.map(w => w.text), activeIndex), activeIndex + 1);
       const text = wrapWordsForAss(revealedWords)
         .map(line => shapeCaptionText(line.map(token => token.text).join(' '), s))
         .join('\\N');

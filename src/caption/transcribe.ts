@@ -13,25 +13,9 @@ const CAPTION_SILENCE_GAP_SECONDS = 0.75;
 const INDIC_CAPTION_CODES = new Set(['te', 'hi', 'ta', 'ur', 'ar']);
 
 function normalizeNurseryCaptionText(value: string): string {
-  return String(value || '')
-    // Protected brand name: Whisper frequently hears the final /dz/ as /ts/.
-    // Keep the correction phrase-scoped so ordinary uses of "kits" remain valid.
-    .replace(/\binfo\s+kits\b/gi, 'Info Kids')
-    .replace(/\b(?:horsen|hors)\b/gi, (word) => {
-    if (word === word.toUpperCase()) return 'HORSE';
-    if (word[0] === word[0]?.toUpperCase()) return 'Horse';
-    return 'horse';
-  })
-    // Whisper can confuse the child's name Ali with "Oli". Limit this fix to
-    // self-introductions so a genuine person named Oli is not changed globally.
-    .replace(/\bI\s+am\s+Oli\b/gi, 'I am Ali')
-    .replace(/\bI['’]m\s+Oli\b/gi, "I'm Ali")
-    // Conservative repairs for repeatable Whisper phonetic errors in clear
-    // educational narration. These are whole phrases, never broad word swaps.
-    .replace(/\bmaximum class trend\b/gi, 'maximum class strength')
-    .replace(/\bset up the form YOLA\b/gi, 'set up the formula')
-    .replace(/\bneck\s*-?\s*e\s*-?\s*serie\b/gi, 'necessary')
-    .replace(/\bThe video for a moment\b/gi, 'Pause the video for a moment');
+  // Preserve the detected words. Names, letters and lesson phrases cannot be
+  // inferred from a filename or silently replaced without listening to audio.
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function getLanguageCode(language: Language): string | undefined {

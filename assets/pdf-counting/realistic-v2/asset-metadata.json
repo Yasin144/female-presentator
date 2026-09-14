@@ -1,0 +1,347 @@
+{
+  "schemaVersion": 1,
+  "mode": "built-in image_gen",
+  "alphaPolicy": "Original generated RGBA pixels preserved. contentBounds includes all nonzero alpha plus 2px. visibleContentBounds uses alpha >=16 plus 2px to ignore remote near-transparent generation noise; no pixels were edited.",
+  "assets": [
+    {
+      "noun": "dogs",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\dogs.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        20,
+        1234,
+        1254
+      ],
+      "contentBounds": [
+        0,
+        18,
+        1236,
+        1236
+      ],
+      "visibleContentBounds": [
+        117,
+        102,
+        1090,
+        1059
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "f0777e641e534a73e00384395b35d64ed6a9efce0ee57b758317423e7848d6eb",
+      "bytes": 1325240,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-835777ea-0447-458b-b671-e4aaf6a2e7b3.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "books",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\books.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        23,
+        1230,
+        1250
+      ],
+      "contentBounds": [
+        0,
+        21,
+        1232,
+        1231
+      ],
+      "visibleContentBounds": [
+        257,
+        85,
+        744,
+        1102
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "b9d86e9bbe1b204162d90bdcbbad0810f8fe2a3cc7e960176b339afa2c1d1044",
+      "bytes": 1945982,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-7abca038-420f-4047-a802-14a38cdd6d91.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "candies",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\candies.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        39,
+        48,
+        1198,
+        1198
+      ],
+      "contentBounds": [
+        37,
+        46,
+        1163,
+        1154
+      ],
+      "visibleContentBounds": [
+        94,
+        431,
+        1074,
+        393
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "ebb57cb433172a0932902a0a1e6aa41fd3e3cb7a8b62ddebdbb8eaaa7461b466",
+      "bytes": 658568,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-6c79b45a-8a4b-4631-9056-a01512ce0dd0.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "birds",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\birds.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        33,
+        1192,
+        1254
+      ],
+      "contentBounds": [
+        0,
+        31,
+        1194,
+        1223
+      ],
+      "visibleContentBounds": [
+        142,
+        181,
+        929,
+        917
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "7ac84e722ed0039e91a941842fd7fd1de4372cf4f20b4c60fc30fd3268ec83e8",
+      "bytes": 1004276,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-205d90e4-2ab0-4dfb-92df-8a32b8bd8447.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "bananas",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\bananas.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        9,
+        1222,
+        1230
+      ],
+      "contentBounds": [
+        0,
+        7,
+        1224,
+        1225
+      ],
+      "visibleContentBounds": [
+        59,
+        194,
+        1136,
+        858
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "b79db045d5711dc1fc314dd6b9ed6043bc27eb26297a37fb5848ca14efa1a01d",
+      "bytes": 739850,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-c9fbc111-39ed-405e-963f-f168b04d14b6.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "butterflies",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\butterflies.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        39,
+        1221,
+        1254
+      ],
+      "contentBounds": [
+        0,
+        37,
+        1223,
+        1217
+      ],
+      "visibleContentBounds": [
+        37,
+        212,
+        1182,
+        822
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "e6b6a7e2e568d9b75c4679346a165ed0505f3d39791e72b0594158ff5bf482ef",
+      "bytes": 1549549,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-a4082a84-60fa-423a-82d1-666ad86378b9.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "gifts",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\gifts.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        0,
+        37,
+        1200,
+        1254
+      ],
+      "contentBounds": [
+        0,
+        35,
+        1202,
+        1219
+      ],
+      "visibleContentBounds": [
+        108,
+        86,
+        1048,
+        1075
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "d387de75e70c81e538f9f6258c416cf321719fce19f18615b92523d638773c7e",
+      "bytes": 1874712,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-b930287b-b20b-43e1-a6d9-91f09f382d3a.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "ants",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\ants.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        25,
+        9,
+        1240,
+        1254
+      ],
+      "contentBounds": [
+        23,
+        7,
+        1219,
+        1247
+      ],
+      "visibleContentBounds": [
+        134,
+        35,
+        986,
+        1148
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "b6f7406728208b1e809eea2cc2786decee25731dd7efdd8c20ab7d39aaa5dc3d",
+      "bytes": 821318,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-734e1c01-b04a-40ab-be55-9d6361cb6fd2.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "leaves",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\leaves.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        39,
+        39,
+        1253,
+        1228
+      ],
+      "contentBounds": [
+        37,
+        37,
+        1217,
+        1193
+      ],
+      "visibleContentBounds": [
+        314,
+        126,
+        728,
+        1044
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "363da6551830d89c2b120187ef93134cf0a5d51e952539d645ca863470cc078c",
+      "bytes": 1189215,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-92bcd138-4d33-4c9e-bc64-0d3b16efc14d.png",
+      "style": "AI-generated photorealistic bitmap"
+    },
+    {
+      "noun": "stars",
+      "path": "D:\\voice\\assets\\pdf-counting\\realistic-v2\\stars.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true,
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "alphaBounds": [
+        49,
+        21,
+        1224,
+        1228
+      ],
+      "contentBounds": [
+        47,
+        19,
+        1179,
+        1211
+      ],
+      "visibleContentBounds": [
+        106,
+        109,
+        1041,
+        998
+      ],
+      "visibleAlphaThreshold": 16,
+      "sha256": "7f9d6d70c6dc1f72cb6bdb252d157e3d968137f2ee7b934af75a30da3c4d7745",
+      "bytes": 1153908,
+      "generatedSourcePath": "C:\\Users\\patan\\.codex\\generated_images\\01a08517-0a87-7b31-afca-77abb5c519b6\\exec-55f3efa1-a56d-4d8f-b797-5c1a5843092c.png",
+      "style": "AI-generated photorealistic bitmap"
+    }
+  ]
+}

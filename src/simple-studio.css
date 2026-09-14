@@ -1,0 +1,62 @@
+/* A single Home launcher and focused workspaces. Keep every original module
+   mounted; only the shell and section visibility change. */
+.classic-studio.simple-studio { --studio-sidebar: 0px; --studio-topbar: 76px; }
+.classic-studio.simple-studio .studio-content { margin-left: 0 !important; padding-top: var(--studio-topbar) !important; }
+.simple-studio .studio-topbar.simple-topbar { left: 0; padding: 0 32px; z-index: 25000; }
+.simple-studio .simple-topbar-context, .simple-studio .simple-topbar-actions { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.simple-studio .simple-studio-brand { display: flex; align-items: center; gap: 12px; color: #142b3a; font: 24px/1.2 Georgia, serif; white-space: nowrap; }
+.simple-studio .simple-studio-brand > span { display: grid; place-items: center; width: 34px; height: 39px; border: 1px solid #a8874e; font-size: 24px; }
+.simple-studio .studio-back-home { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 13px; border: 1px solid #d4d9d5; border-radius: 6px; background: #fff; color: #243746; font: 600 13px/1.3 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
+.simple-studio .studio-back-home:hover { background: #f3f0e8; border-color: #a8874e; }
+.simple-studio .studio-back-home > span { font-size: 19px; }
+.simple-studio .simple-topbar-divider { width: 1px; height: 24px; background: #d8dcd5; }
+.simple-studio .simple-current-tool { font: 600 15px/1.3 'Segoe UI', sans-serif; color: #243746; }
+.simple-studio .simple-appearance-button { display: flex; align-items: center; gap: 8px; min-height: 40px; border: 0; background: transparent; color: #526571; font: 12px 'Segoe UI', sans-serif; cursor: pointer; }
+.simple-studio .simple-topbar-actions .studio-search { width: auto; min-height: 40px; }
+.simple-studio .studio-floating-tool { display: none !important; }
+.simple-studio .studio-appearance-panel { top: calc(var(--studio-topbar) + 10px); bottom: auto !important; right: 20px !important; z-index: 30000 !important; }
+.simple-studio .studio-caption-workspace { position: relative; isolation: isolate; overflow: hidden; }
+.simple-studio .studio-caption-workspace .cb-page { height: 100% !important; width: 100% !important; }
+
+/* Hiding siblings does not unmount inputs or disturb their event handlers,
+   selected files, progress, caption editor or presentation state. */
+.classic-studio.simple-studio #inputPanel.panel-input > :not([data-studio-tool-visible='true']),
+.simple-studio #inputPanel > :is(#singSongSection, #aiCaptionSection):not([data-studio-tool-visible='true']) { display: none !important; }
+.simple-studio #inputPanel > [data-studio-tool-visible='true'] { margin-block: 0 18px !important; }
+.simple-studio #inputPanel > .panel-head .panel-copy,
+.simple-studio #inputPanel > .panel-head .hero-stage-note,
+.simple-studio #inputPanel > .panel-head #resetInputsBtn { display: none !important; }
+.simple-studio #inputPanel > .panel-head { display: flex !important; padding: 0 0 8px !important; margin: 0 !important; }
+.simple-studio #inputPanel > .panel-head:not([data-studio-tool-visible='true']) { display: none !important; }
+.simple-studio #inputPanel .hero-stage-card { margin-left: auto !important; }
+.simple-studio #inputPanel .hero-stage-actions { display: flex !important; flex-wrap: wrap; align-items: center; gap: 9px !important; }
+.simple-studio #inputPanel .hero-stage-actions #showScreenBtn { width: auto !important; }
+.simple-studio[data-section='pdfSection'] #inputPanel #subjectSelect { display: none !important; }
+.simple-studio[data-section='lessonContentSection'] #inputPanel { display: flex; flex-direction: column; }
+.simple-studio[data-section='lessonContentSection'] #lessonContentSection { order: 1; }
+.simple-studio[data-section='lessonContentSection'] #narrationSection { order: 2; }
+.simple-studio[data-section='lessonContentSection'] #mediaSection { order: 3; }
+.simple-studio[data-section='lessonContentSection'] #templateWorkflowSection { order: 4; }
+.simple-studio[data-section='lessonContentSection'] #speechToolsSection { order: 5; }
+body:has(.simple-studio) #translateDubModule { left: 0; top: 76px; z-index: 20000; }
+body:has(.simple-studio) #translateDubModule .tdub-wrap { max-width: 1250px; }
+
+@media (max-width: 700px) {
+  .classic-studio.simple-studio { --studio-topbar: 68px; }
+  .simple-studio .studio-topbar.simple-topbar { padding: 0 12px; gap: 8px; }
+  .simple-studio .simple-topbar-context, .simple-studio .simple-topbar-actions { gap: 9px; }
+  .simple-studio .simple-studio-brand { font-size: 20px; gap: 9px; }
+  .simple-studio .simple-studio-brand > span { width: 28px; height: 33px; font-size: 22px; }
+  .simple-studio .simple-topbar-actions .studio-search > span,
+  .simple-studio .simple-topbar-actions .studio-connect > span,
+  .simple-studio .simple-topbar-actions .studio-icon-button,
+  .simple-studio .simple-topbar-divider { display: none; }
+  .simple-studio .simple-topbar-actions .studio-search { min-width: 38px; padding: 6px; }
+  .simple-studio .studio-back-home { padding: 8px 10px; font-size: 12px; gap: 6px; }
+  .simple-studio .simple-current-tool { font-size: 13px; }
+  .simple-studio .simple-appearance-button { font-size: 0; gap: 0; min-width: 32px; justify-content: center; }
+  .simple-studio .simple-appearance-button svg { width: 19px; height: 19px; }
+  .simple-studio #inputPanel .hero-stage-card { max-width: 100%; }
+  .simple-studio #inputPanel .hero-stage-actions .theme-select { min-width: 100px; width: 120px !important; }
+  body:has(.simple-studio) #translateDubModule { top: 68px; }
+}

@@ -1,0 +1,2568 @@
+{
+  "schemaVersion": 1,
+  "sourceBoundsFormat": "normalized xywh",
+  "method": "Original visible pixels isolated by MobileSAM, reviewed outline polygons, or pale-star color masks; fixed PDF only",
+  "pages": {
+    "26": {
+      "count": 11,
+      "noun": "dogs",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-26/1.png",
+          "width": 108,
+          "height": 154,
+          "sourceBounds": [
+            0.2178329571106095,
+            0.5376068376068376,
+            0.12189616252821671,
+            0.13162393162393163
+          ],
+          "maskScore": 0.99812,
+          "pixelArea": 12372,
+          "sha256": "c2f93587a630bcfc0ae719a3e560b5465d70466d36348c7dfc65b4df6444d4ef",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-26/2.png",
+          "width": 97,
+          "height": 226,
+          "sourceBounds": [
+            0.35553047404063204,
+            0.49230769230769234,
+            0.10948081264108352,
+            0.19316239316239317
+          ],
+          "maskScore": 0.99938,
+          "pixelArea": 14927,
+          "sha256": "b8ac501a5394ce568fb0af5ceaa7735551a173bbab06140fffa2b18d0aa55185",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-26/3.png",
+          "width": 99,
+          "height": 176,
+          "sourceBounds": [
+            0.4706546275395034,
+            0.5341880341880342,
+            0.11173814898419865,
+            0.15042735042735042
+          ],
+          "maskScore": 1.00291,
+          "pixelArea": 10495,
+          "sha256": "598aa6302265cb754378a1ddfbaf8415d1e5d9f9f3225a6f64e88056a9f69957",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-26/4.png",
+          "width": 82,
+          "height": 146,
+          "sourceBounds": [
+            0.59255079006772,
+            0.558974358974359,
+            0.09255079006772009,
+            0.12478632478632479
+          ],
+          "maskScore": 1.00025,
+          "pixelArea": 6690,
+          "sha256": "aedb2d812b3ca74ee38931f8ef8a3e5f422fc9df737e59dcfaa11444706d640d",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-26/5.png",
+          "width": 84,
+          "height": 187,
+          "sourceBounds": [
+            0.7031602708803611,
+            0.5273504273504274,
+            0.09480812641083522,
+            0.15982905982905982
+          ],
+          "maskScore": 1.00116,
+          "pixelArea": 9752,
+          "sha256": "a0cb49f0eea8867eaff92aba279d6012a718ef2c7b24b8300bf537d65f3c2c32",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-26/6.png",
+          "width": 123,
+          "height": 234,
+          "sourceBounds": [
+            0.10609480812641084,
+            0.6341880341880342,
+            0.13882618510158012,
+            0.2
+          ],
+          "maskScore": 0.99848,
+          "pixelArea": 17607,
+          "sha256": "e38c85b72963aa9fda8920eef7fcb194f15f20c8c9803c89bf34a3e1f23ff521",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-26/7.png",
+          "width": 123,
+          "height": 198,
+          "sourceBounds": [
+            0.23927765237020315,
+            0.6632478632478632,
+            0.13882618510158012,
+            0.16923076923076924
+          ],
+          "maskScore": 0.98854,
+          "pixelArea": 13194,
+          "sha256": "5bd43fadb33babd60e92e0e17f0d27fbcb5be31cc20f7151c5ead951cc1e0f08",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-26/8.png",
+          "width": 103,
+          "height": 168,
+          "sourceBounds": [
+            0.3781038374717833,
+            0.6897435897435897,
+            0.1162528216704289,
+            0.14358974358974358
+          ],
+          "maskScore": 1.00966,
+          "pixelArea": 11658,
+          "sha256": "3890138ced7391d4ad703bbd341d0406258c790f434217ea0efc53b0adcc5002",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-26/9.png",
+          "width": 116,
+          "height": 234,
+          "sourceBounds": [
+            0.5158013544018059,
+            0.6358974358974359,
+            0.1309255079006772,
+            0.2
+          ],
+          "maskScore": 0.99778,
+          "pixelArea": 19572,
+          "sha256": "02cb189e3d6ee30dc1626db7834d98d23a1a4bada74e863cfd9840f39f41b374",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-26/10.png",
+          "width": 93,
+          "height": 231,
+          "sourceBounds": [
+            0.6602708803611738,
+            0.6384615384615384,
+            0.10496613995485328,
+            0.19743589743589743
+          ],
+          "maskScore": 0.98935,
+          "pixelArea": 12912,
+          "sha256": "651fc3ddf4ca044c25681a95a68567303948b66585a28ea8464a36858dd86668",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-26/11.png",
+          "width": 141,
+          "height": 268,
+          "sourceBounds": [
+            0.7832957110609481,
+            0.6059829059829059,
+            0.15914221218961624,
+            0.22905982905982905
+          ],
+          "maskScore": 0.98781,
+          "pixelArea": 18804,
+          "sha256": "a6c7df037444b0fcf3d79050de7e771f540598957d7879e85a085480ceacd62f",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "27": {
+      "count": 12,
+      "noun": "books",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-27/1.png",
+          "width": 265,
+          "height": 63,
+          "sourceBounds": [
+            0.3476297968397291,
+            0.32393162393162395,
+            0.29909706546275394,
+            0.05384615384615385
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 9509,
+          "sha256": "2b5a1e67335cb7da6e077deca7420faa6c545efff2dbedd37abc251503dae64f",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 2,
+          "src": "page-27/2.png",
+          "width": 264,
+          "height": 56,
+          "sourceBounds": [
+            0.3476297968397291,
+            0.3564102564102564,
+            0.2979683972911964,
+            0.04786324786324787
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 8706,
+          "sha256": "bfc40726e709209908a4578b72a2ff929ff97600d54cc5b5bd80f908e31f21a0",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 3,
+          "src": "page-27/3.png",
+          "width": 260,
+          "height": 48,
+          "sourceBounds": [
+            0.34875846501128666,
+            0.38803418803418804,
+            0.29345372460496616,
+            0.041025641025641026
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7183,
+          "sha256": "e36a9373995858ec58ecccae255b2ba3f489bc7ace48675130b38f315a4b29e0",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 4,
+          "src": "page-27/4.png",
+          "width": 255,
+          "height": 47,
+          "sourceBounds": [
+            0.3544018058690745,
+            0.4128205128205128,
+            0.2878103837471783,
+            0.040170940170940174
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7148,
+          "sha256": "ff72d2c8d278eaed2b1cf765f637c8cecd5a72c2ad7c4ef8f958206e69529fe2",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 5,
+          "src": "page-27/5.png",
+          "width": 256,
+          "height": 43,
+          "sourceBounds": [
+            0.3544018058690745,
+            0.43846153846153846,
+            0.28893905191873587,
+            0.03675213675213675
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7000,
+          "sha256": "93b52e9822582d94f6e9c78c5c061babc5d9268431bbedfff63e4729c1b75acc",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 6,
+          "src": "page-27/6.png",
+          "width": 255,
+          "height": 41,
+          "sourceBounds": [
+            0.3544018058690745,
+            0.4641025641025641,
+            0.2878103837471783,
+            0.03504273504273504
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7131,
+          "sha256": "1add10ea9afd2b3d0037e5e89bfa3cd479270390e2113d9789443ba92d646caa",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 7,
+          "src": "page-27/7.png",
+          "width": 255,
+          "height": 38,
+          "sourceBounds": [
+            0.3544018058690745,
+            0.4897435897435897,
+            0.2878103837471783,
+            0.03247863247863248
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 6906,
+          "sha256": "86fe95c1f9c52938a13cca23f1e6dc91fd7b3d8a5b0e6b566da01293a6b780a7",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 8,
+          "src": "page-27/8.png",
+          "width": 256,
+          "height": 38,
+          "sourceBounds": [
+            0.35327313769751695,
+            0.5145299145299145,
+            0.28893905191873587,
+            0.03247863247863248
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7177,
+          "sha256": "659ef0341b44370fe9b1caf9f1bfdd75d611a9c2b8cdf4a92be923dd04c4d29d",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 9,
+          "src": "page-27/9.png",
+          "width": 257,
+          "height": 36,
+          "sourceBounds": [
+            0.3510158013544018,
+            0.541025641025641,
+            0.29006772009029347,
+            0.03076923076923077
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7171,
+          "sha256": "815c71bf80bf512f6b8ffb7eccb2b0857b396693c50ece9457441a628913db90",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 10,
+          "src": "page-27/10.png",
+          "width": 253,
+          "height": 37,
+          "sourceBounds": [
+            0.3510158013544018,
+            0.564957264957265,
+            0.28555304740406323,
+            0.03162393162393162
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 6807,
+          "sha256": "258289dfb865bc6612aa988e915d27f88624ced49cc820c49afd0d80f8fcd7b8",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 11,
+          "src": "page-27/11.png",
+          "width": 245,
+          "height": 39,
+          "sourceBounds": [
+            0.34875846501128666,
+            0.5888888888888889,
+            0.2765237020316027,
+            0.03333333333333333
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 6359,
+          "sha256": "372e0829281559f5ae8d3bbe52c6d257d07bb2e19b340e61eefad5652cfa6434",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 12,
+          "src": "page-27/12.png",
+          "width": 240,
+          "height": 43,
+          "sourceBounds": [
+            0.34650112866817157,
+            0.6136752136752137,
+            0.2708803611738149,
+            0.03675213675213675
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7348,
+          "sha256": "33d8de8147ea9a1da2ac51f0a382b6824db3aa7aab243e772ce5178301fb8c64",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        }
+      ],
+      "errors": []
+    },
+    "28": {
+      "count": 13,
+      "noun": "candies",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-28/1.png",
+          "width": 108,
+          "height": 57,
+          "sourceBounds": [
+            0.2516930022573363,
+            0.43333333333333335,
+            0.12189616252821671,
+            0.04871794871794872
+          ],
+          "maskScore": 1.0008,
+          "pixelArea": 2921,
+          "sha256": "147dde3cc42fa0bb475b0a4dcd8db053d65fa9d783ffd674d4bcc65c6dfc1fbb",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-28/2.png",
+          "width": 98,
+          "height": 81,
+          "sourceBounds": [
+            0.12979683972911965,
+            0.46153846153846156,
+            0.11060948081264109,
+            0.06923076923076923
+          ],
+          "maskScore": 0.97949,
+          "pixelArea": 2517,
+          "sha256": "be25399acdb1141ba7d419a08d8879049542784bf1dcbfb3edbdd8876bdbe6d7",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-28/3.png",
+          "width": 100,
+          "height": 67,
+          "sourceBounds": [
+            0.3803611738148984,
+            0.45555555555555555,
+            0.11286681715575621,
+            0.05726495726495726
+          ],
+          "maskScore": 0.99384,
+          "pixelArea": 2542,
+          "sha256": "de9bcfa3d34e9db18e3a136abc2900df7182374b76c1dc6bb398b0f7f2cb9651",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-28/4.png",
+          "width": 89,
+          "height": 76,
+          "sourceBounds": [
+            0.20316027088036118,
+            0.48717948717948717,
+            0.10045146726862303,
+            0.06495726495726496
+          ],
+          "maskScore": 0.99267,
+          "pixelArea": 2229,
+          "sha256": "6a7d81728e0e342ea96b4c568f4af0d12f1dbf5b14f66b111d4ee2bf9c0b6e38",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-28/5.png",
+          "width": 95,
+          "height": 70,
+          "sourceBounds": [
+            0.3239277652370203,
+            0.48205128205128206,
+            0.1072234762979684,
+            0.05982905982905983
+          ],
+          "maskScore": 0.99714,
+          "pixelArea": 2426,
+          "sha256": "06b7cd763ebfe151bf281b2d1ac48abdffbc8808c333d54ec8274bf5f8b538f8",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-28/6.png",
+          "width": 104,
+          "height": 73,
+          "sourceBounds": [
+            0.12189616252821671,
+            0.5384615384615384,
+            0.11738148984198646,
+            0.062393162393162394
+          ],
+          "maskScore": 0.99862,
+          "pixelArea": 2845,
+          "sha256": "51fe7cfe1818fe37490a304896b4037a9cff2a3407b0aeba61590979ea22c0f6",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-28/7.png",
+          "width": 96,
+          "height": 79,
+          "sourceBounds": [
+            0.2505643340857788,
+            0.5213675213675214,
+            0.10835214446952596,
+            0.06752136752136752
+          ],
+          "maskScore": 0.99679,
+          "pixelArea": 2542,
+          "sha256": "851e1dde4ea5a7682895aba0e69943cbac42b12f4910297aee29f8bdb452f97e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-28/8.png",
+          "width": 44,
+          "height": 88,
+          "sourceBounds": [
+            0.4503386004514673,
+            0.5170940170940171,
+            0.04966139954853273,
+            0.07521367521367521
+          ],
+          "maskScore": 0.99567,
+          "pixelArea": 2187,
+          "sha256": "77c0b9860d48821777516a385b520c993368c5a652310bdb9628720f76b5360f",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-28/9.png",
+          "width": 79,
+          "height": 75,
+          "sourceBounds": [
+            0.36343115124153497,
+            0.5435897435897435,
+            0.08916478555304741,
+            0.0641025641025641
+          ],
+          "maskScore": 0.97971,
+          "pixelArea": 2274,
+          "sha256": "d44e208e6a64aa30c0e1ba9a0057f27c4bb444cbf2c70ee16184d9d1fb4f002b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-28/10.png",
+          "width": 92,
+          "height": 84,
+          "sourceBounds": [
+            0.1489841986455982,
+            0.5957264957264957,
+            0.1038374717832957,
+            0.07179487179487179
+          ],
+          "maskScore": 0.99898,
+          "pixelArea": 2544,
+          "sha256": "4f2441c1b5c7be3c04d53df0d7f90c7cdad55e393f88b0f6d555ae5b3aeb43c0",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-28/11.png",
+          "width": 107,
+          "height": 51,
+          "sourceBounds": [
+            0.25395033860045146,
+            0.5871794871794872,
+            0.12076749435665914,
+            0.04358974358974359
+          ],
+          "maskScore": 0.99854,
+          "pixelArea": 2815,
+          "sha256": "38998c260e1a6788e4fa7fa61d2a7ab06f4b89c7541290624440b872515cc24b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-28/12.png",
+          "width": 100,
+          "height": 81,
+          "sourceBounds": [
+            0.3747178329571106,
+            0.5974358974358974,
+            0.11286681715575621,
+            0.06923076923076923
+          ],
+          "maskScore": 0.99528,
+          "pixelArea": 2703,
+          "sha256": "16ea37a0a889319da07b3a869d411959e2c25d40a8ebcc5306f0c55b5eb6c318",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-28/13.png",
+          "width": 103,
+          "height": 40,
+          "sourceBounds": [
+            0.2528216704288939,
+            0.6435897435897436,
+            0.1162528216704289,
+            0.03418803418803419
+          ],
+          "maskScore": 1.00287,
+          "pixelArea": 2725,
+          "sha256": "cef1d404c3f9b83847d7eb7a66a5b54879b7a5d1c29c413760ed7e084229da4e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "29": {
+      "count": 14,
+      "noun": "birds",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-29/1.png",
+          "width": 122,
+          "height": 97,
+          "sourceBounds": [
+            0.6715575620767494,
+            0.3316239316239316,
+            0.13769751693002258,
+            0.0829059829059829
+          ],
+          "maskScore": 1.00036,
+          "pixelArea": 4479,
+          "sha256": "cba766aac19363b1dc65fc227ceae0b9ac29e1b20da301cc815c3494c322be3e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-29/2.png",
+          "width": 65,
+          "height": 76,
+          "sourceBounds": [
+            0.5914221218961625,
+            0.40512820512820513,
+            0.07336343115124154,
+            0.06495726495726496
+          ],
+          "maskScore": 0.98466,
+          "pixelArea": 2217,
+          "sha256": "d1c13591a8cc5004b71241d84e5655741ffbdbfc0446923dbc27905ecde7389c",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-29/3.png",
+          "width": 104,
+          "height": 95,
+          "sourceBounds": [
+            0.22573363431151242,
+            0.45042735042735044,
+            0.11738148984198646,
+            0.0811965811965812
+          ],
+          "maskScore": 0.98883,
+          "pixelArea": 4355,
+          "sha256": "a7a85a600c2ba502370bb43bd8f51b59fc946833642f22e518caf44d92255b77",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-29/4.png",
+          "width": 116,
+          "height": 106,
+          "sourceBounds": [
+            0.7167042889390519,
+            0.4965811965811966,
+            0.1309255079006772,
+            0.0905982905982906
+          ],
+          "maskScore": 0.99299,
+          "pixelArea": 5096,
+          "sha256": "facb1b150c289faedd2db9a763df6222ce6c916e98ee7ed4e759924d41e7f6ac",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-29/5.png",
+          "width": 78,
+          "height": 65,
+          "sourceBounds": [
+            0.21218961625282168,
+            0.6982905982905983,
+            0.08803611738148984,
+            0.05555555555555555
+          ],
+          "maskScore": 0.99478,
+          "pixelArea": 2496,
+          "sha256": "42511f9742292b8a0669f0f2750d1ae9fbc278571eb34e0fd5f7c37d34cf3528",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-29/6.png",
+          "width": 71,
+          "height": 62,
+          "sourceBounds": [
+            0.3363431151241535,
+            0.7085470085470086,
+            0.08013544018058691,
+            0.05299145299145299
+          ],
+          "maskScore": 0.99155,
+          "pixelArea": 2447,
+          "sha256": "36cff43b1ef0b0303055cdd55b53f8f85ba1dce565db804ab1877e6375fa7c42",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-29/7.png",
+          "width": 88,
+          "height": 69,
+          "sourceBounds": [
+            0.6851015801354402,
+            0.7196581196581197,
+            0.09932279909706546,
+            0.05897435897435897
+          ],
+          "maskScore": 1.00765,
+          "pixelArea": 3081,
+          "sha256": "eadb55187d3330943242eacdfe70f8fbd9102482077b7d90550760a94d92b85e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-29/8.png",
+          "width": 105,
+          "height": 76,
+          "sourceBounds": [
+            0.11399548532731377,
+            0.7376068376068377,
+            0.11851015801354402,
+            0.06495726495726496
+          ],
+          "maskScore": 0.98815,
+          "pixelArea": 3746,
+          "sha256": "ea2dff146063078c45c4b83eec1f7fa708b5fb4cb4f1da7ec2062065a4b14ba0",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-29/9.png",
+          "width": 100,
+          "height": 69,
+          "sourceBounds": [
+            0.2562076749435666,
+            0.7461538461538462,
+            0.11286681715575621,
+            0.05897435897435897
+          ],
+          "maskScore": 0.95879,
+          "pixelArea": 3632,
+          "sha256": "8ea549480805329e9d81d4bfc2e87b7798e814bd85a597fd677e2bac59115617",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-29/10.png",
+          "width": 100,
+          "height": 72,
+          "sourceBounds": [
+            0.7957110609480813,
+            0.7350427350427351,
+            0.11286681715575621,
+            0.06153846153846154
+          ],
+          "maskScore": 0.99321,
+          "pixelArea": 3550,
+          "sha256": "e91c9f4d18420d5d05ba2a9fadbf9485c1ebfac2912149a0c92cac24c577d12e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-29/11.png",
+          "width": 145,
+          "height": 99,
+          "sourceBounds": [
+            0.13205417607223477,
+            0.7905982905982906,
+            0.1636568848758465,
+            0.08461538461538462
+          ],
+          "maskScore": 0.96236,
+          "pixelArea": 5264,
+          "sha256": "94e54b05084422c996ec7f80bea13124048e55cf619091aec29a6a363b5c6430",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-29/12.png",
+          "width": 128,
+          "height": 87,
+          "sourceBounds": [
+            0.7460496613995485,
+            0.7752136752136752,
+            0.14446952595936793,
+            0.07435897435897436
+          ],
+          "maskScore": 0.96458,
+          "pixelArea": 4857,
+          "sha256": "c95f316212d12e8d7f94459ebb42cfaaf2993ce998b27f607d2a2b48da3260fc",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-29/13.png",
+          "width": 132,
+          "height": 110,
+          "sourceBounds": [
+            0.29006772009029347,
+            0.8076923076923077,
+            0.1489841986455982,
+            0.09401709401709402
+          ],
+          "maskScore": 0.98213,
+          "pixelArea": 6514,
+          "sha256": "9e7be82300022a3f36ec33280512d759e63bf29358dcb7581029dc02884e8a72",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 14,
+          "src": "page-29/14.png",
+          "width": 143,
+          "height": 102,
+          "sourceBounds": [
+            0.628668171557562,
+            0.805982905982906,
+            0.1613995485327314,
+            0.08717948717948718
+          ],
+          "maskScore": 0.98414,
+          "pixelArea": 6423,
+          "sha256": "581ea41147767ca88f8f6815b4521e5b0d555496b87646bb5cd7c3dc890ae02b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "30": {
+      "count": 15,
+      "noun": "bananas",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-30/1.png",
+          "width": 56,
+          "height": 112,
+          "sourceBounds": [
+            0.4435665914221219,
+            0.3333333333333333,
+            0.06320541760722348,
+            0.09572649572649573
+          ],
+          "maskScore": 0.99299,
+          "pixelArea": 2780,
+          "sha256": "4923a53ddbae335d549913d7338757d4bda71c061fd09a06274e91598614c4fc",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-30/2.png",
+          "width": 55,
+          "height": 114,
+          "sourceBounds": [
+            0.47742663656884876,
+            0.3299145299145299,
+            0.062076749435665914,
+            0.09743589743589744
+          ],
+          "maskScore": 0.98579,
+          "pixelArea": 3001,
+          "sha256": "de8e5dc296a2b0a00ef5cdba446a95717dae035e58d7eaf1040e196b5da51bbd",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-30/3.png",
+          "width": 63,
+          "height": 113,
+          "sourceBounds": [
+            0.5304740406320542,
+            0.347008547008547,
+            0.07110609480812641,
+            0.09658119658119659
+          ],
+          "maskScore": 0.98324,
+          "pixelArea": 3190,
+          "sha256": "b0a9c46b3678d3283ea54801c2966a3f56d83502bf66c2624da48ee0e6548018",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-30/4.png",
+          "width": 62,
+          "height": 109,
+          "sourceBounds": [
+            0.5654627539503386,
+            0.35555555555555557,
+            0.06997742663656885,
+            0.09316239316239316
+          ],
+          "maskScore": 0.99229,
+          "pixelArea": 2921,
+          "sha256": "2bde6078a0634cde214e5e41a9696427487369a14938e3ee2f563543ef5af2fb",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-30/5.png",
+          "width": 44,
+          "height": 100,
+          "sourceBounds": [
+            0.4582392776523702,
+            0.43675213675213675,
+            0.04966139954853273,
+            0.08547008547008547
+          ],
+          "maskScore": 0.99614,
+          "pixelArea": 2471,
+          "sha256": "0d43feafb2419cd86629f26d3fd65d18c54f8ede7f981a9f289b3f4ad27c0a9f",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-30/6.png",
+          "width": 34,
+          "height": 98,
+          "sourceBounds": [
+            0.49774266365688485,
+            0.4444444444444444,
+            0.03837471783295711,
+            0.08376068376068375
+          ],
+          "maskScore": 0.98438,
+          "pixelArea": 2149,
+          "sha256": "fe323e625e06c00f510ec06e0b45ea5c41b8790f88e63865cdb7794a4cbf76fd",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-30/7.png",
+          "width": 40,
+          "height": 99,
+          "sourceBounds": [
+            0.5304740406320542,
+            0.4461538461538462,
+            0.045146726862302484,
+            0.08461538461538462
+          ],
+          "maskScore": 0.98874,
+          "pixelArea": 2278,
+          "sha256": "cab6fcc5d2a16f3d0a068390b030fe76afbe2db189ff1ed2fdbd8e35d6bebef8",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-30/8.png",
+          "width": 59,
+          "height": 90,
+          "sourceBounds": [
+            0.5519187358916479,
+            0.45555555555555555,
+            0.06659142212189616,
+            0.07692307692307693
+          ],
+          "maskScore": 0.99578,
+          "pixelArea": 2334,
+          "sha256": "b2d37b0bef1b17dde84fb3b2f84a129c44824f8b570ffbfff385b5c18c545128",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-30/9.png",
+          "width": 59,
+          "height": 88,
+          "sourceBounds": [
+            0.42099322799097066,
+            0.5247863247863248,
+            0.06659142212189616,
+            0.07521367521367521
+          ],
+          "maskScore": 0.99054,
+          "pixelArea": 2252,
+          "sha256": "0141a2232c9ca6d3acb111fa82b1dd7e94aa6e165b7ae8af6bacdc140c261219",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-30/10.png",
+          "width": 43,
+          "height": 92,
+          "sourceBounds": [
+            0.4616252821670429,
+            0.5205128205128206,
+            0.04853273137697517,
+            0.07863247863247863
+          ],
+          "maskScore": 0.98889,
+          "pixelArea": 2328,
+          "sha256": "18a3f79fef31c662be0f0755cb6c1f2d4db7627903d4736802e96ccdfa64b6c0",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-30/11.png",
+          "width": 33,
+          "height": 85,
+          "sourceBounds": [
+            0.5067720090293454,
+            0.5316239316239316,
+            0.03724604966139955,
+            0.07264957264957266
+          ],
+          "maskScore": 0.99555,
+          "pixelArea": 1887,
+          "sha256": "32d2de3413342b9440d483171b3fde4c8b000c7350e3abb0392621bd235a6674",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-30/12.png",
+          "width": 69,
+          "height": 80,
+          "sourceBounds": [
+            0.5316027088036117,
+            0.5384615384615384,
+            0.07787810383747178,
+            0.06837606837606838
+          ],
+          "maskScore": 0.99644,
+          "pixelArea": 2583,
+          "sha256": "b700fb84f1b4da1ecefe9a166001ddf3f6502c7e87895fab7ea15c0a46845a76",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-30/13.png",
+          "width": 91,
+          "height": 45,
+          "sourceBounds": [
+            0.4006772009029345,
+            0.5931623931623932,
+            0.10270880361173815,
+            0.038461538461538464
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 974,
+          "sha256": "b45607938f05605a7d636c336658b67d6080431cbefad662973ab6ad53e62c45",
+          "maskMethod": "Reviewed original-visible-outline polygon"
+        },
+        {
+          "number": 14,
+          "src": "page-30/14.png",
+          "width": 104,
+          "height": 61,
+          "sourceBounds": [
+            0.3860045146726862,
+            0.6068376068376068,
+            0.11738148984198646,
+            0.05213675213675214
+          ],
+          "maskScore": 0.97331,
+          "pixelArea": 2712,
+          "sha256": "4cd8e0abd9ff4a1ad549607acc52e4f0bf088ce60670e9e7f8fe9e4c472dee7e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 15,
+          "src": "page-30/15.png",
+          "width": 110,
+          "height": 58,
+          "sourceBounds": [
+            0.5158013544018059,
+            0.6153846153846154,
+            0.12415349887133183,
+            0.04957264957264957
+          ],
+          "maskScore": 0.99999,
+          "pixelArea": 3285,
+          "sha256": "b630893730e901151d3b35c71fca62d28b9c6a9b338f59b3776fcf033f8b76a3",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "31": {
+      "count": 16,
+      "noun": "butterflies",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-31/1.png",
+          "width": 165,
+          "height": 149,
+          "sourceBounds": [
+            0.5632054176072234,
+            0.22905982905982905,
+            0.18623024830699775,
+            0.12735042735042734
+          ],
+          "maskScore": 0.99988,
+          "pixelArea": 11171,
+          "sha256": "20e3c948853940fea9941d22b3b6c114115cced31024d494b637ef38b75426e7",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-31/2.png",
+          "width": 172,
+          "height": 162,
+          "sourceBounds": [
+            0.09480812641083522,
+            0.31025641025641026,
+            0.19413092550790068,
+            0.13846153846153847
+          ],
+          "maskScore": 1.00786,
+          "pixelArea": 12646,
+          "sha256": "32f097176e7b76f48248bcee96685327e62744d962e3d01ae80f2841eb2b9e61",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-31/3.png",
+          "width": 123,
+          "height": 139,
+          "sourceBounds": [
+            0.7652370203160271,
+            0.30427350427350425,
+            0.13882618510158012,
+            0.1188034188034188
+          ],
+          "maskScore": 0.99434,
+          "pixelArea": 8596,
+          "sha256": "76fcf5ebe284357b63c3802816b6c41c04e594855d0e7cca822fc8226875051b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-31/4.png",
+          "width": 170,
+          "height": 154,
+          "sourceBounds": [
+            0.2878103837471783,
+            0.39316239316239315,
+            0.19187358916478556,
+            0.13162393162393163
+          ],
+          "maskScore": 0.99804,
+          "pixelArea": 12128,
+          "sha256": "af56f3681de025e13f80453da95eed648201b333cd4e0df92d221889487d7744",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-31/5.png",
+          "width": 170,
+          "height": 147,
+          "sourceBounds": [
+            0.5372460496613995,
+            0.36666666666666664,
+            0.19187358916478556,
+            0.12564102564102564
+          ],
+          "maskScore": 0.99978,
+          "pixelArea": 12314,
+          "sha256": "6b287618ded575e4f7768d079a2840a5948b92abecbc3e415a5ee52af00c7e62",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-31/6.png",
+          "width": 167,
+          "height": 156,
+          "sourceBounds": [
+            0.09255079006772009,
+            0.45213675213675214,
+            0.18848758465011287,
+            0.13333333333333333
+          ],
+          "maskScore": 0.9961,
+          "pixelArea": 11369,
+          "sha256": "820852ee076bb3c7ac5d9e33c3cb2b34e27027383b4d74673be6eb961731d040",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-31/7.png",
+          "width": 167,
+          "height": 157,
+          "sourceBounds": [
+            0.7212189616252822,
+            0.4461538461538462,
+            0.18848758465011287,
+            0.13418803418803418
+          ],
+          "maskScore": 0.99779,
+          "pixelArea": 11391,
+          "sha256": "0d24a9c7ceada8ed7e291587f8b093d74f1246dfeeddffc034475dfa591dd04a",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-31/8.png",
+          "width": 160,
+          "height": 149,
+          "sourceBounds": [
+            0.3126410835214447,
+            0.5341880341880342,
+            0.18058690744920994,
+            0.12735042735042734
+          ],
+          "maskScore": 1.01234,
+          "pixelArea": 11066,
+          "sha256": "ff4d2a562ca6fdd8e6dfc29d35c5cd0a16d8767d3e952c0addac1c386490e9b7",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-31/9.png",
+          "width": 160,
+          "height": 149,
+          "sourceBounds": [
+            0.5112866817155757,
+            0.5042735042735043,
+            0.18058690744920994,
+            0.12735042735042734
+          ],
+          "maskScore": 0.99666,
+          "pixelArea": 10988,
+          "sha256": "65544ce07f62699ddce64fd9862324e0678999f12a217e70151370520e27fd22",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-31/10.png",
+          "width": 165,
+          "height": 155,
+          "sourceBounds": [
+            0.09480812641083522,
+            0.5923076923076923,
+            0.18623024830699775,
+            0.13247863247863248
+          ],
+          "maskScore": 0.99965,
+          "pixelArea": 11224,
+          "sha256": "7bdf1eaa46ed5b3a55b5c99608ce9ce6bc0420c3fc89708aa284d700d70915cc",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-31/11.png",
+          "width": 166,
+          "height": 157,
+          "sourceBounds": [
+            0.7200902934537246,
+            0.5863247863247864,
+            0.1873589164785553,
+            0.13418803418803418
+          ],
+          "maskScore": 0.99722,
+          "pixelArea": 11602,
+          "sha256": "1deeebe64d9e133aff8e5546951b4efe259cf258af7fdd72a6b26406e888e905",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-31/12.png",
+          "width": 160,
+          "height": 136,
+          "sourceBounds": [
+            0.29909706546275394,
+            0.6735042735042736,
+            0.18058690744920994,
+            0.11623931623931624
+          ],
+          "maskScore": 0.99398,
+          "pixelArea": 11186,
+          "sha256": "e494b9bd8e514b8dc0a0b8fd32727dcadaab522fc4b64e52fcb6c82f2b33d30d",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-31/13.png",
+          "width": 166,
+          "height": 115,
+          "sourceBounds": [
+            0.5169300225733634,
+            0.6547008547008547,
+            0.1873589164785553,
+            0.09829059829059829
+          ],
+          "maskScore": 1.00405,
+          "pixelArea": 10674,
+          "sha256": "798ee221d264e28994d5aeb67f85ebc7c9ba708344c832fcfa361f0ac221c844",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 14,
+          "src": "page-31/14.png",
+          "width": 163,
+          "height": 156,
+          "sourceBounds": [
+            0.10496613995485328,
+            0.7324786324786324,
+            0.18397291196388263,
+            0.13333333333333333
+          ],
+          "maskScore": 0.99662,
+          "pixelArea": 11376,
+          "sha256": "c8a930f36127dff342dadbf5a38f40f11d4fd5e37ef03f9e1076321729dd0f70",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 15,
+          "src": "page-31/15.png",
+          "width": 160,
+          "height": 128,
+          "sourceBounds": [
+            0.5090293453724605,
+            0.7863247863247863,
+            0.18058690744920994,
+            0.1094017094017094
+          ],
+          "maskScore": 0.99606,
+          "pixelArea": 10239,
+          "sha256": "c09fbcde3e914afec4c23eb775d0fa056cecf95b99a1ca882cec335ed2cab2bf",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 16,
+          "src": "page-31/16.png",
+          "width": 164,
+          "height": 155,
+          "sourceBounds": [
+            0.718961625282167,
+            0.7299145299145299,
+            0.18510158013544017,
+            0.13247863247863248
+          ],
+          "maskScore": 0.99148,
+          "pixelArea": 11048,
+          "sha256": "bdeb5a4be8a3203355dd4ed599856ca8a7a21a2de750a8e077829426273bfb6b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "32": {
+      "count": 17,
+      "noun": "gifts",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-32/1.png",
+          "width": 117,
+          "height": 133,
+          "sourceBounds": [
+            0.6376975169300225,
+            0.27521367521367524,
+            0.13205417607223477,
+            0.11367521367521367
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 10958,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "308cf873d6d9ca3b77ebf5c63ee27755748445290eb93ddd6dc6841301a22e89"
+        },
+        {
+          "number": 2,
+          "src": "page-32/2.png",
+          "width": 100,
+          "height": 117,
+          "sourceBounds": [
+            0.5880361173814899,
+            0.36324786324786323,
+            0.11286681715575621,
+            0.1
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 7784,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "92cf624433be2aa675e52e2cad44bf4d0aada2548bcdb534aef881680d93ede7"
+        },
+        {
+          "number": 3,
+          "src": "page-32/3.png",
+          "width": 111,
+          "height": 116,
+          "sourceBounds": [
+            0.698645598194131,
+            0.3641025641025641,
+            0.1252821670428894,
+            0.09914529914529914
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 8457,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "8566541f168f1bf6b43c157ce4ea3659cf8256a8c6947f6b8aaa1405a597860b"
+        },
+        {
+          "number": 4,
+          "src": "page-32/4.png",
+          "width": 82,
+          "height": 110,
+          "sourceBounds": [
+            0.5530474040632054,
+            0.46068376068376066,
+            0.09255079006772009,
+            0.09401709401709402
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 5852,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "c6b4ff710a25edb34d6f958d675c48125904a1392d3bb956acfcecf261536542"
+        },
+        {
+          "number": 5,
+          "src": "page-32/5.png",
+          "width": 106,
+          "height": 149,
+          "sourceBounds": [
+            0.6376975169300225,
+            0.4282051282051282,
+            0.11963882618510158,
+            0.12735042735042734
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 11033,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "bd25f62659eb06e2f20bdbb07e62f331412ba56a64f0688ac3b2a7a38a36c674"
+        },
+        {
+          "number": 6,
+          "src": "page-32/6.png",
+          "width": 87,
+          "height": 108,
+          "sourceBounds": [
+            0.755079006772009,
+            0.46153846153846156,
+            0.0981941309255079,
+            0.09230769230769231
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 6835,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "ce3b8c0e6e9b4bbeca83b14e5082f8d555b4919b280d0f21ec45116113dfbd9e"
+        },
+        {
+          "number": 7,
+          "src": "page-32/7.png",
+          "width": 96,
+          "height": 145,
+          "sourceBounds": [
+            0.5259593679458239,
+            0.5256410256410257,
+            0.10835214446952596,
+            0.12393162393162394
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 9349,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "bafd00128f1fbfc2780c3d87bede79a1b8b132f1ec17db0a5058d198e0267859"
+        },
+        {
+          "number": 8,
+          "src": "page-32/8.png",
+          "width": 119,
+          "height": 142,
+          "sourceBounds": [
+            0.6218961625282167,
+            0.5290598290598291,
+            0.1343115124153499,
+            0.12136752136752137
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 13198,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "ae9995387ccf2da228dd388a3a61e979be80492c4d49895666cf5f8c2b978df7"
+        },
+        {
+          "number": 9,
+          "src": "page-32/9.png",
+          "width": 115,
+          "height": 148,
+          "sourceBounds": [
+            0.7505643340857788,
+            0.523931623931624,
+            0.12979683972911965,
+            0.1264957264957265
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 10666,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "cd02068916c8504d07ca7b6c29543a8f770f4eb5ad907f7c2d14c75afe3cef30"
+        },
+        {
+          "number": 10,
+          "src": "page-32/10.png",
+          "width": 104,
+          "height": 151,
+          "sourceBounds": [
+            0.48758465011286684,
+            0.6196581196581197,
+            0.11738148984198646,
+            0.12905982905982907
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 10165,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "b6fba4ea69d1dc4d142dc788b12bb6bec33545cfe9b30df108751052772efa61"
+        },
+        {
+          "number": 11,
+          "src": "page-32/11.png",
+          "width": 93,
+          "height": 206,
+          "sourceBounds": [
+            0.5880361173814899,
+            0.6487179487179487,
+            0.10496613995485328,
+            0.17606837606837608
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 10463,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "d16fc045d7798894f2d6c05dbfc89c174d2c3fe62767f59b9173458b07535390"
+        },
+        {
+          "number": 12,
+          "src": "page-32/12.png",
+          "width": 90,
+          "height": 136,
+          "sourceBounds": [
+            0.690744920993228,
+            0.647008547008547,
+            0.10158013544018059,
+            0.11623931623931624
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 9689,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "2cc55234124b8ce207281e494f4b6c3f12b8e37afffab8e25f91dca3f2f291ec"
+        },
+        {
+          "number": 13,
+          "src": "page-32/13.png",
+          "width": 115,
+          "height": 151,
+          "sourceBounds": [
+            0.7900677200902935,
+            0.6205128205128205,
+            0.12979683972911965,
+            0.12905982905982907
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 12140,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "186b70a75a1fd16914f644e1c8d221feef241a3563175a8e35a1dd937f67991b"
+        },
+        {
+          "number": 14,
+          "src": "page-32/14.png",
+          "width": 135,
+          "height": 136,
+          "sourceBounds": [
+            0.44130925507900676,
+            0.7188034188034188,
+            0.1523702031602709,
+            0.11623931623931624
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 13285,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "d23f973c408cc7b42aad0e8567cd19d51a81b2837de538d57dda20b27424ea00"
+        },
+        {
+          "number": 15,
+          "src": "page-32/15.png",
+          "width": 146,
+          "height": 144,
+          "sourceBounds": [
+            0.6117381489841986,
+            0.7299145299145299,
+            0.16478555304740405,
+            0.12307692307692308
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 14708,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "a0d53a3be134bfe9ff49bb942bc493ba2ad60e67e846c1aece157a0a1ab24893"
+        },
+        {
+          "number": 16,
+          "src": "page-32/16.png",
+          "width": 133,
+          "height": 139,
+          "sourceBounds": [
+            0.7753950338600452,
+            0.7239316239316239,
+            0.15011286681715574,
+            0.1188034188034188
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 10488,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "dce6c069052527ebea9c3ab31b1d116eadc55015a26a7f736faad380ab417928"
+        },
+        {
+          "number": 17,
+          "src": "page-32/17.png",
+          "width": 89,
+          "height": 84,
+          "sourceBounds": [
+            0.7539503386004515,
+            0.7829059829059829,
+            0.10045146726862303,
+            0.07179487179487179
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 5053,
+          "maskMethod": "Reviewed original-visible-outline polygon with foreground ownership subtraction",
+          "sha256": "bc951d6d70fc072b6513674da4c481e5678d8deecc0c12de6f7cdf24890a668a"
+        }
+      ],
+      "errors": []
+    },
+    "33": {
+      "count": 18,
+      "noun": "ants",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-33/1.png",
+          "width": 96,
+          "height": 115,
+          "sourceBounds": [
+            0.3544018058690745,
+            0.31025641025641026,
+            0.10835214446952596,
+            0.09829059829059829
+          ],
+          "maskScore": 0.99175,
+          "pixelArea": 3897,
+          "sha256": "aac2fd9129857386f9549cbe1d4108709a763daeb122f5a730d6b8d9352594e2",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-33/2.png",
+          "width": 107,
+          "height": 98,
+          "sourceBounds": [
+            0.6151241534988713,
+            0.3230769230769231,
+            0.12076749435665914,
+            0.08376068376068375
+          ],
+          "maskScore": 0.98005,
+          "pixelArea": 4271,
+          "sha256": "765e4ff409ae718f275eb9f9611e5231d6f8d336eb066883a08ec13185278181",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-33/3.png",
+          "width": 91,
+          "height": 98,
+          "sourceBounds": [
+            0.809255079006772,
+            0.3316239316239316,
+            0.10270880361173815,
+            0.08376068376068375
+          ],
+          "maskScore": 0.99094,
+          "pixelArea": 3414,
+          "sha256": "b5dd0b4de11a6c154d813c05dd7a64263d2735ff36054ca72fd9415b1b407efd",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-33/4.png",
+          "width": 109,
+          "height": 95,
+          "sourceBounds": [
+            0.21896162528216703,
+            0.4076923076923077,
+            0.12302483069977427,
+            0.0811965811965812
+          ],
+          "maskScore": 0.97881,
+          "pixelArea": 4676,
+          "sha256": "60b1b035d8d48763c8f7447a7e0f3f988e6e0180c4c3c390b016e573fec629f1",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-33/5.png",
+          "width": 79,
+          "height": 93,
+          "sourceBounds": [
+            0.6252821670428894,
+            0.4128205128205128,
+            0.08916478555304741,
+            0.07948717948717948
+          ],
+          "maskScore": 1.00324,
+          "pixelArea": 3021,
+          "sha256": "d5dbaab71595e43543e50f1eb29077b6afa222363922e3b2cf24902a154b550e",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-33/6.png",
+          "width": 94,
+          "height": 100,
+          "sourceBounds": [
+            0.8419864559819413,
+            0.42136752136752137,
+            0.10609480812641084,
+            0.08547008547008547
+          ],
+          "maskScore": 0.99271,
+          "pixelArea": 3792,
+          "sha256": "a362a7a448fca74e33c78b37cc2c07d94073282f0096f8b234b53f1aecc30b33",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-33/7.png",
+          "width": 104,
+          "height": 115,
+          "sourceBounds": [
+            0.09029345372460497,
+            0.4675213675213675,
+            0.11738148984198646,
+            0.09829059829059829
+          ],
+          "maskScore": 0.98793,
+          "pixelArea": 4406,
+          "sha256": "14833cd72d467b76bdd55c3db7be13ab3effd254f9f76b5621f7aeea1a8dccad",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-33/8.png",
+          "width": 85,
+          "height": 87,
+          "sourceBounds": [
+            0.5519187358916479,
+            0.46153846153846156,
+            0.09593679458239278,
+            0.07435897435897436
+          ],
+          "maskScore": 0.99145,
+          "pixelArea": 3182,
+          "sha256": "d159e85de7849fe1fd9a275d24b2431a0d75cd900dcfe72ca8b5e0474000c650",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-33/9.png",
+          "width": 97,
+          "height": 93,
+          "sourceBounds": [
+            0.4762979683972912,
+            0.5094017094017094,
+            0.10948081264108352,
+            0.07948717948717948
+          ],
+          "maskScore": 0.98298,
+          "pixelArea": 3839,
+          "sha256": "50c4ab2c16e96abd94af949a5c223ce4747a15c1eebf05dcf648b44b035b7034",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-33/10.png",
+          "width": 101,
+          "height": 98,
+          "sourceBounds": [
+            0.3792325056433409,
+            0.5555555555555556,
+            0.11399548532731377,
+            0.08376068376068375
+          ],
+          "maskScore": 0.99849,
+          "pixelArea": 4330,
+          "sha256": "948e0e68076b36b6e3a61bd1e5778361f219220e9cb60d647f71826ea28ace31",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-33/11.png",
+          "width": 106,
+          "height": 99,
+          "sourceBounds": [
+            0.7460496613995485,
+            0.523931623931624,
+            0.11963882618510158,
+            0.08461538461538462
+          ],
+          "maskScore": 1.00446,
+          "pixelArea": 4363,
+          "sha256": "68beabf77f33e63def960670f8fbfe3f1d97749d7bf273fac534cadec8dc1f5c",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-33/12.png",
+          "width": 99,
+          "height": 101,
+          "sourceBounds": [
+            0.291196388261851,
+            0.6034188034188034,
+            0.11173814898419865,
+            0.08632478632478632
+          ],
+          "maskScore": 0.99259,
+          "pixelArea": 4486,
+          "sha256": "2cc6a24e1e2905f8ecafaf5847a376e8dfcb6485d076bb93c2f336742f17f030",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-33/13.png",
+          "width": 94,
+          "height": 114,
+          "sourceBounds": [
+            0.20090293453724606,
+            0.6401709401709401,
+            0.10609480812641084,
+            0.09743589743589744
+          ],
+          "maskScore": 0.98939,
+          "pixelArea": 4773,
+          "sha256": "84c87230c0f49c09d1fe4cef8e254c8a461dbb34c6687c5b498a84e451e5a688",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 14,
+          "src": "page-33/14.png",
+          "width": 126,
+          "height": 95,
+          "sourceBounds": [
+            0.5959367945823928,
+            0.658974358974359,
+            0.14221218961625282,
+            0.0811965811965812
+          ],
+          "maskScore": 0.99056,
+          "pixelArea": 5171,
+          "sha256": "a1ac8999bd77d8cbd00ed5e5f90b2d1ca48e7a8f7600abfa1756ec34629cc0c8",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 15,
+          "src": "page-33/15.png",
+          "width": 88,
+          "height": 114,
+          "sourceBounds": [
+            0.14221218961625282,
+            0.7162393162393162,
+            0.09932279909706546,
+            0.09743589743589744
+          ],
+          "maskScore": 0.99282,
+          "pixelArea": 4607,
+          "sha256": "2f9bbbba820eabd21f1957fba8bb3e51bf24c51be3b393034b3939dded16eb80",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 16,
+          "src": "page-33/16.png",
+          "width": 146,
+          "height": 132,
+          "sourceBounds": [
+            0.27313769751693,
+            0.7581196581196581,
+            0.16478555304740405,
+            0.11282051282051282
+          ],
+          "maskScore": 0.98108,
+          "pixelArea": 7905,
+          "sha256": "12b4a4fe5e204465d4c8050048dca038594582e0d48c8d449e82f782281268de",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 17,
+          "src": "page-33/17.png",
+          "width": 140,
+          "height": 137,
+          "sourceBounds": [
+            0.5293453724604966,
+            0.770940170940171,
+            0.1580135440180587,
+            0.1170940170940171
+          ],
+          "maskScore": 0.99597,
+          "pixelArea": 7547,
+          "sha256": "776951152bdb311bb91f54f68358e8455247955cf63aa26d85130f02abf120cf",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 18,
+          "src": "page-33/18.png",
+          "width": 142,
+          "height": 160,
+          "sourceBounds": [
+            0.7787810383747178,
+            0.705982905982906,
+            0.16027088036117382,
+            0.13675213675213677
+          ],
+          "maskScore": 0.9797,
+          "pixelArea": 7553,
+          "sha256": "bbf8fd755539b7c6981cd34c272ae06900b40f9f8214be5b0b0c5a31939f0f64",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "34": {
+      "count": 19,
+      "noun": "leaves",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-34/1.png",
+          "width": 74,
+          "height": 123,
+          "sourceBounds": [
+            0.481941309255079,
+            0.27350427350427353,
+            0.0835214446952596,
+            0.10512820512820513
+          ],
+          "maskScore": 1.00571,
+          "pixelArea": 5903,
+          "sha256": "135cf43c14e0aafddbca28757298678f632fbe4ccbf96e13271aac92b6b3b2fb",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 2,
+          "src": "page-34/2.png",
+          "width": 82,
+          "height": 87,
+          "sourceBounds": [
+            0.3984198645598194,
+            0.3145299145299145,
+            0.09255079006772009,
+            0.07435897435897436
+          ],
+          "maskScore": 1.00242,
+          "pixelArea": 4803,
+          "sha256": "96f7a1d85af9326e86bc6e986d49ae231940e6aeffabea91f959d8c44c53fa80",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 3,
+          "src": "page-34/3.png",
+          "width": 77,
+          "height": 94,
+          "sourceBounds": [
+            0.5575620767494357,
+            0.31367521367521367,
+            0.08690744920993228,
+            0.08034188034188035
+          ],
+          "maskScore": 1.0043,
+          "pixelArea": 4745,
+          "sha256": "744fdae7a9dbd2dcfe5d3e40a01c9c6038346713d52f1685de63d325ae940fcc",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 4,
+          "src": "page-34/4.png",
+          "width": 78,
+          "height": 111,
+          "sourceBounds": [
+            0.2234762979683973,
+            0.3700854700854701,
+            0.08803611738148984,
+            0.09487179487179487
+          ],
+          "maskScore": 1.00572,
+          "pixelArea": 5628,
+          "sha256": "5a5b694f258d652773ab6d90df28f680359973d1c14efc400570923bd66f7d50",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 5,
+          "src": "page-34/5.png",
+          "width": 104,
+          "height": 70,
+          "sourceBounds": [
+            0.38487584650112866,
+            0.39145299145299145,
+            0.11738148984198646,
+            0.05982905982905983
+          ],
+          "maskScore": 1.00275,
+          "pixelArea": 4692,
+          "sha256": "36337e426c07e0e9ef42ef0a180fea8bb83b40a54c2406000a33ecf6b0a788d0",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 6,
+          "src": "page-34/6.png",
+          "width": 91,
+          "height": 70,
+          "sourceBounds": [
+            0.5586907449209932,
+            0.39145299145299145,
+            0.10270880361173815,
+            0.05982905982905983
+          ],
+          "maskScore": 0.99965,
+          "pixelArea": 4100,
+          "sha256": "bd6b80314a515d7aea7dae47d4a5a4bae0c01e1aa9a9b5baeee9a9f235a83604",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 7,
+          "src": "page-34/7.png",
+          "width": 68,
+          "height": 110,
+          "sourceBounds": [
+            0.3047404063205418,
+            0.4076923076923077,
+            0.07674943566591422,
+            0.09401709401709402
+          ],
+          "maskScore": 1.00255,
+          "pixelArea": 4866,
+          "sha256": "ef86a961e9d1b8312abca40d145243d451aa17488656548793318de1c85c0b86",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 8,
+          "src": "page-34/8.png",
+          "width": 68,
+          "height": 111,
+          "sourceBounds": [
+            0.6828442437923251,
+            0.4,
+            0.07674943566591422,
+            0.09487179487179487
+          ],
+          "maskScore": 1.00038,
+          "pixelArea": 4904,
+          "sha256": "61b059271171c59e4401951922086f8ef7e00126a925b46f277756bbd83692c7",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 9,
+          "src": "page-34/9.png",
+          "width": 87,
+          "height": 84,
+          "sourceBounds": [
+            0.7584650112866818,
+            0.4188034188034188,
+            0.0981941309255079,
+            0.07179487179487179
+          ],
+          "maskScore": 0.99715,
+          "pixelArea": 4947,
+          "sha256": "1664c108657a11470bdcd7a55fbef65fcbc5941e4cc3b18f29680478954f3c7b",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 10,
+          "src": "page-34/10.png",
+          "width": 110,
+          "height": 74,
+          "sourceBounds": [
+            0.16591422121896163,
+            0.452991452991453,
+            0.12415349887133183,
+            0.06324786324786325
+          ],
+          "maskScore": 0.99932,
+          "pixelArea": 5216,
+          "sha256": "790f6367bc043e312c683883ed78b908e4ef4fd1f1ebfb5fd8cca90033cdfe5d",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 11,
+          "src": "page-34/11.png",
+          "width": 65,
+          "height": 102,
+          "sourceBounds": [
+            0.6399548532731377,
+            0.4666666666666667,
+            0.07336343115124154,
+            0.08717948717948718
+          ],
+          "maskScore": 0.99289,
+          "pixelArea": 4269,
+          "sha256": "7610ace004f594e872751bf4108c2853c9e29377e4047e1538303e2582bdbb82",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 12,
+          "src": "page-34/12.png",
+          "width": 110,
+          "height": 72,
+          "sourceBounds": [
+            0.7426636568848759,
+            0.49145299145299143,
+            0.12415349887133183,
+            0.06153846153846154
+          ],
+          "maskScore": 1.00061,
+          "pixelArea": 5048,
+          "sha256": "6dbef388224935aa0530ec8767854abbfe513d6f3df1aae2e3f1aa0d19a33499",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 13,
+          "src": "page-34/13.png",
+          "width": 98,
+          "height": 73,
+          "sourceBounds": [
+            0.15688487584650113,
+            0.5230769230769231,
+            0.11060948081264109,
+            0.062393162393162394
+          ],
+          "maskScore": 1.0053,
+          "pixelArea": 4775,
+          "sha256": "68f4186db05bd5ac908ca8f6db336dffc8552bcd3e495b0494b5e1b2f7f96db1",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 14,
+          "src": "page-34/14.png",
+          "width": 105,
+          "height": 70,
+          "sourceBounds": [
+            0.7731376975169301,
+            0.5606837606837607,
+            0.11851015801354402,
+            0.05982905982905983
+          ],
+          "maskScore": 0.99654,
+          "pixelArea": 4719,
+          "sha256": "ac744c01c84f1bbaecc127e61849b4c511da09033886abc7cc5c0e357086c26a",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 15,
+          "src": "page-34/15.png",
+          "width": 99,
+          "height": 62,
+          "sourceBounds": [
+            0.154627539503386,
+            0.5846153846153846,
+            0.11173814898419865,
+            0.05299145299145299
+          ],
+          "maskScore": 0.99485,
+          "pixelArea": 4005,
+          "sha256": "761aed3b2ef91beac18b9905a2328e25dcfd3c85ddadf92134b75f4d5b9887db",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 16,
+          "src": "page-34/16.png",
+          "width": 96,
+          "height": 72,
+          "sourceBounds": [
+            0.744920993227991,
+            0.617948717948718,
+            0.10835214446952596,
+            0.06153846153846154
+          ],
+          "maskScore": 1.00512,
+          "pixelArea": 4578,
+          "sha256": "5083310b80483396edb30e0dae8e7d4ff6df00fa35c58380344f1e870ad7cb52",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 17,
+          "src": "page-34/17.png",
+          "width": 82,
+          "height": 74,
+          "sourceBounds": [
+            0.21331828442437922,
+            0.6230769230769231,
+            0.09255079006772009,
+            0.06324786324786325
+          ],
+          "maskScore": 1.0001,
+          "pixelArea": 3993,
+          "sha256": "edc96914aeb8765b77adc60c21e559ac69340e7efdb8821a8bfb7d4a202f012d",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 18,
+          "src": "page-34/18.png",
+          "width": 64,
+          "height": 87,
+          "sourceBounds": [
+            0.29345372460496616,
+            0.6358974358974359,
+            0.07223476297968397,
+            0.07435897435897436
+          ],
+          "maskScore": 1.00239,
+          "pixelArea": 3525,
+          "sha256": "4e0256c2731fd6b066eae1d1063ccf6c09de683473fe3b360640cb7654d0c24f",
+          "maskMethod": "MobileSAM point-and-box mask"
+        },
+        {
+          "number": 19,
+          "src": "page-34/19.png",
+          "width": 66,
+          "height": 86,
+          "sourceBounds": [
+            0.6862302483069977,
+            0.6393162393162393,
+            0.0744920993227991,
+            0.0735042735042735
+          ],
+          "maskScore": 1.0065,
+          "pixelArea": 3747,
+          "sha256": "d110616d8d88c564aaed416f4a2c00c44b001649789228747aa53000af4729f8",
+          "maskMethod": "MobileSAM point-and-box mask"
+        }
+      ],
+      "errors": []
+    },
+    "35": {
+      "count": 20,
+      "noun": "stars",
+      "verified": true,
+      "objects": [
+        {
+          "number": 1,
+          "src": "page-35/1.png",
+          "width": 32,
+          "height": 31,
+          "sourceBounds": [
+            0.4932279909706546,
+            0.13162393162393163,
+            0.03611738148984198,
+            0.026495726495726495
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 394,
+          "sha256": "1b09456b1f1857bd97affe96f87d69642410e9b4962af1e35936fc998adaefb9",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 2,
+          "src": "page-35/2.png",
+          "width": 27,
+          "height": 27,
+          "sourceBounds": [
+            0.6297968397291196,
+            0.12478632478632479,
+            0.030474040632054177,
+            0.023076923076923078
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 286,
+          "sha256": "ad4144bce58e4097dfe44d963634eaa82ac48062535589de24d9dd8ff4f3a376",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 3,
+          "src": "page-35/3.png",
+          "width": 27,
+          "height": 27,
+          "sourceBounds": [
+            0.636568848758465,
+            0.18205128205128204,
+            0.030474040632054177,
+            0.023076923076923078
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 283,
+          "sha256": "048a59e7383c023d20ecb16c78eb501f9eaf2f50a80327a30407b6900aef9fff",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 4,
+          "src": "page-35/4.png",
+          "width": 38,
+          "height": 36,
+          "sourceBounds": [
+            0.5417607223476298,
+            0.23076923076923078,
+            0.04288939051918736,
+            0.03076923076923077
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 598,
+          "sha256": "6aa11bd2defd85a0dfa111bdecb41f6dfcf6e2ac895f5f2b38b845e8a311ef84",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 5,
+          "src": "page-35/5.png",
+          "width": 28,
+          "height": 28,
+          "sourceBounds": [
+            0.6839729119638827,
+            0.2512820512820513,
+            0.03160270880361174,
+            0.023931623931623933
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 317,
+          "sha256": "a4f74892e31d839a16ba7942e02a4fede638f7e995ba874d109fa4aa777828e8",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 6,
+          "src": "page-35/6.png",
+          "width": 37,
+          "height": 37,
+          "sourceBounds": [
+            0.7720090293453724,
+            0.24957264957264957,
+            0.0417607223476298,
+            0.03162393162393162
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 590,
+          "sha256": "fc540b3d4e7ead711aed36ccbf42b2c4f05df76f474f46090526f17c08bb92e5",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 7,
+          "src": "page-35/7.png",
+          "width": 33,
+          "height": 32,
+          "sourceBounds": [
+            0.8690744920993227,
+            0.27008547008547007,
+            0.03724604966139955,
+            0.02735042735042735
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 444,
+          "sha256": "19e58aa570e0d04e4d1f96c6afbc280cf00ad959773f3fdfc5446860fbccc646",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 8,
+          "src": "page-35/8.png",
+          "width": 38,
+          "height": 37,
+          "sourceBounds": [
+            0.5598194130925508,
+            0.28888888888888886,
+            0.04288939051918736,
+            0.03162393162393162
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 612,
+          "sha256": "d4d3f76c23735df704564b97b4fe41cd220bb89da7942ca264358cdbc4fc9760",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 9,
+          "src": "page-35/9.png",
+          "width": 39,
+          "height": 38,
+          "sourceBounds": [
+            0.664785553047404,
+            0.3,
+            0.04401805869074492,
+            0.03247863247863248
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 600,
+          "sha256": "d9db31a8e38aff2e3ed8956d8fbc5977275607a8d677350c3b320822e7c59ac2",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 10,
+          "src": "page-35/10.png",
+          "width": 28,
+          "height": 28,
+          "sourceBounds": [
+            0.481941309255079,
+            0.3230769230769231,
+            0.03160270880361174,
+            0.023931623931623933
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 302,
+          "sha256": "b6e5469e4bb9d3b93c3d54935e26a5ed3ee2e170d1ed3de0487e12d7b10959c8",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 11,
+          "src": "page-35/11.png",
+          "width": 27,
+          "height": 28,
+          "sourceBounds": [
+            0.7595936794582393,
+            0.32393162393162395,
+            0.030474040632054177,
+            0.023931623931623933
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 295,
+          "sha256": "ea7e72672de23ffc6f0acb0f86106f5c78a3e3ef20b5312123adcf16047ce2f5",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 12,
+          "src": "page-35/12.png",
+          "width": 38,
+          "height": 38,
+          "sourceBounds": [
+            0.6117381489841986,
+            0.3504273504273504,
+            0.04288939051918736,
+            0.03247863247863248
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 632,
+          "sha256": "f926f276dc2bf56104e0838d6c02ae78907dd40ad2f0f9294ca226503af8b3e4",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 13,
+          "src": "page-35/13.png",
+          "width": 36,
+          "height": 35,
+          "sourceBounds": [
+            0.7065462753950339,
+            0.3735042735042735,
+            0.040632054176072234,
+            0.029914529914529916
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 524,
+          "sha256": "fa26dea5270899ac93e2bc72d6d6996f3c9bc28c96eb83fbf770c390a3f176c0",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 14,
+          "src": "page-35/14.png",
+          "width": 36,
+          "height": 36,
+          "sourceBounds": [
+            0.8431151241534989,
+            0.38461538461538464,
+            0.040632054176072234,
+            0.03076923076923077
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 544,
+          "sha256": "6e2f12623202b7d7806f5b12b1871da77354d0d06256e9f39a3eb6b5ca7126b1",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 15,
+          "src": "page-35/15.png",
+          "width": 29,
+          "height": 28,
+          "sourceBounds": [
+            0.5203160270880361,
+            0.4188034188034188,
+            0.0327313769751693,
+            0.023931623931623933
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 325,
+          "sha256": "0f0ea9107fe5e71357aebae510124c66846cb0f1fbdb3b7f02ecce1bdea914c7",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 16,
+          "src": "page-35/16.png",
+          "width": 31,
+          "height": 30,
+          "sourceBounds": [
+            0.6331828442437923,
+            0.41452991452991456,
+            0.034988713318284424,
+            0.02564102564102564
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 370,
+          "sha256": "adf97301f8a0a18bcfe11e482ac135daeb96709ff4622d19d87c9833ecd21434",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 17,
+          "src": "page-35/17.png",
+          "width": 27,
+          "height": 27,
+          "sourceBounds": [
+            0.7302483069977427,
+            0.4324786324786325,
+            0.030474040632054177,
+            0.023076923076923078
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 301,
+          "sha256": "fee760dc3d7498867ad8172d50622ed09cdb3116f7b8b8bbde660945c0c896a0",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 18,
+          "src": "page-35/18.png",
+          "width": 38,
+          "height": 37,
+          "sourceBounds": [
+            0.6117381489841986,
+            0.4683760683760684,
+            0.04288939051918736,
+            0.03162393162393162
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 620,
+          "sha256": "7f0f18513fb946eb5bfe9cce99bcb6d1115eda09a6f0bc7bb858207693a78caf",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 19,
+          "src": "page-35/19.png",
+          "width": 36,
+          "height": 37,
+          "sourceBounds": [
+            0.7268623024830699,
+            0.4965811965811966,
+            0.040632054176072234,
+            0.03162393162393162
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 585,
+          "sha256": "cb629c5fd36cfa1921ab68f737e10a7efed7ecca78dfe9e8f75b02996afed5cb",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        },
+        {
+          "number": 20,
+          "src": "page-35/20.png",
+          "width": 28,
+          "height": 27,
+          "sourceBounds": [
+            0.8589164785553047,
+            0.5017094017094017,
+            0.03160270880361174,
+            0.023076923076923078
+          ],
+          "maskScore": 1.0,
+          "pixelArea": 302,
+          "sha256": "24c453f010ca7407cab8a4ba803022d215d69265ac2554dcd1d413432ca2aee8",
+          "maskMethod": "Pale-star color mask within reviewed box"
+        }
+      ],
+      "errors": []
+    }
+  },
+  "fingerprint": "dd93e8325ce5eb4987e70ff85fc82bc9"
+}

@@ -95,6 +95,13 @@ export default function MyExporter({ active = true }) {
   const [exportClock, setExportClock] = useState(Date.now());
   const [warning, setWarning] = useState('');
   const [captioning, setCaptioning] = useState(false);
+  const projectBusyRef = useRef(false);
+  projectBusyRef.current = captioning || exporting;
+  const blockBusyProjectChange = () => {
+    if (!projectBusyRef.current) return false;
+    setWarning('Wait for the current caption or export process to finish before changing projects.');
+    return true;
+  };
   const [result, setResult] = useState(null);
   const [safeGuides, setSafeGuides] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
@@ -598,22 +605,27 @@ export default function MyExporter({ active = true }) {
   };
 
   const saveProject = async () => {
+    if (blockBusyProjectChange()) return;
     try {
       const picked = await window.electronAPI?.showSaveDialog?.({ title: 'Save My Exporter project', defaultPath: `${projectName === 'Untitled Project' ? 'My-Exporter-Project' : projectName}.pattanproject`, filters: [{ name: 'Pattan Project', extensions: ['pattanproject'] }], buttonLabel: 'Save Project' });
+      if (blockBusyProjectChange()) return;
       if (picked?.canceled || !picked?.filePath) return;
       const nextName = picked.filePath.split(/[\\/]/).pop().replace(/\.pattanproject$/i, '');
       const data = { ...projectData(), projectName: nextName };
       const result = await window.electronAPI.writeFile(picked.filePath, textToBase64(JSON.stringify(data, null, 2)));
       if (!result?.ok) throw new Error(result?.error || 'Project could not be saved.');
+      if (blockBusyProjectChange()) return;
       setProjectName(nextName); setProjectPath(picked.filePath); setProgress({ pct: 100, phase: `Project saved: ${nextName} · ${picked.filePath}` });
     } catch (error) { setWarning(`Project save failed: ${error.message}`); }
   };
 
   const openProjectFile = async event => {
     const file = event.target.files?.[0]; event.target.value = '';
-    if (!file) return;
+    if (!file || blockBusyProjectChange()) return;
     try {
-      const data = JSON.parse(await file.text());
+      const content = await file.text();
+      if (blockBusyProjectChange()) return;
+      const data = JSON.parse(content);
       if (data?.format !== 'pattan-my-exporter-project') throw new Error('This is not a My Exporter project file.');
       const openedPath = window.electronAPI?.getPathForFile?.(file) || file.path || file.name;
       const openedSettings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) }; setScenes((data.scenes || []).map(scene => ({ ...scene, fit: openedSettings.framing }))); setMediaLibrary((data.mediaLibrary || []).map(item => ({ ...item, fit: openedSettings.framing }))); setAudioTracks(data.audioTracks || []); setCaptions(data.captions || []); setTextOverlays(data.textOverlays || []); setMusic(data.music || null); setWatermark(!data.watermark || /info kids/i.test(data.watermark.name || '') ? DEFAULT_LOGO : data.watermark); setWatermarkEnabled(Boolean(data.watermarkEnabled)); setPlaybackMode(data.playbackMode || 'continuous'); setTrackStates(data.trackStates || trackStates); setCaptionLanguage(data.captionLanguage || 'auto'); setVoiceLanguage(data.voiceLanguage || 'hi'); setSettings(openedSettings); setProjectName(data.projectName || file.name.replace(/\.pattanproject$/i, '')); setProjectPath(openedPath); setSelectedId(''); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedTextId(''); setPlayheadTime(0); setWarning('');
@@ -622,6 +634,7 @@ export default function MyExporter({ active = true }) {
   };
 
   const newProject = () => {
+    if (blockBusyProjectChange()) return;
     if ((scenes.length || audioTracks.length || captions.length || mediaLibrary.length) && !window.confirm('Create a new project? Save your current project first if you want to keep it.')) return;
     setScenes([]); setMediaLibrary([]); setAudioTracks([]); setCaptions([]); setTextOverlays([]); setMusic(null); setWatermark(DEFAULT_LOGO); setWatermarkEnabled(false); setPlaybackMode('continuous'); setSelectedId(''); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedTextId(''); setPlayheadTime(0); setResult(null); setProjectName('Untitled Project'); setProjectPath('Not saved yet'); setWarning(''); localStorage.removeItem(PROJECT_KEY); setProgress({ pct: 0, phase: 'New project ready' });
   };
@@ -662,10 +675,12 @@ export default function MyExporter({ active = true }) {
   };
 
   const deleteProject = async () => {
+    if (blockBusyProjectChange()) return;
     if (!window.confirm(`Delete project “${projectName}”? This clears the editor${projectPath !== 'Not saved yet' ? ' and deletes the saved project file' : ''}.`)) return;
     if (projectPath !== 'Not saved yet' && typeof window.electronAPI?.myExporterDeleteProject === 'function') {
       const result = await window.electronAPI.myExporterDeleteProject(projectPath);
       if (!result?.ok) { setWarning(`Project file could not be deleted: ${result?.error || 'Unknown error'}`); return; }
+      if (projectBusyRef.current) { setWarning('The saved project file was deleted, but the active processing project was kept open.'); return; }
     }
     setScenes([]); setMediaLibrary([]); setAudioTracks([]); setCaptions([]); setTextOverlays([]); setMusic(null); setWatermark(DEFAULT_LOGO); setWatermarkEnabled(false); setPlaybackMode('continuous'); setSelectedId(''); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedTextId(''); setPlayheadTime(0); setResult(null); setProjectName('Untitled Project'); setProjectPath('Not saved yet'); localStorage.removeItem(PROJECT_KEY); setWarning(''); setProgress({ pct: 0, phase: 'Project deleted. New empty project ready.' });
   };
@@ -1667,7 +1682,7 @@ export default function MyExporter({ active = true }) {
   const selectAudioAtPointer = (event, track) => {
     if (event.target.closest('.mx-audio-delete, .mx-trim-handle')) return;
     const isAlreadySelected = selectedAudioId === track.id;
-    setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setAllScenesSelected(false);
+    setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setSelectedIds([]);
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
     const exactTime = Number(track.start || 0) + ratio * Number(track.duration || 0);
@@ -2761,14 +2776,15 @@ export default function MyExporter({ active = true }) {
 
   return (
     <div className={`mx-page ${timelineExpanded ? 'mx-timeline-expanded' : ''} mx-layout-${layoutMode} ${advancedMode ? 'mx-mode-advanced' : 'mx-mode-simple'}`}>
+      <header className="mx-classic-heading"><div><span>EDIT & FINISH</span><h1>My Exporter</h1><p>Arrange your media, check the preview, and save your finished video.</p></div><div className="mx-classic-project"><strong>{projectName}</strong><span>{scenes.length} scenes · {formatTime(totalDuration)}</span></div></header>
       <input ref={mediaInput} className="mx-hidden" type="file" multiple accept="video/*,image/*" onChange={addMedia} />
       <input ref={musicInput} className="mx-hidden" type="file" accept="audio/*" onChange={addMusic} />
       <input ref={watermarkInput} className="mx-hidden" type="file" accept="image/png,image/webp,image/jpeg" onChange={addWatermark} />
-      <input ref={projectInput} className="mx-hidden" type="file" accept=".pattanproject,application/json" onChange={openProjectFile} />
+      <input ref={projectInput} disabled={captioning || exporting} className="mx-hidden" type="file" accept=".pattanproject,application/json" onChange={openProjectFile} />
       <header className="mx-header">
-        <div className="mx-project-identity"><span className="mx-kicker">Pattan Studio</span><h1>My Exporter</h1><small className="mx-project-name">{projectName}</small><small className="mx-project-path" title={projectPath}>{projectPath}</small></div>
+        <div className="mx-project-identity"><span className="mx-kicker">Pattan Workspace</span><h1>My Exporter</h1><small className="mx-project-name">{projectName}</small><small className="mx-project-path" title={projectPath}>{projectPath}</small></div>
         <div className="mx-header-meta"><span>{scenes.length} scenes</span><span>{formatTime(totalDuration)}</span><span>{settings.resolution.toUpperCase()}</span></div>
-        <div className="mx-header-actions"><button onClick={newProject}>New</button><button onClick={() => projectInput.current?.click()}>Open</button><button onClick={saveProject}>Save Project</button><button className="mx-delete-project" onClick={deleteProject}>Delete Project</button><button className="mx-reset-exporter" onClick={resetExporter} disabled={captioning || exporting}>Reset All</button><button onClick={() => setAdvancedMode(value => !value)}>{advancedMode ? 'Simple View' : 'Advanced Tools'}</button><button onClick={syncBySerialNumber} disabled={!mediaLibrary.length}>↕ Serial Sync</button><button onClick={pickMedia}>+ Add Media</button><div className="mx-export-dropdown-container"><button className="mx-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}% Exporting` : 'Export Video ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div></div>
+        <div className="mx-header-actions"><button onClick={newProject} disabled={captioning || exporting}>New</button><button onClick={() => projectInput.current?.click()} disabled={captioning || exporting}>Open</button><button onClick={saveProject} disabled={captioning || exporting}>Save Project</button><button className="mx-delete-project" onClick={deleteProject} disabled={captioning || exporting}>Delete Project</button><button className="mx-reset-exporter" onClick={resetExporter} disabled={captioning || exporting}>Reset All</button><button onClick={() => setAdvancedMode(value => !value)}>{advancedMode ? 'Simple View' : 'Advanced Tools'}</button><button onClick={syncBySerialNumber} disabled={!mediaLibrary.length}>↕ Serial Sync</button><button onClick={pickMedia}>+ Add Media</button><div className="mx-export-dropdown-container"><button className="mx-export" onClick={() => setExportDropdownOpen(prev => !prev)} disabled={!scenes.length || exporting}>{exporting ? `${progress.pct}% Exporting` : 'Export Video ▾'}</button>{exportDropdownOpen && !exporting && (<div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Only Export Video (No Captions)</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate Captions & Export</button><button onClick={() => { setExportDropdownOpen(false); generateExportAndShutdown(); }}>Generate Captions, Export & Shut Down</button></div>)}</div></div>
       </header>
       <div className="mx-project-tabs"><strong>Projects</strong>{workspaceTabs.map(tab => <button key={tab.id} className={tab.id === activeWorkspaceId ? 'active' : ''} disabled={captioning || exporting} onClick={() => switchWorkspace(tab.id)}>{tab.id === activeWorkspaceId ? projectName : tab.name}</button>)}<button className="mx-add-project-tab" disabled={captioning || exporting} onClick={addWorkspace}>+ New Project Tab</button><span>{captioning || exporting ? 'Current project is processing; other projects remain protected.' : 'Each tab has separate media, captions, logos, text and settings.'}</span></div>
 
@@ -2785,10 +2801,10 @@ export default function MyExporter({ active = true }) {
         {visibleAssetTabs.map(tab => <button key={tab} className={assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); if (tab === 'Media') setOpenSidePanel('library'); if (tab === 'Audio') window.setTimeout(() => document.querySelector('.mx-audio-box')?.scrollIntoView({ behavior: 'smooth' }), 0); if (tab === 'Titles') setOpenSidePanel('inspector'); if (['Effects','Filters'].includes(tab)) setAdvancedMode(true); }}>{tab === 'Media' ? '▣' : tab === 'Stock Media' ? '◫' : tab === 'Audio' ? '♫' : tab === 'Titles' ? 'T' : tab === 'Transitions' ? '◒' : tab === 'Effects' ? '✦' : tab === 'Filters' ? '◉' : tab === 'Stickers' ? '★' : '▦'}<span>{tab}</span></button>)}
         <i className="mx-professional-divider" />
         {advancedMode ? <div className="mx-quick-project-actions">
-          <button title="New project" onClick={newProject}><b>＋</b><span>New</span></button>
-          <button title="Open project" onClick={() => projectInput.current?.click()}><b>▱</b><span>Open</span></button>
-          <button title="Save project" onClick={saveProject}><b>▣</b><span>Save</span></button>
-          <button className="danger" title="Delete project" onClick={deleteProject}><b>⌫</b><span>Delete</span></button>
+          <button title="New project" onClick={newProject} disabled={captioning || exporting}><b>＋</b><span>New</span></button>
+          <button title="Open project" onClick={() => projectInput.current?.click()} disabled={captioning || exporting}><b>▱</b><span>Open</span></button>
+          <button title="Save project" onClick={saveProject} disabled={captioning || exporting}><b>▣</b><span>Save</span></button>
+          <button className="danger" title="Delete project" onClick={deleteProject} disabled={captioning || exporting}><b>⌫</b><span>Delete</span></button>
           <button className="danger" title="Reset and clear everything in My Exporter" onClick={resetExporter} disabled={captioning || exporting}><b>↺</b><span>Reset</span></button>
           <button title="Switch simple or advanced tools" onClick={() => setAdvancedMode(value => !value)}><b>⚙</b><span>{advancedMode ? 'Simple' : 'Tools'}</span></button>
           <button title="Add every media file to the timeline in serial-number order" onClick={syncBySerialNumber} disabled={!mediaLibrary.length}><b>↕</b><span>Serial</span></button>
@@ -2808,8 +2824,8 @@ export default function MyExporter({ active = true }) {
           </button>
           <select title="Switch project" aria-label="Switch project" value={activeWorkspaceId} disabled={captioning || exporting} onChange={event => switchWorkspace(event.target.value)}>{workspaceTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.id === activeWorkspaceId ? projectName : tab.name}</option>)}</select>
         </div> : <div className="mx-simple-project-actions">
-          <button title="Open a saved project" onClick={() => projectInput.current?.click()}>Open</button>
-          <button title="Save this project" onClick={saveProject} disabled={exporterBusy}>Save</button>
+          <button title="Open a saved project" onClick={() => projectInput.current?.click()} disabled={captioning || exporting}>Open</button>
+          <button title="Save this project" onClick={saveProject} disabled={captioning || exporting}>Save</button>
           <button title="Show every editing control" onClick={() => setAdvancedMode(true)}>More tools</button>
         </div>}
         {advancedMode
@@ -3034,7 +3050,7 @@ export default function MyExporter({ active = true }) {
             {active && selected ? selected.kind === 'image'
               ? <img ref={preview} src={fileUrl(selected.path)} alt="Selected scene" onLoad={() => window.setTimeout(updatePreviewFrame, 0)} style={{ objectFit: settings.framing === 'fill' ? 'cover' : 'contain', filter: `brightness(${1 + Number(selected.brightness || 0)}) contrast(${Number(selected.contrast || 1)}) saturate(${Number(selected.saturation ?? 1)})`, transform: `rotate(${Number(selected.rotation || 0)}deg)`, maxWidth: [90,270].includes(Number(selected.rotation)) ? '70%' : '100%' }} />
               : <video ref={preview} key={`${selected.id}-${selected.trimStart}`} src={fileUrl(selected.path)} controls controlsList="nofullscreen" muted={Boolean(selected.muted)} playbackRate={Number(selected.speed || 1)} onDoubleClick={event => { event.preventDefault(); togglePreviewFullscreen(); }} style={{ objectFit: settings.framing === 'fill' ? 'cover' : 'contain', filter: `brightness(${1 + Number(selected.brightness || 0)}) contrast(${Number(selected.contrast || 1)}) saturate(${Number(selected.saturation ?? 1)})`, transform: `rotate(${Number(selected.rotation || 0)}deg)`, maxWidth: [90,270].includes(Number(selected.rotation)) ? '70%' : '100%' }} onLoadedMetadata={event => { const actualDuration = Number(event.currentTarget.duration); event.currentTarget.currentTime = Math.min(selected.trimStart || 0, Math.max(0, actualDuration - .1)); event.currentTarget.playbackRate = Number(selected.speed || 1); window.setTimeout(updatePreviewFrame, 0); if (Number.isFinite(actualDuration) && actualDuration > 0 && actualDuration > Number(selected.sourceDuration || 0) + 0.5) { patchScene(selected.id, { sourceDuration: actualDuration, duration: actualDuration, probeError: '', fit: settings.framing || 'contain' }); if (selected.libraryId) patchLibraryItem(selected.libraryId, { sourceDuration: actualDuration, duration: actualDuration, width: selected.width || 1920, height: selected.height || 1080, probeError: '' }); } else if (Number.isFinite(actualDuration) && actualDuration > 0 && (selected.probeError || !selected.sourceDuration)) { patchScene(selected.id, { sourceDuration: actualDuration, duration: actualDuration, probeError: '', fit: settings.framing || 'contain' }); } }} onTimeUpdate={event => { const local = Math.max(0, Number(event.currentTarget.currentTime) - Number(selected.trimStart || 0)) / Number(selected.speed || 1); setPlayheadTime(Math.min(totalDuration, sceneTimelineOffset(selected.id) + local)); if (Number(event.currentTarget.currentTime) >= Number(selected.trimStart || 0) + Number(selected.duration || 0) - .04) { event.currentTarget.pause(); finishCurrentScene(); } }} onPlay={() => { autoplayNextRef.current = false; advancingSceneRef.current = false; setIsPreviewPlaying(true); audioPreview.current?.play().catch(() => {}); }} onPause={() => { if (!autoplayNextRef.current) setIsPreviewPlaying(false); audioPreview.current?.pause(); }} onEnded={finishCurrentScene} onError={() => setProgress({ pct: 0, phase: `${selected.name} was added, but its codec cannot be previewed here. My Exporter will still try to convert it during export.` })} />
-              : <div className="mx-empty-view"><strong>Your preview appears here</strong><span>Add videos or images to begin editing.</span></div>}
+              : <div className="mx-empty-view"><span className="mx-empty-mark" aria-hidden="true">▧</span><strong>Your story starts here</strong><span>Import videos or images. Your preview will appear here.</span><button className="mx-classic-import" onClick={pickMedia}>Import videos or images</button></div>}
             {active && activeTimelineAudio && <audio ref={audioPreview} key="exporter-audio-preview" src={fileUrl(activeTimelineAudio.path)} preload="auto" />}
             {safeGuides && <div className="mx-safe-guides"><span /></div>}
             {watermarkEnabled && watermark && <div key={watermark.path || watermark.preview} className="mx-watermark-shell" title="Drag to move · drag the corner to resize" onPointerDown={beginWatermarkDrag} style={{ left: previewFrame.width ? previewFrame.left + previewFrame.width * Number(settings.watermarkX ?? 90) / 100 : `${Number(settings.watermarkX ?? 90)}%`, top: previewFrame.height ? previewFrame.top + previewFrame.height * Number(settings.watermarkY ?? 90) / 100 : `${Number(settings.watermarkY ?? 90)}%`, width: previewFrame.width ? previewFrame.width * Number(settings.watermarkScale || 16) / 100 : `${Number(settings.watermarkScale || 16)}%` }}><img className="mx-watermark-image" src={watermark.preview || fileUrl(watermark.path)} alt="Info Kids logo" draggable="false" onError={() => setWarning(`Logo could not be displayed from ${watermark.path || watermark.name}. Use Restore Info Kids Logo or import it again.`)} style={{ opacity: settings.watermarkOpacity ?? .85 }} /><button className="mx-watermark-resize" title="Drag to resize logo" onPointerDown={beginWatermarkResize}>↘</button></div>}

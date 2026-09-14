@@ -1,0 +1,81 @@
+/* Explicit preferences remain visible on desktop and phone. */
+.simple-studio .studio-preferences { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; margin: 0 0 28px; }
+.simple-studio .studio-preferences .studio-preference-button {
+  display: flex; align-items: center; gap: 13px; width: 100%; min-width: 0; min-height: 74px;
+  padding: 14px 18px; margin: 0; color: #243746; background: #fdfcf9;
+  border: 1px solid #d9dedf; border-radius: 8px; box-shadow: none;
+  font: 400 14px/1.4 'Segoe UI', system-ui, sans-serif; text-align: left; white-space: normal;
+  letter-spacing: 0; transform: none; cursor: pointer;
+}
+.simple-studio .studio-preference-button::after { display: none; }
+.simple-studio .studio-preference-button > svg { flex-shrink: 0; }
+.simple-studio .studio-preference-copy { flex: 1; min-width: 0; }
+.simple-studio .studio-preference-copy strong { display: block; color: #243746; font-size: 14px; font-weight: 600; }
+.simple-studio .studio-preference-copy small { display: block; margin-top: 4px; color: #5d6a72; font-size: 12px; }
+.simple-studio .studio-preference-state { padding: 4px 10px; border-radius: 20px; color: #526571; background: #e9edeb; font-size: 12px; font-weight: 650; }
+.simple-studio .studio-preference-button[aria-checked='true'] .studio-preference-state { color: #16583f; background: #dcefe4; }
+.simple-studio .studio-preferences .studio-preference-button:disabled { cursor: default !important; opacity: .85 !important; }
+.simple-studio .studio-preferences button:focus-visible { outline: 2px solid #94733e; outline-offset: 3px; }
+.simple-studio .studio-preference-error { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; color: #8b3824; font-size: 13px; }
+.simple-studio .studio-preference-error > span { flex: 1; }
+.simple-studio .studio-preference-error button { min-height: 44px; padding: 8px 12px; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 5px; }
+.simple-studio .studio-whatsapp-preference { min-width: 0; }
+.simple-studio .studio-whatsapp-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 2px 0; color: #526571; font-size: 12px; }
+.simple-studio .studio-whatsapp-summary strong { font-weight: 600; }
+.simple-studio .studio-preferences .studio-whatsapp-review-toggle,
+.simple-studio .studio-whatsapp-draft-actions button {
+  min-height: 44px; padding: 9px 12px; margin: 0; border: 1px solid #c6cfce; border-radius: 6px;
+  color: #29485b; background: #fff; box-shadow: none; font: 600 13px/1.4 'Segoe UI', system-ui, sans-serif;
+  text-transform: none; letter-spacing: 0; white-space: normal; transform: none;
+}
+.simple-studio .studio-preferences .studio-whatsapp-review-toggle { border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.simple-studio .studio-whatsapp-review-toggle::after, .simple-studio .studio-whatsapp-draft-actions button::after { display: none; }
+.simple-studio .studio-whatsapp-drafts { grid-column: 1 / -1; min-width: 0; padding: 22px; color: #243746; background: #fdfcf9; border: 1px solid #d9dedf; border-radius: 8px; font: 400 14px/1.55 'Segoe UI', system-ui, sans-serif; }
+.simple-studio .studio-whatsapp-heading { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.simple-studio .studio-whatsapp-heading h2 { margin: 0; color: #243746; font: 600 20px/1.3 'Segoe UI', system-ui, sans-serif; letter-spacing: 0; }
+.simple-studio .studio-whatsapp-drafts p { margin: 8px 0 12px; }
+.simple-studio .studio-whatsapp-notice { padding: 12px 14px; color: #59471e; background: #f7f0df; border: 1px solid #e6d9b7; border-radius: 6px; }
+.simple-studio .studio-whatsapp-draft-list { display: grid; gap: 14px; }
+.simple-studio .studio-whatsapp-draft { min-width: 0; padding: 16px; border: 1px solid #d0d9d5; border-radius: 7px; background: #fff; }
+.simple-studio .studio-whatsapp-draft-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.simple-studio .studio-whatsapp-draft h3 { margin: 0; color: #243746; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.simple-studio .studio-whatsapp-job-state { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.simple-studio .studio-whatsapp-job-state.is-completed { color: #16583f; background: #dcefe4; }
+.simple-studio .studio-whatsapp-job-state.is-failed { color: #8b3824; background: #fbe6dd; }
+.simple-studio .studio-whatsapp-draft time { display: block; margin-top: 5px; color: #5d6a72; font-size: 12px; }
+.simple-studio .studio-whatsapp-message { display: block; margin: 13px 0; padding: 14px; color: #243746; background: #edf1ef; border: 0; border-radius: 6px; font: 400 13px/1.6 'Segoe UI', system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.simple-studio .studio-whatsapp-draft-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.simple-studio .studio-whatsapp-draft-actions button[data-draft-open='app'] { color: #fff; background: #294b5d; border-color: #294b5d; }
+.simple-studio .studio-whatsapp-draft-actions button[data-draft-dismiss] { margin-left: auto; }
+.simple-studio .studio-whatsapp-opened, .simple-studio .studio-whatsapp-empty, .simple-studio .studio-whatsapp-remote-note { color: #5d6a72; font-size: 13px; }
+.simple-studio .studio-preference-feedback { grid-column: 1 / -1; margin: 0; color: #285d46; font-size: 13px; line-height: 1.5; }
+.simple-studio .studio-whatsapp-activity { grid-column: 1 / -1; margin: 0; color: #526571; font-size: 12px; overflow-wrap: anywhere; }
+.simple-studio .studio-whatsapp-heading h2:focus-visible { outline: 2px solid #94733e; outline-offset: 3px; }
+.simple-studio[data-app-theme='dark'] .studio-preferences .studio-preference-button { color: #e5ebe9; background: #1a2c38; border-color: #38505d; }
+.simple-studio[data-app-theme='dark'] .studio-preference-copy strong { color: #e5ebe9; }
+.simple-studio[data-app-theme='dark'] .studio-preference-copy small { color: #b2c1c8; }
+.simple-studio[data-app-theme='dark'] .studio-preference-state { color: #d3ddd9; background: #344651; }
+.simple-studio[data-app-theme='dark'] .studio-preference-button[aria-checked='true'] .studio-preference-state { color: #b7efd0; background: #244c3c; }
+.simple-studio[data-app-theme='dark'] .studio-preference-error { color: #ffba9c; }
+.simple-studio[data-app-theme='dark'] :is(.studio-whatsapp-summary, .studio-whatsapp-activity, .studio-whatsapp-empty, .studio-whatsapp-remote-note, .studio-whatsapp-opened, .studio-whatsapp-draft time) { color: #b2c1c8; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-drafts { color: #e5ebe9; background: #1a2c38; border-color: #38505d; }
+.simple-studio[data-app-theme='dark'] :is(.studio-whatsapp-heading h2, .studio-whatsapp-draft h3) { color: #e5ebe9; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-notice { color: #ecdbb3; background: #383326; border-color: #615536; }
+.simple-studio[data-app-theme='dark'] .studio-preferences .studio-whatsapp-review-toggle { color: #a7d5ed; background: transparent; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-draft { color: #e5ebe9; background: #172833; border-color: #48616f; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-message { color: #e5ebe9; background: #10212c; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-draft-actions button { color: #dce7eb; background: #294453; border-color: #577383; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-draft-actions button[data-draft-open='app'] { color: #122832; background: #acd6da; border-color: #acd6da; }
+.simple-studio[data-app-theme='dark'] .studio-preference-feedback { color: #b7efd0; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-job-state.is-completed { color: #b7efd0; background: #244c3c; }
+.simple-studio[data-app-theme='dark'] .studio-whatsapp-job-state.is-failed { color: #ffba9c; background: #51352e; }
+@media (max-width: 700px) {
+  .simple-studio .studio-preferences { grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 22px; }
+  .simple-studio .studio-preferences .studio-preference-button { padding: 12px; gap: 10px; }
+  .simple-studio .studio-whatsapp-drafts { padding: 16px 12px; }
+  .simple-studio .studio-whatsapp-draft { padding: 12px; }
+  .simple-studio .studio-whatsapp-summary { gap: 4px; }
+  .simple-studio .studio-whatsapp-summary > span { font-size: 11px; }
+  .simple-studio .studio-preferences .studio-whatsapp-review-toggle { padding: 8px 4px; font-size: 12px; }
+  .simple-studio .studio-whatsapp-draft-actions button[data-draft-dismiss] { margin-left: 0; }
+}

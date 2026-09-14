@@ -2,6 +2,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import AndroidLauncher, { isPackagedAndroidLauncher } from './components/AndroidLauncher.jsx'
+import './classic-presentator.css'
+import './classic-modules.css'
+import './classic-studio.css'
+import './simple-home.css'
+import './simple-studio.css'
+import './studio-preferences.css'
+import './studio-theme.css'
 
 // ── Universal Web & Mobile Polyfill for window.electronAPI ───────────────────
 // Unlocks full 100% access for all modules when accessed via mobile browsers,

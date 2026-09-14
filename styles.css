@@ -1672,6 +1672,30 @@ h1 {
   letter-spacing: 0.01em;
 }
 
+.pdf-page-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0.24rem 0.35rem 0.24rem 0.55rem;
+  border: 1px solid var(--ghost-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.pdf-page-range input {
+  width: 54px;
+  min-height: 28px;
+  padding: 0.18rem 0.35rem;
+  border: 1px solid var(--ghost-border);
+  border-radius: 8px;
+  background: var(--surface-ghost);
+  color: var(--text);
+  font: inherit;
+}
+
 .pdf-page-card {
   display: grid;
   gap: 10px;
@@ -3205,3 +3229,28 @@ body[data-subject="maths"] .english-label {
   color: rgba(255,255,255,0.38);
   line-height: 1.35;
 }
+.pdf-counting-library, .pdf-counting-review {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #35617b;
+  border-radius: 10px;
+}
+.pdf-counting-library summary, .pdf-counting-review summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.pdf-counting-review label, .pdf-counting-review input, .pdf-counting-review select {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+}
+.pdf-counting-review button { margin: 5px 6px 0 0; }
+.pdf-counting-sample {
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  background: #eef6fb;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+.pdf-counting-sample[hidden] { display: none; }

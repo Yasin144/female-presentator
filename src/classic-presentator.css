@@ -1,0 +1,494 @@
+/* Workspace chrome only. Keep presentation canvases, templates and export geometry untouched. */
+.classic-studio #inputPanel.panel-input {
+  padding: 28px !important;
+  gap: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: #243746 !important;
+}
+
+.classic-studio #inputPanel > .panel-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 24px !important;
+  padding: 0 0 24px !important;
+  margin: 0 !important;
+  border: 0 !important;
+}
+
+.classic-studio #inputPanel .panel-copy { max-width: 560px !important; gap: 0 !important; }
+.classic-studio #inputPanel .panel-copy h1,
+.classic-studio #stagePanel .classic-preview-heading h2 {
+  font-family: Georgia, 'Times New Roman', serif !important;
+  font-size: 28px !important;
+  font-weight: 500 !important;
+  line-height: 1.25 !important;
+  letter-spacing: -0.025em !important;
+  color: #142b3a !important;
+  margin: 8px 0 10px !important;
+  text-shadow: none !important;
+  background: none !important;
+}
+
+.classic-studio .classic-workspace-kicker {
+  margin: 0 !important;
+  color: #80653b !important;
+  font: 600 10px/1.5 'Segoe UI', sans-serif !important;
+  letter-spacing: 0.16em !important;
+}
+
+.classic-studio #inputPanel .subcopy {
+  display: block !important;
+  font-size: 14px !important;
+  line-height: 1.7 !important;
+  color: #64717b !important;
+  max-width: 510px !important;
+  margin: 0 !important;
+}
+
+.classic-studio #inputPanel .hero-stage-card {
+  flex: 0 1 auto !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  border-radius: 0 !important;
+  max-width: 100% !important;
+}
+.classic-studio #inputPanel .hero-stage-card::before { display: none !important; }
+.classic-studio #inputPanel .hero-stage-topbar { display: block !important; }
+.classic-studio #inputPanel .hero-stage-note {
+  color: #64717b !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  text-align: right !important;
+  margin: 0 0 9px !important;
+  white-space: normal !important;
+  overflow: visible !important;
+}
+.classic-studio #inputPanel .hero-stage-actions { flex-wrap: wrap !important; gap: 8px !important; }
+.classic-studio #inputPanel .hero-stage-actions #subjectSelect {
+  width: 100px !important;
+  flex: 0 0 100px !important;
+  margin: 0 !important;
+}
+.classic-studio #inputPanel #showScreenBtn {
+  padding: 10px 15px !important;
+  min-height: 40px !important;
+  background: #142b3a !important;
+  border: 1px solid #142b3a !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  font-size: 13px !important;
+  letter-spacing: 0 !important;
+}
+.classic-studio #inputPanel #resetInputsBtn {
+  background: transparent !important;
+  border: 1px solid #d8dedf !important;
+  color: #64717b !important;
+  padding: 9px 12px !important;
+  min-height: 40px !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel #subjectSelect {
+  background: #fff !important;
+  color: #243746 !important;
+  border: 1px solid #d8dedf !important;
+  min-height: 40px !important;
+}
+
+.classic-studio #inputPanel .classic-workflow {
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 0 18px !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-workflow .workflow-lane {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+.classic-studio #inputPanel .workflow-step {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  min-height: 92px !important;
+  padding: 18px !important;
+  text-align: left !important;
+  background: #fff !important;
+  border: 1px solid #deded8 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 5px rgb(20 43 58 / 2%) !important;
+  transform: none !important;
+}
+.classic-studio #inputPanel .workflow-step:hover {
+  border-color: #a8874e !important;
+  background: #fdfcf9 !important;
+}
+.classic-studio #inputPanel .workflow-step-index {
+  flex: 0 0 38px !important;
+  width: 38px !important;
+  height: 38px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 50% !important;
+  background: #f5f2eb !important;
+  color: #80653b !important;
+  font-family: Georgia, serif !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+}
+.classic-studio #inputPanel .workflow-step-copy { display: grid !important; gap: 5px !important; }
+.classic-studio #inputPanel .workflow-step-copy strong {
+  font-size: 15px !important;
+  color: #142b3a !important;
+  font-weight: 600 !important;
+}
+.classic-studio #inputPanel .workflow-step-copy > span {
+  color: #64717b !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.classic-studio #inputPanel .classic-source-links {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 0 22px !important;
+  color: #64717b !important;
+  font-size: 12px !important;
+}
+.classic-studio #inputPanel .classic-source-links > span:first-child { margin-right: 4px; }
+.classic-studio #inputPanel .classic-source-links button {
+  background: #fff !important;
+  color: #243746 !important;
+  border: 1px solid #d8dedf !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 8px 12px !important;
+  min-height: 34px !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-source-links button:hover { border-color: #a8874e !important; }
+.classic-studio #inputPanel .classic-source-divider { width: 1px; height: 20px; background: #d8dedf; margin: 0 5px; }
+
+.classic-studio #inputPanel .classic-prepare-section {
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  background: #fff !important;
+  border: 1px solid #deded8 !important;
+  border-radius: 10px !important;
+  color: #243746 !important;
+  box-shadow: 0 2px 5px rgb(20 43 58 / 2%) !important;
+  scroll-margin-top: 22px;
+}
+.classic-studio #inputPanel .classic-prepare-section[open] {
+  display: block !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.classic-studio #inputPanel .classic-prepare-section:hover { transform: none !important; }
+.classic-studio #inputPanel .classic-prepare-section::before { display: none !important; }
+.classic-studio #inputPanel .classic-prepare-section > .section-summary {
+  padding: 18px 54px 18px 20px !important;
+  background: transparent !important;
+  border-radius: 10px !important;
+}
+.classic-studio #inputPanel .classic-prepare-section > .section-summary:hover { background: #faf9f5 !important; }
+.classic-studio #inputPanel .classic-prepare-section > .section-summary::after {
+  background: #f5f2eb !important;
+  color: #64717b !important;
+  border: 0 !important;
+  width: 25px !important;
+  height: 25px !important;
+  font-size: 15px !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .summary-head { gap: 14px !important; }
+.classic-studio #inputPanel .classic-prepare-section .section-icon {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  border-radius: 8px !important;
+  background: #eef2f3 !important;
+  color: #365162 !important;
+  box-shadow: none !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+.classic-studio #inputPanel #pdfSection > .section-summary .section-icon { background: #142b3a !important; color: #fff !important; }
+.classic-studio #inputPanel .classic-prepare-section .section-title {
+  color: #142b3a !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .section-meta {
+  color: #64717b !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+/* Older chrome hid all helper/status copy. Restore explanations, while respecting
+   each feature's explicit hidden class, attribute or inline busy-state display. */
+.classic-studio #inputPanel .classic-prepare-section :is(.section-meta, .upload-copy):not(.hidden):not([hidden]):not([style*="display: none"]):not([style*="display:none"]) {
+  display: block !important;
+}
+.classic-studio #inputPanel .classic-prepare-section > .section-content {
+  padding: 4px 20px 20px !important;
+  max-height: none !important;
+  overflow: visible !important;
+  color: #243746 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(.tool-card, .upload-block, .display-style-card) {
+  background: #fafbf9 !important;
+  border: 1px solid #e3e6e4 !important;
+  border-radius: 8px !important;
+  padding: 16px !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(.tool-card-title, .field-label, .style-label, .toggle-check, .cutout-control-head) {
+  color: #243746 !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(.upload-copy, .pure-input-copy, .pure-input-note, .cutout-control small) {
+  color: #64717b !important;
+  font-size: 12px !important;
+  line-height: 1.65 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .upload-copy.is-error { color: #a32e2e !important; }
+.classic-studio #inputPanel .classic-prepare-section .module-icon {
+  background: #e8edef !important;
+  color: #365162 !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(input:not([type="checkbox"]):not([type="range"]):not([type="color"]), select, textarea) {
+  background: #fff !important;
+  color: #243746 !important;
+  border: 1px solid #cbd4d8 !important;
+  box-shadow: none !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(input, textarea)::placeholder { color: #87929a !important; opacity: 1 !important; }
+.classic-studio #inputPanel .classic-prepare-section input[type="file"] {
+  padding: 13px !important;
+  border-style: dashed !important;
+  background: #fff !important;
+  width: 100%;
+  max-width: 100%;
+  min-height: 54px !important;
+}
+.classic-studio #inputPanel .classic-prepare-section input[type="file"]::file-selector-button {
+  background: #142b3a;
+  color: #fff;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 12px;
+  font: 600 12px 'Segoe UI', sans-serif;
+  margin-right: 12px;
+  cursor: pointer;
+}
+.classic-studio #inputPanel .classic-prepare-section input[type="checkbox"] { accent-color: #365162 !important; }
+.classic-studio #inputPanel .classic-prepare-section :is(.primary-btn, .accent-btn) {
+  background: #142b3a !important;
+  border: 1px solid #142b3a !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  min-height: 38px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .ghost-btn {
+  background: #fff !important;
+  color: #365162 !important;
+  border: 1px solid #cbd4d8 !important;
+  box-shadow: none !important;
+  min-height: 36px !important;
+  font-size: 12px !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(button:disabled, input:disabled, select:disabled, textarea:disabled) { opacity: 0.48 !important; cursor: not-allowed !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-upload-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) !important; gap: 16px !important; align-items: start !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-upload-block > .style-field { margin-top: 14px !important; }
+.classic-studio #inputPanel #pdfInput { border-color: #a8874e !important; background: #fffdf8 !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-preview-card { min-height: 180px !important; align-content: start !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-preview-item {
+  background: #fff !important;
+  color: #243746 !important;
+  border: 1px solid #d8dedf !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .pdf-page-card {
+  background: #fff !important;
+  border: 1px solid #d8dedf !important;
+  box-shadow: none !important;
+}
+.classic-studio #inputPanel .classic-prepare-section .pdf-page-card.is-selected { border-color: #a8874e !important; box-shadow: 0 0 0 1px #a8874e !important; }
+.classic-studio #inputPanel .classic-prepare-section :is(.pdf-page-title, .pdf-page-check, .pdf-page-meta, .pdf-preview-text) { color: #243746 !important; }
+.classic-studio #inputPanel .classic-prepare-section :is(.pdf-page-stats, .pdf-page-snippet, .pdf-preview-images-title) { color: #64717b !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-preview-page { color: #80653b !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-pages-head { flex-wrap: wrap !important; gap: 12px !important; }
+.classic-studio #inputPanel .classic-prepare-section .pdf-page-range { flex-wrap: wrap !important; }
+.classic-studio #inputPanel .classic-prepare-section :is(.pdf-counting-library, .classic-optional-tools) {
+  margin: 14px 0 !important;
+  padding: 0 !important;
+  background: #fff !important;
+  border: 1px solid #d8dedf !important;
+  border-radius: 8px !important;
+  color: #243746 !important;
+}
+.classic-studio #inputPanel .classic-prepare-section :is(.pdf-counting-library, .classic-optional-tools) > summary {
+  padding: 13px 15px !important;
+  color: #365162 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.classic-studio #inputPanel .classic-optional-tools > summary > span { color: #64717b; font-size: 12px; font-weight: 400; margin-left: 8px; }
+.classic-studio #inputPanel .classic-prepare-section :is(.pdf-counting-library, .classic-optional-tools) > :not(summary) { margin: 12px !important; }
+.classic-studio #inputPanel #lessonInput { min-height: 220px !important; margin-bottom: 4px !important; font-size: 15px !important; }
+.classic-studio #inputPanel .template-gallery-scroll { gap: 14px !important; padding: 8px 0 14px !important; }
+
+/* Only the surrounding stage controls are themed, never .stage-frame descendants. */
+.classic-studio #stagePanel.panel-stage {
+  background: #f5f2eb !important;
+  border-color: #deded8 !important;
+  box-shadow: none !important;
+}
+.classic-studio #stagePanel > .note {
+  background: #fff !important;
+  border: 1px solid #d8dedf !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  color: #365162 !important;
+  font: 400 13px/1.65 'Segoe UI', sans-serif !important;
+  padding: 12px 15px !important;
+}
+.classic-studio #stagePanel > .note.note-soft { background: transparent !important; color: #64717b !important; }
+.classic-studio #stagePanel > .classic-preview-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 6px 0 16px;
+}
+.classic-studio #stagePanel > .classic-preview-heading > p { color: #64717b; font-size: 13px; line-height: 1.7; max-width: 270px; }
+.classic-studio #stagePanel > .stage-actions {
+  background: #ebece7 !important;
+  padding: 8px !important;
+  gap: 6px !important;
+  align-items: flex-start !important;
+  border: 1px solid #d8dedf !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-card {
+  background: #fff !important;
+  border: 1px solid #d8dedf !important;
+  border-radius: 7px !important;
+  min-width: 104px !important;
+  max-width: 200px !important;
+  padding: 6px 9px !important;
+  box-shadow: none !important;
+}
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-primary[open] { flex: 1 1 340px !important; max-width: 460px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-card[open]:not(.stage-toolbar-primary) { flex: 1 1 220px !important; max-width: 360px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-summary { padding: 5px 1px !important; gap: 8px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-summary::after { background: #eef2f3 !important; color: #365162 !important; font-size: 13px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-label { color: #243746 !important; font-size: 13px !important; font-weight: 600 !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-meta,
+.classic-studio #stagePanel > .stage-actions .stage-speed-copy { color: #64717b !important; font-size: 11px !important; line-height: 1.6 !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-card:not([open]) .stage-toolbar-meta { display: none !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-badge { display: none !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-body { padding: 10px 0 3px !important; gap: 9px !important; }
+.classic-studio #stagePanel > .stage-actions :is(.ghost-btn, .flat-btn, .stage-align-btn, .voice-default-btn) {
+  background: #f8f9f7 !important;
+  border: 1px solid #cbd4d8 !important;
+  color: #365162 !important;
+  box-shadow: none !important;
+}
+.classic-studio #stagePanel > .stage-actions :is(.primary-btn, .accent-btn, .voice-use-btn, .voice-preview-btn) {
+  background: #142b3a !important;
+  border: 1px solid #142b3a !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+.classic-studio #stagePanel > .stage-actions :is(button, select) { min-height: 34px !important; font-size: 12px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-labeled-btn { width: auto !important; padding: 7px 11px !important; gap: 6px !important; }
+.classic-studio #stagePanel > .stage-actions :is(.control-indicator, .page-indicator) { color: #365162 !important; background: #eef2f3 !important; border-color: #d8dedf !important; }
+.classic-studio #stagePanel > .stage-actions :is(select, input:not([type="color"]):not([type="range"]):not([type="checkbox"])) { background: #fff !important; border-color: #cbd4d8 !important; color: #243746 !important; }
+.classic-studio #stagePanel > .stage-actions .style-label { color: #365162 !important; }
+.classic-studio #stagePanel > .stage-actions button:disabled { opacity: 0.45 !important; cursor: not-allowed !important; }
+.classic-studio #stagePanel > #stageTimelineCard { background: #fff !important; border: 1px solid #d8dedf !important; box-shadow: none !important; }
+.classic-studio #stagePanel > #stageTimelineCard :is(.stage-toolbar-label, .stage-toolbar-meta, .style-label, .control-indicator) { color: #365162 !important; }
+
+@media (max-width: 1100px) {
+  .classic-studio #inputPanel > .panel-head { flex-direction: column !important; gap: 14px !important; }
+  .classic-studio #inputPanel .hero-stage-note { text-align: left !important; }
+  .classic-studio #inputPanel .classic-prepare-section .pdf-upload-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .classic-studio #inputPanel .classic-workflow .workflow-lane { gap: 8px !important; }
+  .classic-studio #inputPanel .workflow-step { padding: 14px !important; gap: 10px !important; }
+}
+@media (max-width: 700px) {
+  .classic-studio #inputPanel.panel-input { padding: 18px 12px !important; }
+  .classic-studio #inputPanel .hero-stage-card { width: 100% !important; }
+  .classic-studio #inputPanel .hero-stage-actions {
+    display: grid !important;
+    grid-template-columns: 68px minmax(0, 1fr) 68px !important;
+    gap: 8px !important;
+    align-items: center !important;
+  }
+  .classic-studio #inputPanel .hero-stage-actions #resetInputsBtn {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: auto !important;
+    min-height: 36px !important;
+    padding: 7px 10px !important;
+    font-size: 12px !important;
+  }
+  .classic-studio #inputPanel .hero-stage-actions #subjectSelect {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 36px !important;
+    font-size: 12px !important;
+  }
+  .classic-studio #inputPanel .hero-stage-actions .theme-toggle {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    justify-self: end !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .classic-studio #inputPanel .hero-stage-actions #showScreenBtn {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-height: 40px !important;
+  }
+  .classic-studio #inputPanel .classic-workflow .workflow-lane { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 7px !important; }
+  .classic-studio #inputPanel .workflow-step { display: grid !important; justify-items: start !important; min-height: 82px !important; padding: 12px !important; gap: 8px !important; }
+  .classic-studio #inputPanel .workflow-step-index { width: 27px !important; height: 27px !important; font-size: 12px !important; }
+  .classic-studio #inputPanel .workflow-step-copy strong { font-size: 13px !important; }
+  .classic-studio #inputPanel .workflow-step-copy > span { display: none !important; }
+  .classic-studio #inputPanel .classic-prepare-section > .section-summary { padding: 14px 50px 14px 14px !important; }
+  .classic-studio #inputPanel .classic-prepare-section > .section-content { padding: 0 12px 14px !important; }
+  .classic-studio #inputPanel .classic-source-divider { display: none !important; }
+  .classic-studio #inputPanel .classic-optional-tools > summary > span { display: block; margin: 5px 0 0; }
+  .classic-studio #stagePanel > .classic-preview-heading { display: block; }
+  .classic-studio #stagePanel > .classic-preview-heading > p { max-width: none; }
+}

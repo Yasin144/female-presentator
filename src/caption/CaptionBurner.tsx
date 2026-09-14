@@ -7,14 +7,15 @@ import {
   QueueItem, CaptionItem, CaptionSettings, WordItem, Language, CAPTION_LANGUAGES,
 } from './types';
 import { transcribeWithHuggingFace, testHFToken } from './transcribe';
-import { burnCaptions } from './burn';
+import { burnCaptions, spokenPhraseStart } from './burn';
+import './caption-preview-layout.css';
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const uid    = () => Math.random().toString(36).slice(2, 10);
 const sanify = (n: string) => n.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 28) || 'video';
 const QUEUE_EXPORT_FONT_SIZE = 50;
 const CAPTION_WORD_LIMIT = 8;
-const CAPTION_BOTTOM_OFFSET_PX = 25;
+const CAPTION_BOTTOM_OFFSET_PX = 80;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
 
 function dlBlob(blob: Blob, name: string) {
@@ -174,8 +175,7 @@ export default function CaptionBurner({ onClose }: Props) {
   const [processing, setProc]     = useState(false);
   const [batchOn, setBatch]       = useState(false);
   const [autoBurn, setAutoBurn]   = useState(() => {
-    try { return localStorage.getItem('caption-burner-auto-burn') !== 'false'; }
-    catch { return true; }
+    return false;
   });
   const [isZipping, setZipping]   = useState(false);
   const [errorMsg, setError]      = useState<string | null>(null);
@@ -196,12 +196,14 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const [S, setS] = useState<CaptionSettings>({
     fontSize: QUEUE_EXPORT_FONT_SIZE,
+    fontFamily: 'Arial',
+    textWidth: 85,
     fontColor: 'White',
     bgColor: 'Transparent',
     style: 'white-yellow',
-    position: 'bottom',
+    position: 'custom',
     xPos: 50,
-    yPos: 90,
+    yPos: 50,
     highlightColor: '#facc15',
     language: 'English',
     offset: 0,
@@ -211,6 +213,7 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const vidRef  = useRef<HTMLVideoElement>(null);
+  const reviewedCaptions = useRef<Record<string, string>>({});
   const rafRef  = useRef(0);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const pendingAutoStartIdRef = useRef<string | null>(null);
@@ -218,6 +221,9 @@ export default function CaptionBurner({ onClose }: Props) {
   const activeVideoHeight = activeItem?.video.height || 1080;
   const previewFontSize = `calc(${S.fontSize} * 100cqh / ${activeVideoHeight})`;
   const previewBottomOffset = `calc(${CAPTION_BOTTOM_OFFSET_PX}px * 100cqh / ${activeVideoHeight})`;
+  // An old burned file cannot reflect new style settings. Return to the original
+  // upload when settings change, without modifying that previously saved file.
+  useEffect(() => { setBurnedVideoUrl(null); }, [S]);
 
   // RAF preview sync
   useEffect(() => {
@@ -500,6 +506,11 @@ export default function CaptionBurner({ onClose }: Props) {
   // Burn captions
   const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal; fontSize?: number } = {}) => {
     if (!item.captions) return null;
+    if (reviewedCaptions.current[item.id] !== JSON.stringify([S, item.captions])) {
+      setActiveId(item.id);
+      setError('Preview required: click Preview caption on video with the current settings, then Export Video.');
+      return null;
+    }
     setError(null);
     notify(opts.phaseName || 'Burn start', item.video.name);
     upd(item.id, { status: 'exporting', message: 'Burning captions…', progress: 0 });
@@ -569,7 +580,7 @@ export default function CaptionBurner({ onClose }: Props) {
       notify('Burn failed', `${item.video.name}: ${msg.slice(0, 80)}`);
       return null;
     }
-  }, [settingsForItem, upd, notify, saveBlobToDownloads, speak]);
+  }, [S, settingsForItem, upd, notify, saveBlobToDownloads, speak]);
 
   const processSingleItem = useCallback(async (item: QueueItem, signal: AbortSignal) => {
     if (!item.video.file) return;
@@ -601,8 +612,8 @@ export default function CaptionBurner({ onClose }: Props) {
         notify('Captions ready', `${item.video.name}: review captions, then click Export Video`);
         return;
       }
-      upd(item.id, { status: 'exporting', message: `Captions ready. Exporting at ${QUEUE_EXPORT_FONT_SIZE}px...`, progress: 2 });
-      await burnItem(itemToBurn, { autoDownload: true, phaseName: 'Start queue', signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
+      upd(item.id, { status: 'exporting', message: 'Captions ready. Exporting with your selected size...', progress: 2 });
+      await burnItem(itemToBurn, { autoDownload: true, phaseName: 'Start queue', signal });
     } catch (e) {
       console.error(`[CaptionBurner] Failed to process ${item.video.name}:`, e);
     }
@@ -709,7 +720,7 @@ export default function CaptionBurner({ onClose }: Props) {
         const controller = new AbortController();
         abortControllersRef.current[item.id] = controller;
         try {
-          await burnItem(item, { autoDownload: true, phaseName: 'Export queue', signal: controller.signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
+          await burnItem(item, { autoDownload: true, phaseName: 'Export queue', signal: controller.signal });
         } finally {
           delete abortControllersRef.current[item.id];
         }
@@ -728,7 +739,7 @@ export default function CaptionBurner({ onClose }: Props) {
     abortControllersRef.current[item.id] = controller;
     setProc(true);
     try {
-      await burnItem(item, { autoDownload: true, phaseName: 'Re-burn start', signal: controller.signal, fontSize: QUEUE_EXPORT_FONT_SIZE });
+      await burnItem(item, { autoDownload: true, phaseName: 'Re-burn start', signal: controller.signal });
     } finally {
       delete abortControllersRef.current[item.id];
       setProc(Object.keys(abortControllersRef.current).length > 0);
@@ -782,28 +793,13 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const activeCap = useMemo(() => {
     if (!activeItem?.captions) return null;
-    const t = Math.max(0, curTime - S.offset);
+    const t = curTime - S.offset;
     // Show caption for the full caption duration — don't hide during inter-word gaps
     return activeItem.captions.find(c => t >= c.start && t <= c.end) ?? null;
   }, [activeItem, curTime, S.offset]);
 
-  // Demo caption shown when video is loaded but not yet transcribed — lets user
-  // adjust font/color/position/style before running transcription.
-  const DEMO_CAP: CaptionItem = useMemo(() => ({
-    start: 0, end: 999999,
-    text: 'Sample Caption Text',
-    words: [
-      { start: 0, end: 999999/3,   text: 'Sample'  },
-      { start: 999999/3, end: 999999*2/3, text: 'Caption' },
-      { start: 999999*2/3, end: 999999,  text: 'Text'    },
-    ],
-  }), []);
-
-  const previewCap = useMemo<CaptionItem | null>(() => {
-    if (!videoUrl) return null;
-    // Show real caption if available, otherwise show demo for style preview
-    return activeCap ?? (activeItem && !activeItem.captions?.length ? DEMO_CAP : null);
-  }, [activeCap, videoUrl, activeItem, DEMO_CAP]);
+  // A style sample belongs beside the controls, never over untranscribed video.
+  const previewCap = activeCap;
 
   const getWords = (cap: CaptionItem): WordItem[] => {
     if (cap.words?.length) return cap.words;
@@ -896,7 +892,7 @@ export default function CaptionBurner({ onClose }: Props) {
     : queue.length ? 'Queue ready'
     : 'No videos loaded';
   const queuePhaseDetail = currentWorkingItem
-    ? currentWorkingItem.message || (currentWorkingItem.status === 'exporting' ? `Burning at ${QUEUE_EXPORT_FONT_SIZE}px` : 'Transcribing speech')
+    ? currentWorkingItem.message || (currentWorkingItem.status === 'exporting' ? 'Burning with selected caption size' : 'Transcribing speech')
     : isAllDone ? 'All captioned videos are saved.'
     : queue.length ? 'Click Start Queue to begin.'
     : 'Add videos to begin.';
@@ -1126,7 +1122,7 @@ export default function CaptionBurner({ onClose }: Props) {
           paddingBottom: videoUrl ? 120 : 18,
           gap: 16,
           height: 'calc(100vh - 126px)',
-          overflowY: videoUrl ? 'auto' : 'hidden',
+          overflowY: 'auto',
           overflowX: 'hidden',
           overscrollBehavior: 'contain',
         }}
@@ -1205,7 +1201,7 @@ export default function CaptionBurner({ onClose }: Props) {
                     onPause={() => setIsPlaying(false)}
                     onClick={togglePlay}
                   />
-                  {previewCap && (
+                  {!burnedVideoUrl && previewCap && (
                     <div
                       className="absolute pointer-events-none z-50 text-center"
                       style={{
@@ -1213,7 +1209,7 @@ export default function CaptionBurner({ onClose }: Props) {
                         bottom: S.position === 'bottom' ? previewBottomOffset : undefined,
                         top: S.position === 'bottom' ? undefined : `${S.yPos}%`,
                         transform: S.position === 'bottom' ? 'translateX(-50%)' : 'translate(-50%, -50%)',
-                        width: '85%',
+                        width: `${S.textWidth ?? 85}%`,
                       }}
                     >
                       {/* DEMO badge — only shown before transcription */}
@@ -1231,7 +1227,8 @@ export default function CaptionBurner({ onClose }: Props) {
                         className={`px-0 py-0 font-black flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 mx-auto w-fit leading-tight max-w-full ${S.style === 'pill' ? 'backdrop-blur-sm px-5 py-2.5' : ''}`}
                         style={{
                           fontSize: previewFontSize,
-                          color: S.style === 'white-yellow' ? '#ffffff' : sc(S.fontColor),
+                          fontFamily: S.fontFamily || 'Arial',
+                          color: sc(S.fontColor),
                           borderRadius: S.style === 'pill' ? '9999px' : '10px',
                           background: S.style === 'pill' ? sc(S.bgColor) : 'transparent',
                           textShadow: S.style === 'white-yellow'
@@ -1245,7 +1242,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       >
                         {(() => {
                           const allWords = getWords(previewCap);
-                          const t = Math.max(0, curTime - S.offset);
+                          const t = curTime - S.offset;
                           let activeIndex = allWords.findIndex(w => t >= w.start && t <= w.end);
                           if (activeIndex < 0) {
                             activeIndex = allWords.findIndex((w, index) => {
@@ -1258,21 +1255,22 @@ export default function CaptionBurner({ onClose }: Props) {
                           // Reveal only the current phrase as it is narrated.
                           // Completed words remain highlighted so short words do
                           // not lose their karaoke state between video frames.
-                          const safeIndex = activeIndex >= 0 ? activeIndex : 0;
-                          const groupStart = Math.floor(safeIndex / CAPTION_WORD_LIMIT) * CAPTION_WORD_LIMIT;
+                          if (activeIndex < 0) return null;
+                          const safeIndex = activeIndex;
+                          const groupStart = spokenPhraseStart(allWords.map(w => w.text), safeIndex, S.maxWordsPerCaption);
                           // Match exported captions: reveal the current phrase
                           // progressively and never preview words from the future.
                           const wordsToShow = allWords.slice(groupStart, Math.max(groupStart + 1, safeIndex + 1));
                           return wordsToShow.map((w, i) => {
-                            const lit = i <= safeIndex - groupStart;
+                            const lit = S.style === 'white-yellow' && i === safeIndex - groupStart;
                             return (
                               <span
                                 key={i}
                                 className="inline-block transition-all duration-100"
                                 style={{
-                                  color: lit ? (S.style === 'white-yellow' ? '#facc15' : S.highlightColor) : 'inherit',
+                                  color: lit ? S.highlightColor : 'inherit',
                                   fontWeight: S.style === 'white-yellow' ? 900 : (lit ? 900 : 700),
-                                  transform: lit ? 'scale(1.06)' : 'scale(1)',
+                                  transform: 'none',
                                   textShadow: lit && S.style !== 'white-yellow' ? `0 0 20px ${S.highlightColor}60` : 'inherit',
                                 }}
                               >
@@ -1408,7 +1406,7 @@ export default function CaptionBurner({ onClose }: Props) {
           )}
         </section>
 
-        <section className="flex flex-1 min-h-0 gap-4" style={videoUrl ? { minHeight: 620, overflow: 'visible' } : undefined}>
+        <section className="cb-editor-layout flex flex-1 min-h-0 gap-4" style={{ minHeight: 620, overflow: 'visible' }}>
           <aside className="flex flex-col" style={{ ...panel, width: '34%', minWidth: 340, borderRadius: 18, overflow: 'hidden' }}>
             <div className="flex items-center justify-between" style={{ padding: 14, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <div>
@@ -1740,7 +1738,7 @@ export default function CaptionBurner({ onClose }: Props) {
             </div>
 
             <div className="overflow-y-auto flex-1 min-h-0" style={{ padding: 14, overscrollBehavior: 'contain', scrollbarGutter: 'stable' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(280px, 1fr))', gap: 12 }}>
+              <div className="cb-options-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(280px, 1fr))', gap: 12 }}>
                 <OptionCard title="Style">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
                     {(['pill', 'outline', 'minimal', 'white-yellow'] as const).map(p => (
@@ -1763,11 +1761,32 @@ export default function CaptionBurner({ onClose }: Props) {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <SliderRow label="Font Scale" value={`${S.fontSize}px`} min={20} max={140} inputValue={S.fontSize} onChange={v => setS(s => ({ ...s, fontSize: v }))} />
                     <SelectRow label="Font Color" value={S.fontColor} options={['White', 'Yellow', 'Cyan', 'Black']} onChange={v => setS(s => ({ ...s, fontColor: v as any }))} />
+                    <SelectRow label="Font family" value={S.fontFamily || 'Arial'} options={['Arial', 'Georgia', 'Verdana', 'Tahoma', 'Nirmala UI']} onChange={v => setS(s => ({ ...s, fontFamily: v }))} />
+                    <SliderRow label="Text width" value={`${S.textWidth ?? 85}%`} min={20} max={95} inputValue={S.textWidth ?? 85} onChange={v => setS(s => ({ ...s, textWidth: v }))} />
+                  </div>
+                  <div data-caption-size-preview style={{ marginTop: 14 }}>
+                    <p className="text-xs text-slate-300">Caption size preview · {S.fontSize}px output text</p>
+                    <p className="text-xs text-slate-400">Updates with the slider at 50% viewing scale. This sample is not added to the video.</p>
+                    <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', background: '#15232d', border: '1px solid #526571', borderRadius: 8, padding: 12, zoom: 0.5 }}>
+                      <span style={{ fontSize: S.fontSize, lineHeight: 1.2, fontWeight: 900, overflowWrap: 'anywhere', color: sc(S.fontColor), background: S.style === 'pill' ? sc(S.bgColor) : 'transparent' }}>{activeCap?.text || activeItem?.captions?.[0]?.text || 'Caption size sample'}</span>
+                    </div>
+                    <button type="button" className="mt-2 text-xs text-cyan-300" disabled={!activeItem?.captions?.length} onClick={() => {
+                      const cap = activeCap || activeItem?.captions?.[0];
+                      if (vidRef.current && cap) {
+                        if (activeItem) reviewedCaptions.current[activeItem.id] = JSON.stringify([S, activeItem.captions]);
+                        vidRef.current.pause();
+                        vidRef.current.currentTime = Math.max(0, cap.start + S.offset + 0.01);
+                        setCurTime(vidRef.current.currentTime);
+                        vidRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                      }
+                    }}>Preview caption on video</button>
                   </div>
                 </OptionCard>
 
                 <OptionCard title="Layout">
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <SelectRow label="Position preset" value={S.yPos === 50 ? 'Middle' : S.yPos === 15 ? 'Top' : S.yPos === 85 ? 'Bottom' : 'Custom'} options={['Middle', 'Top', 'Bottom', 'Custom']} onChange={v => setS(s => ({ ...s, position: 'custom', xPos: 50, yPos: v === 'Top' ? 15 : v === 'Bottom' ? 85 : v === 'Middle' ? 50 : s.yPos }))} />
+                    <SliderRow label="Horizontal Position" value={`${S.xPos}%`} min={5} max={95} inputValue={S.xPos} onChange={v => setS(s => ({ ...s, xPos: v, position: 'custom' }))} />
                     <SelectRow label="Backdrop" value={S.bgColor} options={['Black (70%)', 'White (20%)', 'Black', 'Transparent']} onChange={v => setS(s => ({ ...s, bgColor: v as any }))} />
                     <SliderRow label="Vertical Position" value={`${S.yPos}%`} min={5} max={95} inputValue={S.yPos} onChange={v => setS(s => ({ ...s, yPos: v, position: 'custom' }))} />
                   </div>

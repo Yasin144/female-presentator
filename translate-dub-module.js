@@ -69,6 +69,26 @@
     return window.electronAPI || {};
   }
 
+  // Whole-workflow notices are separate from native transcription/export stages.
+  function createTranslateWhatsAppJob(processName) {
+    let settled = false;
+    const id = 'translate-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    return (status, detail) => {
+      if (settled) return;
+      const message = String(detail?.message || detail || '');
+      if (status === 'cancelled' || detail?.cancelled || detail?.canceled || detail?.name === 'AbortError' || /\b(?:cancelled|canceled|aborted by user)\b/i.test(message)) {
+        settled = true;
+        return;
+      }
+      if (status !== 'completed' && status !== 'failed') return;
+      settled = true;
+      try {
+        const report = window.electronAPI?.reportWhatsAppJob;
+        if (typeof report === 'function') Promise.resolve(report({ id, status, processName, details: message.slice(0, 700) })).catch(() => {});
+      } catch (_) { /* Notifications must not change the workflow result. */ }
+    };
+  }
+
   function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
@@ -543,6 +563,7 @@
       return;
     }
 
+    const notifyPreparation = createTranslateWhatsAppJob('Translate Audio · preparation');
     setBusy(true);
     els.save.disabled = true;
     state.exportedVideoPath = "";
@@ -559,6 +580,7 @@
         videoPath: state.filePath,
         languageHint: "auto",
       });
+      if (transcribed?.cancelled || transcribed?.canceled) notifyPreparation('cancelled');
       if (!transcribed || transcribed.ok === false) {
         throw new Error((transcribed && transcribed.error) || "Transcription failed.");
       }
@@ -569,6 +591,7 @@
         setStatus("Detected spoken language: " + languageLabel(state.detectedLanguage) + ".");
       }
       if (!state.transcript) {
+        notifyPreparation('failed', 'No speech was detected in the uploaded media.');
         els.transcript.value = "";
         els.translation.value = "";
         els.generate.disabled = false;
@@ -605,14 +628,17 @@
         setProgress(100, "Preview ready", "Export MP3, Export MP4, or open AI Video Captioning when ready");
         setStatus("Preview ready. Voice: " + state.target.label + ". Captions: " + resolvedCaptionLanguage(false) + ". Play the video to verify synchronization.");
         speakAlert("Translation preview is ready. Please listen, then export.");
+        notifyPreparation('completed', `Translated video preview is ready in ${state.target.label}.`);
       } else {
         setProgress(70, "Generating audio", state.voiceEngine === "sc3" ? "SC3 voice" : "TTS voice");
         await synthesizeTranslatedAudio("Step 3: generating translated audio.");
         setProgress(100, "Complete", "Translated audio ready");
         setStatus("Done. The translated audio is ready.");
         speakAlert("Translated audio is ready.");
+        notifyPreparation('completed', `Translated audio is ready in ${state.target.label}.`);
       }
     } catch (error) {
+      notifyPreparation('failed', error);
       setStatus(error.message || String(error), true);
     } finally {
       setBusy(false);
@@ -654,11 +680,14 @@
 
   async function regenerateAudio() {
     if (state.busy) return;
+    const notifyAudio = createTranslateWhatsAppJob('Translate Audio · audio regeneration');
     setBusy(true);
     try {
       await synthesizeTranslatedAudio("Generating audio from the edited translation.");
       setStatus("Done. The updated translated audio is ready.");
+      notifyAudio('completed', `Updated translated audio is ready in ${state.target.label}.`);
     } catch (error) {
+      notifyAudio('failed', error);
       setStatus(error.message || String(error), true);
     } finally {
       setBusy(false);
@@ -786,6 +815,7 @@
 
   async function exportVideo() {
     if (state.busy) return;
+    const notifyVideo = createTranslateWhatsAppJob('Translate Audio · captioned video workflow');
     setBusy(true);
     try {
       const shouldUseSyncedExport = Boolean(state.translatedSegments.length || state.segments.length);
@@ -795,7 +825,9 @@
       const finalExport = await burnTranslatedKaraokeCaptions(exported);
       setStatus("Export complete with synchronized karaoke captions. Preview the video below before opening the folder.");
       speakAlert("Export complete. Preview is ready.");
+      notifyVideo('completed', 'Translated video with synchronized karaoke captions is ready.');
     } catch (error) {
+      notifyVideo('failed', error);
       setStatus(error.message || String(error), true);
     } finally {
       setBusy(false);
@@ -807,6 +839,7 @@
 
   async function saveAudio() {
     if (!state.audioBase64) return;
+    const notifySave = createTranslateWhatsAppJob('Translate Audio · MP3 save');
     try {
       const defaultPath = safeBaseName(state.file && state.file.name) + "-" + state.target.code + ".mp3";
       const picked = await api().showSaveDialog({
@@ -818,9 +851,11 @@
       if (!picked || picked.canceled || !picked.filePath) return;
       const written = await api().writeFile(picked.filePath, state.audioBase64);
       if (!written || written.ok === false) throw new Error((written && written.error) || "Could not save audio.");
+      notifySave('completed', 'Translated MP3 saved successfully.');
       setStatus("Saved translated audio: " + picked.filePath);
       if (api().showItemInFolder) api().showItemInFolder(picked.filePath);
     } catch (error) {
+      notifySave('failed', error);
       setStatus(error.message || String(error), true);
     }
   }
@@ -1108,6 +1143,7 @@
     ensureRoot();
     ensureNavButton();
     window.addEventListener("pp:close-translate-audio", closeModule);
+    window.addEventListener("pp:open-translate-audio", openModule);
     const observer = new MutationObserver(ensureNavButton);
     observer.observe(document.body, { childList: true, subtree: true });
   }

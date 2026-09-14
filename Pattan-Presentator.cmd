@@ -14,9 +14,10 @@ if exist "%APP_DIR%\.groq_api_key" (
 title Voice Presentator — Starting...
 cd /d "%APP_DIR%"
 
-REM ── Kill only Electron (never kill the Python voice server) ──────────────
-powershell -NoProfile -Command "Get-Process -Name 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
-ping 127.0.0.1 -n 2 >nul
+REM Reuse this workspace's app without interrupting other Electron programs.
+powershell -NoProfile -Command "$exe=Join-Path $env:APP_DIR 'node_modules\electron\dist\electron.exe'; try { $running=Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.ExecutablePath -eq $exe -and $_.CommandLine -notmatch '(?:^|\s)--type=' }; if($running){exit 0}; exit 1 } catch { exit 2 }" >nul 2>&1
+if errorlevel 2 ( echo Could not check whether Presentator is already running. No processes were changed. & exit /b 1 )
+if not errorlevel 1 ( echo Presentator is already running. Use its existing window. & exit /b 0 )
 
 REM ── Node / Electron dependencies ─────────────────────────────────────────
 if not exist "%APP_DIR%\node_modules\electron\dist\electron.exe" (
@@ -40,10 +41,12 @@ if errorlevel 1 (
 )
 
 REM ── Check if voice server is already running on port 8426 ─────────────────
-REM Reuse only this C-drive app's own voice server. If another Presentator
-REM install is holding 8426, stop it so C:\pattanpresentator stays isolated.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$root='%APP_DIR%'; Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_) -ErrorAction SilentlyContinue; if ($proc -and $proc.CommandLine -notlike ('*' + $root + '*')) { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }" >nul 2>&1
-powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 3; exit 0 } catch { exit 1 }" >nul 2>&1
+REM A listening port is not permission to stop its owner.
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 3|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8426 is occupied but not ready. The existing process was left running.
+  goto launch_electron
+)
 if not errorlevel 1 (
   echo Voice server already running and warm - reusing it.
   goto launch_electron

@@ -660,9 +660,14 @@ function Join-VideoSegments {
     $Metadata = $null
   )
 
-  $safeVideoPaths = @($VideoPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) })
-  if (-not $safeVideoPaths.Count) {
+  if (-not $VideoPaths -or -not $VideoPaths.Count) {
     throw "No rendered video parts were uploaded."
+  }
+  # A declared part is never optional: dropping one shifts every later visual
+  # away from its narration while still producing an apparently valid video.
+  $safeVideoPaths = @($VideoPaths)
+  if (@($safeVideoPaths | Where-Object { [string]::IsNullOrWhiteSpace($_) -or -not (Test-Path -LiteralPath $_) }).Count) {
+    throw "A rendered video part is missing. Export was stopped to preserve the complete narration timeline."
   }
 
   if ($safeVideoPaths.Count -eq 1) {
@@ -707,12 +712,16 @@ function Join-VideoSegments {
       }
       return $outputPath
     } catch {
+      if (Test-Path -LiteralPath $outputPath) {
+        Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
+      }
       throw
     }
   }
 
   $listPath = Join-Path $env:TEMP ("mux-concat-" + [System.Guid]::NewGuid().ToString() + ".txt")
   $outputPath = Join-Path $env:TEMP ("mux-concat-" + [System.Guid]::NewGuid().ToString() + ".webm")
+  $joinedSuccessfully = $false
 
   try {
     $listContent = ($safeVideoPaths | ForEach-Object {
@@ -726,10 +735,14 @@ function Join-VideoSegments {
       throw "FFmpeg could not join the rendered video parts. $concatOutput"
     }
 
+    $joinedSuccessfully = $true
     return $outputPath
   } finally {
-    if (Test-Path $listPath) {
-      Remove-Item $listPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $listPath) {
+      Remove-Item -LiteralPath $listPath -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $joinedSuccessfully -and (Test-Path -LiteralPath $outputPath)) {
+      Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
     }
   }
 }
@@ -746,6 +759,7 @@ function Invoke-VideoMux {
     [double]$TargetDurationMs = 0,
     [double]$HoldLastFrameMs = 0,
     [bool]$AudioDuckingEnabled = $true,
+    [bool]$PdfExactTimeline = $false,
     [switch]$KeepOutputFile
   )
 
@@ -754,12 +768,19 @@ function Invoke-VideoMux {
 
   try {
     $safeMusicVolume = [Math]::Min([Math]::Max($MusicVolume, 0.0), 1.0)
-    $safeAudioSpeed = [Math]::Min([Math]::Max($AudioSpeed, 0.5), 2.0)
+    # All playback controls support 2.5x, including PDF context export. Apply
+    # the same pitch-preserving tempo whether or not visuals use exact frames.
+    $safeAudioSpeed = [Math]::Min([Math]::Max($AudioSpeed, 0.5), 2.5)
     $safeVideoSpeed = [Math]::Min([Math]::Max($VideoSpeed, 1.0), 20.0)
     $safeTargetDurationMs = [Math]::Max([double]$TargetDurationMs, 0.0)
     $safeHoldLastFrameMs = [Math]::Max([double]$HoldLastFrameMs, 0.0)
     $volumeText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeMusicVolume)
     $audioSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeAudioSpeed)
+    $audioTempoFilter = if ($safeAudioSpeed -gt 2.0) {
+      "atempo=2.00,atempo=" + [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.000000}", ($safeAudioSpeed / 2.0))
+    } else {
+      "atempo=$audioSpeedText"
+    }
     $videoSpeedText = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.00}", $safeVideoSpeed)
     $targetDurationSecondsText = if ($safeTargetDurationMs -gt 0) {
       [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.000}", ($safeTargetDurationMs / 1000.0))
@@ -801,7 +822,7 @@ function Invoke-VideoMux {
     if (-not [string]::IsNullOrWhiteSpace($MusicPath) -and (Test-Path $MusicPath)) {
       $args += @("-stream_loop", "-1", "-i", $MusicPath)
       if ($AudioDuckingEnabled) {
-          $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText,asplit[narr_out][narr_sc]" } else { "[1:a]anull,asplit[narr_out][narr_sc]" }
+          $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]$audioTempoFilter,asplit[narr_out][narr_sc]" } else { "[1:a]anull,asplit[narr_out][narr_sc]" }
           $mixedAudioTail = if ($targetDurationSecondsText) {
             "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
           } else {
@@ -814,7 +835,7 @@ function Invoke-VideoMux {
             "-map", "[aout]"
           )
       } else {
-          $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[narr]" } else { "[1:a]anull[narr]" }
+          $audioFilterInput = if ($safeAudioSpeed -ne 1.0) { "[1:a]${audioTempoFilter}[narr]" } else { "[1:a]anull[narr]" }
           $mixedAudioTail = if ($targetDurationSecondsText) {
             "amix=inputs=2:duration=first:dropout_transition=2,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
           } else {
@@ -830,12 +851,12 @@ function Invoke-VideoMux {
     } elseif ($safeAudioSpeed -ne 1.0 -or $videoFilters.Count -gt 0) {
       $audioFilterInput = if ($targetDurationSecondsText) {
         if ($safeAudioSpeed -ne 1.0) {
-          "[1:a]atempo=$audioSpeedText,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
+          "[1:a]$audioTempoFilter,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
         } else {
           "[1:a]anull,apad=whole_dur=$targetDurationSecondsText,atrim=duration=$targetDurationSecondsText[aout]"
         }
       } else {
-        if ($safeAudioSpeed -ne 1.0) { "[1:a]atempo=$audioSpeedText[aout]" } else { "[1:a]anull[aout]" }
+        if ($safeAudioSpeed -ne 1.0) { "[1:a]${audioTempoFilter}[aout]" } else { "[1:a]anull[aout]" }
       }
       $args += @(
         "-filter_complex",
@@ -930,7 +951,7 @@ function Handle-Request {
   if ($Request.Method -eq "GET" -and ($path -eq "" -or $path -eq "/health")) {
     try {
       $ffmpegPath = Get-FFmpegPath
-      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{ ok = $true; ffmpegPath = $ffmpegPath }
+      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{ ok = $true; ffmpegPath = $ffmpegPath; pdfExactTimeline = $true }
     } catch {
       Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ ok = $false; error = $_.Exception.Message }
     }
@@ -1121,6 +1142,25 @@ function Handle-Request {
     return
   }
 
+  if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-cancel") {
+    try {
+      $payload = Read-JsonBody -Bytes $Request.BodyBytes
+      $sessionId = if ($payload) { [string]$payload.sessionId } else { "" }
+      if ([string]::IsNullOrWhiteSpace($sessionId)) {
+        Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "An upload session ID is required." }
+        return
+      }
+      # Idempotent cleanup uses only server-owned paths from this exact session.
+      # It never runs the encoder and never accepts a client filesystem path.
+      $existed = $script:MuxUploadSessions.ContainsKey($sessionId)
+      Remove-MuxUploadSession -SessionId $sessionId
+      Write-JsonResponse -Stream $Stream -StatusCode 200 -Payload @{ ok = $true; removed = $existed }
+    } catch {
+      Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
+    }
+    return
+  }
+
   if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-chunk") {
     try {
       $sessionId = [string]$query["sessionId"]
@@ -1182,6 +1222,8 @@ function Handle-Request {
 
   if ($Request.Method -eq "POST" -and $path -eq "/api/mux-upload-complete") {
     $sessionId = ""
+    $joinedVideoPath = ""
+    $muxedVideoPath = ""
     try {
       $payload = Read-JsonBody -Bytes $Request.BodyBytes
       $sessionId = if ($payload) { [string]$payload.sessionId } else { "" }
@@ -1228,6 +1270,7 @@ function Handle-Request {
         -TargetDurationMs $(if ($metadata) { [double]$metadata.targetDurationMs } else { 0.0 }) `
         -HoldLastFrameMs $(if ($metadata -and $metadata.PSObject.Properties.Name -contains "holdLastFrameMs") { [double]$metadata.holdLastFrameMs } else { 0.0 }) `
         -AudioDuckingEnabled $(if ($metadata -and $metadata.audioDuckingEnabled -ne $null) { [bool]$metadata.audioDuckingEnabled } else { $true }) `
+        -PdfExactTimeline $(if ($metadata -and $metadata.PSObject.Properties.Name -contains "pdfExactTimeline") { [bool]$metadata.pdfExactTimeline } else { $false }) `
         -KeepOutputFile
       try {
         $shouldSaveToDefaultPath = $metadata -and $metadata.saveToDefaultPath -eq $true
@@ -1267,6 +1310,14 @@ function Handle-Request {
     } catch {
       Write-JsonResponse -Stream $Stream -StatusCode 500 -Payload @{ error = $_.Exception.Message }
     } finally {
+      # Joining can succeed before strict-sync validation or encoding fails.
+      # These outputs are owned by this request, not by the upload session.
+      if ($joinedVideoPath -and (Test-Path -LiteralPath $joinedVideoPath)) {
+        Remove-Item -LiteralPath $joinedVideoPath -Force -ErrorAction SilentlyContinue
+      }
+      if ($muxedVideoPath -and (Test-Path -LiteralPath $muxedVideoPath)) {
+        Remove-Item -LiteralPath $muxedVideoPath -Force -ErrorAction SilentlyContinue
+      }
       if ($sessionId) {
         Remove-MuxUploadSession -SessionId $sessionId
       }
@@ -1285,6 +1336,7 @@ function Handle-Request {
     $musicVolume = 0.18
     $targetDurationMs = 0.0
     $holdLastFrameMs = 0.0
+    $pdfExactTimeline = $false
     $outputFileName = "learning-outcomes-video.mp4"
     $outputPath = ""
     $saveToDefaultPath = $false
@@ -1310,6 +1362,7 @@ function Handle-Request {
       $outputPath = if ($metadata -and $metadata.PSObject.Properties.Name -contains "outputPath") { [string]$metadata.outputPath } else { "" }
       $saveToDefaultPath = if ($metadata -and $metadata.saveToDefaultPath -ne $null) { [bool]$metadata.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($metadata -and $metadata.audioDuckingEnabled -ne $null) { [bool]$metadata.audioDuckingEnabled } else { $true }
+      $pdfExactTimeline = $metadata -and $metadata.PSObject.Properties.Name -contains "pdfExactTimeline" -and [bool]$metadata.pdfExactTimeline
 
       if ($binaryPayload.VideoLength -le 0 -or $binaryPayload.AudioLength -le 0) {
         Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "Video and audio are both required." }
@@ -1335,6 +1388,7 @@ function Handle-Request {
       $outputPath = if ($payload -and $payload.PSObject.Properties.Name -contains "outputPath") { [string]$payload.outputPath } else { "" }
       $saveToDefaultPath = if ($payload -and $payload.saveToDefaultPath -ne $null) { [bool]$payload.saveToDefaultPath } else { $false }
       $audioDuckingEnabled = if ($payload -and $payload.audioDuckingEnabled -ne $null) { [bool]$payload.audioDuckingEnabled } else { $true }
+      $pdfExactTimeline = $payload -and $payload.PSObject.Properties.Name -contains "pdfExactTimeline" -and [bool]$payload.pdfExactTimeline
 
       if ([string]::IsNullOrWhiteSpace($videoBase64) -or [string]::IsNullOrWhiteSpace($audioBase64)) {
         Write-JsonResponse -Stream $Stream -StatusCode 400 -Payload @{ error = "Video and audio are both required." }
@@ -1388,6 +1442,7 @@ function Handle-Request {
         -TargetDurationMs $targetDurationMs `
         -HoldLastFrameMs $holdLastFrameMs `
         -AudioDuckingEnabled $audioDuckingEnabled `
+        -PdfExactTimeline $pdfExactTimeline `
         -KeepOutputFile
       if (-not [string]::IsNullOrWhiteSpace($outputPath)) {
         $savedPath = Save-MuxedVideoToRequestedPath -SourcePath $muxedVideoPath -RequestedPath $outputPath
@@ -1436,31 +1491,20 @@ function Handle-Request {
   Write-JsonResponse -Stream $Stream -StatusCode 404 -Payload @{ error = "Route not found." }
 }
 
-try {
-  # Retry loop: kill anything holding the port and retry up to 12 times
-  $maxAttempts = 12
-  $bound = $false
-  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    try {
-      # Kill any stale process on this port before each attempt
-      $netLines = netstat -ano 2>$null | Select-String ":$port\s"
-      foreach ($nl in $netLines) {
-        if ($nl -match '\s(\d+)\s*$') {
-          $stalePid = [int]$Matches[1]
-          if ($stalePid -gt 0) { taskkill /F /PID $stalePid 2>$null | Out-Null }
-        }
-      }
-      Start-Sleep -Milliseconds 400
-      $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-      $listener.Start()
-      $bound = $true
-      break
-    } catch [System.Net.Sockets.SocketException] {
-      if ($attempt -ge $maxAttempts) { throw }
-      Write-Host "[video-export] Port $port busy, retrying ($attempt/$maxAttempts)..."
-      Start-Sleep -Seconds 1
-    }
+function Start-VideoExportListener {
+  param($Listener, [int]$Port)
+
+  try {
+    $Listener.Start()
+  } catch {
+    # A port may belong to an active export or an unrelated application. Only
+    # the owner of that process may decide to stop it; startup must not do so.
+    throw "Video export server could not listen on 127.0.0.1:$Port. The port may already be in use. No existing process was stopped. Reuse the running export server or stop it explicitly before retrying. $($_.Exception.Message)"
   }
+}
+
+try {
+  Start-VideoExportListener -Listener $listener -Port $port
   Write-Host "Video export server listening on $baseUrl"
 
   while ($true) {

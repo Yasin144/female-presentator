@@ -118,31 +118,38 @@ function StagePanel() {
 
   return (
     <section className="panel panel-stage hidden" id="stagePanel">
+      <div className="classic-preview-heading">
+        <div>
+          <p className="classic-workspace-kicker">VOICE PRESENTATOR / PREVIEW</p>
+          <h2>Make sure it feels right.</h2>
+        </div>
+        <p>Play through your lesson, then open <strong>Export</strong> to save it.</p>
+      </div>
       <div className="stage-actions">
-        <details className="stage-toolbar-group stage-toolbar-primary stage-toolbar-card">
+        <details className="stage-toolbar-group stage-toolbar-primary stage-toolbar-card" open>
           <summary className="stage-toolbar-head stage-toolbar-summary">
             <div>
               <p className="stage-toolbar-label">Playback</p>
-              <p className="stage-toolbar-meta">Open, play, stop, and add slide images</p>
+              <p className="stage-toolbar-meta">Listen and check your presentation</p>
             </div>
             <span className="stage-toolbar-badge">PLAY</span>
           </summary>
           <div className="stage-toolbar-body">
             <div className="stage-toolbar-buttons stage-toolbar-buttons-compact">
-              <button id="editBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Back to input"
-                title="Back to input"><span aria-hidden="true">&larr;</span></button>
-              <button id="playBtn" className="primary-btn stage-icon-btn stage-icon-btn-primary" type="button"
-                aria-label="Play slide" title="Play slide"><span aria-hidden="true">&#9654;</span></button>
+              <button id="editBtn" className="ghost-btn stage-icon-btn stage-labeled-btn" type="button" aria-label="Back to input"
+                title="Back to input"><span aria-hidden="true">&larr;</span> Edit</button>
+              <button id="playBtn" className="primary-btn stage-icon-btn stage-icon-btn-primary stage-labeled-btn" type="button"
+                aria-label="Play slide" title="Play slide"><span aria-hidden="true">&#9654;</span> Play</button>
               <span id="playbackPercentIndicator" className="control-indicator playback-percent-indicator"
                 title="Playback progress" aria-live="polite">0%</span>
-              <button id="pauseStageBtn" className="ghost-btn stage-icon-btn hidden" type="button" disabled
-                aria-label="Pause" title="Pause"><span aria-hidden="true">&#10074;&#10074;</span></button>
-              <button id="stopStageBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Stop"
-                title="Stop"><span aria-hidden="true">&#9632;</span></button>
-              <button id="stageImageUploadBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Upload images"
-                title="Upload images"><span aria-hidden="true">IMG</span></button>
-              <button id="stageVideoUploadBtn" className="ghost-btn stage-icon-btn" type="button" aria-label="Upload video"
-                title="Upload video"><span aria-hidden="true">VID</span></button>
+              <button id="pauseStageBtn" className="ghost-btn stage-icon-btn stage-labeled-btn hidden" type="button" disabled
+                aria-label="Pause" title="Pause"><span aria-hidden="true">&#10074;&#10074;</span> Pause</button>
+              <button id="stopStageBtn" className="ghost-btn stage-icon-btn stage-labeled-btn" type="button" aria-label="Stop"
+                title="Stop"><span aria-hidden="true">&#9632;</span> Stop</button>
+              <button id="stageImageUploadBtn" className="ghost-btn stage-icon-btn stage-labeled-btn" type="button" aria-label="Upload images"
+                title="Upload images">Add images</button>
+              <button id="stageVideoUploadBtn" className="ghost-btn stage-icon-btn stage-labeled-btn" type="button" aria-label="Upload video"
+                title="Upload video">Add video</button>
             </div>
             <div className="stage-playback-controls">
               <label className="stage-speed-field stage-speed-field-inline" htmlFor="stagePlaybackSpeedSelect">
@@ -159,7 +166,7 @@ function StagePanel() {
                   <option value="2.5">2.5x</option>
                 </select>
               </label>
-              <p className="stage-speed-copy">Slows narration only. Anjali pitch stays natural.</p>
+              <p className="stage-speed-copy">Changes narration speed while keeping the voice pitch natural.</p>
             </div>
             <div className="stage-media-tools" aria-label="Stage media tools">
               <button id="stageImageCutoutBtn" className="ghost-btn stage-icon-btn" type="button" disabled
@@ -616,11 +623,11 @@ function StagePanel() {
           </div>
         </details>
 
-        <details className="stage-toolbar-group stage-toolbar-export stage-toolbar-card">
+        <details className="stage-toolbar-group stage-toolbar-export stage-toolbar-card" id="stageExportControls">
           <summary className="stage-toolbar-head stage-toolbar-summary">
             <div>
-              <p className="stage-toolbar-label">Export And Format</p>
-              <p className="stage-toolbar-meta">Export the video and keep the slide styled correctly</p>
+              <p className="stage-toolbar-label">Export</p>
+              <p className="stage-toolbar-meta">Save your video or narration audio</p>
             </div>
             <span className="stage-toolbar-badge">SAVE</span>
           </summary>

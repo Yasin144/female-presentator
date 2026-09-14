@@ -1,0 +1,213 @@
+/* App-only dark theme. No canvas, video, PDF image, quote artwork or protected
+   Caption Burner / Sing Song / local caption editor selectors belong here.
+   Turning this preference off returns to the existing classic light styles. */
+.classic-studio.simple-studio[data-app-theme='dark'] {
+  --studio-ink: #e4eaf0;
+  --studio-muted: #a8b7c4;
+  --studio-paper: #101a23;
+  --studio-line: #354754;
+  --studio-brass: #d5b980;
+  --app-surface: #192733;
+  --app-raised: #223441;
+  --app-field: #111f2a;
+  --app-hover: #2a3e4c;
+  --app-accent: #d5b980;
+  --app-action: #355c70;
+  --app-error: #ffb4ac;
+  background: var(--studio-paper);
+  color: var(--studio-ink);
+}
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-module {
+  background: var(--studio-paper);
+  color: var(--studio-ink);
+  scrollbar-color: #526775 #101a23;
+}
+
+/* Home and persistent navigation. */
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-topbar {
+  background: #14212c;
+  border-color: var(--studio-line);
+}
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.simple-studio-brand, .simple-current-tool, .studio-home, .studio-home-card-title, .studio-home-heading h1, .studio-home-helpers h2) { color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-home-heading p, .studio-home-card-description, .simple-appearance-button, .studio-topbar-button, .studio-icon-button) { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.simple-topbar-divider, .studio-toolbar-divider) { background: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-back-home, .studio-search) { background: var(--app-surface); color: var(--studio-ink); border-color: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-back-home, .studio-search, .studio-icon-button):hover { background: var(--app-hover); border-color: var(--app-accent); }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-search kbd { background: var(--app-field); border-color: var(--studio-line); color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home .studio-home-card {
+  background: var(--app-surface);
+  color: var(--studio-ink);
+  border-color: var(--studio-line);
+  box-shadow: 0 2px 6px #00000020;
+}
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home .studio-home-card:hover { background: var(--app-raised); border-color: #7895a7; box-shadow: 0 4px 15px #00000030; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home .studio-home-card:active { background: var(--app-hover); }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home-card-icon { background: #253b48; color: #bad5e3; border-color: #3b5363; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-home-card-open, .studio-home .studio-home-helper) { color: #bad5e3; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home .studio-home-helper:hover { color: #fff; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-home-helpers { border-color: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-tool-notice { background: #3b3220; border-color: #8b7549; color: #f0d9a8; box-shadow: 0 5px 18px #00000035; }
+
+/* Application dialogs, not media overlays. */
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-modal-backdrop { background: #050c14bb !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-command-dialog, .studio-connect-dialog, .studio-appearance-panel) {
+  background: var(--app-surface) !important;
+  border-color: var(--studio-line) !important;
+  color: var(--studio-ink) !important;
+  box-shadow: 0 24px 70px #00000070 !important;
+}
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-command-dialog > div { color: var(--studio-muted) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #studio-command-search { background: var(--app-field) !important; color: var(--studio-ink) !important; border-color: #516774 !important; color-scheme: dark; }
+.classic-studio.simple-studio[data-app-theme='dark'] #studio-command-search::placeholder { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-command-empty, .studio-command-dialog .cmd-item span) { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-command-dialog .cmd-item > div > span:first-child { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-command-dialog .cmd-item-active { background: var(--app-raised) !important; border-color: #728997 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-command-close, .studio-command-dialog .cmd-item > span, .studio-command-dialog kbd) { background: var(--app-field) !important; border-color: var(--studio-line); color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-connect-dialog :is(h3, span, p, div, button),
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-appearance-panel :is(span, button) { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-connect-dialog > div { border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-connect-dialog button { background: var(--app-action) !important; color: #fff !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-appearance-panel > div:first-child > span { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .studio-appearance-panel input { accent-color: var(--app-accent) !important; color-scheme: dark; }
+
+/* Only the existing classic preparation sections are themed. The protected
+   singing and local caption sections do not have classic-prepare-section. */
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel.panel-input { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel :is(.panel-copy h1, .workflow-step-copy strong) { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .classic-workspace-kicker { color: var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel :is(.subcopy, .hero-stage-note, .workflow-step-copy > span, .classic-source-links) { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel :is(.workflow-step, .classic-source-links button, #subjectSelect) { background: var(--app-surface) !important; color: var(--studio-ink) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .workflow-step-index { background: var(--app-raised) !important; color: var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel #showScreenBtn { background: var(--app-action) !important; border-color: #608395 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section { background: var(--app-surface) !important; color: var(--studio-ink) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section > .section-summary:hover { background: var(--app-raised) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section > .section-summary::after { background: var(--app-raised) !important; color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.section-icon, .module-icon) { background: #2c4554 !important; color: #c0dcea !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel #pdfSection > .section-summary .section-icon { background: var(--app-action) !important; color: #fff !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.section-title, .section-content, .tool-card-title, .field-label, .style-label, .toggle-check, .cutout-control-head, .pdf-page-title, .pdf-page-check, .pdf-page-meta, .pdf-preview-text) { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.section-meta, .upload-copy, .pure-input-copy, .pure-input-note, .cutout-control small, .pdf-page-stats, .pdf-page-snippet, .pdf-preview-images-title) { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section .upload-copy.is-error { color: var(--app-error) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.tool-card, .upload-block, .display-style-card) { background: #16232e !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(input:not([type='checkbox']):not([type='range']):not([type='color']), select, textarea) { background: var(--app-field) !important; color: var(--studio-ink) !important; border-color: #526775 !important; color-scheme: dark; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(input, textarea)::placeholder { color: #a0b0bd !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section input[type='file']::file-selector-button { background: var(--app-action); color: #fff; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(input[type='checkbox'], input[type='range']) { accent-color: var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.primary-btn, .accent-btn) { background: var(--app-action) !important; border-color: #608395 !important; color: #fff !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section .ghost-btn { background: var(--app-raised) !important; color: #d2e3ec !important; border-color: #526775 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel #pdfInput { background: var(--app-field) !important; border-color: var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.pdf-preview-item, .pdf-page-card, .pdf-counting-library, .classic-optional-tools) { background: var(--app-surface) !important; border-color: var(--studio-line) !important; color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section .pdf-page-card.is-selected { border-color: var(--app-accent) !important; box-shadow: 0 0 0 1px var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(.pdf-preview-page, .pdf-counting-library > summary, .classic-optional-tools > summary) { color: var(--app-accent) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-optional-tools > summary > span { color: var(--studio-muted); }
+
+/* Stage chrome is restricted to direct siblings of the untouched stage-frame. */
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel.panel-stage { background: var(--studio-paper) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .classic-preview-heading h2 { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .classic-preview-heading > p { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .note { background: var(--app-surface) !important; color: #c2d7e3 !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .note.note-soft { background: transparent !important; color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions { background: #14212c !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions .stage-toolbar-card,
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > #stageTimelineCard { background: var(--app-surface) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions :is(.stage-toolbar-label, .style-label),
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > #stageTimelineCard :is(.stage-toolbar-label, .stage-toolbar-meta, .style-label, .control-indicator) { color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions :is(.stage-toolbar-meta, .stage-speed-copy) { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions .stage-toolbar-summary::after,
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions :is(.ghost-btn, .flat-btn, .stage-align-btn, .voice-default-btn, .control-indicator, .page-indicator) { background: var(--app-raised) !important; border-color: #526775 !important; color: #d2e3ec !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions :is(.primary-btn, .accent-btn, .voice-use-btn, .voice-preview-btn) { background: var(--app-action) !important; border-color: #608395 !important; color: #fff !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] #stagePanel > .stage-actions :is(select, input:not([type='color']):not([type='range']):not([type='checkbox'])) { background: var(--app-field) !important; border-color: #526775 !important; color: var(--studio-ink) !important; color-scheme: dark; }
+
+/* Quote and resizer control surfaces. Their artwork, videos, previews and
+   any descendants of the quote phone are intentionally not selected. */
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell, .mx-page) { background: var(--studio-paper) !important; color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-hero h1, .vrm-hero h1, .mx-classic-heading h1) { color: var(--studio-ink); -webkit-text-fill-color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-kicker, .vrm-hero > div > span, .mx-classic-heading > div > span) { color: var(--app-accent); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-hero p, .vrm-hero p, .mx-classic-heading p, .qs-step p, .vrm-section-help) { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-panel, .qs-preview-column, .qs-timeline, .qs-bottom > div, .vrm-controls, .vrm-stage-column) { background: var(--app-surface); border-color: var(--studio-line); box-shadow: 0 3px 12px #00000015; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-step h2, .qs-timeline h2, .qs-publish h2, .qs-export-card h2, .vrm-section h3, .vrm-step-heading, .vrm-queue h3) { color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.classic-step-number, .qs-step > b, .qs-timeline header b) { background: #3d3729; border-color: #756647; color: #eed5a6; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) button:not(.qs-phone *) { background: var(--app-raised); color: var(--studio-ink); border-color: #526775; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) button:not(.qs-phone *):hover:not(:disabled) { background: var(--app-hover); border-color: var(--app-accent); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) :is(select, textarea, input[type='text'], input[type='number']):not(.qs-phone *) { background: var(--app-field) !important; color: var(--studio-ink) !important; border-color: #526775 !important; -webkit-text-fill-color: var(--studio-ink) !important; color-scheme: dark; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) :is(input, textarea):not(.qs-phone *)::placeholder { color: var(--studio-muted) !important; -webkit-text-fill-color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) :is(select, textarea, input):not(.qs-phone *):disabled { background: #20303b !important; color: #96a6b3 !important; -webkit-text-fill-color: #96a6b3 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) :is(option, optgroup) { background: var(--app-field) !important; color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell) label:not(.qs-phone *) { color: #bfced9; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-mode, .qs-quality, .qs-soundtrack, .qs-cta-settings, .qs-recommended, .qs-token-box, .qs-source-grid > div, .vrm-source, .vrm-timeline, .vrm-queue, .vrm-empty-preview) { background: #16232e; border-color: var(--studio-line); color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-mode button.active, .qs-scenes button.active, .qs-title-list button.active, .qs-kit-tabs button.active) { background: #3d3729; color: #eed5a6; border-color: #8a7852; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-categories button.active, .qs-generate, .qs-new-quote, .qs-export-card > button:not(.qs-max-export), .qs-player button, .vrm-controls .vrm-primary, .vrm-actions button, .vrm-empty-preview button) { background: var(--app-action); color: #fff; border-color: #608395; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-shell .qs-max-export,
+.classic-studio.simple-studio[data-app-theme='dark'] .vrm-actions button:nth-child(2) { background: #3d3729 !important; color: #eed5a6 !important; border-color: #8a7852 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-preview-head b, .qs-soundtrack h3, .qs-history h2, .vrm-empty-preview strong, .vrm-preview-bar, .vrm-queue article) { color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-preview-head span, .qs-player span, .qs-soundtrack p, .qs-timeline header span, .qs-track label, .qs-export-card p, .qs-export-card small, .qs-history p, .qs-kit-section > label, .qs-source-grid label, .qs-source-grid strong, .qs-source-grid p, .qs-source-grid small, .vrm-source small, .vrm-empty-preview p, .vrm-timeline small, .vrm-queue small, .vrm-queue p) { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-label, .qs-personality-row label, .qs-pro-controls label, .qs-audio-sliders label, .qs-brand-settings > label, .qs-export-options label, .qs-cta-settings label, .qs-cta-settings span, .vrm-controls label) { color: #bfced9; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-master-actions button, .qs-scenes b, .qs-scenes button > span, .qs-kit-head span, .qs-title-list button span, .qs-title-list button b, .qs-export-card > span, .qs-soundtrack header span, .vrm-controls label b) { color: #eed5a6; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-freshness, .qs-track-license, .qs-license.good, .qs-export-status, .qs-auth, .qs-score, .vrm-match, .vrm-protection) { background: #21392e; border-color: #476a56; color: #b9dcc6; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-freshness, .qs-track-license, .qs-auth, .qs-score, .qs-export-status) :is(b, strong, span, small),
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.vrm-match small, .qs-kit-section > label b, .qs-soundtrack header b) { color: #b9dcc6; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-auth.original { background: #3d3729; border-color: #756647; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-auth.original :is(strong, span, small) { color: #eed5a6; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-soul-actions button:last-child { background: #21392e; color: #b9dcc6; border-color: #476a56; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-waveform { background: #111d27; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-waveform i { background: #496372; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-waveform i.played { background: var(--app-accent); }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-score-bars > div { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-score-bars i { background: #15271f; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-pro-controls, .qs-kit-tabs, .qs-history, .vrm-section, .vrm-step-heading, .vrm-queue article) { border-color: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-track button { background: #3d3729; color: #eed5a6; border-color: #756647; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-track.media > div { background: #28414e; color: #c0dcea; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-track.music > div { background: #38324b; color: #d9c9ef; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-track.voice > div { background: #294231; color: #c3dfc7; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-track.sfx > div { background: #493039; color: #efc7d3; }
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-export-status.error, .vrm-actions .danger, .vrm-error) { background: #442b2a; color: var(--app-error); border-color: #995b54; }
+.classic-studio.simple-studio[data-app-theme='dark'] .qs-export-status.error span,
+.classic-studio.simple-studio[data-app-theme='dark'] .vrm-queue article.failed { color: var(--app-error); }
+.classic-studio.simple-studio[data-app-theme='dark'] .vrm-actions .ghost { background: var(--app-raised); color: var(--studio-muted); border-color: var(--studio-line); }
+
+/* Exporter control chrome only; preserve viewer, timeline media, caption
+   overlays and their output colors. No shared export/style variables change. */
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-classic-project { border-color: var(--studio-line); color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-classic-project > span { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-professional-tabs, .mx-guided-workflow, .mx-library, .mx-inspector) { background: var(--app-surface) !important; color: var(--studio-ink); border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-asset-shelf, .mx-workspace) { background: var(--studio-paper); border-color: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-professional-tabs > button, .mx-quick-project-actions button, .mx-side-panel-close) { color: var(--studio-muted) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-professional-tabs > button.active, .mx-library-source-tabs button.active) { background: #3d3729 !important; color: #eed5a6 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-professional-tabs > button, .mx-quick-project-actions button):hover:not(:disabled) { background: var(--app-hover) !important; color: var(--studio-ink) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-professional-divider { background: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-simple-project-actions button, .mx-quick-project-actions select, .mx-guided-actions button) { background: var(--app-raised); color: var(--studio-ink); border-color: #526775; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-professional-tabs .mx-professional-export { background: var(--app-action) !important; color: #fff !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-guided-heading strong, .mx-asset-shelf header, .mx-asset-shelf button strong) { color: var(--studio-ink); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-guided-heading span, .mx-guided-actions small, .mx-asset-shelf header span, .mx-asset-shelf button small, .mx-player-tools > span) { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-guided-progress { background: #0f1c26; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-guided-progress i { background: var(--app-accent); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-guided-actions button.active { background: #3d3729; border-color: #8a7852; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-guided-actions button > b { background: #3d3729; color: #eed5a6; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-guided-actions button.done > b { background: #21392e; color: #b9dcc6; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-asset-shelf button, .mx-player-tools button) { background: var(--app-raised) !important; color: var(--studio-ink) !important; border-color: #526775 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-asset-shelf > div > button > b { color: #eed5a6 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-library, .mx-inspector) :is(button, select, input:not([type='range']):not([type='checkbox']):not([type='color']), textarea) { background: var(--app-field) !important; color: var(--studio-ink) !important; border-color: #526775 !important; color-scheme: dark; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-library, .mx-inspector) :is(label, small, p, .mx-panel-title) { color: var(--studio-muted); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page :is(.mx-library, .mx-inspector) :is(.mx-trim, .mx-audio-box, .mx-audio-edit, .mx-inspector-note, .mx-caption-list > div),
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-library-source-tabs { background: #16232e !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-player-tools { background: #192b37 !important; color: var(--studio-ink); border-color: var(--studio-line); }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-export-dropdown-menu { background: var(--app-surface) !important; border-color: var(--studio-line) !important; box-shadow: 0 8px 26px #00000055 !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-export-dropdown-menu button { color: var(--studio-ink) !important; border-color: var(--studio-line) !important; }
+.classic-studio.simple-studio[data-app-theme='dark'] .mx-page .mx-export-dropdown-menu button:hover:not(:disabled) { background: var(--app-hover) !important; }
+
+/* Translator mounts beside React. Use the app marker but never body-wide
+   color overrides; its video/audio output and caption preview remain intact. */
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule { background: #101a23; color: #e4eaf0; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(.tdub-title, h3) { color: #e4eaf0; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(.tdub-subtitle, .tdub-file-name, small, label, .tdub-progress-detail) { color: #a8b7c4; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule .tdub-panel { background: #192733; border-color: #354754; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(.tdub-file, .tdub-model-row) { background: #16232e; border-color: #526775; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule .tdub-model-row label { color: #bfced9; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(select, textarea, input:not([type='range'])) { background: #111f2a !important; color: #e4eaf0 !important; border-color: #526775 !important; color-scheme: dark; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(.tdub-secondary, .tdub-lang, .tdub-voice, .tdub-close) { background: #223441; color: #e4eaf0; border-color: #526775; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule :is(.tdub-primary, .tdub-lang.is-active, .tdub-voice.is-active) { background: #355c70 !important; color: #fff !important; border-color: #608395; }
+body:has(.classic-studio.simple-studio[data-app-theme='dark']) #translateDubModule .tdub-progress-track { background: #0c1720; }
+
+/* A visible warm focus ring on app controls, without styling artwork nodes. */
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.studio-home, .studio-topbar, .studio-command-dialog, .studio-connect-dialog, .studio-appearance-panel) :is(button, input):focus-visible,
+.classic-studio.simple-studio[data-app-theme='dark'] #inputPanel .classic-prepare-section :is(button, input, select, textarea, summary):focus-visible,
+.classic-studio.simple-studio[data-app-theme='dark'] :is(.qs-shell, .vrm-shell, .mx-library, .mx-inspector) :is(button, input, select, textarea):not(.qs-phone *):focus-visible { outline-color: #e4c88f !important; }

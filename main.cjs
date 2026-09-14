@@ -1,6 +1,20 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, protocol } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, protocol, net, safeStorage } = require('electron');
+
+// A second launch focuses this app instead of starting another set of workers.
+// Electron scopes this lock to the user-data profile, so isolated QA is separate.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  return;
+}
+app.on('second-instance', () => {
+  const existingWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+  if (!existingWindow) return;
+  if (existingWindow.isMinimized()) existingWindow.restore();
+  existingWindow.show();
+  existingWindow.focus();
+});
 
 // Register app:// as a privileged scheme BEFORE app.ready (Electron requirement)
 protocol.registerSchemesAsPrivileged([{
@@ -16,6 +30,7 @@ protocol.registerSchemesAsPrivileged([{
 }]);
 const { spawn, execFile }  = require('child_process');
 const path       = require('path');
+const { pathToFileURL } = require('url');
 const fs         = require('fs');
 const http       = require('http');
 const os         = require('os');
@@ -24,11 +39,26 @@ const dns        = require('dns');
 const zlib       = require('zlib');
 const { jsonrepair } = require('jsonrepair');
 const { Client: MagicHourClient } = require('magic-hour');
+const { registerPdfCountingOcr } = require('./pdf-counting-ocr.cjs');
+const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
+const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
+const { registerMetaWorkspace, CHANNELS: metaDesktopChannels } = require('./meta-workspace.cjs');
+// Register separately from the mobile RPC/job observer: credentials and selected
+// prompts/audio stay desktop-only and are sent only by the new Meta workspace.
+const stopMetaWorkspace = registerMetaWorkspace(ipcMain, { getUserDataPath: () => app.getPath('userData'), safeStorage });
+app.on('before-quit', stopMetaWorkspace);
+// Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
+registerPdfCountingOcr(ipcMain, { getTempPath: () => app.getPath('temp') });
 const mobileIpcHandlers = new Map();
+// Only a local desktop click may open WhatsApp on this computer.
+const desktopOnlyIpcChannels = new Set(['open-whatsapp-draft']);
+for (const channel of metaDesktopChannels) desktopOnlyIpcChannels.add(channel);
+const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => {
-  mobileIpcHandlers.set(channel, listener);
-  return originalIpcHandle(channel, listener);
+  const observed = observeWhatsAppJob(channel, listener);
+  if (!desktopOnlyIpcChannels.has(channel)) mobileIpcHandlers.set(channel, observed);
+  return originalIpcHandle(channel, observed);
 };
 
 function findFFmpegExecutable() {
@@ -90,7 +120,6 @@ const activeOllamaToolProcesses = new Map();
 const activeVideoResizerProcesses = new Map();
 let activeImageGenerationRequests = 0;
 const MOBILE_HTTP_PORT = 8433;
-const MOBILE_WHATSAPP_NUMBER = '917386726193';
 let mobileHttpServer = null;
 let mobileTunnelProcess = null;
 let mobileTunnelStarting = null;
@@ -106,21 +135,18 @@ const completedMobileDownloads = new Map();
 let mobileCloudflareFailures = 2;
 const mobileAccessToken = crypto.randomBytes(24).toString('hex');
 
-function getMobilePreferences() {
-  try {
-    const file = path.join(app.getPath('userData'), 'mobile-preferences.json');
-    return { whatsappAutoSend: true, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
-  } catch (_) {
-    return { whatsappAutoSend: true };
-  }
+let whatsAppNotifications = null;
+app.on('before-quit', () => { whatsAppNotifications?.shutdown(); });
+function getWhatsAppNotifications() {
+  if (!whatsAppNotifications) whatsAppNotifications = createWhatsAppDrafts({
+    getUserDataPath: () => app.getPath('userData'),
+    openExternal: url => shell.openExternal(url),
+  });
+  return whatsAppNotifications;
 }
-
-function saveMobilePreferences(next) {
-  const file = path.join(app.getPath('userData'), 'mobile-preferences.json');
-  const preferences = { ...getMobilePreferences(), ...next };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(preferences, null, 2), 'utf8');
-  return preferences;
+function reportWhatsAppJob(event) {
+  try { return getWhatsAppNotifications().notify(event); }
+  catch (_) { return { ok: false, error: 'WhatsApp notifications are unavailable. Your job is unaffected.' }; }
 }
 
 function getMobileMethodMap() {
@@ -129,7 +155,9 @@ function getMobileMethodMap() {
     const expression = /(\w+)\s*:\s*(?:\([^)]*\)|\w+)\s*=>\s*\r?\n?\s*ipcRenderer\.invoke\(\s*['\"]([^'\"]+)/g;
     const methods = {};
     let match;
-    while ((match = expression.exec(source))) methods[match[1]] = match[2];
+    while ((match = expression.exec(source))) {
+      if (!desktopOnlyIpcChannels.has(match[2])) methods[match[1]] = match[2];
+    }
     return {
       ...methods,
       narrateEdgeTtsTimed: 'narrate-edge-tts-timed',
@@ -347,7 +375,7 @@ function startMobileHttpServer() {
   if (mobileHttpServer?.listening) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const rendererRoot = path.join(ROOT, 'renderer-dist');
-    const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.woff2': 'font/woff2' };
+    const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.woff2': 'font/woff2' };
     mobileHttpServer = http.createServer((req, res) => {
       try {
         const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${MOBILE_HTTP_PORT}`);
@@ -628,6 +656,9 @@ function startMobileHttpServer() {
           'logo-data.js',
           'script.js',
           'caption-script.js',
+          'assets/alphabet-realistic-object-atlas-v1.png',
+          'assets/alphabet-realistic-object-atlas-4x-v2.png',
+          'assets/alphabet-realistic-object-atlas-4x-v2.webp',
           'default-intro-optimized.mp4',
           'default-intro.mp4',
           'INTRO.mp4',
@@ -670,41 +701,6 @@ function startMobileHttpServer() {
   });
 }
 
-function autoSendMobileLinkToWhatsApp(mobileUrl, wifiUrl) {
-  if (!getMobilePreferences().whatsappAutoSend) {
-    console.log('[Mobile Link] WhatsApp auto-send is OFF; tunnel remains active and running work is untouched.');
-    return;
-  }
-  const script = path.join(ROOT, 'scripts', 'auto_send_whatsapp.py');
-  if (!fs.existsSync(script)) return;
-  const child = spawn('python', [script, mobileUrl, wifiUrl, MOBILE_WHATSAPP_NUMBER], { cwd: ROOT, windowsHide: true, detached: false, stdio: 'ignore' });
-  child.on('error', error => console.error('[Mobile Link] WhatsApp sender failed:', error.message));
-}
-
-const recentWhatsAppProcessAlerts = new Map();
-function sendProcessWhatsAppAlert({ status, processName, fileName = '', error = '' }) {
-  if (!getMobilePreferences().whatsappAutoSend) return;
-  const safeProcess = String(processName || 'Process').replace(/[\r\n]+/g, ' ').trim().slice(0, 100);
-  const safeFile = String(fileName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 180);
-  const safeError = String(error || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 600);
-  const message = status === 'failed'
-    ? `PATTAN ❌\nPROCESS: ${safeProcess}\nERROR: ${safeError || 'Unknown failure'}`
-    : `PATTAN ✅\nPROCESS: ${safeProcess}\nFILE: ${safeFile || 'Saved output'}`;
-  const signature = `${status}|${safeProcess}|${safeFile}|${safeError}`;
-  const now = Date.now();
-  if (now - Number(recentWhatsAppProcessAlerts.get(signature) || 0) < 15000) return;
-  recentWhatsAppProcessAlerts.set(signature, now);
-  for (const [key, sentAt] of recentWhatsAppProcessAlerts) {
-    if (now - sentAt > 5 * 60 * 1000) recentWhatsAppProcessAlerts.delete(key);
-  }
-  const script = path.join(ROOT, 'scripts', 'auto_send_whatsapp.py');
-  if (!fs.existsSync(script)) return;
-  const child = spawn('python', [script, '--message', message, MOBILE_WHATSAPP_NUMBER], {
-    cwd: ROOT, windowsHide: true, detached: false, stdio: 'ignore',
-  });
-  child.on('error', alertError => console.error('[Process Alert] WhatsApp sender failed:', alertError.message));
-}
-
 // ── Windows SAPI voice alert — fires in a detached PowerShell, no GPU/TTS server needed ──
 function speakAlertSc3(text) {
   try {
@@ -721,25 +717,6 @@ function speakAlertSc3(text) {
   } catch (e) {
     console.warn('[SC3] Voice alert failed:', e.message);
   }
-}
-
-function processAlertFromNotification(title, body) {
-
-  const safeTitle = String(title || '').trim();
-  const safeBody = String(body || '').trim();
-  const failed = /\b(fail(?:ed|ure)?|error|warning)\b/i.test(`${safeTitle} ${safeBody}`);
-  const completed = /\b(complete(?:d)?|ready|saved|erased|finished|download)\b/i.test(`${safeTitle} ${safeBody}`);
-  if (!failed && !completed) return;
-  const processName = safeTitle
-    .replace(/\b(complete(?:d)?|failed|failure|error|warning|ready|saved|finished)\b[!:. -]*/gi, '')
-    .trim() || 'Process';
-  const fileMatch = safeBody.match(/(?:^|[\s:])([^\\/:*?"<>|\r\n]+\.(?:mp4|mkv|mov|webm|mp3|wav|m4a|zip|txt|json|png|jpe?g|webp))(?:\s|$|[.,;])/i);
-  sendProcessWhatsAppAlert({
-    status: failed ? 'failed' : 'completed',
-    processName,
-    fileName: fileMatch?.[1]?.trim() || safeBody,
-    error: failed ? safeBody : '',
-  });
 }
 
 async function waitForPublicTunnelDns(publicUrl, timeoutMs = 45000) {
@@ -792,7 +769,7 @@ async function startMobileAppTunnelService(forceRefresh = false) {
       mobileTunnelProcess = cloudflared;
       lastSentMobileUrl = `${publicUrl}/?mobileToken=${mobileAccessToken}`;
       const data = saveMobileLinkState(lastSentMobileUrl, { status: 'active', verified: true, provider: 'Cloudflare Quick Tunnel' });
-      autoSendMobileLinkToWhatsApp(lastSentMobileUrl, data.wifiUrl);
+      // Remote access links are private; job notifications never share them.
       cloudflared.once('exit', () => {
         if (mobileTunnelProcess !== cloudflared) return;
         mobileTunnelProcess = null;
@@ -1552,7 +1529,8 @@ function pingPort(port, path_ = '/health', timeoutMs = 4000) {
     const timer = setTimeout(() => { req.destroy(); resolve(false); }, timeoutMs);
     const req = http.get({ hostname: '127.0.0.1', port, path: path_, agent: false }, (res) => {
       clearTimeout(timer);
-      resolve(res.statusCode < 500);
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 300);
     });
     req.on('error', () => { clearTimeout(timer); resolve(false); });
   });
@@ -1724,12 +1702,20 @@ const SINGING_ENV = {
   PYTHONPATH: SINGING_SITE_PACKAGES + ';' + VENV_SITE_PACKAGES,
 };
 
+function getAnjaliProcessMatchPattern() {
+  const escapedPath = path.resolve(ANJALI_SERVER).split(/[\\/]/)
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
+  // Match the invoked script, not another installation's basename or a path
+  // merely mentioned in another Python program's arguments.
+  return '^(?:"[^"]+"|\\S+)\\s+(?:-[uBOEsS]+\\s+)*"?' + escapedPath + '"?(?=\\s|$)';
+}
+
 function isAnjaliServerProcessRunning() {
   return new Promise((resolve) => {
-    const scriptNeedle = 'anjali-chatterbox-server.py';
+    const processPattern = getAnjaliProcessMatchPattern().replace(/'/g, "''");
     const command = [
       "Get-CimInstance Win32_Process",
-      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*" + scriptNeedle + "*' }",
+      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -match '" + processPattern + "' }",
       "| Select-Object -First 1 -ExpandProperty ProcessId"
     ].join(' ');
     execFile(PS, ['-NoProfile', '-NonInteractive', '-Command', command], {
@@ -1748,10 +1734,10 @@ function isAnjaliServerProcessRunning() {
 
 function killAnjaliServerProcesses() {
   return new Promise((resolve) => {
-    const scriptNeedle = 'anjali-chatterbox-server.py';
+    const processPattern = getAnjaliProcessMatchPattern().replace(/'/g, "''");
     const command = [
       "Get-CimInstance Win32_Process",
-      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*" + scriptNeedle + "*' }",
+      "| Where-Object { $_.Name -like 'python*' -and $_.CommandLine -match '" + processPattern + "' }",
       "| ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }"
     ].join(' ');
     execFile(PS, ['-NoProfile', '-NonInteractive', '-Command', command], {
@@ -1784,6 +1770,7 @@ async function startAnjaliServer() {
   }
 
   const alreadyStarting = await isAnjaliServerProcessRunning();
+  if (!alreadyStarting && reportOccupiedStartupPort('AnjaliAI', 8426)) return;
   if (alreadyStarting) {
     console.warn('[PP] Chatterbox Python process exists but 8426 is not healthy — waiting up to 6 min for model load.');
     if (!servers['AnjaliAI']) {
@@ -1832,6 +1819,7 @@ function startServers() {
       servers.TranscriptionServer = servers.TranscriptionServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
       return;
     }
+    if (reportOccupiedStartupPort('TranscriptionServer', 8428)) return;
     spawnManaged('TranscriptionServer', WHISPER_PYTHON, [
       '-u', TRANSCRIBE_HTTP_SERVER
     ], { restartDelayMs: 2000 });
@@ -1844,6 +1832,7 @@ function startServers() {
       servers.FFmpegServer = servers.FFmpegServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
       return;
     }
+    if (reportOccupiedStartupPort('FFmpegServer', 8430)) return;
     spawnManaged('FFmpegServer', PS, [
       '-ExecutionPolicy', 'Bypass',
       '-File', path.join(ROOT, 'video-export-server.ps1')
@@ -1860,6 +1849,7 @@ function startServers() {
       servers.EdgeTTS = servers.EdgeTTS || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
       return;
     }
+    if (reportOccupiedStartupPort('EdgeTTS', 8427)) return;
     spawnManaged('EdgeTTS', ANJALI_PYTHON, ['-u', EDGE_TTS_SERVER], {
       cwd: ROOT,
       restartDelayMs: 3000,
@@ -1877,6 +1867,7 @@ function startServers() {
         servers.Sc3Singing = servers.Sc3Singing || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
         return;
       }
+      if (reportOccupiedStartupPort('Sc3Singing', 8431)) return;
       spawnManaged('Sc3Singing', fs.existsSync(SINGING_PYTHON) ? SINGING_PYTHON : ANJALI_PYTHON, ['-u', SC3_SINGING_SERVER], {
         cwd: ROOT,
         restartDelayMs: 3000,
@@ -1895,6 +1886,7 @@ function startServers() {
         servers.ImageGenerator = servers.ImageGenerator || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
         return;
       }
+      if (reportOccupiedStartupPort('ImageGenerator', 8432)) return;
       spawnManaged('ImageGenerator', IMAGEGEN_PYTHON, ['-u', IMAGEGEN_SERVER], {
         cwd: ROOT,
         restartDelayMs: 5000,
@@ -1918,6 +1910,7 @@ function startServers() {
         servers.TranslationServer = servers.TranslationServer || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
         return;
       }
+      if (reportOccupiedStartupPort('TranslationServer', 8434)) return;
       spawnManaged('TranslationServer', ANJALI_PYTHON, ['-u', TRANSLATE_SERVER], {
         cwd: ROOT,
         restartDelayMs: 3000,
@@ -1931,45 +1924,62 @@ function startServers() {
   }
 
   if (IS_DEV) {
-    spawnManaged('ViteDevServer', NPM, ['run', 'dev'], { cwd: ROOT, restartDelayMs: 3000 });
+    pingPort(5173, '/', 1500).then(alive => {
+      if (alive) {
+        console.log('[PP] Vite on 5173 is already alive - reusing it.');
+        return;
+      }
+      if (!reportOccupiedStartupPort('ViteDevServer', 5173)) {
+        spawnManaged('ViteDevServer', NPM, ['run', 'dev'], { cwd: ROOT, restartDelayMs: 3000 });
+      }
+    });
   }
   setTimeout(startAnjaliWatchdog, 180000);
 }
 
-// Free stale server ports before launch (8426 and 8431 excluded - ML servers stay alive)
-function freeServerPorts() {
-  return new Promise((resolve) => {
-    const ports = IS_DEV ? [5173, 8424, 8428, 8430, 8432, 8434] : [8424, 8428, 8430, 8432, 8434];
-    const psLines = [
-      '$myPid = ' + process.pid,
-      '$ports = @(' + ports.join(',') + ')',
-      'foreach ($port in $ports) {',
-      '  $netLines = netstat -ano 2>$null | Select-String (":" + $port + " ")',
-      '  foreach ($l in $netLines) {',
-      '    if ($l -match "\\s(\\d+)\\s*$") {',
-      '      $pid2 = [int]$Matches[1]',
-      '      if ($pid2 -ne 0 -and $pid2 -ne $myPid) { taskkill /F /PID $pid2 2>$null | Out-Null }',
-      '    }',
-      '  }',
-      '}',
-    ].join('; ');
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
+// A port number is not proof that a process belongs to this app. Inspect only
+// local listeners; never kill another app (or a client connected to that port).
+const occupiedStartupPorts = new Map();
+
+function parseLocalListeningPorts(output, ports) {
+  const wanted = new Set(ports);
+  const listeners = new Map();
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields[0] !== 'TCP' || fields[3] !== 'LISTENING') continue;
+    const port = Number(fields[1]?.match(/:(\d+)$/)?.[1]);
+    const pid = Number(fields[4]);
+    if (!wanted.has(port) || !Number.isInteger(pid) || pid <= 0) continue;
+    if (!listeners.has(port)) listeners.set(port, new Set());
+    listeners.get(port).add(pid);
+  }
+  return listeners;
+}
+
+function inspectServerPorts() {
+  occupiedStartupPorts.clear();
+  if (process.platform !== 'win32') return Promise.resolve();
+  const ports = [8426, 8427, 8428, 8430, 8431, 8432, 8434, ...(IS_DEV ? [5173] : [])];
+  return new Promise(resolve => {
+    execFile('netstat.exe', ['-ano', '-p', 'tcp'], { windowsHide: true, timeout: 3000 }, (error, stdout) => {
+      if (error) {
+        console.warn('[PP] Could not inspect local ports; no processes were stopped:', error.message);
+      } else {
+        for (const [port, pids] of parseLocalListeningPorts(stdout, ports)) occupiedStartupPorts.set(port, pids);
+      }
       resolve();
-    };
-    const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-Command', psLines], {
-      detached: false, stdio: 'ignore', windowsHide: true,
     });
-    child.on('exit', finish);
-    child.on('error', finish);
-    const timeoutId = setTimeout(() => {
-      try { child.kill(); } catch (_) {}
-      finish();
-    }, 6000);
   });
+}
+
+function reportOccupiedStartupPort(key, port) {
+  const pids = occupiedStartupPorts.get(port);
+  if (!pids?.size) return false;
+  const message = `Port ${port} is occupied (PID ${[...pids].join(', ')}), but ${key} is not healthy. The existing process was left running. Close it only if it is safe, then reopen the app.`;
+  console.warn('[PP] ' + message);
+  servers[key] = servers[key] || { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
+  servers[key].startupError = message;
+  return true;
 }
 
 
@@ -1993,6 +2003,8 @@ function waitForVite(url, retries = 60, delayMs = 500) {
 }
 
 // ————————————— Create the main window —————————————————————————————————————————————
+let mainWindowIpcRegistered = false;
+
 async function createWindow() {
   const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
 
@@ -2001,7 +2013,7 @@ async function createWindow() {
     height,
     minWidth:  1100,
     minHeight: 700,
-    title:     'Pattan Presentator',
+    title:     'Pattan Workspace',
     icon:      path.join(ROOT, 'pattan-presentator.ico'),
     backgroundColor: '#0f172a',
     show:      false,
@@ -2050,7 +2062,7 @@ async function createWindow() {
   win.once('ready-to-show', () => {
     win.maximize();
     win.show();
-    win.setTitle('Pattan Presentator — AI Teaching Studio');
+    win.setTitle('Pattan Workspace');
   });
 
   // ── Permanently inject HF API token into renderer localStorage ──────────
@@ -2083,6 +2095,9 @@ async function createWindow() {
     win.loadURL('app://voice/' + htmlPath);
   }
 
+  // IPC belongs to the app, not an individual window. Recovery can replace the
+  // window without registering duplicate handlers or discarding active job state.
+  if (!mainWindowIpcRegistered) {
   // ————————————— IPC: Synchronous Groq API Key retrieval —————————————————————————
   ipcMain.on('get-groq-api-key', (event) => {
     event.returnValue = process.env.GROQ_API_KEY || '';
@@ -2095,7 +2110,6 @@ async function createWindow() {
       if (Notification.isSupported()) {
         new Notification({ title, body }).show();
       }
-      processAlertFromNotification(title, body);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -2103,7 +2117,7 @@ async function createWindow() {
   });
 
   // ————————————— IPC: Native Save File Dialog ————————————————————————————————————
-  ipcMain.handle('show-save-dialog', async (_, options) => {
+  ipcMain.handle('show-save-dialog', async (event, options = {}) => {
     let defaultPath = options.defaultPath;
     if (defaultPath) {
       if (!path.isAbsolute(defaultPath)) {
@@ -2112,12 +2126,16 @@ async function createWindow() {
     } else {
       defaultPath = path.join(os.homedir(), 'Desktop', options.fileName || 'output.mp4');
     }
-    const result = await dialog.showSaveDialog(win, {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const dialogOptions = {
       title:       options.title       || 'Save File',
       defaultPath: defaultPath,
       filters:     options.filters     || [{ name: 'MP4 Video', extensions: ['mp4'] }],
       buttonLabel: options.buttonLabel || 'Save'
-    });
+    };
+    const result = owner && !owner.isDestroyed()
+      ? await dialog.showSaveDialog(owner, dialogOptions)
+      : await dialog.showSaveDialog(dialogOptions);
     return result;
   });
 
@@ -4835,7 +4853,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     // ── STEP 3: Indian English conversion + Chatterbox TTS ───────────────────
     sendProgress('Step 3/4: Synthesizing Chatterbox voice', 45, 'Preparing Indian English sentences...');
     const indianText = convertToIndianEnglish(transcript);
-    const sentences = splitIntoSentences(indianText);
+    const sentences = splitIntoSentences(indianText, 80);
     const totalSentences = sentences.length;
     LOG(`   Indian English conversion done. ${totalSentences} sentence(s) to synthesise.`);
 
@@ -4845,7 +4863,9 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
       sendProgress('Step 3/4: Synthesizing Chatterbox voice', sentencePct, `Sentence ${index + 1} of ${totalSentences}...`);
       LOG(`   Chatterbox → Sentence ${index + 1}/${totalSentences}: "${sentence.slice(0, 80)}${sentence.length > 80 ? '…' : ''}"`);
       const ttsStart = Date.now();
-      const reply = await postJsonForBuffer(8426, '/api/narrate', { text: sentence, voice }, 240000);
+      // CPU voice synthesis can exceed four minutes even for valid audio.
+      // Keep requests sequential; a timeout must not launch overlapping retries here.
+      const reply = await postJsonForBuffer(8426, '/api/narrate', { text: sentence, voice }, 900000);
       if (reply.statusCode !== 200) throw new Error(`Voice synthesis failed at sentence ${index + 1}.`);
       const clip = path.join(workDir, `voice-${index}.wav`); fs.writeFileSync(clip, reply.buffer); clips.push(clip);
       LOG(`     ✔ Sentence ${index + 1} done (${((Date.now()-ttsStart)/1000).toFixed(1)}s, ${Math.round(reply.buffer.length/1024)} KB)`);
@@ -4872,13 +4892,6 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     const doneMsg = `SC3 video done. File saved to Downloads. Total time ${Math.round(totalSec / 60)} minutes.`;
     speakAlertSc3(doneMsg);
 
-    // ── WhatsApp Alert ────────────────────────────────────────────────────────
-    sendProcessWhatsAppAlert({
-      status: 'done',
-      processName: 'SC3 Indian English Video',
-      fileName: `${path.basename(outputPath)}  (took ${totalSec}s, ${totalSentences} sentences)`,
-    });
-
     return { ok: true, outputPath, fileName: path.basename(outputPath), indianEnglish: true };
 
   } catch (error) {
@@ -4886,14 +4899,6 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
 
     // ── Voice Alert on Failure ────────────────────────────────────────────────
     speakAlertSc3(`SC3 video failed. Error: ${error.message.slice(0, 80)}`);
-
-    // ── WhatsApp Alert on Failure ─────────────────────────────────────────────
-    sendProcessWhatsAppAlert({
-      status: 'failed',
-      processName: 'SC3 Indian English Video',
-      fileName: path.basename(filePath),
-      error: error.message,
-    });
 
     return { ok: false, error: error.message };
   }
@@ -5604,21 +5609,11 @@ ipcMain.handle('open-file', async (event, filePath) => {
     return data;
   });
 
-  ipcMain.handle('get-whatsapp-auto-send', async () => ({
-    ok: true,
-    enabled: Boolean(getMobilePreferences().whatsappAutoSend),
-  }));
-
-  ipcMain.handle('set-whatsapp-auto-send', async (_event, enabled) => {
-    const preferences = saveMobilePreferences({ whatsappAutoSend: Boolean(enabled) });
-    return {
-      ok: true,
-      enabled: preferences.whatsappAutoSend,
-      message: preferences.whatsappAutoSend
-        ? 'WhatsApp link auto-send enabled. Running processes were not changed.'
-        : 'WhatsApp link auto-send disabled. Mobile access and running processes remain active.',
-    };
-  });
+  ipcMain.handle('get-whatsapp-auto-send', async () => getWhatsAppNotifications().getStatus());
+  ipcMain.handle('set-whatsapp-auto-send', async (_event, enabled) => getWhatsAppNotifications().setEnabled(enabled));
+  ipcMain.handle('open-whatsapp-draft', async (_event, request) => getWhatsAppNotifications().openDraft(request));
+  ipcMain.handle('dismiss-whatsapp-draft', async (_event, id) => getWhatsAppNotifications().dismissDraft(id));
+  ipcMain.handle('report-whatsapp-job', async (_event, job) => reportWhatsAppJob(job));
 
   // ————————————— IPC: Get server health status ———————————————————————————————————
   ipcMain.handle('get-server-health', async () => {
@@ -5650,9 +5645,15 @@ ipcMain.handle('open-file', async (event, filePath) => {
         imageGenerator: Boolean(servers.ImageGenerator),
         translation: Boolean(servers.TranslationServer),
       },
+      startupErrors: Object.fromEntries(Object.entries(servers)
+        .filter(([, entry]) => entry.startupError)
+        .map(([key, entry]) => [key, entry.startupError])),
       timestamp: Date.now()
     };
   });
+
+  mainWindowIpcRegistered = true;
+  }
 
   win.webContents.on('did-finish-load', () => {
     const linkFile = path.join(ROOT, 'temp', 'active-mobile-link.json');
@@ -5664,7 +5665,8 @@ ipcMain.handle('open-file', async (event, filePath) => {
     }
   });
 
-  win.on('closed', () => killAll());
+  // App lifecycle handlers own service shutdown. A window can close while the
+  // crash guard is recovering, so closing it must not mark all workers quitting.
 
   // Block any navigation away from the app:// origin
   win.webContents.on('will-navigate', (event, url) => {
@@ -5690,9 +5692,8 @@ app.whenReady().then(async () => {
   // Recover cleanly even after power loss or a force-killed Electron process.
   // A prior trycloudflare URL must never be advertised as active on a new launch.
   saveMobileLinkState('', { status: 'starting', recoveredAt: new Date().toISOString() });
-  if (process.platform === 'win32') {
-    await new Promise(resolve => execFile('taskkill.exe', ['/F', '/IM', 'cloudflared.exe', '/T'], { windowsHide: true, timeout: 10000 }, () => resolve()));
-  }
+  // Do not stop every cloudflared process on the computer. Tunnel lifecycle
+  // below only closes the mobileTunnelProcess owned by this app instance.
   // Register app:// protocol Ã¢â‚¬â€ maps every request to D:\voice\
   // This fixes absolute-path script loading (/script.js Ã¢â€ â€™ D:\voice\script.js)
   protocol.handle('app', (request) => {
@@ -5700,7 +5701,7 @@ app.whenReady().then(async () => {
     if (url.hostname === 'media') {
       const mediaPath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
       if (fs.existsSync(mediaPath)) {
-        return net.fetch('file:///' + mediaPath.replace(/\\/g, '/'));
+        return net.fetch(pathToFileURL(mediaPath).href);
       }
     }
     if (url.pathname.includes('/api/mobile-link') || url.pathname.includes('/mobile-link.json')) {
@@ -5756,20 +5757,14 @@ app.whenReady().then(async () => {
     }
   });
 
-  console.log('[PP] Electron ready Ã¢â‚¬â€ freeing server ports...');
-  await freeServerPorts();   // evict any stale python/electron from previous session
+  console.log('[PP] Electron ready — checking local server ports without stopping existing work...');
+  await inspectServerPorts();
 
   console.log('[PP] Starting servers...');
   startServers();
 
-  // Start the Super Agent brain eagerly. Waiting until the first prompt made
-  // Agent Studio look unresponsive while Ollama was still booting.
-  ensureLocalAgentBrain()
-    .then(async () => {
-      console.log('[PP] Super Agent brain ready on port 11434.');
-      await warmFastAgentBrain();
-    })
-    .catch(error => console.error('[PP] Super Agent brain failed to start:', error.message));
+  // Ollama-powered modules are intentionally not started. Lessons, local
+  // narration, Caption Burner, Sing Song, and PDF presentation work without it.
 
   // Give servers a moment to bind ports before opening the window
   await new Promise(r => setTimeout(r, 1500));

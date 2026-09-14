@@ -35,6 +35,8 @@ export type TranscriptionEngine = 'auto' | 'local' | 'groq';
 
 export interface CaptionSettings {
   fontSize: number;
+  fontFamily?: string;
+  textWidth?: number;
   fontColor: FontColor;
   bgColor: BgColor;
   style: CaptionStyle;

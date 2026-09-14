@@ -1,20 +1,28 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import InputPanel from './components/InputPanel';
 import StagePanel from './components/StagePanel';
-import AgentStudio from './components/AgentStudio/AgentStudio';
-import DirectorStudio from './components/Director/DirectorStudio';
 import MyExporter from './components/MyExporter/MyExporter';
-import RhymeGenerator from './components/RhymeGenerator/RhymeGenerator';
-import OllamaTools from './components/OllamaTools/OllamaTools';
 import QuoteStudio from './components/QuoteStudio/QuoteStudio';
 import VideoResizer from './components/VideoResizer/VideoResizer';
-import RiddleStudio from './components/RiddleStudio/RiddleStudio';
+import StudioIcon from './components/StudioIcon';
+import StudioHome, { HOME_MODULES, HOME_HELPERS } from './components/StudioHome';
+import StudioPreferences from './components/StudioPreferences';
+import MetaWorkspace from './components/MetaWorkspace';
+import { loadAppTheme, saveAppTheme } from './studioPreferences.mjs';
+import { PREPARATION_TOOLS, checkPreparationToolAccess, revealPreparationTool, isPresentationBusy, focusPreparationTool } from './studioTools.mjs';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['presentator', 'agent', 'rhyme', 'riddles', 'quotes', 'director', 'exporter', 'resizer', 'ai-tools']);
-const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'presentator';
+const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'meta']);
+const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'home';
+const STUDIO_MODULES = [
+  { id: 'presentator', label: 'Presentator', detail: 'Lessons & PDF presentations' },
+  { id: 'quotes', label: 'Quote Studio', detail: 'Create a story from your words' },
+  { id: 'exporter', label: 'My Exporter', detail: 'Edit, caption & export videos' },
+  { id: 'resizer', label: 'Video Resizer', detail: 'A perfect fit for every platform' },
+  { id: 'meta', label: 'Meta AI', detail: 'Muse creative tools & local connection' },
+];
 
 class CaptionErrorBoundary extends React.Component {
   constructor(props) {
@@ -105,22 +113,82 @@ function applyToTextarea(vals) {
   el.style.letterSpacing = vals.letterSpacing + 'em';
 }
 
+function appPreferenceStorage() {
+  try { return window.localStorage; } catch (_) { return null; }
+}
+
 function App() {
+  const [appTheme, setAppTheme] = useState(() => loadAppTheme(appPreferenceStorage()));
+  useEffect(() => { saveAppTheme(appPreferenceStorage(), appTheme); }, [appTheme]);
   const [panelOpen, setPanelOpen]       = useState(false);
-  const [captionOpen, setCaptionOpen]   = useState(() => {
-    if (!window.electronAPI?.isMobileRemote) return false;
-    try { return JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').caption === true; }
-    catch (_) { return false; }
-  });
+  const [captionOpen, setCaptionOpen]   = useState(false);
   const [captionResetKey, setCaptionResetKey] = useState(0);
   const [style, setStyle]               = useState(loadStyle);
-  const [currentModule, setCurrentModule] = useState(() => {
-    if (!window.electronAPI?.isMobileRemote) return 'presentator';
-    try { return normalizeModule(JSON.parse(localStorage.getItem('presentator.mobileView') || '{}').module); }
-    catch (_) { return 'presentator'; }
-  }); // presentator | agent | rhyme | director | exporter
+  const [currentModule, setCurrentModule] = useState('home');
   const [hideHeader, setHideHeader]     = useState(false);
+  const [activeLessonTool, setActiveLessonTool] = useState('');
+  const [lessonToolRequest, setLessonToolRequest] = useState(null);
+  const [lessonToolNotice, setLessonToolNotice] = useState('');
+  const [translatorOpen, setTranslatorOpen] = useState(() => document.body.classList.contains('tdub-open'));
+  const searchButtonRef = useRef(null);
+  const homeCardRef = useRef('');
+  const navigationVersion = useRef(0);
+  const currentWorkspace = STUDIO_MODULES.find(module => module.id === currentModule) || STUDIO_MODULES[0];
+  const navigateWorkspace = useCallback((module) => {
+    if (currentModule === 'presentator' && isPresentationBusy(window.__learningOutcomesState, window.ppIsExporting?.())) {
+      setLessonToolNotice('Your presentation is still working. Finish or stop it before leaving this screen.');
+      return false;
+    }
+    navigationVersion.current += 1;
+    setActiveLessonTool('');
+    setLessonToolRequest(null);
+    setLessonToolNotice('');
+    window.dispatchEvent(new Event('pp:close-translate-audio'));
+    setCaptionOpen(false);
+    setCurrentModule(module);
+    setPanelOpen(false);
+    setHideHeader(false);
+    return true;
+  }, [currentModule]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const openLessonTool = useCallback(id => {
+    const context = { document, state: window.__learningOutcomesState, exporting: window.ppIsExporting?.() };
+    const access = checkPreparationToolAccess(id, context);
+    if (!access.ok) { setLessonToolNotice(access.message); return; }
+    if (!navigateWorkspace('presentator')) return;
+    setLessonToolRequest({ id });
+  }, [navigateWorkspace]);
+  useEffect(() => {
+    if (!lessonToolRequest) return undefined;
+    const frame = requestAnimationFrame(() => {
+      const result = revealPreparationTool(lessonToolRequest.id, { document, state: window.__learningOutcomesState, exporting: window.ppIsExporting?.() });
+      if (result.ok) { setActiveLessonTool(lessonToolRequest.id); setHideHeader(false); }
+      else setLessonToolNotice(result.message);
+      setLessonToolRequest(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [lessonToolRequest]);
+  const backToHome = useCallback(() => {
+    if (!navigateWorkspace('home')) return;
+    requestAnimationFrame(() => document.querySelector(`[data-home-tool="${homeCardRef.current}"]`)?.focus({ preventScroll: true }));
+  }, [navigateWorkspace]);
+  const openHomeTool = useCallback(async id => {
+    const tool = [...HOME_MODULES, ...HOME_HELPERS].find(item => item.id === id);
+    if (!tool) return;
+    homeCardRef.current = id;
+    if (tool.kind === 'section') { openLessonTool(tool.target); return; }
+    if (tool.kind === 'workspace') { navigateWorkspace(tool.target); return; }
+    if (tool.kind === 'caption') { if (navigateWorkspace('home')) setCaptionOpen(true); return; }
+    if (tool.kind === 'translator') {
+      const requestVersion = ++navigationVersion.current;
+      try {
+        if (!window.__presentatorLegacyBootPromise) throw new Error('The tools are still loading. Please try again in a moment.');
+        await window.__presentatorLegacyBootPromise;
+        if (requestVersion !== navigationVersion.current) return;
+        if (navigateWorkspace('home')) window.dispatchEvent(new Event('pp:open-translate-audio'));
+      } catch (error) { if (requestVersion === navigationVersion.current) setLessonToolNotice(error.message || 'Translate Audio is not ready. Please try again.'); }
+    }
+  }, [openLessonTool, navigateWorkspace]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mobileModalOpen, setMobileModalOpen] = useState(false);
@@ -129,48 +197,75 @@ function App() {
     mobileUrl: '',
     updatedAt: ''
   });
-  useEffect(() => {
-    const openRhymeStudio = (event) => {
-      const detail = event?.detail || {};
-      try {
-        if (detail.engine) localStorage.setItem('pattan.rhyme.requestedEngine', String(detail.engine));
-        if (detail.command) localStorage.setItem('pattan.rhyme.requestedCommand', String(detail.command));
-      } catch (_) {}
-      setCaptionOpen(false);
-      setCurrentModule('rhyme');
-    };
-    window.addEventListener('pp:open-rhyme-studio', openRhymeStudio);
-    return () => window.removeEventListener('pp:open-rhyme-studio', openRhymeStudio);
-  }, []);
   const [copiedNotice, setCopiedNotice] = useState('');
   const [tunnelSecs, setTunnelSecs] = useState(0);
-  const [whatsAppAutoSend, setWhatsAppAutoSend] = useState(true);
-  const [whatsAppSwitchBusy, setWhatsAppSwitchBusy] = useState(false);
   const mobileHistoryApplying = useRef(false);
   const mobileHistoryReady = useRef(false);
+  useEffect(() => {
+    // The retained translator mounts outside React. Mirror only its visible
+    // workspace state so the breadcrumb and navigation remain truthful.
+    const updateTranslatorNavigation = () => {
+      const open = document.body.classList.contains('tdub-open');
+      setTranslatorOpen(open);
+      const button = document.querySelector('.tdub-nav-button');
+      if (open) button?.setAttribute('aria-current', 'page');
+      else button?.removeAttribute('aria-current');
+    };
+    const observer = new MutationObserver(updateTranslatorNavigation);
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    updateTranslatorNavigation();
+    return () => observer.disconnect();
+  }, []);
+  const updateLinkState = useCallback((newData) => {
+    if (!newData) return;
+    setMobileLinkData(prev => {
+      if (prev.mobileUrl === (newData.mobileUrl || '') && prev.wifiUrl === (newData.wifiUrl || '')) {
+        return prev;
+      }
+      return {
+        wifiUrl: newData.wifiUrl || prev.wifiUrl,
+        mobileUrl: newData.mobileUrl || '',
+        updatedAt: newData.updatedAt || new Date().toISOString()
+      };
+    });
+  }, []);
 
-  // Make Android/iOS browser Back navigate inside the mobile app. At the
-  // Presentator home screen a guard entry prevents Back from closing the app.
+  const mobileCurrentView = useRef({ ppMobileView: true, module: 'home', caption: false, section: '', translator: false });
+  // Browser Back restores the chosen screen, including its focused lesson tool.
   useEffect(() => {
     if (!window.electronAPI?.isMobileRemote) return undefined;
-    const homeState = { ppMobileView: true, module: 'presentator', caption: false };
-    window.history.replaceState(homeState, '', window.location.href);
-    const restoredState = { ppMobileView: true, module: currentModule, caption: captionOpen };
-    const restoredIsHome = currentModule === 'presentator' && !captionOpen;
-    window.history.pushState(restoredIsHome ? { ...homeState, ppMobileGuard: true } : restoredState, '', window.location.href);
+    const homeState = { ppMobileView: true, module: 'home', caption: false, section: '', translator: false };
+    window.history.replaceState({ ...homeState, ppMobileBase: true }, '', window.location.href);
+    window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
     mobileHistoryReady.current = true;
-
-    const onMobileBack = (event) => {
-      const state = event.state;
-      if (!state?.ppMobileView) {
-        window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
+    const onMobileBack = event => {
+      navigationVersion.current += 1;
+      if (document.querySelector('.simple-studio')?.dataset.module === 'presentator' &&
+          isPresentationBusy(window.__learningOutcomesState, window.ppIsExporting?.())) {
+        window.history.pushState(mobileCurrentView.current, '', window.location.href);
+        setLessonToolNotice('Your presentation is still working. Finish or stop it before leaving this screen.');
         return;
       }
-      mobileHistoryApplying.current = true;
-      setCaptionOpen(Boolean(state.caption));
-      const restoredModule = normalizeModule(state.module);
-      setCurrentModule(restoredModule);
-      if (restoredModule === 'presentator' && !state.caption && !state.ppMobileGuard) {
+      const saved = event.state?.ppMobileView ? event.state : homeState;
+      const module = normalizeModule(saved.module);
+      const section = module === 'presentator' ? (PREPARATION_TOOLS.some(tool => tool.id === saved.section) ? saved.section : 'pdfSection') : '';
+      const next = { ppMobileView: true, module, section, caption: Boolean(saved.caption), translator: Boolean(saved.translator) };
+      if (section) {
+        const result = revealPreparationTool(section, { document, state: window.__learningOutcomesState, exporting: window.ppIsExporting?.() });
+        if (!result.ok) {
+          window.history.pushState(mobileCurrentView.current, '', window.location.href);
+          setLessonToolNotice(result.message);
+          return;
+        }
+      }
+      mobileHistoryApplying.current = next;
+      setLessonToolRequest(null);
+      setCaptionOpen(next.caption);
+      setCurrentModule(module);
+      setActiveLessonTool(section);
+      setPanelOpen(false);
+      window.dispatchEvent(new Event(next.translator ? 'pp:open-translate-audio' : 'pp:close-translate-audio'));
+      if (module === 'home' && !next.caption && !next.translator && saved.ppMobileBase) {
         window.history.pushState({ ...homeState, ppMobileGuard: true }, '', window.location.href);
       }
     };
@@ -179,31 +274,17 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!window.electronAPI?.isMobileRemote || !mobileHistoryReady.current) return;
-    try {
-      localStorage.setItem('presentator.mobileView', JSON.stringify({ module: currentModule, caption: captionOpen }));
-    } catch (_) {}
-    // Consume exactly one state update caused by popstate. Clearing this flag in
-    // a microtask was too early: React's effect ran afterwards and pushed the
-    // state we had just navigated away from, making Back highlight one module
-    // while another workspace remained visible.
+    if (!window.electronAPI?.isMobileRemote || !mobileHistoryReady.current || lessonToolRequest) return;
+    const next = { ppMobileView: true, module: currentModule, caption: captionOpen, section: currentModule === 'presentator' ? activeLessonTool : '', translator: translatorOpen };
+    const sameView = other => other && ['module', 'caption', 'section', 'translator'].every(key => other[key] === next[key]);
+    mobileCurrentView.current = next;
+    try { localStorage.setItem('presentator.mobileView', JSON.stringify(next)); } catch (_) {}
     if (mobileHistoryApplying.current) {
-      mobileHistoryApplying.current = false;
+      if (sameView(mobileHistoryApplying.current)) mobileHistoryApplying.current = false;
       return;
     }
-    const next = { ppMobileView: true, module: currentModule, caption: captionOpen };
-    const current = window.history.state || {};
-    if (current.module === next.module && Boolean(current.caption) === next.caption) return;
-    window.history.pushState(next, '', window.location.href);
-  }, [currentModule, captionOpen]);
-
-  useEffect(() => {
-    window.electronAPI?.getWhatsAppAutoSend?.()
-      .then(result => {
-        if (result?.ok) setWhatsAppAutoSend(Boolean(result.enabled));
-      })
-      .catch(() => {});
-  }, []);
+    if (!sameView(window.history.state)) window.history.pushState(next, '', window.location.href);
+  }, [currentModule, captionOpen, activeLessonTool, translatorOpen, lessonToolRequest]);
 
   useEffect(() => {
     let timer;
@@ -218,20 +299,6 @@ function App() {
   }, [mobileLinkData.mobileUrl]);
 
   useEffect(() => {
-    const updateLinkState = (newData) => {
-      if (!newData) return;
-      setMobileLinkData(prev => {
-        if (prev.mobileUrl === (newData.mobileUrl || '') && prev.wifiUrl === (newData.wifiUrl || '')) {
-          return prev;
-        }
-        return {
-          wifiUrl: newData.wifiUrl || prev.wifiUrl,
-          mobileUrl: newData.mobileUrl || '',
-          updatedAt: newData.updatedAt || new Date().toISOString()
-        };
-      });
-    };
-
     const fetchMobileLink = async () => {
       try {
         if (window.electronAPI?.getMobileLink) {
@@ -273,36 +340,12 @@ function App() {
       if (unhook) unhook();
       clearInterval(interval);
     };
-  }, []);
+  }, [updateLinkState]);
 
   const commands = useMemo(() => [
-    // NAVIGATION
-    { id: 'nav-presentator', category: '🧭 Navigation', title: 'Go to Presentator', desc: 'Switch to main lesson presentation engine', action: () => { setCaptionOpen(false); setCurrentModule('presentator'); } },
-    { id: 'nav-agent', category: '🧭 Navigation', title: 'Go to Super Agent Studio', desc: 'Interact with AI agent tools & diagnostics', action: () => { setCaptionOpen(false); setCurrentModule('agent'); } },
-    { id: 'nav-rhyme', category: '🧭 Navigation', title: 'Go to Rhyme Generator', desc: 'Create 30-second preschool lyrics and music', action: () => { setCaptionOpen(false); setCurrentModule('rhyme'); } },
-    { id: 'nav-director', category: '🧭 Navigation', title: 'Go to AI Director', desc: 'Assemble projects & timeline templates', action: () => { setCaptionOpen(false); setCurrentModule('director'); } },
-    { id: 'nav-exporter', category: '🧭 Navigation', title: 'Go to My Exporter', desc: 'Compile final video with voice, logo & captions', action: () => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } },
-    { id: 'nav-resizer', category: '🧭 Navigation', title: 'Go to Video Resizer', desc: 'Resize and reframe complete videos for social media', action: () => { setCaptionOpen(false); setCurrentModule('resizer'); } },
-    
-    // QUICK ACTIONS
-    { id: 'act-burner', category: '⚡ Quick Actions', title: 'Open Caption Burner', desc: 'Hardburn subtitles with Whisper model', action: () => { setCaptionOpen(true); } },
-    { id: 'act-toggle-style', category: '⚡ Quick Actions', title: 'Toggle Input Styles Panel', desc: 'Show/hide line & letter spacing controls', action: () => { setPanelOpen(prev => !prev); } },
-    { id: 'act-reset-style', category: '⚡ Quick Actions', title: 'Reset Input Styles', desc: 'Reset font scaling, letter spacing & line height to defaults', action: () => { reset(); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(1); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(2.1); if (typeof window.ppSetCanvasLetterSpacing === 'function') window.ppSetCanvasLetterSpacing(0.01); } },
-
-    // WORKSPACE LAYOUTS
-    { id: 'lay-default', category: '🎨 Workspace Layouts', title: 'Layout: Default', desc: 'Set Exporter layout: Media library + Preview + Inspector', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'default' })); } },
-    { id: 'lay-organize', category: '🎨 Workspace Layouts', title: 'Layout: Organize', desc: 'Set Exporter layout: Large media list view for sorting', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'organize' })); } },
-    { id: 'lay-timeline', category: '🎨 Workspace Layouts', title: 'Layout: Timeline', desc: 'Set Exporter layout: Maximized timeline height for audio focus', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'timeline' })); } },
-    { id: 'lay-shortvideo', category: '🎨 Workspace Layouts', title: 'Layout: Short Video', desc: 'Set Exporter layout: Portrait 9:16 layout formatting', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'shortvideo' })); } },
-    { id: 'lay-classic', category: '🎨 Workspace Layouts', title: 'Layout: Classic Editor', desc: 'Set Exporter layout: Classic timeline-focused look', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'classic' })); } },
-    { id: 'lay-dual', category: '🎨 Workspace Layouts', title: 'Layout: Dual View', desc: 'Set Exporter layout: Compare dual video players side-by-side', action: () => { window.dispatchEvent(new CustomEvent('pp:change-layout', { detail: 'dual' })); } },
-
-    // FONT ADJUSTMENTS
-    { id: 'size-inc', category: '⚙️ Font Controls', title: 'Increase Font Size (+0.1rem)', desc: 'Enlarge current editor text size', action: () => { setStyle(prev => { const n = Math.min(1.6, prev.fontSize + 0.1); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(n); return { ...prev, fontSize: n }; }); } },
-    { id: 'size-dec', category: '⚙️ Font Controls', title: 'Decrease Font Size (-0.1rem)', desc: 'Shrink current editor text size', action: () => { setStyle(prev => { const n = Math.max(0.8, prev.fontSize - 0.1); if (typeof window.ppSetFontScale === 'function') window.ppSetFontScale(n); return { ...prev, fontSize: n }; }); } },
-    { id: 'line-inc', category: '⚙️ Font Controls', title: 'Increase Line Spacing (+0.2)', desc: 'Add height padding between text rows', action: () => { setStyle(prev => { const n = Math.min(3.2, prev.lineHeight + 0.2); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(n); return { ...prev, lineHeight: n }; }); } },
-    { id: 'line-dec', category: '⚙️ Font Controls', title: 'Decrease Line Spacing (-0.2)', desc: 'Reduce height padding between text rows', action: () => { setStyle(prev => { const n = Math.max(1.2, prev.lineHeight - 0.2); if (typeof window.ppSetCanvasLineSpacing === 'function') window.ppSetCanvasLineSpacing(n); return { ...prev, lineHeight: n }; }); } },
-  ], []);
+    { id: 'nav-home', category: 'Navigation', title: 'Back to Home', desc: 'See every tool in one place', action: backToHome },
+    ...[...HOME_MODULES, ...HOME_HELPERS].map(tool => ({ id: `home-${tool.id}`, category: 'Tools', title: `Open ${tool.label}`, desc: tool.description, action: () => openHomeTool(tool.id) })),
+  ], [backToHome, openHomeTool]);
 
   const filteredCommands = useMemo(() => {
     if (!searchQuery) return commands;
@@ -341,6 +384,7 @@ function App() {
         e.preventDefault();
         setSelectedIndex(prev => (prev - 1 + filteredCommands.length) % Math.max(1, filteredCommands.length));
       } else if (e.key === 'Enter') {
+        if (e.target.closest('button')) return;
         e.preventDefault();
         if (filteredCommands[selectedIndex]) {
           filteredCommands[selectedIndex].action();
@@ -351,6 +395,30 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [commandPaletteOpen, filteredCommands, selectedIndex]);
+
+  useEffect(() => {
+    if (!commandPaletteOpen) return undefined;
+    const containFocus = event => {
+      if (event.key !== 'Tab') return;
+      const controls = [...document.querySelectorAll('.studio-command-dialog input, .studio-command-dialog button')];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', containFocus);
+    return () => { document.removeEventListener('keydown', containFocus); searchButtonRef.current?.focus(); };
+  }, [commandPaletteOpen]);
+
+  useEffect(() => {
+    const closeUtility = event => {
+      if (event.key !== 'Escape') return;
+      if (mobileModalOpen) setMobileModalOpen(false);
+      else if (panelOpen) setPanelOpen(false);
+    };
+    document.addEventListener('keydown', closeUtility);
+    return () => document.removeEventListener('keydown', closeUtility);
+  }, [mobileModalOpen, panelOpen]);
 
 
   useEffect(() => {
@@ -363,9 +431,14 @@ function App() {
 
   useEffect(() => {
     const openLocalCaptioning = () => {
+      focusPreparationTool('aiCaptionSection', document);
+      document.getElementById('inputPanel')?.classList.remove('hidden');
+      document.getElementById('stagePanel')?.classList.add('hidden');
       setCaptionOpen(false);
       setHideHeader(false);
       setCurrentModule('presentator');
+      setActiveLessonTool('aiCaptionSection');
+      setLessonToolRequest(null);
     };
     window.addEventListener('presentator-open-ai-video-captioning-local', openLocalCaptioning);
     return () => window.removeEventListener('presentator-open-ai-video-captioning-local', openLocalCaptioning);
@@ -386,36 +459,21 @@ function App() {
 
   const reset = useCallback(() => { setStyle(DEFAULTS); }, []);
 
-  const sendDirectorProjectToPresentator = useCallback(({ text, action, settings }) => {
-    try {
-      localStorage.setItem('pattan-director-active-project-v1', JSON.stringify({ text, settings, updatedAt: new Date().toISOString() }));
-    } catch (_) {}
-    setCaptionOpen(false);
-    setCurrentModule('presentator');
-    window.setTimeout(() => {
-      const lesson = document.getElementById('lessonInput');
-      if (!lesson) return;
-      lesson.value = text;
-      lesson.dispatchEvent(new Event('input', { bubbles: true }));
-      lesson.focus();
-      if (action === 'narrate') {
-        window.setTimeout(() => document.getElementById('loadAnjaliNarrationBtn')?.click(), 350);
-      }
-    }, 120);
-  }, []);
-
   useEffect(() => {
-    // Cache-buster: change this version string any time a legacy JS file changes
-    const _CB = '?v=20260803-sing-song-upload-queue-fix';
+    // Always load the current local engine on a fresh app launch. A fixed cache
+    // token previously kept an August script alive and silently ignored newer
+    // narration, timing and rendering fixes.
+    const _CB = `?v=${Date.now()}`;
+    const legacyAssetRoot = window.location.protocol === 'app:' ? 'app://voice/' : '/';
     const scriptSources = [
-      "../logo-data.js" + _CB,
-      "../script.js" + _CB,
-      "../caption-script.js" + _CB,
-      "app://voice/vendor/three.min.js",
-      "app://voice/vendor/GLTFLoader.js",
-      "../3d-engine.js" + _CB,
-      "../dubbing-studio.js" + _CB,
-      "../translate-dub-module.js" + _CB,
+      `${legacyAssetRoot}logo-data.js${_CB}`,
+      `${legacyAssetRoot}script.js${_CB}`,
+      `${legacyAssetRoot}caption-script.js${_CB}`,
+      `${legacyAssetRoot}vendor/three.min.js`,
+      `${legacyAssetRoot}vendor/GLTFLoader.js`,
+      `${legacyAssetRoot}3d-engine.js${_CB}`,
+      `${legacyAssetRoot}dubbing-studio.js${_CB}`,
+      `${legacyAssetRoot}translate-dub-module.js${_CB}`,
     ];
 
     const loadScript = (src) =>
@@ -464,264 +522,45 @@ function App() {
 
 
   return (
-    <>
-      {window.electronAPI?.isMobileRemote && (captionOpen || currentModule !== 'presentator') && (
-        <button
-          type="button"
-          onClick={() => window.history.back()}
-          aria-label="Go back"
-          title="Back"
-          style={{
-            position: 'fixed', left: 14, bottom: 18, zIndex: 20000,
-            minWidth: 52, height: 46, padding: '0 15px', borderRadius: 23,
-            border: '1px solid rgba(255,255,255,0.22)',
-            background: 'rgba(9,13,22,0.94)', color: '#fff',
-            fontSize: 22, fontWeight: 900, cursor: 'pointer',
-            boxShadow: '0 8px 28px rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(12px)'
-          }}
-        >←</button>
-      )}
-      {/* ── Top Navigation Bar (Hidden when Caption Burner is full-screen or presenting) ── */}
-      {!captionOpen && !hideHeader && (
-        <header className="app-topbar" style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 12px',
-          background: '#090d16',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          minHeight: '50px',
-          boxSizing: 'border-box',
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 9999,
-          overflowX: 'auto',
-          WebkitOverflowScrolling: 'touch',
-          maxWidth: '100vw'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 800, color: '#f97316', letterSpacing: '0.3px', fontFamily: "system-ui" }}>🎤 PATTAN</span>
-            <button
-              type="button"
-              onClick={() => setMobileModalOpen(true)}
-              style={{
-                width: 30, height: 30, padding: 0,
-                background: mobileLinkData.mobileUrl ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.10)',
-                border: mobileLinkData.mobileUrl ? '1px solid rgba(52,211,153,.38)' : '1px solid rgba(248,113,113,.35)',
-                borderRadius: '50%',
-                color: mobileLinkData.mobileUrl ? '#6ee7b7' : '#fca5a5',
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'grid', placeItems: 'center',
-                boxShadow: mobileLinkData.mobileUrl ? '0 0 8px rgba(16,185,129,.18)' : '0 0 8px rgba(239,68,68,.18)'
-              }}
-              title="Link status"
-              aria-label={mobileLinkData.mobileUrl ? 'Link active' : `Link inactive after ${tunnelSecs} seconds`}
-            >
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: mobileLinkData.mobileUrl ? '#10b981' : '#ef4444', boxShadow: `0 0 7px ${mobileLinkData.mobileUrl ? '#10b981' : '#ef4444'}` }} />
-            </button>
-            <button
-              type="button"
-              disabled={whatsAppSwitchBusy}
-              onClick={async () => {
-                const next = !whatsAppAutoSend;
-                setWhatsAppSwitchBusy(true);
-                try {
-                  const result = await window.electronAPI?.setWhatsAppAutoSend?.(next);
-                  if (result?.ok) setWhatsAppAutoSend(Boolean(result.enabled));
-                } finally {
-                  setWhatsAppSwitchBusy(false);
-                }
-              }}
-              title="Alerts"
-              aria-label={whatsAppAutoSend ? 'Process alerts enabled' : 'Process alerts disabled'}
-              style={{
-                width: 30, height: 30, padding: 0, borderRadius: '50%',
-                border: `1px solid ${whatsAppAutoSend ? 'rgba(37,211,102,.5)' : 'rgba(255,255,255,.15)'}`,
-                background: whatsAppAutoSend ? 'rgba(37,211,102,.14)' : 'rgba(255,255,255,.05)',
-                color: whatsAppAutoSend ? '#86efac' : 'rgba(255,255,255,.48)',
-                fontSize: 12, fontWeight: 900, cursor: whatsAppSwitchBusy ? 'wait' : 'pointer'
-              }}
-            >
-              {whatsAppAutoSend ? '◉' : '○'}
-            </button>
-            <button 
-              onClick={() => setCommandPaletteOpen(true)}
-              style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '6px',
-                padding: '3px 8px',
-                color: 'rgba(255, 255, 255, 0.45)',
-                fontSize: '10px',
-                fontFamily: 'monospace, system-ui, sans-serif',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.15s ease'
-              }}
-              title="Open Command Palette (Ctrl+K)"
-            >
-              <span>⌘K</span>
-            </button>
-          </div>
-          <div style={{ display: 'flex', gap: '2px' }}>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'presentator'}
-              onClick={() => setCurrentModule('presentator')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '20px',
-                border: 'none',
-                background: currentModule === 'presentator' ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'transparent',
-                color: currentModule === 'presentator' ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: currentModule === 'presentator' ? '0 4px 12px rgba(99,102,241,0.25)' : 'none',
-                fontFamily: "system-ui"
-              }}
-            >Presentator</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'agent'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('agent'); }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '20px',
-                border: 'none',
-                background: currentModule === 'agent' ? 'linear-gradient(135deg,#10b981,#06b6d4)' : 'transparent',
-                color: currentModule === 'agent' ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: currentModule === 'agent' ? '0 4px 12px rgba(16,185,129,0.25)' : 'none',
-                fontFamily: "system-ui"
-              }}
-            >Super Agent</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'rhyme'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('rhyme'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'rhyme' ? 'linear-gradient(135deg,#f472b6,#fbbf24)' : 'transparent',
-                color: currentModule === 'rhyme' ? '#241006' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'rhyme' ? '0 4px 12px rgba(244,114,182,0.28)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >Rhyme Maker</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'quotes'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('quotes'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'quotes' ? 'linear-gradient(135deg,#f7d477,#e79d2d)' : 'transparent',
-                color: currentModule === 'quotes' ? '#241704' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'quotes' ? '0 4px 12px rgba(231,157,45,0.3)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >Quote Studio</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'riddles'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('riddles'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'riddles' ? 'linear-gradient(135deg,#d8ef72,#5e9c65)' : 'transparent',
-                color: currentModule === 'riddles' ? '#142018' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'riddles' ? '0 4px 12px rgba(126,180,94,0.3)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >Riddle Studio</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'director'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('director'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'director' ? 'linear-gradient(135deg,#d4af6a,#8f6b35)' : 'transparent',
-                color: currentModule === 'director' ? '#17130d' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'director' ? '0 4px 12px rgba(199,168,106,0.25)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >AI Director</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'exporter'}
-              onPointerDown={(event) => { if (event.button === 0) { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); } }}
-              onClick={() => { window.dispatchEvent(new Event('pp:close-translate-audio')); setCaptionOpen(false); setCurrentModule('exporter'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'exporter' ? 'linear-gradient(135deg,#d4af6a,#8f6b35)' : 'transparent',
-                color: currentModule === 'exporter' ? '#17130d' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'exporter' ? '0 4px 12px rgba(199,168,106,0.25)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >My Exporter</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'resizer'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('resizer'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'resizer' ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : 'transparent',
-                color: currentModule === 'resizer' ? '#fff' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'resizer' ? '0 4px 12px rgba(56,189,248,0.3)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >Video Resizer</button>
-            <button
-              className="app-nav-button"
-              data-active={currentModule === 'ai-tools'}
-              onClick={() => { setCaptionOpen(false); setCurrentModule('ai-tools'); }}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', border: 'none',
-                background: currentModule === 'ai-tools' ? 'linear-gradient(135deg,#6ee7b7,#22d3ee)' : 'transparent',
-                color: currentModule === 'ai-tools' ? '#031713' : 'rgba(255,255,255,0.5)',
-                fontSize: '11px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: currentModule === 'ai-tools' ? '0 4px 12px rgba(34,211,238,0.25)' : 'none',
-                fontFamily: 'system-ui'
-              }}
-            >AI Tools</button>
-          </div>
-          <div style={{ width: '12px' }}></div>
-        </header>
-      )}
+    <div className="classic-studio simple-studio" data-app-theme={appTheme} data-module={currentModule} data-section={activeLessonTool} data-focus={hideHeader} data-caption={captionOpen} data-home={currentModule === 'home' && !captionOpen && !translatorOpen}>
+      <header className="studio-topbar simple-topbar" role="banner">
+        <div className="simple-topbar-context">
+          {currentModule === 'home' && !captionOpen && !translatorOpen
+            ? <span className="simple-studio-brand"><span aria-hidden="true">P</span>Pattan Workspace</span>
+            : <><button className="studio-back-home" type="button" onClick={backToHome}><span aria-hidden="true">←</span>Back to Home</button><span className="simple-topbar-divider" aria-hidden="true" /><strong className="simple-current-tool">{captionOpen ? 'Caption Burner' : translatorOpen ? 'Translate Audio' : [...HOME_MODULES, ...HOME_HELPERS].find(tool => tool.target === activeLessonTool)?.label || currentWorkspace.label}</strong></>}
+        </div>
+        <div className="simple-topbar-actions">
+          {currentModule === 'home' && !captionOpen && !translatorOpen && <>
+            <button ref={searchButtonRef} className="studio-search" type="button" onClick={() => { setSearchQuery(''); setCommandPaletteOpen(true); }} title="Find a tool (Ctrl+K)"><StudioIcon name="search" size={17} /><span>Find a tool</span></button>
+            <button className="studio-connect studio-topbar-button" type="button" onClick={() => setMobileModalOpen(true)} title="Connect your phone" aria-label="Connect your phone"><StudioIcon name="phone" size={18} /><span>Connect phone</span></button>
+          </>}
+          {currentModule === 'presentator' && ['pdfSection', 'lessonContentSection'].includes(activeLessonTool) && <button className="simple-appearance-button" type="button" onClick={() => setPanelOpen(value => !value)}><StudioIcon name="settings" size={17} />Text appearance</button>}
+        </div>
+      </header>
 
       {/* Container with top margin to account for header height */}
-      <div style={{ height: '100%' }}>
+      <div className="studio-content" id="studio-main" style={{ height: '100%' }}>
+        {lessonToolNotice && <div className="studio-tool-notice" role="alert"><span>{lessonToolNotice}</span><button type="button" aria-label="Dismiss tool notice" onClick={() => setLessonToolNotice('')}><StudioIcon name="close" size={18} /></button></div>}
+        <div className="studio-home-workspace" data-workspace="home" style={{ display: currentModule === 'home' && !captionOpen && !translatorOpen ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+          <StudioHome onOpen={openHomeTool} preferences={<StudioPreferences appTheme={appTheme} onToggleTheme={() => setAppTheme(value => value === 'dark' ? 'light' : 'dark')} />} />
+        </div>
         {/* ── Full-screen Caption Burner ── */}
-        <div style={{ display: captionOpen ? 'block' : 'none', height: '100%' }}>
+        <div className="studio-caption-workspace" data-workspace="caption" style={{ display: captionOpen ? 'block' : 'none', height: '100%' }}>
           <CaptionErrorBoundary
             resetKey={captionResetKey}
             onClose={() => {
-              setCaptionOpen(false);
+              backToHome();
               setCaptionResetKey(k => k + 1);
             }}
           >
             <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0e0e0e',color:'rgba(255,255,255,0.3)',fontSize:'12px'}}>Loading…</div>}>
-              <CaptionBurner onClose={() => setCaptionOpen(false)} />
+              <CaptionBurner onClose={backToHome} />
             </Suspense>
           </CaptionErrorBoundary>
         </div>
 
         {/* ── Normal Presentator UI ── */}
-        <div style={{ display: (captionOpen || currentModule !== 'presentator') ? 'none' : 'block', height: '100%', paddingTop: !captionOpen ? '50px' : 0, paddingBottom: '140px', boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden' }}>
+        <div className="studio-module" data-workspace="presentator" style={{ display: (captionOpen || currentModule !== 'presentator') ? 'none' : 'block', height: '100%', paddingTop: !captionOpen ? '50px' : 0, paddingBottom: '140px', boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden' }}>
           <main className="app-shell">
             <InputPanel />
             <StagePanel />
@@ -740,6 +579,7 @@ function App() {
           {/* ══ Floating Input Style Module ══════════════════════════════════════ */}
           {/* ⚙ FAB button — always visible bottom-right */}
           <button
+            className="studio-floating-tool studio-appearance-toggle"
             onClick={() => setPanelOpen(o => !o)}
             title="Input Style Settings"
             style={{
@@ -752,11 +592,11 @@ function App() {
               transform: panelOpen ? 'rotate(45deg)' : 'none',
               transition:'transform 0.2s, box-shadow 0.2s',
             }}
-          >⚙</button>
+          ><StudioIcon name="settings" size={18} /><span>Text appearance</span></button>
 
           {/* Floating settings panel */}
           {panelOpen && (
-            <div style={{
+            <div className="studio-appearance-panel" role="dialog" aria-label="Text appearance" style={{
               position:'fixed', bottom:'86px', right:'24px', zIndex:9001,
               width:'300px', padding:'20px 22px 16px',
               background:'#1a1f2e', borderRadius:'16px',
@@ -842,6 +682,7 @@ function App() {
           {/* ── Caption Burner FAB ── */}
           <button
             onClick={() => setCaptionOpen(true)}
+            className="studio-floating-tool studio-caption-toggle"
             title="Caption Burner (Hugging Face Whisper)"
             style={{
               position:'fixed', bottom:'88px', right:'24px', zIndex:9000,
@@ -852,55 +693,18 @@ function App() {
               display: captionOpen ? 'none' : 'flex',
               alignItems:'center', justifyContent:'center',
             }}
-          >🎬</button>
-        </div>
-
-        {/* ── Standalone Super Agent Studio ── */}
-        <div style={{
-          display: (!captionOpen && currentModule === 'agent') ? 'block' : 'none',
-          position: 'fixed',
-          top: '50px',
-          right: 0,
-          bottom: 0,
-          left: 0,
-          height: 'auto',
-          overflow: 'hidden',
-          boxSizing: 'border-box',
-          zIndex: 20
-        }}>
-          <ModuleErrorBoundary moduleName="Super Agent">
-            <AgentStudio />
-          </ModuleErrorBoundary>
-        </div>
-
-        {/* ── 30-second Kids Rhyme Generator ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'rhyme') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
-          <ModuleErrorBoundary moduleName="Rhyme Generator">
-            <RhymeGenerator />
-          </ModuleErrorBoundary>
+          ><StudioIcon name="captions" size={18} /><span>Caption Burner</span></button>
         </div>
 
         {/* ── Viral Quote Studio ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'riddles') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'hidden' }}>
-          <ModuleErrorBoundary moduleName="Riddle Studio">
-            <RiddleStudio />
+        <div className="studio-module" data-workspace="meta" style={{ display: (!captionOpen && currentModule === 'meta') ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="Meta AI">
+            <MetaWorkspace active={!captionOpen && currentModule === 'meta'} />
           </ModuleErrorBoundary>
         </div>
-
-        <div style={{ display: (!captionOpen && currentModule === 'quotes') ? 'block' : 'none', height: '100vh', overflow: 'auto', boxSizing: 'border-box' }}>
+        <div className="studio-module" data-workspace="quotes" style={{ display: (!captionOpen && currentModule === 'quotes') ? 'block' : 'none', height: '100vh', overflow: 'auto', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="Viral Quote Studio">
-            <QuoteStudio />
-          </ModuleErrorBoundary>
-        </div>
-
-        {/* ── AI Director production workspace ── */}
-        <div style={{ display: (!captionOpen && currentModule === 'director') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
-          <ModuleErrorBoundary moduleName="AI Director">
-            <DirectorStudio
-              onSendToPresentator={sendDirectorProjectToPresentator}
-              onOpenCaptions={() => setCaptionOpen(true)}
-              onOpenExporter={() => { setCaptionOpen(false); setCurrentModule('exporter'); }}
-            />
+                <QuoteStudio active={!captionOpen && currentModule === 'quotes'} />
           </ModuleErrorBoundary>
         </div>
 
@@ -913,26 +717,21 @@ function App() {
               3. React reconciliation errors from rapidly-cycling heavy component trees
             Solution: keep it always in the DOM, just toggle display. The active prop lets
             MyExporter know when it is visible so it can pause/resume playback etc. */}
-        <div style={{ display: (!captionOpen && currentModule === 'exporter') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
+        <div className="studio-module" data-workspace="exporter" style={{ display: (!captionOpen && currentModule === 'exporter') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="My Exporter">
             <MyExporter active={!captionOpen && currentModule === 'exporter'} />
           </ModuleErrorBoundary>
         </div>
-        <div style={{ display: (!captionOpen && currentModule === 'ai-tools') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
-          <ModuleErrorBoundary moduleName="AI Tools">
-            <OllamaTools />
-          </ModuleErrorBoundary>
-        </div>
-        <div style={{ display: (!captionOpen && currentModule === 'resizer') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+        <div className="studio-module" data-workspace="resizer" style={{ display: (!captionOpen && currentModule === 'resizer') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
           <ModuleErrorBoundary moduleName="Video Ratio Master">
-            <VideoResizer />
+                <VideoResizer active={!captionOpen && currentModule === 'resizer'} />
           </ModuleErrorBoundary>
         </div>
       </div>
 
       {/* ── Universal Command Palette Overlay ── */}
       {commandPaletteOpen && (
-        <div style={{
+        <div className="studio-modal-backdrop studio-command-backdrop" style={{
           position: 'fixed',
           top: 0,
           left: 0,
@@ -985,7 +784,7 @@ function App() {
             }
           `}</style>
           
-          <div style={{
+          <div className="studio-command-dialog" role="dialog" aria-modal="true" aria-label="Find a tool or action" style={{
             width: '100%',
             maxWidth: '560px',
             background: 'linear-gradient(160deg, #101423, #0b0d18)',
@@ -1002,18 +801,22 @@ function App() {
           }} onClick={(e) => e.stopPropagation()}>
             
             {/* Search Header */}
-            <div style={{
+            <div className="studio-command-header" style={{
               display: 'flex',
               alignItems: 'center',
               padding: '16px',
               borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
               position: 'relative'
             }}>
-              <span style={{ fontSize: '18px', marginRight: '12px', opacity: 0.7 }}>🔍</span>
+              <StudioIcon name="search" size={19} />
               <input
+                id="studio-command-search"
                 autoFocus
+                aria-label="Search tools and actions"
+                role="combobox" aria-expanded="true" aria-controls="studio-command-results"
+                aria-activedescendant={filteredCommands[selectedIndex] ? `studio-command-${filteredCommands[selectedIndex].id}` : undefined}
                 type="text"
-                placeholder="Type a command or search..."
+                placeholder="Search tools and actions"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
@@ -1026,25 +829,17 @@ function App() {
                   lineHeight: '1.5'
                 }}
               />
-              <div style={{
-                fontSize: '10px',
-                padding: '4px 8px',
-                background: 'rgba(255, 255, 255, 0.06)',
-                borderRadius: '6px',
-                color: 'rgba(255, 255, 255, 0.5)',
-                fontWeight: 'bold',
-                letterSpacing: '0.05em'
-              }}>ESC TO CLOSE</div>
+              <button type="button" className="studio-command-close" aria-label="Close search" title="Close search (Esc)" onClick={() => setCommandPaletteOpen(false)}><StudioIcon name="close" size={17} /><span>Esc</span></button>
             </div>
 
             {/* Scrollable list */}
-            <div className="cmd-scrollbar" style={{
+            <div className="cmd-scrollbar" id="studio-command-results" role="listbox" aria-label="Tools and actions" style={{
               flex: 1,
               overflowY: 'auto',
               padding: '12px'
             }}>
               {filteredCommands.length === 0 ? (
-                <div style={{
+                <div className="studio-command-empty" style={{
                   padding: '24px',
                   textAlign: 'center',
                   color: 'rgba(255, 255, 255, 0.4)',
@@ -1056,6 +851,7 @@ function App() {
                   return (
                     <div
                       key={cmd.id}
+                      id={`studio-command-${cmd.id}`} role="option" aria-selected={isActive}
                       className={`cmd-item ${isActive ? 'cmd-item-active' : ''}`}
                       onClick={() => {
                         cmd.action();
@@ -1121,7 +917,7 @@ function App() {
       )}
       {/* ── Mobile Link Popup Modal ────────────────────────────────────── */}
       {mobileModalOpen && (
-        <div style={{
+        <div className="studio-modal-backdrop" style={{
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.85)',
@@ -1132,7 +928,7 @@ function App() {
           justifyContent: 'center',
           padding: '16px'
         }} onClick={() => setMobileModalOpen(false)}>
-          <div style={{
+          <div className="studio-connect-dialog" role="dialog" aria-modal="true" aria-label="Connect your phone" style={{
             background: '#0d111d',
             border: '1px solid rgba(103, 232, 249, 0.3)',
             borderRadius: '24px',
@@ -1147,8 +943,8 @@ function App() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '24px' }}>📱</span>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#67e8f9' }}>Mobile Connect Center</h3>
-                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#94a3b8' }}>Live 24/7 Mobile Data & Wi-Fi Links</p>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#67e8f9' }}>Connect your phone</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#94a3b8' }}>Use a mobile or Wi-Fi link while the desktop app is open.</p>
                 </div>
               </div>
               <button type="button" onClick={() => setMobileModalOpen(false)} style={{ background: 'rgba(255,255,255,0.08)', border: 0, color: '#fff', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
@@ -1339,7 +1135,7 @@ function App() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 
 }

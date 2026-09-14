@@ -1,8 +1,9 @@
 {
-  "wifiUrl": "http://192.168.29.161:8433",
-  "mobileUrl": "",
-  "active": false,
-  "updatedAt": "2026-08-31T10:21:49.993Z",
-  "status": "inactive",
-  "stoppedAt": "2026-08-31T10:21:49.983Z"
+  "wifiUrl": "http://192.168.1.16:8433",
+  "mobileUrl": "https://preparation-lambda-hash-shareware.trycloudflare.com/?mobileToken=6bbb4d4f038a44644a0daedee7111caf4de33d468460a0da",
+  "active": true,
+  "updatedAt": "2026-09-11T19:27:58.173Z",
+  "status": "active",
+  "verified": true,
+  "provider": "Cloudflare Quick Tunnel"
 }
