@@ -36,6 +36,16 @@ test('both export paths require a current video preview', () => {
   assert.match(legacy, /if \(!await confirmCaptionExportPreview\(\)\) return;/);
 });
 
+test('local captions default to bottom and export without repeated confirmation', () => {
+  assert.match(legacy, /let captionPosY = 0\.85;/);
+  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionPreset" defaultValue="bottom"/);
+  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionY"[^>]+defaultValue="85"/);
+  const preview = fn('confirmCaptionExportPreview');
+  assert.doesNotMatch(preview, /window\.(confirm|alert|prompt)\(/);
+  assert.match(preview, /return true;/);
+  assert.match(preview, /if \(!generatedCaptions.length\) return false;/);
+});
+
 test('Caption Burner exported karaoke and plain styles never preload future words', () => {
   for (const style of ['white-yellow', 'karaoke', 'minimal', 'pill', 'outline']) {
     const lines = dialogues(buildAss(captions, { ...settings, style }, { width: 2560, height: 1440 }));

@@ -329,7 +329,7 @@ function bootCaptionStudio() {
     }
 
     let captionPosX = 0.5;
-    let captionPosY = 0.5;
+    let captionPosY = 0.85;
     const positionXControl = document.getElementById('captionPositionX');
     const positionYControl = document.getElementById('captionPositionY');
     const positionPresetControl = document.getElementById('captionPositionPreset');
@@ -3320,7 +3320,8 @@ function bootCaptionStudio() {
         renderPreviewNow(sourceVideo.currentTime);
         renderCanvas.scrollIntoView({ block: 'center' });
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        return window.confirm('The caption preview is shown on the video. Export with this position, size and style? Choose Cancel to adjust the options first.');
+        // Keep the preview current, but never interrupt each queued export with a dialog.
+        return true;
     }
 
     exportBtn.addEventListener('click', async () => {
