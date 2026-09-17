@@ -1712,6 +1712,8 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <div style={{"display": "flex", "gap": "10px", "marginBottom": "12px"}}>
                 <div style={{"flex": "1"}}>
                   <span className="style-label" style={{"color": "#aaa"}}>Visual Master Theme</span>
+                  <label htmlFor="captionContentMode">Audio content</label>
+                  <select id="captionContentMode" className="theme-select" defaultValue="speech"><option value="speech">Speech</option><option value="song">Song / lyrics — local word timing</option></select>
                   <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="white-yellow">
                     <option value="white-yellow">White + Yellow (Bold & Outline)</option>
                     <option value="tiktok">Viral Pop (Bold & Shadow)</option>

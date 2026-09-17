@@ -467,6 +467,7 @@ export default function CaptionBurner({ onClose }: Props) {
         (msg, pct) => upd(item.id, { status: 'transcribing', message: msg, progress: pct }),
         S.engine,
         signal,
+        S.contentMode || 'speech',
       );
       const resolvedLanguage = item.language === 'Auto-Detect' && CAPTION_LANGUAGES.includes(detectedLang as Language)
         ? detectedLang as Language
@@ -501,7 +502,7 @@ export default function CaptionBurner({ onClose }: Props) {
       notify('Transcribe failed', `${item.video.name}: ${msg.slice(0, 80)}`);
       return null;
     }
-  }, [S.language, S.maxWordsPerCaption, S.engine, apiKey, upd, notify]);
+  }, [S.language, S.maxWordsPerCaption, S.engine, S.contentMode, apiKey, upd, notify]);
 
   // Burn captions
   const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal; fontSize?: number } = {}) => {
@@ -1804,6 +1805,7 @@ export default function CaptionBurner({ onClose }: Props) {
                 </OptionCard>
 
                 <OptionCard title="AI">
+                  <SelectRow label="Audio content" value={S.contentMode === 'song' ? 'Song / lyrics (local)' : 'Speech'} options={['Speech', 'Song / lyrics (local)']} onChange={v => setS(s => ({ ...s, contentMode: v === 'Speech' ? 'speech' : 'song', engine: v === 'Speech' ? s.engine : 'local' }))} />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
                     <SelectRow
                       label="Engine"

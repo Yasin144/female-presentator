@@ -27601,7 +27601,7 @@ async function processVideoQueue() {
 
   // ── Auto-retry failed videos (reset to pending, re-run the queue) ─────────────
   if (!sc3Queue.stopped && failC > 0) {
-    const _toRetry = sc3Queue.items.filter(i => i.status === 'error' && (i.retryCount || 0) < MAX_RETRIES && !/cancel|not found|no file path|no clear speech|not installed|permission|ENOSPC|no space|unsupported|out of memory/i.test(i.errorMsg || ''));
+    const _toRetry = sc3Queue.items.filter(i => i.status === 'error' && (i.retryCount || 0) < MAX_RETRIES && !/review required|cancel|not found|no file path|no clear speech|not installed|permission|ENOSPC|no space|unsupported|out of memory/i.test(i.errorMsg || ''));
     if (_toRetry.length > 0) {
       // Keep ownership through backoff: upload/start must not replace this queue.
       sc3Queue.processing = true;

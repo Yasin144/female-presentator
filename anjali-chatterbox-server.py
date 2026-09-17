@@ -1298,6 +1298,10 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
 
         # Normalize voice key for caches
         voice_key = "sc3" if voice in ("sc3", "anjali") else voice
+        # A failed narration check must generate fresh audio, including on disk-cache hits.
+        regeneration_key = str(opts.get("regenerationKey", ""))[:100]
+        if regeneration_key:
+            voice_key += ":verify:" + regeneration_key
         cache_key = (clean, voice_key)
 
         # 1. RAM cache hit — instant

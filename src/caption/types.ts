@@ -34,6 +34,7 @@ export type Language = typeof CAPTION_LANGUAGES[number];
 export type TranscriptionEngine = 'auto' | 'local' | 'groq';
 
 export interface CaptionSettings {
+  contentMode?: 'speech' | 'song';
   fontSize: number;
   fontFamily?: string;
   textWidth?: number;

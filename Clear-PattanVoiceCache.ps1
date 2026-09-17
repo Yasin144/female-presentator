@@ -1,78 +1,74 @@
+param([switch]$ListOnly)
 $ErrorActionPreference = 'Stop'
-$Host.UI.RawUI.WindowTitle = 'Pattan Voice Cache Cleaner'
+$workspace = [IO.Path]::GetFullPath($PSScriptRoot)
 
-Write-Host ''
-Write-Host 'PATTAN VOICE PRESENTATOR - CACHE CLEANER' -ForegroundColor Cyan
-Write-Host '----------------------------------------' -ForegroundColor DarkCyan
-Write-Host 'This clears generated SC3/Chatterbox audio and Edge TTS memory cache.'
-Write-Host 'Models, reference voices, lessons, source code, and exports are preserved.'
-Write-Host ''
-
-$accessCode = Read-Host 'Enter deletion access code'
-if ($accessCode -cne '6875') {
-    Write-Host ''
-    Write-Host 'Access denied. Nothing was cleared.' -ForegroundColor Red
-    Read-Host 'Press Enter to close'
-    exit 1
-}
-
-$removedFiles = 0
-$removedBytes = [int64]0
-$failures = [System.Collections.Generic.List[string]]::new()
-
-function Clear-CacheDirectoryContents {
-    param([Parameter(Mandatory = $true)][string]$LiteralDirectory)
-
-    if (-not (Test-Path -LiteralPath $LiteralDirectory -PathType Container)) {
-        Write-Host "Skipped (not present): $LiteralDirectory" -ForegroundColor DarkGray
-        return
+function Assert-CacheTarget([string]$Path) {
+    $resolved = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $resolved
+    $leaf = Split-Path -Leaf $resolved
+    $allowed = ($parent -eq (Join-Path $workspace 'tts-cache') -and $leaf -match '^[a-f0-9]{64}\.wav$') -or
+        ($parent -eq (Join-Path $workspace 'temp') -and ($leaf -eq 'sc3-resume' -or $leaf -match '^pattan-sc3-\d+$'))
+    if (-not $allowed) { throw "Refusing unexpected target: $resolved" }
+    foreach ($ancestor in @($workspace, $parent, $resolved)) {
+        if ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked cache path: $ancestor" }
     }
-
-    $items = @(Get-ChildItem -LiteralPath $LiteralDirectory -Force -ErrorAction SilentlyContinue)
-    foreach ($item in $items) {
-        try {
-            if (-not $item.PSIsContainer) {
-                $script:removedBytes += [int64]$item.Length
-                $script:removedFiles++
-            } else {
-                $childFiles = @(Get-ChildItem -LiteralPath $item.FullName -File -Force -Recurse -ErrorAction SilentlyContinue)
-                $script:removedFiles += $childFiles.Count
-                $script:removedBytes += [int64](($childFiles | Measure-Object -Property Length -Sum).Sum)
-            }
-            Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
-        } catch {
-            $script:failures.Add("$($item.FullName): $($_.Exception.Message)")
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($resolved)
+    while ($pending.Count) {
+        $item = Get-Item -LiteralPath $pending.Pop() -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked cache entry: $($item.FullName)" }
+        if ($item.PSIsContainer) {
+            foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force) { $pending.Push($child.FullName) }
         }
     }
-    Write-Host "Cleared: $LiteralDirectory" -ForegroundColor Green
+    return $resolved
 }
 
-Write-Host ''
-Write-Host 'Clearing Edge TTS memory cache...' -ForegroundColor Yellow
+function Assert-AppClosed {
+    $active = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.CommandLine -and $_.CommandLine.IndexOf($workspace, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        ($_.Name -eq 'electron.exe' -or ($_.Name -match '^python(w)?\.exe$' -and $_.CommandLine -match 'anjali-chatterbox-server|timed-voiceover-server|whisper-transcribe|sc3-singing'))
+    })
+    if ($active.Count) { throw 'Close Presentator and its voice/transcription server windows, then run this shortcut again. No processes were stopped.' }
+}
+
 try {
-    $edgeResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8427/api/cache/clear' -Method Post -TimeoutSec 5
-    if ($edgeResult.ok) {
-        Write-Host 'Cleared: Edge TTS memory cache' -ForegroundColor Green
-    } else {
-        Write-Host 'Edge TTS responded, but did not confirm the cache clear.' -ForegroundColor Yellow
+    Write-Host 'PATTAN - CLEAN GENERATED VOICE CACHE' -ForegroundColor Cyan
+    Write-Host 'Clears generated voice clips and Sing Song retry progress. Lessons, models, source videos and Downloads are preserved.'
+    $targets = @()
+    foreach ($name in @('tts-cache','temp')) {
+        $cacheRoot = Join-Path $workspace $name
+        if (-not (Test-Path -LiteralPath $cacheRoot)) { continue }
+        if ((Get-Item -LiteralPath $cacheRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked cache root: $cacheRoot" }
+        foreach ($entry in Get-ChildItem -LiteralPath $cacheRoot -Force) {
+            if (($name -eq 'tts-cache' -and -not $entry.PSIsContainer -and $entry.Name -match '^[a-f0-9]{64}\.wav$') -or
+                ($name -eq 'temp' -and $entry.PSIsContainer -and ($entry.Name -eq 'sc3-resume' -or $entry.Name -match '^pattan-sc3-\d+$'))) {
+                $targets += Assert-CacheTarget $entry.FullName
+            }
+        }
     }
+    if ($ListOnly) { $targets; return }
+    Assert-AppClosed
+    if (-not $targets.Count) { Write-Host 'No generated voice cache found.'; return }
+    Write-Host "Found $($targets.Count) cache items. Saved retry progress will be cleared."
+    Write-Host 'Items go to the Recycle Bin where supported by Windows.'
+    if ((Read-Host 'Type CLEAN to continue') -cne 'CLEAN') { Write-Host 'Cancelled. Nothing changed.'; return }
+    Assert-AppClosed
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    $cleaned = 0
+    foreach ($target in $targets) {
+        $safeTarget = Assert-CacheTarget $target
+        if (Test-Path -LiteralPath $safeTarget -PathType Container) {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($safeTarget, 'OnlyErrorDialogs', 'SendToRecycleBin', 'ThrowException')
+        } else {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($safeTarget, 'OnlyErrorDialogs', 'SendToRecycleBin', 'ThrowException')
+        }
+        $cleaned++
+    }
+    Write-Host "Finished: $cleaned cache items removed. Reopen Presentator for fresh audio." -ForegroundColor Green
 } catch {
-    Write-Host 'Edge TTS is not running. Its memory cache is already empty.' -ForegroundColor DarkYellow
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($ListOnly) { throw }
+} finally {
+    if (-not $ListOnly) { Read-Host 'Press Enter to close' | Out-Null }
 }
-
-Clear-CacheDirectoryContents -LiteralDirectory 'D:\voice\tts-cache'
-Clear-CacheDirectoryContents -LiteralDirectory 'D:\voice\temp\pattan-sc3-1788626678328'
-
-Write-Host ''
-$removedMiB = [Math]::Round($removedBytes / 1MB, 2)
-if ($failures.Count -eq 0) {
-    Write-Host "DONE - removed $removedFiles generated cache file(s), $removedMiB MB." -ForegroundColor Green
-    Write-Host 'Restart Pattan Presentator before making a fresh voice generation.' -ForegroundColor Cyan
-} else {
-    Write-Host "Completed with $($failures.Count) item(s) that could not be cleared:" -ForegroundColor Yellow
-    $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
-    Write-Host 'Close Pattan Presentator and run this cleaner again.' -ForegroundColor Yellow
-}
-
-Write-Host ''
-Read-Host 'Press Enter to close'

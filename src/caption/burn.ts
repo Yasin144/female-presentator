@@ -97,7 +97,7 @@ function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionI
       const words = group.map(w => ({
         ...w,
         start: w.start + offset,
-        end: Math.min(w.end, w.start + 1.5) + offset,
+        end: w.end + offset,
       }));
       shifted.push({
         start: words[0].start,

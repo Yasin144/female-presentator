@@ -83,7 +83,7 @@ function processLocalWhisperResult(result: any, language: Language, maxWords: nu
     String(result?.text || ''),
     ...(Array.isArray(result?.segments) ? result.segments.map((s: any) => String(s?.text || '')) : []),
   ].join(' ');
-  if (isCaptionRepetitionLoop(resultText)) throw new Error('Local Whisper produced a repeated caption loop.');
+  if (result.contentMode !== 'song' && isCaptionRepetitionLoop(resultText)) throw new Error('Local Whisper produced a repeated caption loop.');
   const detectedCode = inferLangFromScript(resultText)
     || normalizeLangCode(result?.language)
     || (language !== 'Auto-Detect' ? targetCode : undefined);
@@ -100,7 +100,7 @@ function processLocalWhisperResult(result: any, language: Language, maxWords: nu
   if (!captions.length && String(result?.text || '').trim()) captions = buildFromText(normalizeNurseryCaptionText(String(result.text)), maxWords);
   captions = captions.filter(caption => !isInstructionLeakCaption(caption.text));
   if (!captions.length) throw new Error('Local Whisper returned no speech');
-  if (isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) throw new Error('Local Whisper produced repeated captions.');
+  if (result.contentMode !== 'song' && isCaptionRepetitionLoop(captions.map(c => c.text).join(' '))) throw new Error('Local Whisper produced repeated captions.');
   return { captions, detectedLang, detectedCode };
 }
 
@@ -127,6 +127,7 @@ async function transcribeWithLocalWhisper(
   maxWords: number,
   onProgress: (msg: string, pct: number) => void,
   signal?: AbortSignal,
+  contentMode: 'speech' | 'song' = 'speech',
 ): Promise<{ captions: CaptionItem[]; detectedLang: string; detectedCode?: string } | null> {
   const api = typeof window !== 'undefined' ? (window as any).electronAPI : null;
   if (!api?.transcribeVideo || !api?.getPathForFile) return null;
@@ -154,11 +155,12 @@ async function transcribeWithLocalWhisper(
     8,
   );
 
-  const result = await api.transcribeVideo({ videoPath: filePath, languageHint });
+  const result = await api.transcribeVideo({ videoPath: filePath, languageHint, contentMode });
   throwIfAborted(signal);
   if (!result?.ok) {
     throw new Error(String(result?.error || 'Local Whisper transcription failed'));
   }
+  if (contentMode === 'song' && !result.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
 
   return processLocalWhisperResult(result, language, maxWords);
 }
@@ -920,9 +922,15 @@ export async function transcribeWithHuggingFace(
   onProgress:         (msg: string, pct: number) => void,
   engine:             'auto' | 'local' | 'groq' = 'groq',
   signal?:            AbortSignal,
+  contentMode:        'speech' | 'song' = 'speech',
 ): Promise<{ captions: CaptionItem[]; detectedLang: string }> {
 
   throwIfAborted(signal);
+  if (contentMode === 'song') {
+    const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'song');
+    if (!local) throw new Error('Song mode requires the local Windows transcription service.');
+    return { captions: local.captions, detectedLang: local.detectedLang };
+  }
   const targetCode = getLanguageCode(language);
   const preferCloudWhisper =
     engine === 'auto' &&

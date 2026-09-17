@@ -78,5 +78,8 @@ frame_test.jpg
 /OllamaSetup.exe
 /*.wfp
 /public/mobile-link.json
+/renderer-dist/mobile-link.json
+/tmp/
+/vendor/pdf-cutouts/
 /scripts/test_wa.py
 /scripts/test_wa_send.py

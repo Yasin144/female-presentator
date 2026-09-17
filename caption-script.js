@@ -1267,10 +1267,11 @@ function bootCaptionStudio() {
                             const selectedLanguage = String(item.captionLanguage || '').toLowerCase();
                             const captionLanguages = { telugu: 'te', hindi: 'hi', english: 'en', tamil: 'ta', kannada: 'kn', malayalam: 'ml', urdu: 'ur', arabic: 'ar' };
                             const languageHint = Object.entries(captionLanguages).find(([name, code]) => selectedLanguage.includes(name) || selectedLanguage === code)?.[1] || 'auto';
-                            const transcription = await window.electronAPI.transcribeVideo({ videoPath, languageHint });
+                            const transcription = await window.electronAPI.transcribeVideo({ videoPath, languageHint, contentMode: document.getElementById('captionContentMode')?.value || 'speech' });
                             if (!transcription || !transcription.ok) {
                                 throw new Error((transcription && transcription.error) || 'Electron transcription failed.');
                             }
+                            if (document.getElementById('captionContentMode')?.value === 'song' && !transcription.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
                             const directCaptions = buildCaptionChunksFromTranscription(transcription, sourceVideo.duration || 60);
                             if (!directCaptions.length) {
                                 throw new Error('No recognizable speech or lyrics. Instrumental music and silent video may have no words to caption. Review the audio or select its spoken language.');
@@ -2271,7 +2272,7 @@ function bootCaptionStudio() {
 
             if (hasIpc && videoPath) {
                 const fileLangHint = likelyIndicCaptionFileName(activeFile);
-                if (fileLangHint && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                if (document.getElementById('captionContentMode')?.value !== 'song' && fileLangHint && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
                     try {
                         const langName = fileLangHint === 'te' ? 'Telugu' : fileLangHint === 'hi' ? 'Hindi' : 'Auto-Detect';
                         notificationRoute = 'native';
@@ -2318,7 +2319,7 @@ function bootCaptionStudio() {
                     const languageHint = queueLanguage.includes('telugu') ? 'te' : (queueLanguage.includes('hindi') ? 'hi' : (queueLanguage.includes('english') ? 'en' : 'auto'));
                     activeCaptionTranscription = { videoPath, languageHint };
                     notificationRoute = 'native';
-                    ipc = await window.electronAPI.transcribeVideo({ videoPath, languageHint });
+                    ipc = await window.electronAPI.transcribeVideo({ videoPath, languageHint, contentMode: document.getElementById('captionContentMode')?.value || 'speech' });
                 } finally {
                     clearInterval(ipcHeartbeat);
                     activeCaptionTranscription = null;
@@ -2336,6 +2337,7 @@ function bootCaptionStudio() {
                 }
 
                 if (ipc && ipc.ok) {
+                    if (document.getElementById('captionContentMode')?.value === 'song' && !ipc.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
                     if (pBar) pBar.style.width = '100%';
                     updateSingleProgress(100, 'Captions ready', 'Transcription finished');
 
@@ -2349,7 +2351,7 @@ function bootCaptionStudio() {
                     }
 
                     const localLangCode = normalizeCaptionLanguageCode(ipc.language) || inferCaptionLanguageCode(ipc.text);
-                    if (isIndicCaptionLanguage(localLangCode) && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
+                    if (document.getElementById('captionContentMode')?.value !== 'song' && isIndicCaptionLanguage(localLangCode) && window.electronAPI && typeof window.electronAPI.transcribeVideoGroq === 'function') {
                         try {
                             const langName = localLangCode === 'te' ? 'Telugu' : localLangCode === 'hi' ? 'Hindi' : 'Indic';
                             statusText.innerHTML = `Local Whisper detected ${langName}; switching to high-accuracy captions...`;
@@ -2386,6 +2388,7 @@ function bootCaptionStudio() {
             }
 
             // PATH 2: HTTP transcription server (port 8428)
+            if (document.getElementById('captionContentMode')?.value === 'song') throw new Error('Local song transcription failed. Check that the Windows caption service is available and retry.');
             notificationRoute = 'fallback';
             statusText.innerHTML = 'Extracting audio from video...';
             if (pBar) pBar.style.width = '8%';

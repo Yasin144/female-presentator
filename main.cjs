@@ -4317,7 +4317,7 @@ ipcMain.handle('cancel-transcribe-video', async () => {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath, languageHint } = opts || {};
+  const { videoPath, languageHint, contentMode = 'speech' } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
   let resumePausedServers = () => {};
@@ -4387,7 +4387,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       throw new Error('Transcription cancelled.');
     }
     const whisperResult = await new Promise((resolve, reject) => {
-      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam, path.basename(videoPath)], {
+      const proc = spawn(pyExe, [scriptPath, tmpWav, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech'], {
         stdio: 'pipe',
         windowsHide: true,
         env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
@@ -4436,13 +4436,15 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       text:     whisperResult.text     || '',
       segments: whisperResult.segments || [],
       words:    whisperResult.words    || [],
-      language: whisperResult.language || 'en'
+      language: whisperResult.language || 'en',
+      contentMode: contentMode === 'song' ? 'song' : 'speech'
     };
 
   } catch (err) {
     if (activeCaptionTranscribeCancelRequested) {
       return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     }
+    if (contentMode === 'song') return { ok: false, error: `Local song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
     try {
@@ -4632,14 +4634,14 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
 // "Narrate Audio" and "Convert Video" actions use this helper; serialise them
 // so two clicks cannot wedge port 8428 behind competing 5-minute jobs.
 let whisperTranscriptionTail = Promise.resolve();
-function runWhisperTranscribe(audioPath, timeoutMs = 1800000) {
-  const task = whisperTranscriptionTail.then(() => runWhisperTranscribeNow(audioPath, timeoutMs));
+function runWhisperTranscribe(audioPath, timeoutMs = 1800000, detailed = false) {
+  const task = whisperTranscriptionTail.then(() => runWhisperTranscribeNow(audioPath, timeoutMs, detailed));
   // Keep the queue alive after a failed/cancelled job.
   whisperTranscriptionTail = task.catch(() => undefined);
   return task;
 }
 
-async function runWhisperTranscribeNow(audioPath, timeoutMs = 1800000) {
+async function runWhisperTranscribeNow(audioPath, timeoutMs = 1800000, detailed = false) {
   // Prefer the shared transcription service.  Sing Song used to ignore the
   // ready 8428 service and start a second local Whisper process, which made
   // long videos (5+ minutes) time out on CPU and incorrectly looked like a
@@ -4649,15 +4651,15 @@ async function runWhisperTranscribeNow(audioPath, timeoutMs = 1800000) {
     const audioBase64 = fs.readFileSync(audioPath).toString('base64');
     const serverResult = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
       audioBase64,
-      wordTimestamps: false,
+      wordTimestamps: detailed,
       language: 'en'
-    }, Math.max(300000, Math.min(timeoutMs, 900000)), 3);
+    }, Math.max(300000, Math.min(timeoutMs, 1800000)), 3);
     if (serverResult?.statusCode === 200) {
       const payload = JSON.parse(serverResult.buffer.toString('utf8'));
       const text = String(payload.text || payload.transcript || payload.result?.text || '').trim();
       if (text) {
         console.log('[PP] Whisper: used transcription server on port 8428');
-        return text;
+        return detailed ? { ...payload, text } : text;
       }
     }
     console.warn('[PP] Whisper server returned no usable transcript; using local fallback.');
@@ -4682,7 +4684,7 @@ async function runWhisperTranscribeNow(audioPath, timeoutMs = 1800000) {
       try {
         const result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
         if (result.error) throw new Error(result.error);
-        resolve(String(result.text || '').trim());
+        resolve(detailed ? result : String(result.text || '').trim());
       } catch (error) { reject(new Error(`Whisper output parse failed: ${stderr.slice(-300) || error.message}`)); }
     });
   });
@@ -4793,6 +4795,17 @@ function convertToIndianEnglish(text) {
     .replace(/\b(gotta)\b/gi, 'have to');
 }
 
+const sc3Recovery = require('./sc3-recovery.cjs');
+
+async function synthesizeSc3Chunk(text, voice, report = console.log, regenerationKey = '') {
+  return sc3Recovery.retry(async () => {
+    const reply = await postJsonForBuffer(8426, '/api/narrate', { text, voice, generationOptions: { regenerationKey } }, 900000);
+    if (reply.statusCode !== 200) throw new Error(`Voice service HTTP ${reply.statusCode}`);
+    if (!reply.buffer || reply.buffer.length < 44) throw new Error('Invalid voice audio returned');
+    return reply;
+  }, report);
+}
+
 function splitIntoSentences(text, limit = 120) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   const chunks = []; let current = '';
@@ -4820,7 +4833,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
   };
 
   const ffmpeg = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
-  const workDir = path.join(os.tmpdir(), `pattan-sc3-${Date.now()}`);
+  const workDir = sc3Recovery.checkpointDirectory(path.join(ROOT, 'temp', 'sc3-resume'), filePath, voice);
   fs.mkdirSync(workDir, { recursive: true });
 
   LOG(`▶  START  File: ${path.basename(filePath)}  (${Math.round(fs.statSync(filePath).size / 1024 / 1024)} MB)`);
@@ -4828,7 +4841,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
 
   const run = args => new Promise((resolve, reject) => {
     const child = spawn(ffmpeg, args, { windowsHide: true }); let stderr = '';
-    child.stderr?.on('data', data => { stderr += data.toString(); });
+    child.stderr?.on('data', data => { stderr = (stderr + data.toString()).slice(-16000); });
     child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.slice(-500))));
   });
 
@@ -4846,31 +4859,96 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     sendProgress('Step 2/4: Transcribing speech with Whisper', 30, 'Whisper transcribing audio (Port 8428)...');
     LOG(`   Sending WAV to Whisper server on Port 8428...`);
     const whisperStart = Date.now();
-    const transcript = await runWhisperTranscribe(wav, 900000);
+    const sourceSeconds = await sc3Recovery.duration(ffmpeg, wav);
+    const windows = sc3Recovery.transcriptionWindows(sourceSeconds);
+    const transcriptParts = [];
+    for (const [part, window] of windows.entries()) {
+      sendProgress('Step 2/4: Transcribing speech with Whisper', 10 + Math.round(30 * part / windows.length), `Audio section ${part + 1}/${windows.length}. Completed sections are saved for resume.`);
+      const saved = await sc3Recovery.checkpoint(workDir, `timed-transcript:${window.start}:${window.duration}`, async () => {
+        const section = path.join(workDir, `section-${part}.wav`);
+        await run(['-y', '-ss', String(window.start), '-i', wav, '-t', String(window.duration), '-ar', '16000', '-ac', '1', section]);
+        const result = await sc3Recovery.retry(() => runWhisperTranscribe(section, Math.max(900000, window.duration * 6000), true), LOG);
+        // JSON allows a valid silent section to be resumed without inventing words.
+        return JSON.stringify(result);
+      }, value => { try { return typeof JSON.parse(value.toString()).text === 'string'; } catch { return false; } });
+      const result = JSON.parse(saved.toString());
+      transcriptParts.push({ ...result, offset: window.start });
+    }
+    const transcript = transcriptParts.map(part => part.text).join(' ').trim();
     if (!transcript) throw new Error('No clear speech detected in this video.');
     LOG(`   ✔ Step 2 done — Transcript: ${transcript.slice(0, 120).replace(/\n/g,' ')}... (${((Date.now()-whisperStart)/1000).toFixed(1)}s)`);
 
     // ── STEP 3: Indian English conversion + Chatterbox TTS ───────────────────
     sendProgress('Step 3/4: Synthesizing Chatterbox voice', 45, 'Preparing Indian English sentences...');
-    const indianText = convertToIndianEnglish(transcript);
-    const sentences = splitIntoSentences(indianText, 80);
+    const timedSections = sc3Recovery.timedSections(transcriptParts, sourceSeconds);
+    if (!timedSections.length) throw new Error('No reliable speech timestamps. Please retry transcription.');
+    const sentences = timedSections.map(section => section.text);
+    const coverage = sc3Recovery.compareNarration(transcript, sentences.join(' '));
+    if (!coverage.ok) throw new Error('Narration review required: transcript words and timed phrases disagree. Export stopped to prevent missing narration.');
     const totalSentences = sentences.length;
     LOG(`   Indian English conversion done. ${totalSentences} sentence(s) to synthesise.`);
 
     const clips = [];
+    let timelineCursor = 0;
+    const appendSilence = async (seconds, name) => {
+      if (seconds <= 0.001) return;
+      const silence = path.join(workDir, `${name}.wav`);
+      await run(['-y', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono', '-t', String(seconds), '-c:a', 'pcm_s16le', silence]);
+      clips.push(silence);
+    };
     for (const [index, sentence] of sentences.entries()) {
       const sentencePct = Math.round(45 + ((index + 1) / totalSentences) * 40);
       sendProgress('Step 3/4: Synthesizing Chatterbox voice', sentencePct, `Sentence ${index + 1} of ${totalSentences}...`);
       LOG(`   Chatterbox → Sentence ${index + 1}/${totalSentences}: "${sentence.slice(0, 80)}${sentence.length > 80 ? '…' : ''}"`);
       const ttsStart = Date.now();
       // CPU voice synthesis can exceed four minutes even for valid audio.
-      // Keep requests sequential; a timeout must not launch overlapping retries here.
-      const reply = await postJsonForBuffer(8426, '/api/narrate', { text: sentence, voice }, 900000);
-      if (reply.statusCode !== 200) throw new Error(`Voice synthesis failed at sentence ${index + 1}.`);
-      const clip = path.join(workDir, `voice-${index}.wav`); fs.writeFileSync(clip, reply.buffer); clips.push(clip);
-      LOG(`     ✔ Sentence ${index + 1} done (${((Date.now()-ttsStart)/1000).toFixed(1)}s, ${Math.round(reply.buffer.length/1024)} KB)`);
+      // Retry this chunk sequentially; preserve the completed clips in this job.
+      const section = timedSections[index];
+      const fitted = path.join(workDir, `fitted-${index}.wav`);
+      const targetSeconds = section.end - section.start;
+      if (sc3Recovery.preserveSourceSound(section)) {
+        sendProgress('Preserving original brief sound', sentencePct, `Phrase ${index + 1}: ${sentence} (${targetSeconds.toFixed(2)}s). Original voice retained for this sound.`);
+        await run(['-y', '-ss', String(section.start), '-i', filePath, '-t', String(targetSeconds), '-vn', '-af', 'apad', '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', fitted]);
+        await appendSilence(section.start - timelineCursor, `gap-${index}`);
+        clips.push(fitted);
+        timelineCursor = section.end;
+        fs.writeFileSync(path.join(workDir, `verification-${index}.json`), JSON.stringify({mode:'original-source-preserved',text:sentence,start:section.start,end:section.end,reason:'Brief sound retained from source; no synthetic wording substituted.'},null,2));
+        continue;
+      }
+      const verified = await sc3Recovery.checkpoint(workDir, `verified-v1:${voice}:${sentence}:${targetSeconds}`, () => sc3Recovery.verifyNarration(sentence, async attempt => {
+        const recoveryParts = sc3Recovery.recoveryPhrases(sentence, attempt);
+        sendProgress(attempt >= 3 ? 'Recovering narration' : 'Checking narration', sentencePct, `Phrase ${index + 1}/${totalSentences}, attempt ${attempt + 1}/6${attempt >= 3 ? `; regenerating ${recoveryParts.length} shorter pieces` : ''}`);
+        const clip = path.join(workDir, `voice-${index}.wav`);
+        const recoveryClips = [];
+        for (const [pieceIndex, piece] of recoveryParts.entries()) {
+          const reply = await synthesizeSc3Chunk(piece, voice, LOG, attempt ? `${Date.now()}-${index}-${attempt}-${pieceIndex}` : '');
+          const piecePath = path.join(workDir, `recovery-${index}-${pieceIndex}.wav`);
+          fs.writeFileSync(piecePath, reply.buffer);
+          recoveryClips.push(piecePath);
+        }
+        if (recoveryClips.length === 1) fs.copyFileSync(recoveryClips[0], clip);
+        else {
+          const recoveryList = path.join(workDir, `recovery-${index}.txt`);
+          fs.writeFileSync(recoveryList, recoveryClips.map(file => `file '${file.replace(/\\/g, '/')}'`).join('\n'));
+          await run(['-y', '-f', 'concat', '-safe', '0', '-i', recoveryList, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', clip]);
+        }
+        const clipSeconds = await sc3Recovery.duration(ffmpeg, clip);
+        await run(['-y', '-i', clip, '-af', sc3Recovery.fitAudioFilter(clipSeconds, targetSeconds), '-t', String(targetSeconds), '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', fitted]);
+        const checkAudio = path.join(workDir, `check-${index}.wav`);
+        await run(['-y', '-i', fitted, '-ar', '16000', '-ac', '1', checkAudio]);
+        const text = await sc3Recovery.retry(() => runWhisperTranscribe(checkAudio, 900000), LOG);
+        return {text,audio:fs.readFileSync(fitted)};
+      }, result => {
+        fs.writeFileSync(path.join(workDir, `verification-${index}.json`), JSON.stringify({...result,start:section.start,end:section.end},null,2));
+      }), value => value.length>44 && value.toString('ascii',0,4)==='RIFF');
+      fs.writeFileSync(fitted, verified);
+      await appendSilence(section.start - timelineCursor, `gap-${index}`);
+      clips.push(fitted);
+      timelineCursor = section.end;
+      LOG(`     ✔ Sentence ${index + 1} verified (${((Date.now()-ttsStart)/1000).toFixed(1)}s; saved for resume)`);
     }
     LOG(`   ✔ Step 3 done — All ${totalSentences} sentence(s) synthesised`);
+    await appendSilence(sourceSeconds - timelineCursor, 'final-gap');
 
     // ── STEP 4: Merge video + audio ───────────────────────────────────────────
     sendProgress('Step 4/4: Merging video & audio', 90, 'FFmpeg merging video & Chatterbox voice...');
@@ -4881,7 +4959,8 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     const safe = (outputBaseName || path.basename(filePath, path.extname(filePath))).replace(/[^a-z0-9_-]/gi, '_');
     const outputPath = path.join(os.homedir(), 'Downloads', `${safe}-sc3-${Date.now()}.mp4`);
     LOG(`   Muxing final video -> ${path.basename(outputPath)}`);
-    await run(['-y', '-i', filePath, '-i', audio, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-shortest', outputPath]);
+    const [videoSeconds, audioSeconds] = await Promise.all([sc3Recovery.duration(ffmpeg, filePath), sc3Recovery.duration(ffmpeg, audio)]);
+    await sc3Recovery.retry(() => run(sc3Recovery.muxArgs(filePath, audio, outputPath, videoSeconds, audioSeconds)), LOG);
 
     const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
     sendProgress('Complete', 100, 'Saved to Downloads folder');
@@ -4938,7 +5017,7 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
 
     // 2. Transcribe with Whisper (faster-whisper tiny â€” accurate Indian English support)
     console.log('[PP] sc3-narrate-audio: transcribing with Whisper...', path.basename(filePath));
-    const transcript = await runWhisperTranscribe(transcribeWav, 1800000);
+    const transcript = await sc3Recovery.retry(() => runWhisperTranscribe(transcribeWav, 1800000));
     if (!transcript) throw new Error('Whisper could not detect speech. Ensure the file contains clear voice recordings.');
     console.log('[PP] sc3-narrate-audio: transcript', transcript.length, 'chars');
 
@@ -4947,12 +5026,12 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
     console.log('[PP] sc3-narrate-audio: converted text', indianText.length, 'chars');
 
     // 4. Synthesise each sentence with Chatterbox TTS (port 8426, sc3 voice clone)
-    const sentences = splitIntoSentences(indianText, 120);
+    const sentences = splitIntoSentences(indianText, 80);
     console.log('[PP] sc3-narrate-audio: synthesising', sentences.length, 'sentence(s)...');
     const ttsWavFiles = [];
     for (let i = 0; i < sentences.length; i++) {
       console.log('[PP] sc3-narrate-audio: TTS sentence', i + 1, '/', sentences.length);
-      const ttsRaw = await postJsonForBuffer(8426, '/api/narrate', { text: sentences[i], voice }, 180000);
+      const ttsRaw = await synthesizeSc3Chunk(sentences[i], voice);
       if (!ttsRaw || ttsRaw.statusCode !== 200)
         throw new Error('Chatterbox TTS failed for sentence ' + (i + 1));
       const wavFile = path.join(tmpDir, 'narrate-tts-' + stamp + '-' + i + '.wav');

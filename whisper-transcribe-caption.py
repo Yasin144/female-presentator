@@ -16,6 +16,7 @@ if len(sys.argv) < 2:
 audio_path = sys.argv[1]
 lang_hint  = sys.argv[2] if len(sys.argv) > 2 else None  # None = auto-detect language
 context_hint = sys.argv[3] if len(sys.argv) > 3 else ""
+song_mode = len(sys.argv) > 4 and sys.argv[4] == "song"
 
 if not os.path.exists(audio_path):
     print(json.dumps({"error": f"File not found: {audio_path}", "text": "", "words": [], "segments": []}))
@@ -114,7 +115,7 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
         clip_timestamps=clip_timestamps,
         # The retry pass disables VAD because short child words over music are
         # commonly classified as non-speech before Whisper can decode them.
-        vad_filter=not lenient,
+        vad_filter=not (lenient or song_mode),
         vad_parameters={
             # Keep quiet/short opening words instead of trimming them before
             # Whisper can timestamp the first caption.
@@ -154,7 +155,7 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
                     })
 
     full = clean(" ".join(parts))
-    if is_repetition_loop(full):
+    if not song_mode and is_repetition_loop(full):
         return "", info.language, [], []
     return full, info.language, seg_list, word_list
 
@@ -420,7 +421,7 @@ try:
         )
         
         # Pass 2: if it failed/empty, try fallback model
-        if is_repetition_loop(text) or len(text.strip()) < 3:
+        if (not song_mode and is_repetition_loop(text)) or len(text.strip()) < 3:
             try:
                 text2, lang2, segs2, words2 = run_whisper(fallback_model, norm_path, lang_hint)
                 if not is_repetition_loop(text2) and len(text2.strip()) >= 3:

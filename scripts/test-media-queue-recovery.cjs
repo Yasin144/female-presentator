@@ -23,6 +23,7 @@ async function exercise({ failures = 1, exportFailure = '', empty = false } = {}
     captionVideoQueue: [{file:{name:'song.mp4',path:'D:/song.mp4'},status:'ready'}],
     captionQueueRunning:false,captionQueueExporting:false,captionQueueMode:'',captionQueueIndex:0,generatedCaptions:[],
     sourceVideo:{duration:20},statusText:{innerHTML:''},console:{error(){}},
+    document:{getElementById:()=>null},
     createCaptionWhatsAppJob:()=>()=>{},lockCaptionQueueControls(){},renderCaptionQueue(){},loadQueuedCaptionVideo(){},
     waitForQueueVideoReady:async()=>{},startQueueProgressHeartbeat:()=>1,clearInterval(){},
     setCaptionProgressBar(){},speakCaptionStudio(){},notifyCaptionStudio(){},
@@ -57,6 +58,6 @@ test('Sing Song holds ownership during retry delay and checks stop before resumi
   assert.ok(block.indexOf('sc3Queue.processing = true') < block.indexOf('setTimeout'));
   assert.ok(block.indexOf('if (sc3Queue.stopped)') < block.indexOf('_toRetry.forEach'));
   assert.match(script,/function handleSc3VideoSelection\(event\) \{\s*if \(sc3Queue.processing/);
-  assert.match(read('main.cjs'),/splitIntoSentences\(indianText, 80\)/);
-  assert.match(read('main.cjs'),/text: sentence, voice \}, 900000/);
+  assert.match(read('main.cjs'),/sc3Recovery.timedSections\(transcriptParts, sourceSeconds\)/);
+  assert.match(read('main.cjs'),/generationOptions: \{ regenerationKey \} \}, 900000/);
 });

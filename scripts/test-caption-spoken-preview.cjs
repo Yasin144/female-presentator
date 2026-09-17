@@ -45,6 +45,11 @@ test('Caption Burner exported karaoke and plain styles never preload future word
     assert.equal(visible(lines[4]), 'J', 'New alphabet object clears the previous object phrase');
   }
 });
+
+test('held sung notes retain their complete recognized duration', () => {
+  const ass = buildAss([{start:2,end:6,text:'Hello',words:[{text:'Hello',start:2,end:6}]}], settings, {width:1920,height:1080});
+  assert.match(dialogues(ass)[0], /00:00:02\.00,00:00:06\.00/);
+});
 test('Caption Burner does not insert a dominant lesson letter or change recognized names', () => {
   const tokens = ['B', 'for', 'ball', 'B', 'for', 'book', 'Info', 'Kits'];
   const ws = tokens.map((text, i) => ({ text, start: i, end: i + .8 }));
