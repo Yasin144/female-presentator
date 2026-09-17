@@ -487,6 +487,15 @@ function InputPanel() {
           <textarea id="lessonInput" className="lesson-input" placeholder="Type or paste your lesson here"></textarea>
           <details className="classic-optional-tools">
             <summary>Lesson helpers <span>Translation, place values, number tables and alphabet boards</span></summary>
+          <div className="tool-card lesson-pdf-presenter-card">
+            <div className="tool-card-head">
+              <span className="module-icon">PDF</span>
+              <p className="tool-card-title">Present a PDF</p>
+            </div>
+            <p className="upload-copy">Open PDF Presenter to upload and present alphabet, number, or any lesson PDF.</p>
+            <button id="openLessonPdfPresenterBtn" className="primary-btn" type="button"
+              onClick={() => window.dispatchEvent(new Event('pp:open-pdf-presenter'))}>Open PDF Presenter</button>
+          </div>
           <div className="tool-card maths-translator-card">
             <div className="tool-card-head">
               <span className="module-icon">TRN</span>
@@ -661,6 +670,32 @@ plz open ur books!"></textarea>
               <button id="readAlphabetBtn" className="primary-btn" type="button">Display &amp; Say Aloud</button>
             </div>
             <p className="upload-copy" id="alphabetToolStatus">Ready to create the complete A–Z lesson.</p>
+          </div>
+          <div className="tool-card vowels-consonants-card">
+            <div className="tool-card-head">
+              <span className="module-icon" style={{background:'#8b5cf6'}}>AEI</span>
+              <p className="tool-card-title">Vowels &amp; Consonants</p>
+            </div>
+            <p className="upload-copy">A lively English lesson: vowels A, E, I, O, U appear one by one as they are spoken, followed by every consonant.</p>
+            <div className="toolbar toolbar-compact" style={{marginTop:'8px'}}>
+              <button id="applyVowelsConsonantsBtn" className="primary-btn" type="button">Create Lesson</button>
+              <button id="showVowelsConsonantsBtn" className="accent-btn" type="button">Display</button>
+              <button id="sayVowelsConsonantsBtn" className="primary-btn" type="button">Say Aloud</button>
+              <button id="readVowelsConsonantsBtn" className="primary-btn" type="button">Display &amp; Say Aloud</button>
+            </div>
+            <p className="upload-copy" id="vowelsConsonantsToolStatus">Ready to teach all 5 vowels and 21 consonants.</p>
+          </div>
+          <div className="tool-card dynamic-pdf-lesson-card">
+            <div className="tool-card-head">
+              <span className="module-icon" style={{background:'#0ea5e9'}}>PDF</span>
+              <p className="tool-card-title">Dynamic PDF Lesson</p>
+            </div>
+            <p className="upload-copy">Turn the selected PDF page(s) into an attractive lesson. Text appears in order while the teacher reads it aloud.</p>
+            <div className="toolbar toolbar-compact" style={{marginTop:'8px'}}>
+              <button id="createDynamicPdfLessonBtn" className="primary-btn" type="button">Create Lesson</button>
+              <button id="readDynamicPdfLessonBtn" className="accent-btn" type="button">Display &amp; Say Aloud</button>
+            </div>
+            <p className="upload-copy" id="dynamicPdfLessonStatus">Upload a PDF and select pages first.</p>
           </div>
           </details>
           <details className="classic-optional-tools">

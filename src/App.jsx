@@ -189,6 +189,11 @@ function App() {
       } catch (error) { if (requestVersion === navigationVersion.current) setLessonToolNotice(error.message || 'Translate Audio is not ready. Please try again.'); }
     }
   }, [openLessonTool, navigateWorkspace]);
+  useEffect(() => {
+    const openPdfPresenter = () => { void openHomeTool('pdf'); };
+    window.addEventListener('pp:open-pdf-presenter', openPdfPresenter);
+    return () => window.removeEventListener('pp:open-pdf-presenter', openPdfPresenter);
+  }, [openHomeTool]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mobileModalOpen, setMobileModalOpen] = useState(false);
@@ -465,10 +470,15 @@ function App() {
     // narration, timing and rendering fixes.
     const _CB = `?v=${Date.now()}`;
     const legacyAssetRoot = window.location.protocol === 'app:' ? 'app://voice/' : '/';
-    const scriptSources = [
+    // The lesson presenter must never depend on optional 3D/dubbing modules.
+    // If an optional add-on is unavailable, the core canvas/narration engine
+    // still has to load so exports use the current lesson renderer.
+    const coreScriptSources = [
       `${legacyAssetRoot}logo-data.js${_CB}`,
       `${legacyAssetRoot}script.js${_CB}`,
       `${legacyAssetRoot}caption-script.js${_CB}`,
+    ];
+    const optionalScriptSources = [
       `${legacyAssetRoot}vendor/three.min.js`,
       `${legacyAssetRoot}vendor/GLTFLoader.js`,
       `${legacyAssetRoot}3d-engine.js${_CB}`,
@@ -504,7 +514,7 @@ function App() {
 
     if (!window.__presentatorLegacyBootPromise) {
       window.__presentatorLegacyBootPromise = (async () => {
-        for (const src of scriptSources) {
+        for (const src of coreScriptSources) {
           await loadScript(src);
         }
         // Apply styles once scripts have mounted the textarea
@@ -518,6 +528,14 @@ function App() {
     window.__presentatorLegacyBootPromise.catch((error) => {
       console.error("Failed to load legacy engine scripts:", error);
     });
+
+    // Optional enhancements cannot prevent lessons, narration, or exports.
+    void (async () => {
+      for (const src of optionalScriptSources) {
+        try { await loadScript(src); }
+        catch (error) { console.warn("Optional presentation add-on was not loaded:", src, error); }
+      }
+    })();
   }, []);
 
 

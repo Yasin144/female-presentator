@@ -100,6 +100,14 @@ const applyAlphabetBtn = document.getElementById("applyAlphabetBtn");
 const showAlphabetBtn = document.getElementById("showAlphabetBtn");
 const readAlphabetBtn = document.getElementById("readAlphabetBtn");
 const alphabetToolStatus = document.getElementById("alphabetToolStatus");
+const applyVowelsConsonantsBtn = document.getElementById("applyVowelsConsonantsBtn");
+const showVowelsConsonantsBtn = document.getElementById("showVowelsConsonantsBtn");
+const readVowelsConsonantsBtn = document.getElementById("readVowelsConsonantsBtn");
+const sayVowelsConsonantsBtn = document.getElementById("sayVowelsConsonantsBtn");
+const vowelsConsonantsToolStatus = document.getElementById("vowelsConsonantsToolStatus");
+const createDynamicPdfLessonBtn = document.getElementById("createDynamicPdfLessonBtn");
+const readDynamicPdfLessonBtn = document.getElementById("readDynamicPdfLessonBtn");
+const dynamicPdfLessonStatus = document.getElementById("dynamicPdfLessonStatus");
 const workflowStepButtons = Array.from(document.querySelectorAll("[data-workflow-target]"));
 const presentationTemplateToggle = document.getElementById("presentationTemplateOutcomesToggle");
 const presentationTemplateInputs = Array.from(document.querySelectorAll('input[name="presentationTemplate"]'));
@@ -4474,6 +4482,41 @@ const ALPHABET_SAY_ALOUD_ITEMS = [
 ].map(([letter, word, emoji]) => ({ letter, word, emoji }));
 const ALPHABET_ITEM_DURATION_MS = 5000;
 
+const VOWEL_LETTERS = ["A", "E", "I", "O", "U"];
+const CONSONANT_LETTERS = "BCDFGHJKLMNPQRSTVWXYZ".split("");
+
+function getVowelsConsonantsData(textValue = "") {
+  const safeText = String(textValue || "").replace(/\u00a0/g, " ").trim();
+  if (!/\bvowels\s+and\s+consonants\b/i.test(safeText)) return null;
+  const entries = [
+    { kind: "intro", heading: "VOWELS & CONSONANTS", narration: "Now you know how to read and write A B C. Have you ever counted the letters? There are twenty six. All the letters together form the English alphabet." },
+    { kind: "vowel-intro", heading: "VOWELS", narration: "There are five vowels. They give sounds to words. Listen carefully as each vowel appears." },
+    ...VOWEL_LETTERS.map(letter => ({ kind: "vowel", letter, narration: `${letter}.` })),
+    { kind: "consonant-intro", heading: "CONSONANTS", narration: "All the other letters are consonants. There are twenty one consonants. Let us say them together." },
+    ...CONSONANT_LETTERS.map(letter => ({ kind: "consonant", letter, narration: `${letter}.` })),
+    { kind: "finish", heading: "WELL DONE!", narration: "Wonderful. You now know the five vowels and the twenty one consonants." }
+  ];
+  return { title: "VOWELS & CONSONANTS", entries };
+}
+
+function getVowelsConsonantsNarrationText(textValue = "") {
+  const lesson = getVowelsConsonantsData(textValue);
+  return lesson ? lesson.entries.map(entry => entry.narration).join(" ") : "";
+}
+
+function getVowelsConsonantsNarrationChunkEntries(textValue = "") {
+  const lesson = getVowelsConsonantsData(textValue);
+  return lesson ? lesson.entries.map((entry, index, entries) => ({
+    text: entry.narration,
+    // Consonants need a little more thinking time than the vowel set. This
+    // spacing becomes part of the generated audio timeline, so display and
+    // export stay exactly together rather than drifting apart.
+    gapAfterMs: index < entries.length - 1
+      ? (entry.kind === "consonant" ? 620 : (entry.kind === "vowel" ? 460 : 420))
+      : 0
+  })) : null;
+}
+
 function getAlphabetSayAloudData(textValue = "") {
   const safeText = String(textValue || "").replace(/\u00a0/g, " ").trim();
   if (!/\balphabet\s+say\s+aloud\b/i.test(safeText)) return null;
@@ -4949,8 +4992,9 @@ function buildNarrationText(text) {
   // Number tables: enumerate every number so TTS reads each one individually.
   // The sync engine then lights up each grid cell exactly as its number is spoken.
   const numberTableNarration = getNumberTableNarrationText(mainText);
+  const vowelsConsonantsNarration = getVowelsConsonantsNarrationText(mainText);
   const alphabetNarration = getAlphabetNarrationText(mainText);
-  const mainNarration = alphabetNarration || numberTableNarration || buildNarrationLines(mainText).join(" ");
+  const mainNarration = vowelsConsonantsNarration || alphabetNarration || numberTableNarration || buildNarrationLines(mainText).join(" ");
 
   return mainNarration;
 }
@@ -5790,6 +5834,15 @@ function buildSpeechSyncProfileFromChunkDurations(text = "", narrationChunks = [
   const chunkStartsMs = [];
 
   safeDurations.forEach((chunkDurationMs, chunkIndex) => {
+    // combineNarrationBlobs adds an 80ms silence lead-in before a chunk when
+    // the prior chunk has a visible pause. This is real audio time, not an
+    // animation delay. Include it in every cue so later letters cannot drift
+    // progressively ahead of their spoken sound.
+    const previousGapMs = chunkIndex > 0
+      ? Math.max(0, Number(safeChunks[chunkIndex - 1]?.gapAfterMs) || 0)
+      : 0;
+    const leadInMs = previousGapMs > 200 ? 80 : 0;
+    globalCursorMs += leadInMs;
     chunkStartsMs.push(globalCursorMs);
     const chunkUnits = unitsByChunk[chunkIndex] || [];
     if (!chunkUnits.length) {
@@ -13745,11 +13798,16 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   // Use one independently measured audio chunk per letter for every voice.
   // Edge previously bypassed this path, which made visuals advance around
   // twice as fast as its single continuous A-Z narration.
+  const vowelsConsonantsNarrationChunks = options.rawNarrationText === true
+    ? null
+    : getVowelsConsonantsNarrationChunkEntries(text);
   const alphabetNarrationChunks = options.rawNarrationText === true
     ? null
     : getAlphabetNarrationChunkEntries(text);
   const chunkEntries = glossaryNarrationChunks?.length
     ? glossaryNarrationChunks
+    : vowelsConsonantsNarrationChunks?.length
+      ? vowelsConsonantsNarrationChunks
     : alphabetNarrationChunks?.length
       ? alphabetNarrationChunks
       : numberTableNarrationChunks?.length
@@ -17130,6 +17188,46 @@ async function applyAlphabetSayAloudBuilder(options = {}) {
   }
 }
 
+async function applyVowelsConsonantsBuilder(options = {}) {
+  // Always rebuild this small lesson when Create is pressed. Otherwise a
+  // previously prepared audio timeline can keep the old faster consonants.
+  resetNarrationState();
+  lessonInput.value = "# Vowels and Consonants\nVowels and consonants\nInteractive letter lesson";
+  handleLessonInputChange();
+  state.numberTableIntroSuppressed = true;
+  if (vowelsConsonantsToolStatus) vowelsConsonantsToolStatus.textContent = "Ready: each letter will appear exactly when it is spoken.";
+  setStatus(options.readAfterShow
+    ? "Vowels and consonants lesson created. Opening the screen and starting narration."
+    : (options.showScreenAfter ? "Vowels and consonants lesson opened on the screen." : "Vowels and consonants lesson created in the lesson box."));
+  try {
+    if (options.showScreenAfter || options.readAfterShow) await showScreen();
+    if (options.readAfterShow) await playSlide();
+  } finally {
+    state.numberTableIntroSuppressed = false;
+  }
+}
+
+function getDynamicPdfLessonText() {
+  const pages = Array.isArray(state.pdf?.pages) ? state.pdf.pages : [];
+  const selected = pages.filter(page => page?.selected !== false);
+  const texts = selected.map(page => String(page?.text || page?.extractedText || "").trim()).filter(Boolean);
+  return texts.join("\n\n").trim();
+}
+
+async function applyDynamicPdfLessonBuilder(options = {}) {
+  const pdfText = getDynamicPdfLessonText();
+  if (!pdfText) throw new Error("No readable text found. Upload a PDF and select at least one page.");
+  lessonInput.value = pdfText;
+  handleLessonInputChange();
+  state.numberTableIntroSuppressed = true;
+  if (dynamicPdfLessonStatus) dynamicPdfLessonStatus.textContent = `${pdfText.split(/\s+/).length} words prepared from the selected PDF page(s).`;
+  setStatus(options.readAfterShow ? "Dynamic PDF lesson created. Opening the screen and starting narration." : "Dynamic PDF lesson created from the selected PDF page(s).");
+  try {
+    if (options.readAfterShow) { await showScreen(); await playSlide(); }
+    else if (options.showScreenAfter) await showScreen();
+  } finally { state.numberTableIntroSuppressed = false; }
+}
+
 function drawPlaceValueSummaryCard(x, y, width, height, label, value, accentColor) {
   ctx.save();
   ctx.shadowColor = "rgba(5, 24, 31, 0.2)";
@@ -17425,6 +17523,118 @@ function drawNumberTableBoard(contentArea, tableData) {
     });
   });
 
+  ctx.restore();
+}
+
+function getVisibleVowelsConsonantsProgress(lessonData) {
+  const entries = lessonData?.entries || [];
+  if (!entries.length) return { entry: null, index: -1 };
+  if (!state.speaking && !state.exportingVideo) return { entry: entries[entries.length - 1], index: entries.length - 1 };
+  const elapsedMs = state.exportingVideo
+    ? Math.max(0, Number(state.exportCapture?.elapsedMs) || 0)
+    : Math.max(0, Number(state.activeAudio?.currentTime || 0) * 1000);
+  const starts = state.narration?.syncProfile?.profile?.chunkStartsMs || [];
+  let index = 0;
+  for (let next = 0; next < Math.min(entries.length, starts.length); next += 1) {
+    if (elapsedMs >= Math.max(0, Number(starts[next]) || 0)) index = next;
+    else break;
+  }
+  const cueStartMs = Math.max(0, Number(starts[index]) || 0);
+  const nextCueStartMs = Math.max(cueStartMs, Number(starts[index + 1]) || cueStartMs + 1800);
+  const typingDurationMs = Math.min(1100, Math.max(420, (nextCueStartMs - cueStartMs) * 0.55));
+  return { entry: entries[index], index, elapsedMs, cueProgress: clamp((elapsedMs - cueStartMs) / typingDurationMs, 0, 1) };
+}
+
+function drawVowelsConsonantsBoard(contentArea, lessonData) {
+  const { entry, index, cueProgress = 1 } = getVisibleVowelsConsonantsProgress(lessonData);
+  if (!entry) return;
+  const progressive = Boolean(state.speaking || state.exportingVideo);
+  // A text item is invisible before its cue; while its cue is being spoken it
+  // writes character by character, then remains on the lesson board.
+  const typedForCue = (text, revealAt) => {
+    if (!progressive || index > revealAt) return text;
+    if (index < revealAt) return "";
+    return text.slice(0, Math.max(0, Math.ceil(text.length * cueProgress)));
+  };
+  const drawTyped = (text, x, y, revealAt, align = "left") => {
+    const visibleText = typedForCue(text, revealAt);
+    if (!visibleText) return false;
+    ctx.textAlign = align;
+    ctx.fillText(visibleText, x, y);
+    return true;
+  };
+  const accent = "#0095c8";
+  const background = ctx.createLinearGradient(contentArea.x, contentArea.y, contentArea.x, contentArea.y + contentArea.height);
+  background.addColorStop(0, "#edfaff"); background.addColorStop(1, "#fffdf8");
+  ctx.save();
+  ctx.fillStyle = background;
+  ctx.fillRect(contentArea.x, contentArea.y, contentArea.width, contentArea.height);
+  const typedTitle = typedForCue("VOWELS & CONSONANTS", 0);
+  if (typedTitle) {
+    ctx.fillStyle = accent;
+    drawRoundedRect(contentArea.x + 34, contentArea.y + 18, contentArea.width - 68, 62, 31, accent);
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.font = '900 34px "Nunito", "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  drawTyped("VOWELS & CONSONANTS", contentArea.x + contentArea.width / 2, contentArea.y + 49, 0, "center");
+  const textX = contentArea.x + 56;
+  ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = "#172554";
+  ctx.font = '700 20px "Nunito", "Segoe UI", sans-serif';
+  drawTyped("Now you know how to read and write ABC. Have you ever counted the letters?", textX, contentArea.y + 96, 0);
+  drawTyped("There are 26. All the letters together form the English alphabet.", textX, contentArea.y + 122, 0);
+  drawTyped("Vowels give sounds to words.", textX, contentArea.y + 148, 1);
+  const shownVowels = !state.speaking && !state.exportingVideo ? 5 : Math.max(0, Math.min(5, index - 1));
+  const consonantStart = 7;
+  const shownConsonants = !state.speaking && !state.exportingVideo ? 21 : Math.max(0, Math.min(21, index - consonantStart));
+  const drawGroup = (label, subtitle, letters, shown, y, groupAccent, columns, revealAt) => {
+    const typedLabel = typedForCue(label, revealAt);
+    if (typedLabel) {
+      ctx.fillStyle = groupAccent; drawRoundedRect(textX, y, 205, 38, 12, groupAccent);
+      ctx.fillStyle = "#fff"; ctx.font = '900 24px "Nunito", "Segoe UI", sans-serif'; ctx.textBaseline = "middle";
+      drawTyped(label, textX + 102, y + 19, revealAt, "center");
+      ctx.textBaseline = "top"; ctx.fillStyle = "#172554"; ctx.font = '700 22px "Nunito", "Segoe UI", sans-serif';
+      drawTyped(subtitle, textX + 225, y + 8, revealAt);
+    }
+    // Keep every row inside a 16:9 lesson screen. The former large cells pushed
+    // the last consonant row below the canvas on smaller display sizes.
+    const cell = Math.min(columns === 5 ? 76 : 58, (contentArea.width - 112) / columns);
+    const gridX = textX, gridY = y + 54;
+    letters.forEach((letter, letterIndex) => {
+      const row = Math.floor(letterIndex / columns), col = letterIndex % columns;
+      const x = gridX + col * cell, cellY = gridY + row * cell;
+      const visible = letterIndex < shown;
+      const active = entry.letter === letter;
+      const entrance = active && (state.speaking || state.exportingVideo) ? cueProgress : 1;
+      // During playback/export, keep unreached letters off-screen rather than
+      // faintly visible. This makes each reveal and highlight unambiguous.
+      ctx.globalAlpha = (state.speaking || state.exportingVideo) ? (visible ? (active ? entrance : 1) : 0) : 1;
+      ctx.fillStyle = active ? groupAccent : "#ffffff";
+      drawRoundedRect(x + 5, cellY + 5, cell - 10, cell - 10, 14, ctx.fillStyle);
+      ctx.strokeStyle = groupAccent; ctx.lineWidth = active ? 4 : 2;
+      drawRoundedRectAtOrigin(x + 5, cellY + 5, cell - 10, cell - 10, 14); ctx.stroke();
+      ctx.fillStyle = active ? "#ffffff" : "#172554";
+      ctx.font = `900 ${Math.min(62, cell * .55)}px "Nunito", "Segoe UI", sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      if (!active || entrance > 0.04) {
+        ctx.save();
+        if (active && (state.speaking || state.exportingVideo)) {
+          ctx.translate(x + cell / 2, cellY + cell / 2);
+          ctx.scale(0.72 + entrance * 0.28, 0.72 + entrance * 0.28);
+          ctx.fillText(letter, 0, 2);
+        } else {
+          ctx.fillText(letter, x + cell / 2, cellY + cell / 2 + 2);
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    });
+  };
+  drawGroup("VOWELS", "5 vowels: A, E, I, O and U", VOWEL_LETTERS, shownVowels, contentArea.y + 188, "#00a9dc", 5, 1);
+  drawGroup("CONSONANTS", "21 consonants", CONSONANT_LETTERS, shownConsonants, contentArea.y + 326, "#f97316", 7, 7);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#334155"; ctx.font = '800 22px "Nunito", "Segoe UI", sans-serif';
+  drawTyped(entry.letter ? `Listen: ${entry.letter}` : entry.heading, contentArea.x + contentArea.width / 2, contentArea.y + contentArea.height - 25, index, "center");
   ctx.restore();
 }
 
@@ -19670,6 +19880,20 @@ function drawScene(mouthOpen = 0.12) {
   const isAnimatingContent = state.speaking || (state.displayedText && state.displayedText !== state.text);
   const boardSourceText = isAnimatingContent ? (state.displayedText || state.text) : state.text;
   const boardData = getMathPlaceValueBoardData(boardSourceText) || (isAnimatingContent ? getMathPlaceValueBoardData(state.text) : null);
+  const vowelsConsonantsData = getVowelsConsonantsData(state.text) || getVowelsConsonantsData(boardSourceText);
+  if (vowelsConsonantsData) {
+    const contentArea = { x: 42, y: 44, width: canvas.width - 84, height: canvas.height - 88 };
+    state.previewPageIndex = 0;
+    state.renderedPageCount = 1;
+    state.contentScrollOffset = 0;
+    updateStagePageUi(0, 1);
+    drawInfoKidsLogo();
+    drawContentHighlightPanel(contentArea, { insetX: 24, insetY: 20, radius: 30 });
+    drawVowelsConsonantsBoard(contentArea, vowelsConsonantsData);
+    drawRuntimeDisplayErrorOverlay();
+    requestCanvasExportFrame();
+    return;
+  }
   const alphabetSayAloudData = getAlphabetSayAloudData(state.text) || getAlphabetSayAloudData(boardSourceText);
   if (alphabetSayAloudData) {
     const isRealisticAlphabet = alphabetSayAloudData.template === "realistic";
@@ -25989,9 +26213,16 @@ async function exportVideo(options = {}) {
       let exactProfile = null;
       let alignmentError = null;
       const alphabetDataForExport = getAlphabetSayAloudData(exportText);
+      const vowelsConsonantsDataForExport = getVowelsConsonantsData(exportText);
       const measuredAlphabetStarts = alphabetDataForExport
         ? (state.narration?.syncProfile?.profile?.alphabetSlideStartsMs
           || state.narration?.syncProfile?.profile?.chunkStartsMs)
+        : null;
+      // The Vowels & Consonants board has one measured narration clip per
+      // screen item. Whisper word alignment intentionally has no such array;
+      // preserve the clip starts before replacing the profile for export.
+      const measuredVowelsConsonantsStarts = vowelsConsonantsDataForExport
+        ? state.narration?.syncProfile?.profile?.chunkStartsMs
         : null;
       for (let alignmentAttempt = 1; alignmentAttempt <= 2 && !exactProfile?.units?.length; alignmentAttempt += 1) {
         try {
@@ -26014,6 +26245,10 @@ async function exportVideo(options = {}) {
       }
       if (Array.isArray(measuredAlphabetStarts) && measuredAlphabetStarts.length >= alphabetDataForExport.items.length) {
         exactProfile.alphabetSlideStartsMs = measuredAlphabetStarts.slice(0, alphabetDataForExport.items.length);
+      }
+      if (Array.isArray(measuredVowelsConsonantsStarts)
+          && measuredVowelsConsonantsStarts.length >= vowelsConsonantsDataForExport.entries.length) {
+        exactProfile.chunkStartsMs = measuredVowelsConsonantsStarts.slice(0, vowelsConsonantsDataForExport.entries.length);
       }
       state.narration.syncProfile = {
         text: exportText,
@@ -28618,6 +28853,33 @@ if (readAlphabetBtn) {
     void runLockedAction("alphabetSayAloud", [applyAlphabetBtn, showAlphabetBtn, readAlphabetBtn], async () => applyAlphabetSayAloudBuilder({ readAfterShow: true }));
   });
 }
+if (applyVowelsConsonantsBtn) {
+  applyVowelsConsonantsBtn.addEventListener("click", () => {
+    void runLockedAction("vowelsConsonants", [applyVowelsConsonantsBtn, showVowelsConsonantsBtn, sayVowelsConsonantsBtn, readVowelsConsonantsBtn], async () => applyVowelsConsonantsBuilder());
+  });
+}
+if (showVowelsConsonantsBtn) {
+  showVowelsConsonantsBtn.addEventListener("click", () => {
+    void runLockedAction("vowelsConsonants", [applyVowelsConsonantsBtn, showVowelsConsonantsBtn, sayVowelsConsonantsBtn, readVowelsConsonantsBtn], async () => applyVowelsConsonantsBuilder({ showScreenAfter: true }));
+  });
+}
+if (readVowelsConsonantsBtn) {
+  readVowelsConsonantsBtn.addEventListener("click", () => {
+    void runLockedAction("vowelsConsonants", [applyVowelsConsonantsBtn, showVowelsConsonantsBtn, sayVowelsConsonantsBtn, readVowelsConsonantsBtn], async () => applyVowelsConsonantsBuilder({ readAfterShow: true }));
+  });
+}
+if (sayVowelsConsonantsBtn) sayVowelsConsonantsBtn.addEventListener("click", () => {
+  void runLockedAction("vowelsConsonants", [applyVowelsConsonantsBtn, showVowelsConsonantsBtn, sayVowelsConsonantsBtn, readVowelsConsonantsBtn], async () => {
+    await applyVowelsConsonantsBuilder();
+    await playSlide();
+  });
+});
+if (createDynamicPdfLessonBtn) createDynamicPdfLessonBtn.addEventListener("click", () => {
+  void runLockedAction("dynamicPdfLesson", [createDynamicPdfLessonBtn, readDynamicPdfLessonBtn], async () => applyDynamicPdfLessonBuilder());
+});
+if (readDynamicPdfLessonBtn) readDynamicPdfLessonBtn.addEventListener("click", () => {
+  void runLockedAction("dynamicPdfLesson", [createDynamicPdfLessonBtn, readDynamicPdfLessonBtn], async () => applyDynamicPdfLessonBuilder({ readAfterShow: true }));
+});
 lessonInput.addEventListener("input", () => {
   scheduleLessonInputChange(stagePanel && !stagePanel.classList.contains("hidden") ? 0 : 140);
   if (isPureInputModeEnabled()) {

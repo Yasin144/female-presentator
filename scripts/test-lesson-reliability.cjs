@@ -73,6 +73,7 @@ for (const mode of ['story', 'raw', 'alphabet']) {
       getNarrationChunkConfig: () => ({ threshold: 1, maxChunkLength: 20 }),
       getGlossaryNarrationChunkEntries: () => null,
       getNumberTableNarrationChunkEntries: () => null,
+      getVowelsConsonantsNarrationChunkEntries: () => null,
       getAlphabetNarrationChunkEntries: () => mode === 'alphabet' ? chunks : null,
       splitNarrationTextIntoChunks: () => chunks.map(c => c.text),
       normalizeNarrationChunkEntries: c => c,
