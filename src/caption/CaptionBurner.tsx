@@ -203,7 +203,7 @@ export default function CaptionBurner({ onClose }: Props) {
     style: 'white-yellow',
     position: 'custom',
     xPos: 50,
-    yPos: 50,
+    yPos: 90,
     highlightColor: '#facc15',
     language: 'English',
     offset: 0,
@@ -213,7 +213,6 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const vidRef  = useRef<HTMLVideoElement>(null);
-  const reviewedCaptions = useRef<Record<string, string>>({});
   const rafRef  = useRef(0);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const pendingAutoStartIdRef = useRef<string | null>(null);
@@ -507,11 +506,6 @@ export default function CaptionBurner({ onClose }: Props) {
   // Burn captions
   const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal; fontSize?: number } = {}) => {
     if (!item.captions) return null;
-    if (reviewedCaptions.current[item.id] !== JSON.stringify([S, item.captions])) {
-      setActiveId(item.id);
-      setError('Preview required: click Preview caption on video with the current settings, then Export Video.');
-      return null;
-    }
     setError(null);
     notify(opts.phaseName || 'Burn start', item.video.name);
     upd(item.id, { status: 'exporting', message: 'Burning captions…', progress: 0 });
@@ -1775,7 +1769,6 @@ export default function CaptionBurner({ onClose }: Props) {
                     <button type="button" className="mt-2 text-xs text-cyan-300" disabled={!activeItem?.captions?.length} onClick={() => {
                       const cap = activeCap || activeItem?.captions?.[0];
                       if (vidRef.current && cap) {
-                        if (activeItem) reviewedCaptions.current[activeItem.id] = JSON.stringify([S, activeItem.captions]);
                         vidRef.current.pause();
                         vidRef.current.currentTime = Math.max(0, cap.start + S.offset + 0.01);
                         setCurTime(vidRef.current.currentTime);
@@ -1787,7 +1780,7 @@ export default function CaptionBurner({ onClose }: Props) {
 
                 <OptionCard title="Layout">
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <SelectRow label="Position preset" value={S.yPos === 50 ? 'Middle' : S.yPos === 15 ? 'Top' : S.yPos === 85 ? 'Bottom' : 'Custom'} options={['Middle', 'Top', 'Bottom', 'Custom']} onChange={v => setS(s => ({ ...s, position: 'custom', xPos: 50, yPos: v === 'Top' ? 15 : v === 'Bottom' ? 85 : v === 'Middle' ? 50 : s.yPos }))} />
+                    <SelectRow label="Position preset" value={S.yPos === 50 ? 'Middle' : S.yPos === 15 ? 'Top' : S.yPos === 90 ? 'Bottom' : 'Custom'} options={['Middle', 'Top', 'Bottom', 'Custom']} onChange={v => setS(s => ({ ...s, position: 'custom', xPos: 50, yPos: v === 'Top' ? 15 : v === 'Bottom' ? 90 : v === 'Middle' ? 50 : s.yPos }))} />
                     <SliderRow label="Horizontal Position" value={`${S.xPos}%`} min={5} max={95} inputValue={S.xPos} onChange={v => setS(s => ({ ...s, xPos: v, position: 'custom' }))} />
                     <SelectRow label="Backdrop" value={S.bgColor} options={['Black (70%)', 'White (20%)', 'Black', 'Transparent']} onChange={v => setS(s => ({ ...s, bgColor: v as any }))} />
                     <SliderRow label="Vertical Position" value={`${S.yPos}%`} min={5} max={95} inputValue={S.yPos} onChange={v => setS(s => ({ ...s, yPos: v, position: 'custom' }))} />

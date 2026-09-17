@@ -30,16 +30,18 @@ test('custom positions use a middle anchor and exact source-relative coordinates
   }
 });
 
-test('both export paths require a current video preview', () => {
-  assert.match(read('src/caption/CaptionBurner.tsx'), /reviewedCaptions.current\[item.id\] !== JSON.stringify\(\[S, item.captions\]\)/);
+test('preview stays available without blocking Caption Burner exports', () => {
+  assert.doesNotMatch(read('src/caption/CaptionBurner.tsx'), /Preview required:|reviewedCaptions/);
+  assert.match(read('src/caption/CaptionBurner.tsx'), /Preview caption on video/);
+  assert.match(read('src/caption/CaptionBurner.tsx'), /yPos: 90/);
   assert.match(fn('exportActiveCaptionVideoForQueue'), /await confirmCaptionExportPreview/);
   assert.match(legacy, /if \(!await confirmCaptionExportPreview\(\)\) return;/);
 });
 
 test('local captions default to bottom and export without repeated confirmation', () => {
-  assert.match(legacy, /let captionPosY = 0\.85;/);
+  assert.match(legacy, /let captionPosY = 0\.90;/);
   assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionPreset" defaultValue="bottom"/);
-  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionY"[^>]+defaultValue="85"/);
+  assert.match(read('src/components/InputPanel.jsx'), /id="captionPositionY"[^>]+defaultValue="90"/);
   const preview = fn('confirmCaptionExportPreview');
   assert.doesNotMatch(preview, /window\.(confirm|alert|prompt)\(/);
   assert.match(preview, /return true;/);

@@ -329,7 +329,7 @@ function bootCaptionStudio() {
     }
 
     let captionPosX = 0.5;
-    let captionPosY = 0.85;
+    let captionPosY = 0.90;
     const positionXControl = document.getElementById('captionPositionX');
     const positionYControl = document.getElementById('captionPositionY');
     const positionPresetControl = document.getElementById('captionPositionPreset');
@@ -355,7 +355,7 @@ function bootCaptionStudio() {
     positionPresetControl?.addEventListener('change', () => {
         if (positionPresetControl.value !== 'custom') {
             captionPosX = 0.5;
-            captionPosY = positionPresetControl.value === 'top' ? 0.15 : positionPresetControl.value === 'bottom' ? 0.85 : 0.5;
+            captionPosY = positionPresetControl.value === 'top' ? 0.15 : positionPresetControl.value === 'bottom' ? 0.90 : 0.5;
         }
         refreshCaptionPosition();
     });

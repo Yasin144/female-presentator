@@ -1763,7 +1763,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
                 <div style={{ gridColumn: '1 / -1' }}><button id="captionSizePreviewBtn" className="ghost-btn" type="button" disabled>Preview caption on video</button><p style={{ fontSize: 12 }}>Generate captions first. Then check their size on the original video before exporting. Existing burned-in text cannot be changed by this preview.</p></div>
                 <label>Caption position<select id="captionPositionPreset" defaultValue="bottom"><option value="middle">Middle</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="custom">Custom</option></select></label>
                 <label>Horizontal position <output id="captionPositionXValue">50%</output><input id="captionPositionX" type="range" min="5" max="95" defaultValue="50" /></label>
-                <label>Vertical position <output id="captionPositionYValue">85%</output><input id="captionPositionY" type="range" min="5" max="95" defaultValue="85" /></label>
+                <label>Vertical position <output id="captionPositionYValue">90%</output><input id="captionPositionY" type="range" min="5" max="95" defaultValue="90" /></label>
                 <label className="style-field">
                   <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
                     <span className="style-label">Line Spacing Gap</span>
