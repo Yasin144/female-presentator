@@ -27917,7 +27917,7 @@ async function _replaceVideoAudioViaIpc(file) {
     const filePath = window.electronAPI.getPathForFile(file);
     if (!filePath) throw new Error('Could not get file path from Electron. Try restarting the app.');
 
-    const baseName = file.name.replace(/.[^.]+$/i, '') || 'video';
+    const baseName = file.name.replace(/\.[^.]+$/i, '') || 'video';
 
     // Show animated progress — actual work is in the main process
     let pct = 8;
@@ -28025,7 +28025,7 @@ async function _replaceVideoAudioRendererFallback(file) {
       exportQuality: 'hd',
       targetDurationMs: 0,
       holdLastFrameMs: 0,
-      outputFileName: (file.name.replace(/.[^.]+$/i, '') || 'video') + '-sc3-voice.mp4',
+      outputFileName: (file.name.replace(/\.[^.]+$/i, '') || 'video') + '.mp4',
       audioDuckingEnabled: false,
       saveToDefaultPath: false
     });
@@ -28044,7 +28044,7 @@ async function _replaceVideoAudioRendererFallback(file) {
     const resultBlob = await muxResponse.blob();
     if (!resultBlob.size) throw new Error('FFmpeg returned an empty sc3 video.');
 
-    state.singSong.videoResultFileName = (file.name.replace(/.[^.]+$/i, '') || 'video') + '-sc3-voice.mp4';
+    state.singSong.videoResultFileName = (file.name.replace(/\.[^.]+$/i, '') || 'video') + '.mp4';
     state.singSong.videoResultBlob = resultBlob;
     state.singSong.videoResultUrl = URL.createObjectURL(resultBlob);
     state.singSong.videoResultSavedPath = '';

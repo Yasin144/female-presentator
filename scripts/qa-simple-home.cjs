@@ -24,6 +24,7 @@ const report = {
   screens: [], interactions: [], errors: [], console: [], missingAssets: [], mockedNetwork: [], blockedBridge: [], whatsAppBridge: [],
 };
 let window;
+let lastPaint = null;
 let finished = false;
 const timeout = setTimeout(() => finish(new Error('Isolated Home UI QA timed out')), 180000);
 function finish(error) {
@@ -82,6 +83,7 @@ app.whenReady().then(async () => {
   function createWindow(mobileRemote = false, extraArguments = []) {
     window = new BrowserWindow({ width: 1440, height: 1000, useContentSize: true, show: false, webPreferences: { session: isolatedSession, preload: path.join(__dirname, 'qa-app-smoke-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false, additionalArguments: ['--qa-api-methods=' + Buffer.from(JSON.stringify(apiMethods)).toString('base64'), ...(mobileRemote ? ['--qa-mobile-remote'] : []), ...extraArguments] } });
     window.webContents.setFrameRate(30);
+    window.webContents.on('paint', (_event, _rect, image) => { lastPaint = image.toPNG(); });
     window.webContents.setAudioMuted(true);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith('app://voice/')) event.preventDefault(); });
@@ -140,9 +142,18 @@ app.whenReady().then(async () => {
         failedImages: [...document.images].filter(el => visible(el) && el.src && el.complete && el.naturalWidth === 0).map(el => el.src),
         overflowCandidates: [...document.querySelectorAll('.simple-studio *')].filter(visible).filter(el => { const r=el.getBoundingClientRect(); return r.width > innerWidth + 2 && getComputedStyle(el).position !== 'absolute'; }).slice(0, 20).map(el => ({ tag: el.tagName, id: el.id, class: el.className, width: el.getBoundingClientRect().width })) };
     })()`);
-    await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
-    await pause(200);
-    const png = (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG();
+    let png;
+    if (process.argv.includes('--qa-whatsapp-session')) {
+      lastPaint = null;
+      window.webContents.invalidate();
+      for (let attempt = 0; !lastPaint && attempt < 30; attempt++) await pause(100);
+      assert.ok(lastPaint, 'Offscreen renderer produced a screenshot');
+      png = lastPaint;
+    } else {
+      await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
+      await pause(200);
+      png = (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG();
+    }
     const screenshot = path.join(output, name + '.png');
     fs.writeFileSync(screenshot, png);
     const sha256 = crypto.createHash('sha256').update(png).digest('hex');
@@ -578,6 +589,33 @@ app.whenReady().then(async () => {
     report.interactions.push({ name: 'Older backend guard: disabled draft switch, visible actionable warning, no retired sender or opening invocation', ok: true });
   }
 
+  if (process.argv.includes('--qa-whatsapp-session')) {
+    await goHome();
+    await pause(500);
+    const toggle = '.studio-whatsapp-auto button[role="switch"]';
+    assert.equal(await run(`document.querySelector('.studio-whatsapp-options').open`), false, 'Extra display starts collapsed');
+    assert.ok(await run(`document.querySelector('.studio-whatsapp-auto').getBoundingClientRect().height < 160`), 'WhatsApp panel remains compact');
+    await capture('whatsapp-auto-compact', 'WhatsApp alerts');
+    await click('.studio-whatsapp-options > summary');
+    assert.equal(await run(`document.querySelector(${JSON.stringify(toggle)}).disabled`), true, 'Risk consent gates automatic sending');
+    await click('.studio-whatsapp-risk input');
+    await click(toggle);
+    await capture('whatsapp-auto-qr-dark', 'Scan the QR code in Chrome');
+    await click('.studio-whatsapp-auto .studio-whatsapp-draft-actions button');
+    await click('.studio-whatsapp-auto button[aria-expanded]');
+    await capture('whatsapp-auto-connected-dark', 'Voice engine timed out.');
+    assert.equal(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-checked')`), 'true');
+    await click('#studio-theme-toggle');
+    await capture('whatsapp-auto-connected-light', 'Delivered');
+    window.setContentSize(390, 844);
+    await pause(500);
+    await capture('whatsapp-auto-mobile', 'Delivered');
+    await click(toggle);
+    assert.equal(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-checked')`), 'false');
+    assert.equal(report.errors.length, 0, 'No renderer errors');
+    report.interactions.push({ name: 'Automatic WhatsApp consent, QR, connection, history, dark/light, narrow layout and Off', ok: true });
+    finish(); return;
+  }
   const requiredIds = ['inputPanel', 'stagePanel', 'lessonInput', 'showScreenBtn', 'playBtn', 'editBtn', 'pdfInput', 'singSongInput', 'captionVideoInput', 'transcribeAudioInput'];
   const idCounts = await run(`Object.fromEntries(${JSON.stringify(requiredIds)}.map(id => [id, document.querySelectorAll('[id="' + id + '"]').length]))`);
   for (const [id, count] of Object.entries(idCounts)) assert.equal(count, 1, 'Required original control remains unique: ' + id);

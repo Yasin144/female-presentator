@@ -294,7 +294,7 @@ test('the direct HTTP Sing Song fallback reports one terminal success without ex
     assert.equal(f.reports.length, 1);
     assert.equal(f.reports[0].status, 'completed');
     assert.equal(f.reports[0].processName, 'Sing Song video voice replacement');
-    assert.match(f.reports[0].details, prepared ? /^Prepared: source-sc3-voice\.mp4$/ : /^Saved: converted\.mp4$/);
+    assert.match(f.reports[0].details, prepared ? /^Prepared: source\.mp4$/ : /^Saved: converted\.mp4$/);
     assert.doesNotMatch(JSON.stringify(f.reports), /private|example\.invalid/);
     assert.equal(f.state.singSong.processing, false);
   }

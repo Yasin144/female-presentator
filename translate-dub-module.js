@@ -737,7 +737,7 @@
     }
 
     setStatus(message || "Exporting MP4 with translated audio.");
-    const outputName = safeBaseName(state.file && state.file.name) + "-" + state.target.code + "-translated.mp4";
+    const outputName = safeBaseName(state.file && state.file.name) + ".mp4";
     const storyWindow = getStorySpeechWindow();
     const exported = await api().exportTranslatedVideo({
       videoPath: state.filePath,
@@ -774,7 +774,7 @@
 
     setStatus(message || "Exporting synced MP4 with translated audio.");
     setProgress(55, "Sync export", "Starting timestamp-locked export");
-    const outputName = safeBaseName(state.file && state.file.name) + "-" + state.target.code + "-synced-translated.mp4";
+    const outputName = safeBaseName(state.file && state.file.name) + ".mp4";
     const exported = await api().exportSyncedTranslatedVideo({
       videoPath: state.filePath,
       segments,

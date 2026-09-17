@@ -83,3 +83,9 @@ frame_test.jpg
 /vendor/pdf-cutouts/
 /scripts/test_wa.py
 /scripts/test_wa_send.py
+
+# WhatsApp linked-device credentials and private notification history
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+**/whatsapp-session/
+**/whatsapp-session-outbox.json*

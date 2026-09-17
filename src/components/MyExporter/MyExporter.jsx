@@ -798,7 +798,7 @@ export default function MyExporter({ active = true }) {
   const saveCroppedVideo = async () => {
     if (!cropSource || cropSaving) return;
     const base = cropSource.name.replace(/\.[^.]+$/, '');
-    const picked = await window.electronAPI?.showSaveDialog?.({ title: 'Save cropped video directly to this computer', defaultPath: `${base}-cropped.mp4`, filters: [{ name: 'MP4 Video', extensions: ['mp4'] }], buttonLabel: 'Save Cropped Video' });
+    const picked = await window.electronAPI?.showSaveDialog?.({ title: 'Save cropped video directly to this computer', defaultPath: `${base}.mp4`, filters: [{ name: 'MP4 Video', extensions: ['mp4'] }], buttonLabel: 'Save Cropped Video' });
     if (picked?.canceled || !picked?.filePath) return;
     setCropSaving(true); setWarning(''); setProgress({ pct: 1, phase: 'Starting direct local crop save' });
     try {
@@ -2570,7 +2570,7 @@ export default function MyExporter({ active = true }) {
     setWarning('');
     const uploadedName = safeFileBase(mediaLibrary[0]?.name || scenes[0]?.name || 'My-Exporter');
     const hasSavedProjectName = projectPath !== 'Not saved yet' && projectName && projectName !== 'Untitled Project';
-    const exportBaseName = safeFileBase(hasSavedProjectName ? projectName : uploadedName) || 'My-Exporter';
+    const exportBaseName = uploadedName || safeFileBase(hasSavedProjectName ? projectName : 'My-Exporter');
     const dialogResult = await window.electronAPI?.showSaveDialog?.({
       title: 'Export video from My Exporter',
       defaultPath: `${exportBaseName}.mp4`,

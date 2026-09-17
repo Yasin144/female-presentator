@@ -78,6 +78,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWhatsAppAutoSend: () =>
     ipcRenderer.invoke('get-whatsapp-auto-send'),
 
+  whatsAppSessionStatus: () => ipcRenderer.invoke('whatsapp-session-status'),
+  whatsAppSessionEnable: input => ipcRenderer.invoke('whatsapp-session-enable', input),
+  whatsAppSessionConnect: () => ipcRenderer.invoke('whatsapp-session-connect'),
+  whatsAppSessionRetry: input => ipcRenderer.invoke('whatsapp-session-retry', input),
+
   setWhatsAppAutoSend: (enabled) =>
     ipcRenderer.invoke('set-whatsapp-auto-send', enabled),
 

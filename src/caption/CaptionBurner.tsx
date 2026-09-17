@@ -533,7 +533,8 @@ export default function CaptionBurner({ onClose }: Props) {
           duration: item.video.duration,
         },
       );
-      const outputName = item.video.name || 'video.mp4';
+      const outputExtension = result.blob?.type?.includes('webm') ? 'webm' : 'mp4';
+      const outputName = (item.video.name || 'video.mp4').replace(/\.[^.]+$/, '') + '.' + outputExtension;
       
       let saved = { filePath: '', fileName: '' };
       let outputUrl = '';

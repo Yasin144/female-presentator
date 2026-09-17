@@ -103,6 +103,55 @@ function fitAudioFilter(sourceSeconds, targetSeconds) {
   filters.push(`atempo=${rate}`, 'apad');
   return filters.join(',');
 }
+
+function naturalSpeechSeconds(sourceSeconds, targetSeconds) {
+  if (![sourceSeconds, targetSeconds].every(value => Number.isFinite(value) && value > 0)) throw new Error('Invalid speech timing');
+  return Math.max(sourceSeconds, targetSeconds);
+}
+
+function naturalVideoTimeline(sections, videoSeconds) {
+  if (!Number.isFinite(videoSeconds) || videoSeconds <= 0) throw new Error('Invalid video duration');
+  const intervals = [];
+  let cursor = 0, output = 0;
+  const append = (start, end, seconds) => {
+    if (end <= start) return;
+    intervals.push({ start, end, outputStart: output, outputEnd: output + seconds, scale: seconds / (end - start) });
+    output += seconds;
+  };
+  for (const section of sections) {
+    if (![section.start, section.end, section.outputSeconds].every(Number.isFinite) || section.start < cursor ||
+      section.end <= section.start || section.end > videoSeconds + .001 || section.outputSeconds < section.end - section.start - .001)
+      throw new Error('Invalid natural narration timeline');
+    append(cursor, section.start, section.start - cursor);
+    append(section.start, section.end, Math.max(section.outputSeconds, section.end - section.start));
+    cursor = section.end;
+  }
+  append(cursor, videoSeconds, videoSeconds - cursor);
+  return { intervals, seconds: output };
+}
+
+function naturalVideoFilter(timeline) {
+  // Balanced decision tree keeps frame-time evaluation logarithmic even for
+  // hour-long videos. Gaps run at 1x; only longer speech sections slow down.
+  const n = value => Number(value.toFixed(8));
+  const branch = rows => {
+    if (rows.length === 1) {
+      const row = rows[0];
+      return `${n(row.outputStart)}+(T-STARTT-${n(row.start)})*${n(row.scale)}`;
+    }
+    const middle = Math.floor(rows.length / 2);
+    return `if(lt(T-STARTT,${n(rows[middle].start)}),${branch(rows.slice(0,middle))},${branch(rows.slice(middle))})`;
+  };
+  if (!timeline.intervals.length) throw new Error('Empty video timeline');
+  return `setpts='(${branch(timeline.intervals)})/TB',fps=30,tpad=stop_mode=clone:stop_duration=1`;
+}
+
+function naturalMuxArgs(video, audio, output, filterPath, seconds) {
+  return ['-y', '-i', video, '-i', audio, '-map', '0:v:0', '-map', '1:a:0',
+    '-filter_script:v', filterPath, '-af', 'apad', '-t', String(seconds),
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output];
+}
 function narrationTokens(text) {
   return String(text || '').normalize('NFKC').toLowerCase().replace(/[’‘]/g, "'")
     .replace(/\bwon't\b/g, 'will not').replace(/\bcan't\b/g, 'cannot')
@@ -147,4 +196,4 @@ function preserveSourceSound(section) {
   return seconds > 0 && ((seconds <= .4 && /^(um|uh|hmm|hm|ah|oh)$/.test(text)) ||
     (seconds <= 1.5 && /^(choo choo|hmm|hm)$/.test(text)));
 }
-module.exports = { retryable, retry, duration, muxArgs, checkpointDirectory, checkpoint, transcriptionWindows, timedSections, fitAudioFilter, narrationTokens, compareNarration, verifyNarration, recoveryPhrases, preserveSourceSound };
+module.exports = { retryable, retry, duration, muxArgs, checkpointDirectory, checkpoint, transcriptionWindows, timedSections, fitAudioFilter, naturalSpeechSeconds, naturalVideoTimeline, naturalVideoFilter, naturalMuxArgs, narrationTokens, compareNarration, verifyNarration, recoveryPhrases, preserveSourceSound };

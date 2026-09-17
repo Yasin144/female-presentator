@@ -41,6 +41,8 @@ const { jsonrepair } = require('jsonrepair');
 const { Client: MagicHourClient } = require('magic-hour');
 const { registerPdfCountingOcr } = require('./pdf-counting-ocr.cjs');
 const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
+const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
+const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
 const { registerMetaWorkspace, CHANNELS: metaDesktopChannels } = require('./meta-workspace.cjs');
 // Register separately from the mobile RPC/job observer: credentials and selected
@@ -52,6 +54,8 @@ registerPdfCountingOcr(ipcMain, { getTempPath: () => app.getPath('temp') });
 const mobileIpcHandlers = new Map();
 // Only a local desktop click may open WhatsApp on this computer.
 const desktopOnlyIpcChannels = new Set(['open-whatsapp-draft']);
+for (const channel of ['whatsapp-session-status', 'whatsapp-session-enable', 'whatsapp-session-connect']) desktopOnlyIpcChannels.add(channel);
+desktopOnlyIpcChannels.add('whatsapp-session-retry');
 for (const channel of metaDesktopChannels) desktopOnlyIpcChannels.add(channel);
 const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
@@ -136,6 +140,18 @@ let mobileCloudflareFailures = 2;
 const mobileAccessToken = crypto.randomBytes(24).toString('hex');
 
 let whatsAppNotifications = null;
+let whatsAppSession = null;
+function getWhatsAppSession() {
+  if (!whatsAppSession) whatsAppSession = createWhatsAppSession({ getUserDataPath: () => app.getPath('userData') });
+  return whatsAppSession;
+}
+let whatsAppShutdownStarted = false;
+app.on('before-quit', event => {
+  if (!whatsAppSession || whatsAppShutdownStarted) return;
+  event.preventDefault();
+  whatsAppShutdownStarted = true;
+  whatsAppSession.shutdown().finally(() => app.quit());
+});
 app.on('before-quit', () => { whatsAppNotifications?.shutdown(); });
 function getWhatsAppNotifications() {
   if (!whatsAppNotifications) whatsAppNotifications = createWhatsAppDrafts({
@@ -145,7 +161,12 @@ function getWhatsAppNotifications() {
   return whatsAppNotifications;
 }
 function reportWhatsAppJob(event) {
-  try { return getWhatsAppNotifications().notify(event); }
+  try {
+    // One transport per event: no second manual draft for automatically queued work.
+    const session = getWhatsAppSession();
+    if (session.getStatus().enabled) return session.notify(event);
+    return getWhatsAppNotifications().notify(event);
+  }
   catch (_) { return { ok: false, error: 'WhatsApp notifications are unavailable. Your job is unaffected.' }; }
 }
 
@@ -393,12 +414,12 @@ function startMobileHttpServer() {
           }
           let originalName = 'mobile-upload.bin';
           try { originalName = decodeURIComponent(String(req.headers['x-presentator-file-name'] || originalName)); } catch (_) {}
-          const safeName = path.basename(originalName).replace(/[^\w.\- ()]/g, '_').slice(0, 160) || 'mobile-upload.bin';
+          const safeName = path.basename(originalName).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 160) || 'mobile-upload.bin';
           // Keep phone uploads in one visible, user-manageable location. Files
           // remain here until the user chooses to delete them manually.
           const uploadDir = path.join(app.getPath('downloads'), 'Pattan Mobile Uploads');
           fs.mkdirSync(uploadDir, { recursive: true });
-          const filePath = path.join(uploadDir, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safeName}`);
+          const filePath = path.join(fs.mkdtempSync(path.join(uploadDir, 'upload-')), safeName);
           const output = fs.createWriteStream(filePath, { flags: 'wx' });
           let total = 0;
           let failed = false;
@@ -4889,6 +4910,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     LOG(`   Indian English conversion done. ${totalSentences} sentence(s) to synthesise.`);
 
     const clips = [];
+    const naturalSections = [];
     let timelineCursor = 0;
     const appendSilence = async (seconds, name) => {
       if (seconds <= 0.001) return;
@@ -4911,11 +4933,12 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
         await run(['-y', '-ss', String(section.start), '-i', filePath, '-t', String(targetSeconds), '-vn', '-af', 'apad', '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', fitted]);
         await appendSilence(section.start - timelineCursor, `gap-${index}`);
         clips.push(fitted);
+        naturalSections.push({ ...section, outputSeconds: targetSeconds });
         timelineCursor = section.end;
         fs.writeFileSync(path.join(workDir, `verification-${index}.json`), JSON.stringify({mode:'original-source-preserved',text:sentence,start:section.start,end:section.end,reason:'Brief sound retained from source; no synthetic wording substituted.'},null,2));
         continue;
       }
-      const verified = await sc3Recovery.checkpoint(workDir, `verified-v1:${voice}:${sentence}:${targetSeconds}`, () => sc3Recovery.verifyNarration(sentence, async attempt => {
+      const verified = await sc3Recovery.checkpoint(workDir, `verified-natural-v2:${voice}:${sentence}:${targetSeconds}`, () => sc3Recovery.verifyNarration(sentence, async attempt => {
         const recoveryParts = sc3Recovery.recoveryPhrases(sentence, attempt);
         sendProgress(attempt >= 3 ? 'Recovering narration' : 'Checking narration', sentencePct, `Phrase ${index + 1}/${totalSentences}, attempt ${attempt + 1}/6${attempt >= 3 ? `; regenerating ${recoveryParts.length} shorter pieces` : ''}`);
         const clip = path.join(workDir, `voice-${index}.wav`);
@@ -4933,7 +4956,9 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
           await run(['-y', '-f', 'concat', '-safe', '0', '-i', recoveryList, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', clip]);
         }
         const clipSeconds = await sc3Recovery.duration(ffmpeg, clip);
-        await run(['-y', '-i', clip, '-af', sc3Recovery.fitAudioFilter(clipSeconds, targetSeconds), '-t', String(targetSeconds), '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', fitted]);
+        const naturalSeconds = sc3Recovery.naturalSpeechSeconds(clipSeconds, targetSeconds);
+        // Keep voice at 1x. Pad shorter speech, never accelerate or truncate it.
+        await run(['-y', '-i', clip, '-af', 'apad', '-t', String(naturalSeconds), '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', fitted]);
         const checkAudio = path.join(workDir, `check-${index}.wav`);
         await run(['-y', '-i', fitted, '-ar', '16000', '-ac', '1', checkAudio]);
         const text = await sc3Recovery.retry(() => runWhisperTranscribe(checkAudio, 900000), LOG);
@@ -4942,6 +4967,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
         fs.writeFileSync(path.join(workDir, `verification-${index}.json`), JSON.stringify({...result,start:section.start,end:section.end},null,2));
       }), value => value.length>44 && value.toString('ascii',0,4)==='RIFF');
       fs.writeFileSync(fitted, verified);
+      naturalSections.push({ ...section, outputSeconds: await sc3Recovery.duration(ffmpeg, fitted) });
       await appendSilence(section.start - timelineCursor, `gap-${index}`);
       clips.push(fitted);
       timelineCursor = section.end;
@@ -4956,11 +4982,14 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     fs.writeFileSync(list, clips.map(file => `file '${file.replace(/\\/g, '/')}'`).join('\n'));
     const audio = path.join(workDir, 'voice.mp3');
     await run(['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-b:a', '128k', audio]);
-    const safe = (outputBaseName || path.basename(filePath, path.extname(filePath))).replace(/[^a-z0-9_-]/gi, '_');
-    const outputPath = path.join(os.homedir(), 'Downloads', `${safe}-sc3-${Date.now()}.mp4`);
+    const outputPath = createVideoOutputPath(app.getPath('downloads'), outputBaseName ? `${outputBaseName}.mp4` : filePath);
     LOG(`   Muxing final video -> ${path.basename(outputPath)}`);
-    const [videoSeconds, audioSeconds] = await Promise.all([sc3Recovery.duration(ffmpeg, filePath), sc3Recovery.duration(ffmpeg, audio)]);
-    await sc3Recovery.retry(() => run(sc3Recovery.muxArgs(filePath, audio, outputPath, videoSeconds, audioSeconds)), LOG);
+    const videoSeconds = await sc3Recovery.duration(ffmpeg, filePath);
+    const naturalTimeline = sc3Recovery.naturalVideoTimeline(naturalSections, Math.max(sourceSeconds, videoSeconds));
+    const filterPath = path.join(workDir, 'natural-video-timing.txt');
+    fs.writeFileSync(filterPath, sc3Recovery.naturalVideoFilter(naturalTimeline));
+    LOG(`   Natural 1x narration: ${naturalTimeline.seconds.toFixed(2)}s; visuals adjusted per phrase, no voice acceleration.`);
+    await sc3Recovery.retry(() => run(sc3Recovery.naturalMuxArgs(filePath, audio, outputPath, filterPath, naturalTimeline.seconds)), LOG);
 
     const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
     sendProgress('Complete', 100, 'Saved to Downloads folder');
@@ -5079,7 +5108,7 @@ ipcMain.handle('erase-captions', async (event, opts) => {
   const tmpDir  = os.tmpdir();
   const stamp   = Date.now();
   const baseName = path.basename(filePath, path.extname(filePath));
-  const outputMp4 = path.join(os.homedir(), 'Downloads', baseName + '-erased-' + stamp + '.mp4');
+  const outputMp4 = createVideoOutputPath(app.getPath('downloads'), filePath);
   const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
   const FFPROBE = FFMPEG.replace('ffmpeg.exe', 'ffprobe.exe');
 
@@ -5167,7 +5196,7 @@ ipcMain.handle('merge-audio-into-video', async (event, opts) => {
 
   const FFMPEG = findFF();
 
-  const outFile = path.join(os.homedir(), 'Downloads', outputName || ('merged_' + Date.now() + '.mp4'));
+  const outFile = createVideoOutputPath(app.getPath('downloads'), videoPath);
 
   try {
 
@@ -5213,8 +5242,7 @@ ipcMain.handle('export-translated-video', async (_event, opts) => {
   const workDir = ensureCaptionWorkDir('translated-audio');
   const stamp = Date.now();
   const audioPath = path.join(workDir, `translated-${stamp}.mp3`);
-  const safeName = String(outputName || `translated-${stamp}.mp4`).replace(/[<>:"/\\|?*]/g, '_');
-  const outputPath = path.join(path.dirname(videoPath), safeName);
+  const outputPath = createVideoOutputPath(app.getPath('downloads'), videoPath);
   try {
     fs.writeFileSync(audioPath, Buffer.from(String(audioBase64), 'base64'));
     await new Promise((resolve, reject) => {
@@ -5293,11 +5321,10 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const tmpDir  = ensureCaptionWorkDir('burn-subtitles');
   const stamp   = Date.now();
   const downloadsDir = path.join(os.homedir(), 'Downloads');
-  const requestedName = path.basename(String(sourceFileName || path.basename(videoPath)))
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'video.mp4';
+  const requestedName = originalVideoName(sourceFileName || videoPath);
   const parsedName = path.parse(requestedName);
   const exactFileName = `${parsedName.name}${parsedName.ext || '.mp4'}`;
-  const outFile = path.join(downloadsDir, exactFileName);
+  const outFile = createVideoOutputPath(app.getPath('downloads'), requestedName);
   const partialOutFile = path.join(tmpDir, `caption-export-${stamp}.part${parsedName.ext || '.mp4'}`);
   const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
 
@@ -5605,7 +5632,9 @@ ipcMain.handle('open-file', async (event, filePath) => {
       const downloadsDir = path.join(os.homedir(), 'Downloads');
       fs.mkdirSync(downloadsDir, { recursive: true });
       const parsed = path.parse(safeName);
-      let filePath = path.join(downloadsDir, safeName);
+      let filePath = /\.(mp4|mov|webm|mkv|avi)$/i.test(safeName)
+        ? createVideoOutputPath(app.getPath('downloads'), safeName, parsed.ext.slice(1))
+        : path.join(downloadsDir, safeName);
       if (fs.existsSync(filePath)) filePath = path.join(downloadsDir, `${parsed.name}-${Date.now()}${parsed.ext}`);
       const id = crypto.randomUUID();
       const fd = fs.openSync(filePath, 'wx');
@@ -5689,6 +5718,10 @@ ipcMain.handle('open-file', async (event, filePath) => {
   });
 
   ipcMain.handle('get-whatsapp-auto-send', async () => getWhatsAppNotifications().getStatus());
+  ipcMain.handle('whatsapp-session-status', async () => getWhatsAppSession().getStatus());
+  ipcMain.handle('whatsapp-session-enable', async (_event, input) => getWhatsAppSession().setEnabled(input?.enabled, input?.acceptedRisk));
+  ipcMain.handle('whatsapp-session-connect', async () => getWhatsAppSession().connect());
+  ipcMain.handle('whatsapp-session-retry', async (_event, input) => getWhatsAppSession().retry(input?.id, input?.confirmedNotReceived));
   ipcMain.handle('set-whatsapp-auto-send', async (_event, enabled) => getWhatsAppNotifications().setEnabled(enabled));
   ipcMain.handle('open-whatsapp-draft', async (_event, request) => getWhatsAppNotifications().openDraft(request));
   ipcMain.handle('dismiss-whatsapp-draft', async (_event, id) => getWhatsAppNotifications().dismissDraft(id));
@@ -5768,6 +5801,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ App lifecycle Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.whenReady().then(async () => {
+  getWhatsAppSession().start();
   // Recover cleanly even after power loss or a force-killed Electron process.
   // A prior trycloudflare URL must never be advertised as active on a new launch.
   saveMobileLinkState('', { status: 'starting', recoveredAt: new Date().toISOString() });
@@ -6120,6 +6154,8 @@ ipcMain.handle('sing-song-pick-video-folder', async (_event, options = {}) => {
 
 ipcMain.handle('my-exporter-crop-save', async (event, opts) => {
   const { inputPath, outputPath, crop, start, end } = opts;
+  if (path.resolve(inputPath).toLowerCase() === path.resolve(outputPath).toLowerCase())
+    return { ok: false, error: 'Choose a different folder; the original uploaded video cannot be overwritten.' };
   const ffmpeg = findMyExporterFFmpeg();
   const args = ['-y'];
   if (start > 0) args.push('-ss', String(start));
@@ -6171,6 +6207,8 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
   const validation = validateMyExporterJob(opts);
   if (!validation.ok) return { ok: false, error: `Export check failed:\n${validation.errors.join('\n')}`, warnings: validation.warnings };
   const scenes = (Array.isArray(opts?.scenes) ? opts.scenes : []).filter(scene => scene?.path && fs.existsSync(scene.path));
+  if (opts?.outputPath && scenes.some(scene => path.resolve(scene.path).toLowerCase() === path.resolve(opts.outputPath).toLowerCase()))
+    return { ok: false, error: 'Choose a different export folder; an uploaded source cannot be overwritten.' };
   if (!scenes.length) return { ok: false, error: 'Add at least one video or image scene.' };
   const resolutionMap = { '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160], vertical: [1080, 1920], square: [1080, 1080] };
   const [width, height] = resolutionMap[opts?.resolution] || resolutionMap['1080p'];
@@ -6566,11 +6604,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
   const { spawn } = require('child_process');
   const workDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-synced-dub-'));
 
-  // Output next to original file with language tag
-  const srcDir  = path.dirname(videoPath);
-  const srcBase = path.basename(videoPath, path.extname(videoPath));
-  const langTag = String(targetLanguage || 'dubbed').replace(/[^a-z0-9]/gi, '-');
-  const outputPath = path.join(srcDir, `${srcBase}-${langTag}-voice.mp4`);
+  const outputPath = createVideoOutputPath(app.getPath('downloads'), videoPath);
 
   const send = (pct, phase) => {
     try { event.sender.send('translate-dub-progress', { pct, phase }); } catch (_) {}
@@ -6754,7 +6788,7 @@ ipcMain.handle('video-resizer-export', async (event, opts = {}) => {
   const ratioName = String(opts.ratioName || `${width}x${height}`).replace(/[^a-z0-9]+/gi, 'x').replace(/^x|x$/g, '');
   const format = ['mp4', 'mov', 'webm'].includes(String(opts.format)) ? String(opts.format) : 'mp4';
   const baseName = path.basename(inputPath, path.extname(inputPath)).replace(/[<>:"/\\|?*]+/g, '_');
-  const outputPath = path.join(app.getPath('downloads'), `${baseName}_${ratioName}_${width}x${height}.${format}`);
+  const outputPath = createVideoOutputPath(app.getPath('downloads'), inputPath, format);
   const ffmpeg = findFFmpegExecutable();
   const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i, 'ffprobe'));
   const requestedMode = String(opts.mode || 'fit');

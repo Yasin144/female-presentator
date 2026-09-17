@@ -79,3 +79,12 @@
   .simple-studio .studio-preferences .studio-whatsapp-review-toggle { padding: 8px 4px; font-size: 12px; }
   .simple-studio .studio-whatsapp-draft-actions button[data-draft-dismiss] { margin-left: 0; }
 }
+.simple-studio .studio-whatsapp-auto { grid-column: 1 / -1; padding: 12px 16px; border: 1px solid var(--studio-border, #64748b); border-radius: 8px; background: var(--studio-surface, transparent); }
+.simple-studio .studio-whatsapp-auto h2 { font-size: 15px; margin: 0 0 3px; }
+.simple-studio .studio-whatsapp-auto small { font-size: 12px; }
+.simple-studio .studio-whatsapp-options { margin-top: 6px; }
+.simple-studio .studio-whatsapp-options > summary { cursor: pointer; font-size: 12px; padding: 4px 0; }
+.simple-studio .studio-whatsapp-options > summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.simple-studio .studio-whatsapp-auto p { line-height: 1.6; }
+.simple-studio .studio-whatsapp-risk { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; line-height: 1.6; }
+.simple-studio .studio-whatsapp-risk input { margin-top: 6px; }

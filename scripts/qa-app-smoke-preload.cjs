@@ -13,6 +13,8 @@ const whatsapp = {
   ok: true, mode: process.argv.includes('--qa-whatsapp-old-mode') ? 'legacy' : 'drafts', enabled: false,
   recipient: '917386726193', pending: 0, drafts: [], lastAttempt: null,
 };
+const whatsappSession = { ok: true, mode: 'chrome-session', enabled: false, consent: false,
+  recipient: '917386726193', connection: 'off', pending: 0, history: [], error: '' };
 let failNextOpen = false;
 const whatsappCalls = [], whatsappJobs = [];
 const whatsappSeenIds = new Set();
@@ -31,6 +33,19 @@ for (const method of methods) {
   };
 }
 Object.assign(api, {
+  whatsAppSessionStatus: async () => ({ ...whatsappSession }),
+  whatsAppSessionEnable: async input => {
+    if (input.enabled && !whatsappSession.consent && !input.acceptedRisk) return { ...whatsappSession, ok: false, error: 'Consent required.' };
+    whatsappSession.consent ||= input.acceptedRisk === true;
+    whatsappSession.enabled = input.enabled;
+    whatsappSession.connection = input.enabled ? 'scan-qr' : 'off';
+    return { ...whatsappSession };
+  },
+  whatsAppSessionConnect: async () => {
+    whatsappSession.connection = 'ready';
+    whatsappSession.history = [{ id: 'qa-auto-job', status: 'failed', processName: 'Sing Song', details: 'Voice engine timed out.', delivery: 'delivered', at: new Date().toISOString() }];
+    return { ...whatsappSession };
+  },
   metaStatus: async () => ({ ...metaState }),
   metaSaveKey: async input => { metaState[input.kind === 'local' ? 'hasLocalKey' : 'hasCloudKey'] = true; return { ...metaState }; },
   metaForgetKey: async kind => { metaState[kind === 'local' ? 'hasLocalKey' : 'hasCloudKey'] = false; if (kind === 'cloud') metaState.cloudModels = []; return { ...metaState }; },

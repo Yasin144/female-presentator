@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import StudioIcon from './StudioIcon';
+import WhatsAppSession from './WhatsAppSession';
 import {
   readWhatsAppStatus, changeWhatsAppEnabled, openWhatsAppDraft, dismissWhatsAppDraft,
   safeWhatsAppError, describeWhatsAppAttempt, formatWhatsAppDraft, formatWhatsAppDraftTime,
@@ -109,6 +110,7 @@ export default function StudioPreferences({ appTheme, onToggleTheme }) {
 
   return (
     <section className="studio-preferences" aria-label="App preferences" ref={preferencesRef}>
+      <WhatsAppSession />
       <div className="studio-whatsapp-preference">
         <button type="button" className="studio-preference-button" id="studio-whatsapp-status"
           role="switch" aria-label="WhatsApp drafts" aria-checked={status?.enabled === true}
