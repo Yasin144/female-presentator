@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { safeWhatsAppError } from '../studioPreferences.mjs';
+import StudioIcon from './StudioIcon';
 
 const connections = { off: 'Off', disconnected: 'Disconnected', connecting: 'Opening Chrome…',
   'scan-qr': 'Scan the QR code in Chrome', loading: 'Loading WhatsApp…', ready: 'Connected' };
@@ -7,7 +8,7 @@ const deliveries = { queued: 'Waiting to send', sending: 'Sending…', submitted
   accepted: 'Accepted by WhatsApp', delivered: 'Delivered', uncertain: 'Check WhatsApp · send unconfirmed',
   failed: 'Notification failed', cancelled: 'Not sent · switched off' };
 
-export default function WhatsAppSession() {
+export default function WhatsAppSession({ compact = false }) {
   const [status, setStatus] = useState(null);
   const [risk, setRisk] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -15,6 +16,7 @@ export default function WhatsAppSession() {
   const [expanded, setExpanded] = useState(false);
   const pending = useRef(false);
   const alive = useRef(true);
+  const options = useRef(null);
   const api = window.electronAPI;
   const available = !api?.isMobileRemote && typeof api?.whatsAppSessionStatus === 'function';
   useEffect(() => {
@@ -25,7 +27,7 @@ export default function WhatsAppSession() {
       pending.current = true;
       try {
         const next = await api.whatsAppSessionStatus();
-        if (alive.current) { setStatus(next); setError(''); }
+        if (alive.current) { setStatus(next); }
       } catch { if (alive.current) setError('Restart the desktop app when idle to load WhatsApp automatic notifications.'); }
       finally { pending.current = false; }
     };
@@ -44,16 +46,21 @@ export default function WhatsAppSession() {
   };
   return <div className="studio-whatsapp-auto" aria-label="Automatic WhatsApp notifications">
     <div className="studio-whatsapp-heading">
-      <div><h2>WhatsApp alerts</h2><small>Only +91 7386726193 · {connections[status?.connection] || 'Checking…'}{status?.pending ? ` · ${status.pending} waiting` : ''}</small></div>
-      <button type="button" className="studio-whatsapp-review-toggle" role="switch"
+      <button type="button" className="studio-icon-toggle is-whatsapp" role="switch"
+        title={`WhatsApp alerts: ${status?.enabled ? 'On — click to turn off' : 'Off — click to turn on'}. Only +91 7386726193`}
         aria-label="Automatic WhatsApp notifications" aria-checked={status?.enabled === true}
-        disabled={!available || !status || busy || (!status.enabled && !status.consent && !risk)}
-        onClick={() => act(() => api.whatsAppSessionEnable({ enabled: !status.enabled, acceptedRisk: risk }))}>
-        {status?.enabled ? 'On — turn off' : 'Off — turn on'}
+        disabled={!available || !status || busy}
+        onClick={() => {
+          if (!status.enabled && !status.consent && !risk) { options.current.open = true; setError('Before turning on WhatsApp, review and accept the setup warning below.'); return; }
+          act(() => api.whatsAppSessionEnable({ enabled: !status.enabled, acceptedRisk: risk }));
+        }}>
+        <StudioIcon name="whatsapp" size={compact ? 22 : 25} />{!compact && <><span>WhatsApp</span><small>{busy ? 'Saving…' : status?.enabled ? 'On' : 'Off'}</small></>}
       </button>
+      {!compact && <small className="studio-connection-status" role="status">{connections[status?.connection] || 'Checking…'}</small>}
     </div>
-    <details className="studio-whatsapp-options">
+    <details className="studio-whatsapp-options" ref={options}>
     <summary>Setup &amp; history</summary>
+    {compact && <button type="button" className="studio-whatsapp-review-toggle" onClick={() => { options.current.open = false; setError(''); }}>Close</button>}
     <p>Completed and failed jobs go only to +91 7386726193. Chrome minimizes after connecting; your personal Chrome windows stay unchanged.</p>
     <p className="studio-whatsapp-notice">Unofficial integration: WhatsApp changes can interrupt sending or lead to account restrictions. Only job status, process names, output filenames and sanitized failure reasons are sent—not videos or full logs.</p>
     {!status?.consent && <label className="studio-whatsapp-risk"><input type="checkbox" checked={risk} onChange={event => setRisk(event.target.checked)} disabled={busy || !available} /> I understand the unofficial-integration risk and allow automatic notifications to this number.</label>}
@@ -83,6 +90,6 @@ export default function WhatsAppSession() {
       </div>}
     </>}
     </details>
-    {(error || status?.error) && <p className="studio-preference-error" role="alert">{error || status.error}</p>}
+    {(error || status?.error) && <div className="studio-preference-error" role="alert"><span><strong>WhatsApp warning</strong><br />{error || status.error}<br />Open Setup &amp; history to check the connection. Waiting jobs are not proof of delivery.</span><button type="button" onClick={() => { options.current.open = true; }}>View setup</button></div>}
   </div>;
 }

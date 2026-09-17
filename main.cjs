@@ -161,6 +161,13 @@ function getWhatsAppNotifications() {
   return whatsAppNotifications;
 }
 function reportWhatsAppJob(event) {
+  if (event?.status === 'failed') {
+    try {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('app-operation-warning', { message: String(event.details || 'The operation failed.').slice(0, 600) });
+      }
+    } catch (_) { /* Warning display must not affect the job or its notification. */ }
+  }
   try {
     // One transport per event: no second manual draft for automatically queued work.
     const session = getWhatsAppSession();

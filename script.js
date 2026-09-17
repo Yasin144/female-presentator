@@ -1608,6 +1608,7 @@ function showRuntimeDisplayError(message, options = {}) {
   }
 
   state.runtimeErrorMessage = cleanMessage;
+  window.dispatchEvent(new CustomEvent('pattan-warning', { detail: { message: cleanMessage } }));
   if (options.updateStatus !== false) {
     applyStatusMessage(statusText, `Error: ${cleanMessage}`, { error: true });
   }

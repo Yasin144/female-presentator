@@ -11,6 +11,11 @@ const videoResizerProgressHandlers = new Map();
 
 // ─── Expose a secure, limited API to the renderer via window.electronAPI ─────
 contextBridge.exposeInMainWorld('electronAPI', {
+  onAppWarning: callback => {
+    const handler = (_event, payload) => callback({ message: String(payload?.message || '') });
+    ipcRenderer.on('app-operation-warning', handler);
+    return () => ipcRenderer.removeListener('app-operation-warning', handler);
+  },
 
   metaStatus: () => ipcRenderer.invoke('meta-status'),
   metaSaveKey: input => ipcRenderer.invoke('meta-save-key', input),

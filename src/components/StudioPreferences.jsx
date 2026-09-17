@@ -6,7 +6,7 @@ import {
   safeWhatsAppError, describeWhatsAppAttempt, formatWhatsAppDraft, formatWhatsAppDraftTime,
 } from '../studioPreferences.mjs';
 
-export default function StudioPreferences({ appTheme, onToggleTheme }) {
+export default function StudioPreferences({ appTheme, onToggleTheme, compact = false }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('loading');
   const [error, setError] = useState(null);
@@ -42,6 +42,7 @@ export default function StudioPreferences({ appTheme, onToggleTheme }) {
 
   useEffect(() => {
     mounted.current = true;
+    if (compact) return () => { mounted.current = false; };
     refresh();
     const refreshVisible = () => {
       if (document.visibilityState === 'visible' && preferencesRef.current?.getClientRects().length) refresh({ quiet: true });
@@ -53,7 +54,7 @@ export default function StudioPreferences({ appTheme, onToggleTheme }) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refreshVisible);
     };
-  }, [refresh]);
+  }, [refresh, compact]);
 
   useEffect(() => { if (reviewOpen) reviewHeadingRef.current?.focus(); }, [reviewOpen]);
 
@@ -108,10 +109,20 @@ export default function StudioPreferences({ appTheme, onToggleTheme }) {
     reviewHeadingRef.current?.focus();
   });
 
+  if (compact) return <section className="studio-preferences studio-header-icons" aria-label="App preferences">
+    <WhatsAppSession compact />
+    <button type="button" className="studio-icon-toggle is-moon" id="studio-theme-toggle"
+      role="switch" aria-label="Dark mode" aria-checked={appTheme === 'dark'}
+      title={`Dark mode ${appTheme === 'dark' ? 'on' : 'off'} — click to toggle`} onClick={onToggleTheme}>
+      <StudioIcon name="moon" size={22} />
+    </button>
+  </section>;
+
   return (
     <section className="studio-preferences" aria-label="App preferences" ref={preferencesRef}>
       <WhatsAppSession />
-      <div className="studio-whatsapp-preference">
+      <details className="studio-whatsapp-preference studio-manual-options">
+        <summary>Manual drafts</summary>
         <button type="button" className="studio-preference-button" id="studio-whatsapp-status"
           role="switch" aria-label="WhatsApp drafts" aria-checked={status?.enabled === true}
           aria-describedby="studio-whatsapp-description" aria-busy={Boolean(busy)}
@@ -128,13 +139,12 @@ export default function StudioPreferences({ appTheme, onToggleTheme }) {
             {reviewOpen ? 'Hide drafts' : `Review drafts (${status?.pending || 0})`}
           </button>
         </div>
-      </div>
-      <button type="button" className="studio-preference-button" id="studio-theme-toggle"
+      </details>
+      <button type="button" className="studio-icon-toggle is-moon" id="studio-theme-toggle"
         role="switch" aria-label="Dark mode" aria-checked={appTheme === 'dark'}
-        aria-describedby="studio-theme-description" onClick={onToggleTheme}>
-        <StudioIcon name="moon" size={21} />
-        <span className="studio-preference-copy"><strong>Dark mode</strong><small id="studio-theme-description">App only · videos stay unchanged</small></span>
-        <span className="studio-preference-state" aria-hidden="true">{appTheme === 'dark' ? 'On' : 'Off'}</span>
+        title={`Dark mode: ${appTheme === 'dark' ? 'On — click to turn off' : 'Off — click to turn on'}. Videos stay unchanged.`} onClick={onToggleTheme}>
+        <StudioIcon name="moon" size={25} />
+        <span>Dark mode</span><small>{appTheme === 'dark' ? 'On' : 'Off'}</small>
       </button>
       {reviewOpen && <div className="studio-whatsapp-drafts" id="studio-whatsapp-drafts" role="region" aria-labelledby="studio-whatsapp-drafts-heading">
         <div className="studio-whatsapp-heading">

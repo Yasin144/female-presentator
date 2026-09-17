@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import AppWarnings from './components/AppWarnings.jsx'
 import AndroidLauncher, { isPackagedAndroidLauncher } from './components/AndroidLauncher.jsx'
 import './classic-presentator.css'
 import './classic-modules.css'
@@ -149,4 +150,4 @@ if (!window.electronAPI) {
   };
 }
 
-createRoot(document.getElementById('root')).render(isPackagedAndroidLauncher() ? <AndroidLauncher /> : <App />)
+createRoot(document.getElementById('root')).render(isPackagedAndroidLauncher() ? <AndroidLauncher /> : <><App /><AppWarnings /></>)

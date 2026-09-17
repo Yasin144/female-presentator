@@ -1,6 +1,7 @@
 import React from 'react';
 
 const paths = {
+  whatsapp: <><path d="M20.5 11.5a8.5 8.5 0 0 1-12.7 7.4L3 20l1.1-4.7a8.5 8.5 0 1 1 16.4-3.8Z"/><path d="m8 7 2 3-1 1c1 2 2 3 4 4l1-1 3 1c0 2-2 3-4 2-4-1-7-5-7-7 0-2 1-3 2-3Z"/></>,
   presentator: <><rect x="3" y="3" width="18" height="13" rx="1.5"/><path d="M8 21l4-5 4 5M7 7h10M7 11h6"/></>,
   quotes: <><path d="M4 5h16v12H9l-5 4V5Z"/><path d="M8 9h3v4H8v-2c0-1 1-2 2-2m4 0h3v4h-3v-2c0-1 1-2 2-2"/></>,
   exporter: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5m8-5v5m-6 3 5 3-5 3v-6Z"/></>,

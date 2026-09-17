@@ -535,6 +535,7 @@ function App() {
             <button className="studio-connect studio-topbar-button" type="button" onClick={() => setMobileModalOpen(true)} title="Connect your phone" aria-label="Connect your phone"><StudioIcon name="phone" size={18} /><span>Connect phone</span></button>
           </>}
           {currentModule === 'presentator' && ['pdfSection', 'lessonContentSection'].includes(activeLessonTool) && <button className="simple-appearance-button" type="button" onClick={() => setPanelOpen(value => !value)}><StudioIcon name="settings" size={17} />Text appearance</button>}
+          <StudioPreferences compact appTheme={appTheme} onToggleTheme={() => setAppTheme(value => value === 'dark' ? 'light' : 'dark')} />
         </div>
       </header>
 
@@ -542,7 +543,7 @@ function App() {
       <div className="studio-content" id="studio-main" style={{ height: '100%' }}>
         {lessonToolNotice && <div className="studio-tool-notice" role="alert"><span>{lessonToolNotice}</span><button type="button" aria-label="Dismiss tool notice" onClick={() => setLessonToolNotice('')}><StudioIcon name="close" size={18} /></button></div>}
         <div className="studio-home-workspace" data-workspace="home" style={{ display: currentModule === 'home' && !captionOpen && !translatorOpen ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-          <StudioHome onOpen={openHomeTool} preferences={<StudioPreferences appTheme={appTheme} onToggleTheme={() => setAppTheme(value => value === 'dark' ? 'light' : 'dark')} />} />
+          <StudioHome onOpen={openHomeTool} />
         </div>
         {/* ── Full-screen Caption Burner ── */}
         <div className="studio-caption-workspace" data-workspace="caption" style={{ display: captionOpen ? 'block' : 'none', height: '100%' }}>

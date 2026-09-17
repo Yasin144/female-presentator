@@ -88,3 +88,40 @@
 .simple-studio .studio-whatsapp-auto p { line-height: 1.6; }
 .simple-studio .studio-whatsapp-risk { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; line-height: 1.6; }
 .simple-studio .studio-whatsapp-risk input { margin-top: 6px; }
+
+/* Compact, keyboard-accessible quick controls; details expand only on demand. */
+.simple-studio .studio-preferences { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.simple-studio .studio-whatsapp-auto { padding: 0; border: 0; background: none; max-width: 640px; }
+.simple-studio .studio-whatsapp-auto .studio-whatsapp-heading { align-items: center; gap: 10px; }
+.simple-studio .studio-preferences .studio-icon-toggle {
+  display: inline-flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px;
+  width: 88px; min-height: 88px; margin: 0; padding: 10px 6px; border-radius: 20px;
+  border: 1px solid transparent; background: transparent; color: #425c66;
+  box-shadow: none; font: 600 12px/1.3 'Segoe UI', sans-serif;
+  text-transform: none; letter-spacing: 0; cursor: pointer;
+}
+.simple-studio .studio-icon-toggle::after { display: none; }
+.simple-studio .studio-icon-toggle small { font-size: 10px; }
+.simple-studio .studio-preferences .studio-icon-toggle[aria-checked] { color: #425c66; border-color: transparent; background: transparent; box-shadow: none; }
+.simple-studio .studio-icon-toggle:disabled { opacity: .55; cursor: wait; }
+.simple-studio .studio-connection-status { max-width: 150px; }
+.simple-studio .studio-manual-options { order: 3; font-size: 12px; padding: 10px 0; }
+.simple-studio .studio-manual-options > summary { cursor: pointer; padding: 8px; }
+.simple-studio .studio-manual-options[open] { flex-basis: 100%; }
+.simple-studio .studio-whatsapp-drafts, .simple-studio .studio-preference-error, .simple-studio .studio-preference-feedback { flex-basis: 100%; }
+.simple-studio .studio-preference-error { padding: 12px; border: 1px solid #d19a52; border-radius: 10px; background: #fff4dd; color: #743d15; overflow-wrap: anywhere; }
+.simple-studio[data-app-theme='dark'] .studio-preferences .studio-icon-toggle[aria-checked] { background: transparent; color: #d2dfe5; border-color: transparent; box-shadow: none; }
+.simple-studio[data-app-theme='dark'] .studio-preference-error { background: #382b20; color: #ffd1a2; }
+.app-warning-panel { position: fixed; bottom: 20px; right: 20px; z-index: 10000; width: min(390px, calc(100vw - 40px)); max-height: 50vh; overflow: auto; box-sizing: border-box; padding: 18px; border: 1px solid #d4a24a; border-radius: 14px; background: #fff5de; color: #573914; box-shadow: 0 10px 36px #0004; font: 14px/1.5 'Segoe UI', sans-serif; overflow-wrap: anywhere; }
+.app-warning-panel p { margin: 8px 0; }
+.app-warning-panel button { margin-top: 10px; padding: 8px 12px; border: 1px solid #a37b3f; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+
+.simple-studio .studio-preferences.studio-header-icons { flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 0 0 8px; position: relative; }
+.simple-studio .studio-header-icons .studio-icon-toggle { width: 42px; height: 42px; min-height: 42px; padding: 9px; border-radius: 50%; flex-shrink: 0; }
+.simple-studio .studio-header-icons .studio-whatsapp-auto { margin: 0; padding: 0; }
+.simple-studio .studio-header-icons .studio-whatsapp-options:not([open]) { display: none; }
+.simple-studio .studio-header-icons .studio-whatsapp-options[open] { position: absolute; top: 50px; right: 0; width: min(390px, calc(100vw - 32px)); max-height: 65vh; overflow: auto; padding: 16px; box-sizing: border-box; border-radius: 12px; border: 1px solid #8c9b9f; background: #f4f7f6; color: #243746; box-shadow: 0 12px 30px #0004; z-index: 10000; }
+.simple-studio[data-app-theme='dark'] .studio-header-icons .studio-whatsapp-options[open] { background: #172833; color: #e5ebe9; }
+.simple-studio .studio-header-icons .studio-preference-error { position: absolute; right: 0; top: 52px; width: min(320px, calc(100vw - 48px)); z-index: 10001; }
+.simple-studio .studio-header-icons .studio-whatsapp-options[open] ~ .studio-preference-error { position: fixed; top: auto; bottom: 20px; right: 20px; }
+@media (max-width: 700px) { .simple-studio .simple-topbar-actions { gap: 4px; } .simple-studio .studio-preferences.studio-header-icons { gap: 4px; margin-left: 0; } }
