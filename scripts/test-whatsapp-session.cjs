@@ -242,3 +242,25 @@ test('current WhatsApp message keys retain real serialized IDs in outgoing recei
   vm.runInNewContext(`(${installMessageKeyCompatibility.toString()})()`, { window: mockWindow });
   assert.equal(mockWindow.WWebJS.getMessageModel, wrapped, 'Repeated setup is idempotent');
 });
+
+test('notification page blocks manual inputs only, survives repeated setup and leaves other sites alone', () => {
+  const vm = require('node:vm');
+  const { installNotificationReadOnly } = require('../whatsapp-session.cjs');
+  for (const hostname of ['web.whatsapp.com', 'example.com']) {
+    const handlers = new Map();
+    let notices = 0;
+    const context = { location: { hostname }, window: { addEventListener(type, fn) { handlers.set(type, fn); } },
+      document: { body: { appendChild() { notices++; } }, getElementById: () => null, createElement: () => ({ style: {} }) } };
+    vm.runInNewContext(`(${installNotificationReadOnly.toString()})()`, context);
+    vm.runInNewContext(`(${installNotificationReadOnly.toString()})()`, context);
+    if (hostname !== 'web.whatsapp.com') { assert.equal(handlers.size, 0); assert.equal(notices, 0); continue; }
+    assert.equal(notices, 1);
+    for (const type of ['keydown', 'paste', 'beforeinput', 'drop', 'click', 'submit']) {
+      for (const trusted of [true, false]) {
+        let prevented = false, stopped = false;
+        handlers.get(type)({ isTrusted: trusted, preventDefault() { prevented = true; }, stopImmediatePropagation() { stopped = true; } });
+        assert.equal(prevented, trusted); assert.equal(stopped, trusted);
+      }
+    }
+  }
+});

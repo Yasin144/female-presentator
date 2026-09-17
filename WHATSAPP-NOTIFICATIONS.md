@@ -13,8 +13,12 @@ needed. The dedicated Chrome window automatically minimizes after connecting.
 Sending is locked to `917386726193@c.us` or a WhatsApp LID whose reverse phone
 mapping confirms that exact number; groups, mismatched numbers and unverified
 aliases are blocked. Job payloads cannot supply another recipient.
-This restricts the app's notification sender, not messages you manually send
-yourself in your own WhatsApp account.
+The dedicated notification page blocks manual typing, pasting, dropping files,
+and clicking chat controls. QR linking by scanning with your phone and automatic
+notifications remain available. The guard is installed for each new document.
+Normal Chrome windows and your phone are unaffected. This is a page-level UI
+guard, not a browser/OS security boundary: browser controls and developer tools
+are not locked. The fixed-recipient backend still restricts automatic messages.
 
 The existing job-event reporting sends completion/failure notices for Sing Song,
 PDF/lesson narration and export, captions, transcription, translation, resizer,

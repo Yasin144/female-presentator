@@ -44,6 +44,34 @@ async function minimizeSessionWindow(client) {
   } catch { /* Window management must never break notifications. */ }
   finally { try { await session?.detach(); } catch {} }
 }
+
+// Runs only inside the dedicated notification client's page. This is a UI
+// guard, not a Chrome/OS security boundary; the fixed-recipient backend remains
+// responsible for restricting every automatic message.
+function installNotificationReadOnly() {
+  if (location.hostname !== 'web.whatsapp.com' || window.__pattanNotificationReadOnly) return;
+  window.__pattanNotificationReadOnly = true;
+  const blockManualInput = event => {
+    if (!event.isTrusted) return; // Programmatic library operations remain available.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'paste', 'cut', 'drop',
+    'dragstart', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick',
+    'contextmenu', 'touchstart', 'touchend', 'submit']) {
+    window.addEventListener(type, blockManualInput, { capture: true, passive: false });
+  }
+  const showNotice = () => {
+    if (!document.body || document.getElementById('pattan-notification-readonly')) return;
+    const notice = document.createElement('div');
+    notice.id = 'pattan-notification-readonly';
+    notice.textContent = 'Notifications only · Manual input disabled · Scan QR with your phone to link';
+    notice.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:8px;text-align:center;background:#14212c;color:#fff;font:12px system-ui;pointer-events:none';
+    document.body.appendChild(notice);
+  };
+  if (document.body) showNotice();
+  else document.addEventListener('DOMContentLoaded', showNotice, { once: true });
+}
 const bounded = (promise, ms) => {
   let timer;
   return Promise.race([Promise.resolve(promise), new Promise((_, reject) => {
@@ -58,6 +86,7 @@ function defaultClient(directory) {
   if (!chrome) throw new Error('Google Chrome is not installed. Install Chrome before linking WhatsApp.');
   const { Client, LocalAuth } = require('whatsapp-web.js');
   const client = new Client({
+    evalOnNewDoc: installNotificationReadOnly,
     authStrategy: new LocalAuth({ clientId: 'pattan-notifications', dataPath: path.join(directory, 'whatsapp-session') }),
     webVersionCache: { type: 'none' },
     deviceName: 'Pattan Workspace notifications',
@@ -67,7 +96,10 @@ function defaultClient(directory) {
     puppeteer: { executablePath: chrome, headless: false, timeout: 60000,
       args: ['--window-size=900,760'], protocolTimeout: 60000 },
   });
-  client.prepareNotifications = () => client.pupPage.evaluate(installMessageKeyCompatibility);
+  client.prepareNotifications = async () => {
+    await client.pupPage.evaluate(installNotificationReadOnly);
+    await client.pupPage.evaluate(installMessageKeyCompatibility);
+  };
   return client;
 }
 
@@ -316,4 +348,4 @@ function createWhatsAppSession({ getUserDataPath, clientFactory = defaultClient,
   return { getStatus, setEnabled, connect, notify, retry, start, shutdown };
 }
 
-module.exports = { createWhatsAppSession, defaultClient, minimizeSessionWindow, installMessageKeyCompatibility };
+module.exports = { createWhatsAppSession, defaultClient, minimizeSessionWindow, installMessageKeyCompatibility, installNotificationReadOnly };
