@@ -11,14 +11,21 @@ export default function AppWarnings() {
     const error = event => { if (event.message || event.error) add(event.error || event.message, 'App error'); };
     const rejection = event => add(event.reason, 'Background operation');
     const job = event => add(event.detail?.message, 'Operation failed');
+    const resolved = event => {
+      if (event.detail?.category === 'voice-server') {
+        setWarnings(items => items.filter(item => !/^Anjali clone server stopped\./i.test(item.message)));
+      }
+    };
     window.addEventListener('error', error);
     window.addEventListener('unhandledrejection', rejection);
     window.addEventListener('pattan-warning', job);
+    window.addEventListener('pattan-warning-resolved', resolved);
     const unsubscribe = window.electronAPI?.onAppWarning?.(payload => add(payload?.message, 'Operation failed'));
     return () => {
       window.removeEventListener('error', error);
       window.removeEventListener('unhandledrejection', rejection);
       window.removeEventListener('pattan-warning', job);
+      window.removeEventListener('pattan-warning-resolved', resolved);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, []);

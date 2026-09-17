@@ -1923,8 +1923,8 @@ function clearIntroPoster() {
   setStatus("Poster removed.");
 }
 
-function setServerControlsStatus(message) {
-  const result = applyStatusMessage(serverControlsStatus, message);
+function setServerControlsStatus(message, options = {}) {
+  const result = applyStatusMessage(serverControlsStatus, message, options);
   if (result.isError) {
     showRuntimeDisplayError(result.text);
   }
@@ -11431,7 +11431,7 @@ function handleAnjaliCloneServerTransition(isReady) {
   }
 
   if (!isReady) {
-    if (state.localServerStartup.active) {
+    if (state.localServerStartup.active || state.anjaliMonitor.warming) {
       setServerControlsStatus("Anjali clone server is starting on port 8426. Warm-up can take a few minutes.");
       return;
     }
@@ -11441,6 +11441,11 @@ function handleAnjaliCloneServerTransition(isReady) {
     return;
   }
 
+  // Clear the stale outage before the preload branch returns on recovery.
+  if (/Anjali clone server stopped/i.test(state.runtimeErrorMessage || "")) {
+    clearRuntimeDisplayError();
+  }
+  window.dispatchEvent(new CustomEvent('pattan-warning-resolved', { detail: { category: 'voice-server' } }));
   // Server just came online — trigger model preload immediately in background
   // so the model is warm before the user clicks Generate (saves ~10s first-run wait)
   if (previousReady === false || previousReady === null) {
@@ -11640,9 +11645,9 @@ async function checkServerHealth() {
   updateServerHealthUi();
 
   if (areAllLocalServersReady()) {
-    setServerControlsStatus("Electron servers are running. Narration is Edge TTS only.");
+    setServerControlsStatus("Local narration, transcription and video export servers are ready.", { error: false });
   } else if (state.anjaliCloneServerReady || state.transcribeServerReady || state.videoExportServerReady) {
-    setServerControlsStatus("Some local servers are running. Start the missing one with Start Servers if needed.");
+    setServerControlsStatus("Some local servers are running. Start the missing one with Start Servers if needed.", { error: false });
   } else {
     setServerControlsStatus("All local servers are down. Use Start Servers or the copied PowerShell command.");
   }
@@ -11843,6 +11848,9 @@ async function ensureVideoExportServer() {
 }
 
 async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
+  if (blobs.some(blob => !blob || !blob.size)) {
+    throw new Error("A narration part is empty or missing. Export stopped to avoid skipping lesson text. Generate narration again.");
+  }
   const safeBlobs = blobs.filter((blob) => blob && blob.size);
   if (!safeBlobs.length) {
     throw new Error("Narration generation returned no audio data.");
@@ -12107,7 +12115,9 @@ async function fetchVideoExportEndpoint(url, options = {}, label = "Video export
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fetch(url, options);
+      return settings.timeoutMs
+        ? await fetchWithTimeout(url, options, settings.timeoutMs)
+        : await fetch(url, options);
     } catch (error) {
       lastError = error;
       console.error(`[video-export] ${label} failed on attempt ${attempt}:`, error);
@@ -12151,8 +12161,10 @@ async function uploadBlobToMuxSession(sessionId, target, blob, onProgress = null
       headers: {
         "Content-Type": "application/octet-stream"
       },
-      body: nextChunk
-    }, `Uploading ${safeTarget} chunk`, { attempts: 1 });
+      // Materialize this bounded chunk before upload. Do not stream a Blob pipe
+      // that Chromium can lose while the lesson recorder is being finalized.
+      body: await nextChunk.arrayBuffer()
+    }, `Uploading ${safeTarget} chunk`, { attempts: 1, timeoutMs: 120000 });
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
@@ -13659,15 +13671,16 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
 
 async function measureNarrationBlobDurationMs(blob) {
   if (!blob?.size) {
-    return getDefaultNarrationDurationMs();
+    throw new Error("Narration audio is empty. Generate narration again before exporting.");
   }
 
   const objectUrl = URL.createObjectURL(blob);
   try {
     const audioElement = await createLoadedAudio(objectUrl);
-    return Number.isFinite(audioElement.duration)
-      ? Math.max(1000, Math.ceil(audioElement.duration * 1000))
-      : getDefaultNarrationDurationMs();
+    if (!Number.isFinite(audioElement.duration) || audioElement.duration <= 0) {
+      throw new Error("Narration audio duration could not be verified. Generate narration again before exporting.");
+    }
+    return Math.ceil(audioElement.duration * 1000);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -13681,7 +13694,7 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
   });
   const durationMs = await measureNarrationBlobDurationMs(blob);
 
-  if (depth >= 4 || !isNarrationDurationTooShortForText(safeChunkText, durationMs, voice)) {
+  if (!isNarrationDurationTooShortForText(safeChunkText, durationMs, voice)) {
     return {
       chunks: [safeChunkText],
       blobs: [blob],
@@ -13689,13 +13702,12 @@ async function generateNarrationChunkWithFallback(chunkText, voice, options = {}
     };
   }
 
+  if (depth >= 4) {
+    throw new Error("Lesson narration is still shorter than expected after splitting. Export stopped to avoid missing narration. Regenerate this lesson's audio.");
+  }
   const retryChunks = splitNarrationChunkForRetry(safeChunkText);
   if (retryChunks.length <= 1) {
-    return {
-      chunks: [safeChunkText],
-      blobs: [blob],
-      durations: [durationMs]
-    };
+    throw new Error("A lesson narration part is shorter than expected and cannot be split further. Export stopped to avoid missing narration. Regenerate this lesson's audio.");
   }
 
   const results = [];
@@ -13898,7 +13910,8 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
 
     const combinedBlob = await combineNarrationBlobs(blobs, resolvedChunks);
     const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, resolvedChunks, chunkDurationsMs);
-    if (syncProfile && alphabetSlideStartsMs?.length === alphabetNarrationChunks.length) {
+    if (syncProfile && Array.isArray(alphabetSlideStartsMs) && Array.isArray(alphabetNarrationChunks)
+        && alphabetSlideStartsMs.length === alphabetNarrationChunks.length) {
       syncProfile.alphabetSlideStartsMs = alphabetSlideStartsMs;
     }
     if (typeof options.onSyncProfile === "function" && syncProfile) {
