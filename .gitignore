@@ -74,6 +74,7 @@ frame_test.jpg
 /.agents/
 /.imagegen-venv/
 /temp/
+/tts-cache/
 /tools/
 /OllamaSetup.exe
 /*.wfp

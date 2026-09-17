@@ -10640,7 +10640,7 @@ const pdfNarrationClipCache = new Map();
 const pdfNarrationClipsInFlight = new Map();
 const PDF_NARRATION_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
-function getPdfNarrationAudibleOnsetMs(decoded) {
+function getNarrationAudibleOnsetMs(decoded) {
   const sampleRate = Number(decoded?.sampleRate);
   const durationMs = Number(decoded?.duration) * 1000;
   if (!Number.isFinite(sampleRate) || sampleRate <= 0 || !Number.isFinite(durationMs)
@@ -10689,6 +10689,29 @@ function getPdfNarrationAudibleOnsetMs(decoded) {
     return Math.max(0, Math.min(durationMs, firstWindow * windowSamples * 1000 / sampleRate));
   }
   return 0;
+}
+
+// Retain the PDF helper name for the counting-audio cache while sharing the
+// same real-audio measurement with every cue-based lesson.
+function getPdfNarrationAudibleOnsetMs(decoded) {
+  return getNarrationAudibleOnsetMs(decoded);
+}
+
+function buildNarrationChunkAudibleStarts(narrationChunks = [], chunkDurationsMs = [], onsetsMs = []) {
+  const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
+  if (!safeChunks.length || safeChunks.length !== chunkDurationsMs.length
+    || safeChunks.length !== onsetsMs.length) return null;
+  let cursorMs = 0;
+  return safeChunks.map((chunk, index) => {
+    const priorGapMs = index > 0 ? Math.max(0, Number(safeChunks[index - 1]?.gapAfterMs) || 0) : 0;
+    // This matches the real 80 ms lead-in inserted by combineNarrationBlobs.
+    if (priorGapMs > 200) cursorMs += 80;
+    const durationMs = Math.max(1, Number(chunkDurationsMs[index]) || 1);
+    const audibleOnsetMs = clamp(Number(onsetsMs[index]) || 0, 0, durationMs);
+    const startMs = cursorMs + audibleOnsetMs;
+    cursorMs += durationMs + Math.max(0, Number(chunk.gapAfterMs) || 0);
+    return startMs;
+  });
 }
 
 async function getPdfNarrationClip(part, voice, options, audioContext) {
@@ -13917,6 +13940,8 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     }
 
     const alphabetSlideStartsMs = alphabetNarrationChunks?.length === chunkEntries.length ? [] : null;
+    const measureVowelsConsonantsCues = vowelsConsonantsNarrationChunks?.length === chunkEntries.length;
+    const vowelsConsonantsOnsetsMs = [];
     let alphabetAudioCursorMs = 0;
     parallelResults.forEach((chunkResult, index) => {
       const chunk = chunkEntries[index];
@@ -13957,6 +13982,24 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       resolvedChunks.push(...resolvedEntriesForChunk);
     });
 
+    // Vowel and consonant cards must follow the instant spoken sound begins,
+    // rather than the beginning of a TTS file (which often has silent padding).
+    // This prevents the error from accumulating across B through Z.
+    if (measureVowelsConsonantsCues) {
+      const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextConstructor) {
+        const timelineContext = new AudioContextConstructor();
+        try {
+          for (const blob of blobs) {
+            const decoded = await timelineContext.decodeAudioData(await blob.arrayBuffer());
+            vowelsConsonantsOnsetsMs.push(getNarrationAudibleOnsetMs(decoded));
+          }
+        } finally {
+          await timelineContext.close();
+        }
+      }
+    }
+
     updateTaskProgressUi(0.74, true, { label: "All narration parts ready." });
 
     if (typeof options.onProgress === "function") {
@@ -13968,6 +14011,12 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
 
     const combinedBlob = await combineNarrationBlobs(blobs, resolvedChunks);
     const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, resolvedChunks, chunkDurationsMs);
+    const audibleVowelsConsonantsStarts = measureVowelsConsonantsCues
+      ? buildNarrationChunkAudibleStarts(resolvedChunks, chunkDurationsMs, vowelsConsonantsOnsetsMs)
+      : null;
+    if (syncProfile && audibleVowelsConsonantsStarts) {
+      syncProfile.chunkStartsMs = audibleVowelsConsonantsStarts;
+    }
     if (syncProfile && Array.isArray(alphabetSlideStartsMs) && Array.isArray(alphabetNarrationChunks)
         && alphabetSlideStartsMs.length === alphabetNarrationChunks.length) {
       syncProfile.alphabetSlideStartsMs = alphabetSlideStartsMs;
@@ -17606,10 +17655,14 @@ function drawVowelsConsonantsBoard(contentArea, lessonData) {
       const x = gridX + col * cell, cellY = gridY + row * cell;
       const visible = letterIndex < shown;
       const active = entry.letter === letter;
-      const entrance = active && (state.speaking || state.exportingVideo) ? cueProgress : 1;
-      // During playback/export, keep unreached letters off-screen rather than
-      // faintly visible. This makes each reveal and highlight unambiguous.
-      ctx.globalAlpha = (state.speaking || state.exportingVideo) ? (visible ? (active ? entrance : 1) : 0) : 1;
+      const animating = state.speaking || state.exportingVideo;
+      const entrance = active && animating ? cueProgress : 1;
+      // The card and its letter must already be fully visible on the exact
+      // frame its narration starts. Previously their alpha began at zero,
+      // leaving a blank card while the “Listen: X” line was already spoken.
+      // Keep the reveal motion as a scale-only animation, so it stays lively
+      // without ever hiding the item currently being narrated.
+      ctx.globalAlpha = animating ? (visible ? 1 : 0) : 1;
       ctx.fillStyle = active ? groupAccent : "#ffffff";
       drawRoundedRect(x + 5, cellY + 5, cell - 10, cell - 10, 14, ctx.fillStyle);
       ctx.strokeStyle = groupAccent; ctx.lineWidth = active ? 4 : 2;
@@ -17617,17 +17670,15 @@ function drawVowelsConsonantsBoard(contentArea, lessonData) {
       ctx.fillStyle = active ? "#ffffff" : "#172554";
       ctx.font = `900 ${Math.min(62, cell * .55)}px "Nunito", "Segoe UI", sans-serif`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      if (!active || entrance > 0.04) {
-        ctx.save();
-        if (active && (state.speaking || state.exportingVideo)) {
-          ctx.translate(x + cell / 2, cellY + cell / 2);
-          ctx.scale(0.72 + entrance * 0.28, 0.72 + entrance * 0.28);
-          ctx.fillText(letter, 0, 2);
-        } else {
-          ctx.fillText(letter, x + cell / 2, cellY + cell / 2 + 2);
-        }
-        ctx.restore();
+      ctx.save();
+      if (active && animating) {
+        ctx.translate(x + cell / 2, cellY + cell / 2);
+        ctx.scale(0.86 + entrance * 0.14, 0.86 + entrance * 0.14);
+        ctx.fillText(letter, 0, 2);
+      } else {
+        ctx.fillText(letter, x + cell / 2, cellY + cell / 2 + 2);
       }
+      ctx.restore();
       ctx.globalAlpha = 1;
     });
   };

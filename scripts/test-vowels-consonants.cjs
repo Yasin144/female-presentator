@@ -41,9 +41,10 @@ test('dynamic PDF lesson helper uses selected readable page text', () => {
 });
 
 test('unspoken lesson letters stay hidden during playback/export', () => {
-  assert.match(source, /state\.speaking \|\| state\.exportingVideo\) \? \(visible \? \(active \? entrance : 1\) : 0\) : 1/);
+  assert.match(source, /ctx\.globalAlpha = animating \? \(visible \? 1 : 0\) : 1/);
   assert.match(source, /cueProgress/);
-  assert.match(source, /ctx\.scale\(0\.72 \+ entrance \* 0\.28/);
+  assert.match(source, /scale-only animation/);
+  assert.match(source, /ctx\.scale\(0\.86 \+ entrance \* 0\.14/);
 });
 
 test('export keeps measured vowel and consonant cue starts after exact alignment', () => {
@@ -54,6 +55,12 @@ test('export keeps measured vowel and consonant cue starts after exact alignment
 test('cue timestamps include real combiner lead-ins to avoid cumulative drift', () => {
   assert.match(source, /const leadInMs = previousGapMs > 200 \? 80 : 0/);
   assert.match(source, /globalCursorMs \+= leadInMs/);
+});
+
+test('vowel and consonant cards use audible speech starts instead of padded clip starts', () => {
+  assert.match(source, /function buildNarrationChunkAudibleStarts/);
+  assert.match(source, /getNarrationAudibleOnsetMs\(decoded\)/);
+  assert.match(source, /syncProfile\.chunkStartsMs = audibleVowelsConsonantsStarts/);
 });
 
 test('creating the lesson clears an old faster audio timeline', () => {

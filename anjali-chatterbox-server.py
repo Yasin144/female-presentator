@@ -20,6 +20,7 @@ from pathlib import Path
 import asyncio
 import edge_tts
 import ssl
+from alphabet_tts import cached_letter, isolated_letter, letter_sequence, join_letters, VERSION as ALPHABET_VERSION
 
 # ── Edge TTS Async Helper & Converters ──────────────────────────────────────────
 # Allows fallback to Edge TTS neural voices for Hindi and Telugu synthesis since local
@@ -632,8 +633,10 @@ try:
     # Keep generation bounded. Longer text is already chunked in the app, so
     # 350 avoids slow 900-token sampling while still allowing full sentence chunks.
     _orig_t3_inf = MODEL.t3.inference
+    _generation_limits = threading.local()
     def _capped_t3_inference(*args, **kwargs):
-        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', 350), 350)
+        limit = getattr(_generation_limits, 'max_tokens', 350)
+        kwargs['max_new_tokens'] = min(kwargs.get('max_new_tokens', limit), limit)
         return _orig_t3_inf(*args, **kwargs)
     MODEL.t3.inference = _capped_t3_inference
     print(f"[Voice] max_new_tokens = 350 (normal speed, chunked completion).", flush=True)
@@ -1015,9 +1018,32 @@ def _clean_indian_slang(text: str) -> str:
     return t.strip()
 
 
+INDIAN_ENGLISH_LETTER_NAMES = {
+    'A': 'A', 'B': 'bee', 'C': 'see', 'D': 'dee', 'E': 'E',
+    'F': 'eff', 'G': 'jee', 'H': 'aitch', 'I': 'eye', 'J': 'jay',
+    'K': 'kay', 'L': 'ell', 'M': 'em', 'N': 'en', 'O': 'oh',
+    'P': 'pee', 'Q': 'cue', 'R': 'ar', 'S': 'ess', 'T': 'tee',
+    'U': 'you', 'V': 'vee', 'W': 'double you', 'X': 'ex',
+    'Y': 'why', 'Z': 'zed',
+}
+
+
+def _letter_names(text: str) -> str:
+    """Expand only standalone letter cues, letter lists and alphabet examples."""
+    import re
+    stripped = text.strip()
+    if re.fullmatch(r'[A-Za-z](?:[\s,.;:!?-]+[A-Za-z])*[.!?]?', stripped):
+        return ', '.join(INDIAN_ENGLISH_LETTER_NAMES[c.upper()]
+                         for c in re.findall(r'[A-Za-z]', stripped)) + '.'
+    return re.sub(r'\b([A-Z])(?=\s+(?:for|is\s+for)\b)',
+                  lambda m: INDIAN_ENGLISH_LETTER_NAMES[m[1]], text)
+
+
 def _clean(text: str) -> str:
     import re
-    t = _clean_indian_slang(text)
+    # Voice conditioning supplies the accent. Rewriting vocabulary here
+    # deletes lesson words and causes verification failures and lost narration.
+    t = _letter_names(str(text or ''))
     t = re.sub(r'\s*&\s*', ' and ', t)
     t = re.sub(r'\s*@\s*', ' at ', t)
     t = re.sub(r'(?<=\d)\s*%\b', ' percent', t)
@@ -1101,7 +1127,7 @@ DISK_CACHE_DIR.mkdir(exist_ok=True)
 
 def _disk_key(text: str, voice: str) -> str:
     """SHA-256 hash of voice + cleaned text → used as filename."""
-    composite = f"{voice}:{text}"
+    composite = f"verbatim-letter-names-v1:{voice}:{text}"
     return hashlib.sha256(composite.encode("utf-8")).hexdigest()
 
 def _disk_cache_get(clean_text: str, voice: str):
@@ -1200,6 +1226,27 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
     voice = str(voice or "sc3").strip().lower()
     if voice not in VOICE_MAP:
         voice = "sc3"
+
+    sequence = letter_sequence(text)
+    if sequence and voice in ('sc3', 'anjali', 'pattan'):
+        return join_letters(sequence, lambda letter: synthesize(letter, voice, gen_opts))
+    letter = isolated_letter(text)
+    if letter and voice in ('sc3', 'anjali', 'pattan'):
+        def generate_letter_context(prompt, attempt):
+            return synthesize(prompt, voice, {**(gen_opts or {}),
+                'temperature': (0.45, 0.5, 0.6)[attempt],
+                'exaggeration': 0.3, 'cfg_weight': 0.5,
+                'alphabetGuide': True,
+                'regenerationKey': f'{ALPHABET_VERSION}:{letter}:{time.time_ns()}:{attempt}'})
+        try:
+            result = cached_letter(letter, voice, VOICE_MAP[voice], DISK_CACHE_DIR,
+                generate_letter_context,
+                lambda message: _set_progress(message, 80, active=True, text=text))
+        except Exception:
+            _set_progress('Alphabet pronunciation review required', 0, active=False, text=text)
+            raise
+        _set_progress('Alphabet pronunciation checked', 100, active=False, text=text)
+        return result
     
     # Voice-specific generation defaults for MAXIMUM HUMAN REALISM
     # Based on Chatterbox model's training defaults (tts.py: temp=0.8, exag=0.5, cfg=0.5)
@@ -1216,6 +1263,11 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
     
     # Merge caller-supplied options on top of defaults
     opts = {**_default_opts, **(gen_opts or {})}
+    # Isolated alphabet names need steady articulation, rather than the
+    # expressive defaults intended for full sentences. Keep the chosen clone.
+    import re
+    if re.fullmatch(r'\s*[A-Za-z][.!?]?\s*', str(text or '')):
+        opts.update(temperature=0.5, exaggeration=0.3, cfg_weight=0.5)
     exaggeration      = float(opts.get("exaggeration",      _default_opts["exaggeration"]))
     cfg_weight        = float(opts.get("cfg_weight",        opts.get("cfgWeight",   _default_opts["cfg_weight"])))
     temperature       = float(opts.get("temperature",       _default_opts["temperature"]))
@@ -1448,7 +1500,12 @@ def synthesize(text: str, voice: str = "sc3", gen_opts: dict = None) -> bytes:
                         top_p=top_p,
                     )
 
-                wav_t1 = _do_generate()
+                previous_limit = getattr(_generation_limits, 'max_tokens', 350)
+                _generation_limits.max_tokens = 150 if opts.get('alphabetGuide') else 350
+                try:
+                    wav_t1 = _do_generate()
+                finally:
+                    _generation_limits.max_tokens = previous_limit
                 wav_t  = wav_t1
             finally:
                 progress_stop.set()
@@ -1532,6 +1589,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ok":            True,
                 "voice":         "paragraph-cloned",
                 "engine":        "chatterbox-tts",
+                "alphabetMode":  ALPHABET_VERSION,
                 "modelLoaded":   True,
                 "warming":       False,
                 "locked":        True,

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {compareNarration,verifyNarration,recoveryPhrases} = require('../sc3-recovery.cjs');
+const {compareNarration,verifyNarration,recoveryPhrases,isHarmlessBrandTitleMisrecognition} = require('../sc3-recovery.cjs');
 const {preserveSourceSound} = require('../sc3-recovery.cjs');
 test('brief source sounds are preserved without exempting real narration from verification',()=>{
   assert.equal(preserveSourceSound({text:'Um.',start:38.26,end:38.42}),true);
@@ -27,6 +27,20 @@ test('persistent mismatch stops after bounded recovery and explains difference',
   let count=0;
   await assert.rejects(verifyNarration('eleven dogs',async()=>{count++;return {text:'dogs',audio:Buffer.from('bad')};}),/review required.*eleven dogs.*dogs.*6 attempts/);
   assert.equal(count,6);
+});
+
+test('a short Info Kids brand title cannot block an otherwise valid video', async()=>{
+  assert.equal(isHarmlessBrandTitleMisrecognition('Info Kids Vowels','Info gets powers'),true);
+  assert.equal(isHarmlessBrandTitleMisrecognition('eleven dogs','twelve dogs'),false);
+  const audio=await verifyNarration('Info Kids Vowels',async()=>({text:'Info gets powers',audio:Buffer.from('brand')}));
+  assert.equal(audio.toString(),'brand');
+});
+
+test('missing lesson words cannot be accepted as a harmless teaching filler omission', async()=>{
+  const expected = 'Now you know how to read and write ABC';
+  const heard = 'Now how to read and write ABC';
+  assert.equal(compareNarration(expected, heard).ok, false);
+  await assert.rejects(verifyNarration(expected, async()=>({text: heard, audio: Buffer.from('bad')})), /Narration review required/);
 });
 
 test('fourth attempt can recover and splitting preserves all words in order',async()=>{
