@@ -59,10 +59,20 @@ desktopOnlyIpcChannels.add('whatsapp-session-retry');
 for (const channel of metaDesktopChannels) desktopOnlyIpcChannels.add(channel);
 const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
+const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'finish-download-file', 'write-file']);
 ipcMain.handle = (channel, listener) => {
   const observed = observeWhatsAppJob(channel, listener);
   if (!desktopOnlyIpcChannels.has(channel)) mobileIpcHandlers.set(channel, observed);
-  return originalIpcHandle(channel, observed);
+  return originalIpcHandle(channel, async (...args) => {
+    const result = await observed(...args);
+    const savedPath = result?.outputPath || result?.filePath;
+    if (revealExportChannels.has(channel) && result?.ok === true && !result.canceled && !result.cancelled
+        && typeof savedPath === 'string' && /\.(mp4|webm|mov|mkv|avi|mp3|wav|m4a)$/i.test(savedPath)) {
+      try { if (fs.existsSync(savedPath) && fs.statSync(savedPath).size > 0) shell.showItemInFolder(savedPath); }
+      catch (error) { console.warn('[Export] Saved successfully, but could not reveal file:', error.message); }
+    }
+    return result;
+  });
 };
 
 function findFFmpegExecutable() {
@@ -2149,10 +2159,10 @@ async function createWindow() {
     let defaultPath = options.defaultPath;
     if (defaultPath) {
       if (!path.isAbsolute(defaultPath)) {
-        defaultPath = path.join(os.homedir(), 'Desktop', defaultPath);
+        defaultPath = path.join(os.homedir(), 'Downloads', defaultPath);
       }
     } else {
-      defaultPath = path.join(os.homedir(), 'Desktop', options.fileName || 'output.mp4');
+      defaultPath = path.join(os.homedir(), 'Downloads', options.fileName || 'output.mp4');
     }
     const owner = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
@@ -4989,7 +4999,7 @@ ipcMain.handle('sc3-replace-video-audio', async (_event, opts) => {
     fs.writeFileSync(list, clips.map(file => `file '${file.replace(/\\/g, '/')}'`).join('\n'));
     const audio = path.join(workDir, 'voice.mp3');
     await run(['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-b:a', '128k', audio]);
-    const outputPath = createVideoOutputPath(app.getPath('downloads'), outputBaseName ? `${outputBaseName}.mp4` : filePath);
+    const outputPath = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), outputBaseName ? `${outputBaseName}.mp4` : filePath);
     LOG(`   Muxing final video -> ${path.basename(outputPath)}`);
     const videoSeconds = await sc3Recovery.duration(ffmpeg, filePath);
     const naturalTimeline = sc3Recovery.naturalVideoTimeline(naturalSections, Math.max(sourceSeconds, videoSeconds));
@@ -5115,7 +5125,7 @@ ipcMain.handle('erase-captions', async (event, opts) => {
   const tmpDir  = os.tmpdir();
   const stamp   = Date.now();
   const baseName = path.basename(filePath, path.extname(filePath));
-  const outputMp4 = createVideoOutputPath(app.getPath('downloads'), filePath);
+  const outputMp4 = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), filePath);
   const FFMPEG = 'C:\\Users\\patan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe';
   const FFPROBE = FFMPEG.replace('ffmpeg.exe', 'ffprobe.exe');
 
@@ -5203,7 +5213,7 @@ ipcMain.handle('merge-audio-into-video', async (event, opts) => {
 
   const FFMPEG = findFF();
 
-  const outFile = createVideoOutputPath(app.getPath('downloads'), videoPath);
+  const outFile = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), videoPath);
 
   try {
 
@@ -5249,7 +5259,7 @@ ipcMain.handle('export-translated-video', async (_event, opts) => {
   const workDir = ensureCaptionWorkDir('translated-audio');
   const stamp = Date.now();
   const audioPath = path.join(workDir, `translated-${stamp}.mp3`);
-  const outputPath = createVideoOutputPath(app.getPath('downloads'), videoPath);
+  const outputPath = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), videoPath);
   try {
     fs.writeFileSync(audioPath, Buffer.from(String(audioBase64), 'base64'));
     await new Promise((resolve, reject) => {
@@ -5331,7 +5341,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const requestedName = originalVideoName(sourceFileName || videoPath);
   const parsedName = path.parse(requestedName);
   const exactFileName = `${parsedName.name}${parsedName.ext || '.mp4'}`;
-  const outFile = createVideoOutputPath(app.getPath('downloads'), requestedName);
+  const outFile = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), requestedName);
   const partialOutFile = path.join(tmpDir, `caption-export-${stamp}.part${parsedName.ext || '.mp4'}`);
   const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
 
@@ -5640,7 +5650,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
       fs.mkdirSync(downloadsDir, { recursive: true });
       const parsed = path.parse(safeName);
       let filePath = /\.(mp4|mov|webm|mkv|avi)$/i.test(safeName)
-        ? createVideoOutputPath(app.getPath('downloads'), safeName, parsed.ext.slice(1))
+        ? createVideoOutputPath(path.join(os.homedir(), 'Downloads'), safeName, parsed.ext.slice(1))
         : path.join(downloadsDir, safeName);
       if (fs.existsSync(filePath)) filePath = path.join(downloadsDir, `${parsed.name}-${Date.now()}${parsed.ext}`);
       const id = crypto.randomUUID();
@@ -6611,7 +6621,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
   const { spawn } = require('child_process');
   const workDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-synced-dub-'));
 
-  const outputPath = createVideoOutputPath(app.getPath('downloads'), videoPath);
+  const outputPath = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), videoPath);
 
   const send = (pct, phase) => {
     try { event.sender.send('translate-dub-progress', { pct, phase }); } catch (_) {}
@@ -6795,7 +6805,7 @@ ipcMain.handle('video-resizer-export', async (event, opts = {}) => {
   const ratioName = String(opts.ratioName || `${width}x${height}`).replace(/[^a-z0-9]+/gi, 'x').replace(/^x|x$/g, '');
   const format = ['mp4', 'mov', 'webm'].includes(String(opts.format)) ? String(opts.format) : 'mp4';
   const baseName = path.basename(inputPath, path.extname(inputPath)).replace(/[<>:"/\\|?*]+/g, '_');
-  const outputPath = createVideoOutputPath(app.getPath('downloads'), inputPath, format);
+  const outputPath = createVideoOutputPath(path.join(os.homedir(), 'Downloads'), inputPath, format);
   const ffmpeg = findFFmpegExecutable();
   const ffprobe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/^ffmpeg/i, 'ffprobe'));
   const requestedMode = String(opts.mode || 'fit');

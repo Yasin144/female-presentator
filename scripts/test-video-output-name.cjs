@@ -40,3 +40,31 @@ test('native uploaded-video exporters use original-name allocation', () => {
     assert.match(main.slice(start, end < 0 ? undefined : end), /createVideoOutputPath/, channel);
   }
 });
+
+test('successful desktop exports reveal only saved media and preserve the observer result', async () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  const start = source.indexOf('const revealExportChannels =');
+  const end = source.indexOf('\nfunction findFFmpegExecutable', start);
+  const handlers = {}, revealed = [];
+  const ipcMain = {};
+  vm.runInNewContext(source.slice(start, end), {
+    ipcMain, observeWhatsAppJob: (_channel, fn) => fn,
+    desktopOnlyIpcChannels: new Set(), mobileIpcHandlers: new Map(),
+    originalIpcHandle: (channel, fn) => { handlers[channel] = fn; },
+    fs: { existsSync: p => p !== 'missing.mp4', statSync: () => ({ size: 100 }) },
+    shell: { showItemInFolder: p => revealed.push(p) }, console,
+  });
+  for (const [channel, result] of [
+    ['burn-captions', { ok: true, outputPath: 'saved.mp4' }],
+    ['burn-captions', { ok: false, outputPath: 'failed.mp4' }],
+    ['burn-captions', { ok: true, outputPath: 'missing.mp4' }],
+    ['transcribe-video', { ok: true, outputPath: 'internal.wav' }],
+    ['write-file', { ok: true, filePath: 'saved.wav' }],
+  ]) {
+    ipcMain.handle(channel, async () => result);
+    assert.equal(await handlers[channel]({}), result);
+  }
+  assert.deepEqual(revealed, ['saved.mp4', 'saved.wav']);
+  assert.doesNotMatch(source, /createVideoOutputPath\(app.getPath\('downloads'\)/);
+});

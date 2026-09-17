@@ -92,7 +92,8 @@ test('app shares draft events with mobile but only desktop clicks can open Whats
   const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8');
   assert.match(source, /desktopOnlyIpcChannels = new Set\(\['open-whatsapp-draft'\]\)/);
   assert.match(source, /if \(!desktopOnlyIpcChannels.has\(channel\)\) mobileIpcHandlers.set\(channel, observed\)/);
-  assert.match(source, /originalIpcHandle\(channel, observed\)/);
+  assert.match(source, /originalIpcHandle\(channel, async/);
+  assert.match(source, /const result = await observed\(\.\.\.args\)/);
   assert.match(source, /if \(!desktopOnlyIpcChannels.has\(match\[2\]\)\) methods/);
   assert.doesNotMatch(source, /sendProcessWhatsAppAlert|processAlertFromNotification|autoSendMobileLinkToWhatsApp|auto_send_whatsapp\.py/);
   assert.match(source, /require\('\.\/whatsapp-drafts\.cjs'\)/);
