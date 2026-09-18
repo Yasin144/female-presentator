@@ -37,18 +37,8 @@ if exist "%PYTHON_VENV%" (
   )
 )
 
-REM ---- Start SC3 Chatterbox in a visible terminal window ----
-REM Keep healthy or loading servers intact; report an occupied port instead.
-powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8426/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8426 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
-if errorlevel 2 (
-  echo Port 8426 is occupied but not ready. The existing process was left running.
-) else if errorlevel 1 (
-  if exist "%PYTHON_VENV%" (
-    start "SC3 Chatterbox Python" cmd /k ""%PYTHON_VENV%" -u "%APP_DIR%\anjali-chatterbox-server.py""
-  )
-) else (
-  echo SC3 Chatterbox is already ready - reusing it.
-)
+REM Electron owns SC3 startup using .voiceclone-venv, health checks and retries.
+REM A second standalone SC3 process can race the app during model loading.
 
 REM ---- Edge TTS server (port 8427) ----
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8427 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1

@@ -43,6 +43,7 @@ function startupHarness({ output = LISTENERS, health = false, dev = false } = {}
     fs: { existsSync: () => true }, path,
     pingPort: async () => health,
     spawnManaged: (...args) => spawned.push(args),
+    showSc3Terminal() {},
     startAnjaliServer() {},
     startAnjaliWatchdog() {},
     setTimeout() {},
@@ -155,6 +156,93 @@ test('a second app instance exits before startup; the owning instance restores a
     app.emit('second-instance');
     assert.deepEqual(calls, hasLock ? ['restore', 'show', 'focus'] : []);
   }
+});
+
+function sc3Harness({ healthy = false, running = false, ready = false, exists = true, occupied = false } = {}) {
+  const spawned = [], messages = [];
+  let processChecks = 0;
+  let terminalOpens = 0;
+  const context = vm.createContext({
+    servers: {}, console: { log() {}, warn() {}, error() {} },
+    pingPort: async () => healthy,
+    isAnjaliServerProcessRunning: async () => { processChecks++; return running; },
+    waitForAnjaliHealth: async () => ready,
+    reportOccupiedStartupPort: () => occupied,
+    BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => messages.push(args) } }] },
+    fs: { existsSync: () => exists }, path, ROOT: 'D:/voice',
+    ANJALI_PYTHON: 'D:/voice/.voiceclone-venv/Scripts/python.exe',
+    ANJALI_SERVER: 'D:/voice/anjali-chatterbox-server.py', PYTHON_ENV: { PYTHONUTF8: '1' },
+    spawnManaged: (...args) => spawned.push(args),
+    showSc3Terminal() { terminalOpens++; },
+  });
+  vm.runInContext(section('let anjaliStartupPromise = null;', '\nfunction startServers() {')
+    .replace(/\nfunction startServers\(\) \{$/, ''), context);
+  return { context, spawned, messages, checks: () => processChecks, terminalOpens: () => terminalOpens,
+    start: () => vm.runInContext('startAnjaliServer()', context) };
+}
+
+test('SC3 cold startup is single-flight, uses its correct environment and keeps a diagnostic log', async () => {
+  const h = sc3Harness();
+  const first = h.start(), second = h.start();
+  assert.equal(first, second);
+  await Promise.all([first, second]);
+  assert.equal(h.checks(), 1);
+  assert.equal(h.terminalOpens(), 1);
+  assert.equal(h.spawned.length, 1);
+  const [key, python, args, options] = h.spawned[0];
+  assert.equal(key, 'AnjaliAI');
+  assert.match(python, /\.voiceclone-venv/);
+  assert.equal(args[0], '-u');
+  assert.match(options.logFile, /logs[\\/]sc3-startup\.log$/);
+  assert.equal(options.showConsole, false);
+  assert.equal(options.env.PYTHONUTF8, '1');
+});
+
+test('SC3 reuses a healthy server and never spawns a duplicate while an existing worker loads', async () => {
+  for (const options of [{ healthy: true }, { running: true, ready: true }, { occupied: true }]) {
+    const h = sc3Harness(options);
+    await h.start();
+    assert.equal(h.spawned.length, 0);
+    assert.equal(h.terminalOpens(), 1, 'A reused server still has a visible status terminal');
+  }
+});
+
+test('SC3 timeout protects existing work, and missing runtime produces an actionable startup error', async () => {
+  const loading = sc3Harness({ running: true });
+  await loading.start();
+  assert.equal(loading.spawned.length, 0);
+  assert.match(loading.context.servers.AnjaliAI.startupError, /left running/);
+  const missing = sc3Harness({ exists: false });
+  await missing.start();
+  assert.equal(missing.spawned.length, 0);
+  assert.match(missing.context.servers.AnjaliAI.startupError, /Missing SC3 runtime/);
+});
+
+test('SC3 terminal is a visible read-only viewer, and repeated requests reuse its process', () => {
+  const spawned = [];
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.killed = false;
+  child.unref = () => {};
+  const context = vm.createContext({
+    process: { platform: 'win32' }, isQuitting: false, PS: 'powershell.exe', ROOT: 'D:/voice', path,
+    console: { warn() {} }, spawn: (...args) => { spawned.push(args); return child; },
+  });
+  vm.runInContext(section('let sc3TerminalProcess = null;', '\nlet anjaliStartupPromise = null;'), context);
+  vm.runInContext('showSc3Terminal(); showSc3Terminal();', context);
+  assert.equal(spawned.length, 1);
+  assert.match(spawned[0][1].at(-2), /SC3-Chatterbox-Terminal\.ps1$/);
+  assert.equal(spawned[0][1].at(-1), '-Launch');
+  assert.equal(spawned[0][2].windowsHide, true, 'Only the Windows-created viewer is visible');
+  assert.equal(spawned[0][2].detached, false, 'Do not use the failing detached PowerShell launch');
+  child.emit('close');
+  vm.runInContext('showSc3Terminal()', context);
+  assert.equal(spawned.length, 2, 'A closed viewer may be reopened without restarting Python');
+  const viewer = fs.readFileSync(path.join(__dirname, '..', 'SC3-Chatterbox-Terminal.ps1'), 'utf8');
+  assert.match(viewer, /WaitOne\(0\)/);
+  assert.match(viewer, /Start-Process.*-WindowStyle Normal/);
+  assert.match(viewer, /\$PSCommandPath/, 'Viewer launches only its own read-only script');
+  assert.doesNotMatch(viewer, /Stop-Process|taskkill|api\/narrate['"]/i);
 });
 
 test('app-ready startup never globally kills unrelated cloudflared tunnels', () => {

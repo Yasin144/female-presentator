@@ -40,7 +40,11 @@ test('launch paths, environments, desktop wrappers, and app restart behavior are
   assert.match(voice, /set "SINGING_PYTHON=%APP_DIR%\\\.singing-venv\\Scripts\\python\.exe"/);
   assert.match(voice, /start \/wait "" "%ELECTRON%" "%APP_DIR%"/);
   assert.match(voice, /goto LAUNCH/);
-  assert.match(pattan, /set "PYTHON=%APP_DIR%\\\.edge-tts-venv\\Scripts\\python\.exe"/);
+  assert.doesNotMatch(pattan, /\.edge-tts-venv/);
+  for (const launcher of [pattan, voice]) {
+    assert.match(launcher, /Electron owns SC3 startup/);
+    assert.doesNotMatch(launcher, /anjali-chatterbox-server\.py/);
+  }
   assert.match(pattan, /start "" "%APP_DIR%\\node_modules\\electron\\dist\\electron\.exe" "%APP_DIR%"/);
   for (const name of ['Start.cmd', 'Yasin Presentator.cmd']) {
     assert.match(fs.readFileSync(path.join(root, name), 'utf8'), /call "%~dp0Launch-Presentator\.cmd"/);
@@ -52,7 +56,7 @@ test('every inline startup PowerShell command parses without executing the launc
   assert.equal(guards.length, 3);
   assert.ok(guards.every(Boolean));
   assert.equal(new Set(guards).size, 1);
-  assert.equal(probes.length, 5);
+  assert.equal(probes.length, 3);
   const encodedCommands = Buffer.from(JSON.stringify(launchers.flatMap(commands))).toString('base64');
   const result = runPowerShell(`
 $commands = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedCommands}')) | ConvertFrom-Json
@@ -99,6 +103,5 @@ ${probes[0]}
     assert.equal(result.status, expected, `${mode}: ${result.stderr}`);
   }
   const voice = launchers.find(value => value.name === 'Voice-Presentator.cmd').source;
-  for (const port of [8426, 8427, 8431, 8434]) assert.match(voice, new RegExp(`Port ${port} is occupied but not ready`));
-  assert.match(launchers.find(value => value.name === 'Pattan-Presentator.cmd').source, /if errorlevel 2 \(\s*echo Port 8426[^]*?goto launch_electron\s*\)/);
+  for (const port of [8427, 8431, 8434]) assert.match(voice, new RegExp(`Port ${port} is occupied but not ready`));
 });

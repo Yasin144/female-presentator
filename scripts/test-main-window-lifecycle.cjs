@@ -52,6 +52,7 @@ function makeWindowHarness() {
 
   const context = vm.createContext({
     require(name) {
+      if (name === './sc3-recovery.cjs') return {};
       assert.equal(name, 'electron', 'No services, subprocesses, or other real imports');
       return { screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1280, height: 800 } }) } };
     },
@@ -117,7 +118,7 @@ test('Save dialog belongs to the invoking replacement window, not the destroyed 
   const handler = h.handlers.get('show-save-dialog');
   await handler({ sender: second.webContents }, { fileName: 'counting.mp4' });
   assert.equal(h.saveCalls[0][0], second);
-  assert.equal(h.saveCalls[0][1].defaultPath, path.join(os.homedir(), 'Desktop', 'counting.mp4'));
+  assert.equal(h.saveCalls[0][1].defaultPath, path.join(os.homedir(), 'Downloads', 'counting.mp4'));
   assert.equal(h.saveCalls[0][1].filters[0].extensions[0], 'mp4');
   await handler({ sender: {} });
   assert.equal(h.saveCalls[1].length, 1, 'Detached callers get an unparented dialog');

@@ -1385,6 +1385,7 @@ function spawnManaged(key, cmd, args, opts = {}) {
     env              = {},
     cwd              = ROOT,
     showConsole      = false,
+    logFile          = null,
   } = opts;
 
   const entry = servers[key] || {
@@ -1405,23 +1406,38 @@ function spawnManaged(key, cmd, args, opts = {}) {
     // On Windows, .cmd and .bat files need shell:true to execute —
     // without it Node.js throws EINVAL.
     const needsShell = showConsole || /\.(cmd|bat)$/i.test(cmd);
-    const proc = spawn(cmd, args, {
+    let logFd;
+    if (logFile) {
+      try {
+        fs.mkdirSync(path.dirname(logFile), { recursive: true });
+        logFd = fs.openSync(logFile, 'a');
+      } catch (error) {
+        console.warn('[PP] Cannot open startup log:', error.message);
+      }
+    }
+    let proc;
+    try { proc = spawn(cmd, args, {
       cwd,
       detached: false,
-      stdio:    'ignore',
+      stdio:    logFd === undefined ? 'ignore' : ['ignore', logFd, logFd],
       shell:    needsShell,
       windowsHide: showConsole ? false : true,
       env: { ...process.env, ...env },
-    });
+    }); } finally {
+      if (logFd !== undefined) fs.closeSync(logFd);
+    }
 
     entry.proc = proc;
 
     proc.on('error', (e) => {
+      entry.startupError = key + ' could not start: ' + e.message;
+      scheduleRestart();
       console.error(`[PP] ${key} spawn error:`, e.message);
     });
 
     proc.on('exit', (code, signal) => {
       if (isQuitting || entry.stopped) return;
+      entry.startupError = key + ' exited with code ' + code + (logFile ? '. Check ' + logFile : '');
       console.warn(`[PP] ${key} exited (code=${code} signal=${signal}) — scheduling restart`);
       scheduleRestart();
     });
@@ -1520,6 +1536,7 @@ function restartServer(key) {
   if (!entry) return;
   entry.stopped = false;
   entry.restartCount = 0;
+  entry.lastRestartAt = 0; // reset window so scheduleRestart does not silently bail
   if (entry.proc && !entry.proc.killed) {
     try {
       if (process.platform === 'win32') {
@@ -1797,13 +1814,43 @@ async function waitForAnjaliHealth(timeoutMs = 20000) {
   return false;
 }
 
-async function startAnjaliServer() {
+let sc3TerminalProcess = null;
+function showSc3Terminal() {
+  if (process.platform !== 'win32' || isQuitting) return;
+  if (sc3TerminalProcess && sc3TerminalProcess.exitCode === null && !sc3TerminalProcess.killed) return;
+  // A separate read-only viewer keeps the console visible even when a healthy
+  // Python worker is reused. Its workspace mutex prevents duplicate terminals.
+  const terminal = spawn(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    path.join(ROOT, 'SC3-Chatterbox-Terminal.ps1'), '-Launch'], {
+    cwd: ROOT, detached: false, stdio: 'ignore', windowsHide: true,
+  });
+  sc3TerminalProcess = terminal;
+  terminal.on('error', error => console.warn('[PP] SC3 terminal could not open:', error.message));
+  terminal.once('close', () => { if (sc3TerminalProcess === terminal) sc3TerminalProcess = null; });
+  terminal.unref();
+}
+
+let anjaliStartupPromise = null;
+function startAnjaliServer() {
+  if (!anjaliStartupPromise) {
+    showSc3Terminal();
+    anjaliStartupPromise = launchAnjaliServer().catch(error => {
+      const entry = servers.AnjaliAI || (servers.AnjaliAI = { proc: null, stopped: false });
+      entry.startupError = 'SC3 startup failed: ' + error.message;
+      console.error('[PP]', entry.startupError);
+    }).finally(() => { anjaliStartupPromise = null; });
+  }
+  return anjaliStartupPromise;
+}
+
+async function launchAnjaliServer() {
   const alive = await pingPort(8426, '/health', 5000);
   if (alive) {
     console.log('[PP] Voice server on 8426 is alive and warm — Electron will use it as-is.');
     if (!servers['AnjaliAI']) {
       servers['AnjaliAI'] = { proc: null, restartCount: 0, lastRestartAt: Date.now(), stopped: false };
     }
+    delete servers.AnjaliAI.startupError;
     return;
   }
 
@@ -1823,14 +1870,20 @@ async function startAnjaliServer() {
     });
     if (await waitForAnjaliHealth(360000)) {  // 6 minutes — model needs 3-5 min
       console.log('[PP] Chatterbox voice server became healthy on 8426.');
+      delete servers.AnjaliAI.startupError;
       return;
     }
-    console.warn('[PP] Chatterbox process timed out — restarting.');
-    await killAnjaliServerProcesses();
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // A worker may still be loading or processing a job. Startup must not
+    // terminate an existing process just because health checks timed out.
+    servers.AnjaliAI.startupError = 'SC3 did not respond within 6 minutes. Check the existing voice process; it was left running to protect active work.';
+    console.warn('[PP]', servers.AnjaliAI.startupError);
+    return;
   }
 
   console.log('[PP] Starting Chatterbox Python voice server...');
+  if (!fs.existsSync(ANJALI_PYTHON) || !fs.existsSync(ANJALI_SERVER)) {
+    throw new Error('Missing SC3 runtime or script: ' + ANJALI_PYTHON + ' / ' + ANJALI_SERVER);
+  }
   spawnManaged('AnjaliAI', ANJALI_PYTHON, ['-u', ANJALI_SERVER], {
     cwd: ROOT,
     restartDelayMs: 5000,
@@ -1838,6 +1891,7 @@ async function startAnjaliServer() {
     restartWindowSec: 900,
     showConsole: false,
     env: PYTHON_ENV,
+    logFile: path.join(ROOT, 'logs', 'sc3-startup.log'),
   });
   BrowserWindow.getAllWindows().forEach(w => {
     w.webContents.send('server-status', {

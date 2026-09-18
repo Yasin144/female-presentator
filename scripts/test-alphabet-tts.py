@@ -10,7 +10,7 @@ import tempfile
 import threading
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from alphabet_tts import cached_letter, isolated_letter, letter_sequence, join_letters, extract_letter, pause_boundary, make_verified_letter, LetterClarityError
+from alphabet_tts import cached_letter, isolated_letter, letter_sequence, join_letters, extract_letter, pause_boundary, make_verified_letter, checked_letter_crop, LetterClarityError
 
 
 def recording():
@@ -119,8 +119,25 @@ class AlphabetSpeech(unittest.TestCase):
     def test_crop_excludes_guide_and_preserves_letter_with_padding(self):
         result = extract_letter(recording(), 'E', 'The letter', words('The', 'letter', 'E'))
         with wave.open(io.BytesIO(result), 'rb') as wav:
-            self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), .595, places=3)
+            self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), 2.195, places=3)
             self.assertEqual(wav.readframes(1280), bytes(2560))
+
+    def test_final_letter_tail_survives_an_early_recognizer_end_timestamp(self):
+        data = io.BytesIO()
+        # Guide ends around 1.2s; H only starts at 1.5s and ends at 1.9s.
+        # ASR incorrectly labels H as .42-1.58s, before its /ch/ finishes.
+        with wave.open(data, 'wb') as wav:
+            wav.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+            wav.writeframes(array('h', [4000] * 19200 + [0] * 4800
+                                  + [3000] * 4800 + [1500] * 1600 + [0] * 1600).tobytes())
+        heard = [{'word': 'The', 'start': 0, 'end': .14},
+                 {'word': 'letter', 'start': .14, 'end': .42},
+                 {'word': 'H', 'start': .42, 'end': 1.58}]
+        clip = extract_letter(data.getvalue(), 'H', 'The letter', heard)
+        with wave.open(io.BytesIO(clip), 'rb') as wav:
+            samples = array('h', wav.readframes(wav.getnframes()))
+        self.assertNotIn(4000, samples, 'Guide speech must not leak into the clip')
+        self.assertEqual(samples.count(1500), 1600, 'The final consonant must not be cut off')
 
     def test_wrong_letters_and_extra_narration_are_rejected(self):
         for heard in (words('The', 'letter', 'P'), words('The', 'letter', 'E', 'hello'),
@@ -150,14 +167,85 @@ class AlphabetSpeech(unittest.TestCase):
         with self.assertRaises(LetterClarityError):
             extract_letter(recording(), 'Z', 'The letter', words('The', 'letter', 'zee'))
 
+    def test_z_symbol_in_guide_still_requires_explicit_zed_in_isolated_clip(self):
+        heard = iter([words('The', 'letter', 'Z'), words('zed')])
+        result = make_verified_letter('Z', lambda text, n: recording(),
+                                     lambda audio: next(heard))
+        self.assertTrue(result.startswith(b'RIFF'))
+        for ambiguous in ('Z', 'zee', 'D'):
+            prefixes = (('The', 'letter'), ('This', 'is', 'the', 'letter'),
+                        ('Listen', 'to', 'the', 'letter'))
+            heard = iter(item for prefix in prefixes
+                         for item in (words(*prefix, 'Z'), words(ambiguous),
+                                      words(ambiguous, ambiguous)))
+            with self.assertRaisesRegex(LetterClarityError, 'after 3 attempts'):
+                make_verified_letter('Z', lambda text, n: recording(),
+                                     lambda audio: next(heard))
+
     def test_cropped_audio_is_independently_checked_and_retried(self):
         attempts = []
-        recognized = iter([words('The', 'letter', 'E'), words('P'),
+        recognized = iter([words('The', 'letter', 'E'), words('P'), words('P', 'P'),
                            words('This', 'is', 'the', 'letter', 'E'), words('E')])
         audio = make_verified_letter('E', lambda text, n: (attempts.append(n) or recording()),
                                      lambda data: next(recognized))
         self.assertEqual(attempts, [0, 1])
         self.assertTrue(audio.startswith(b'RIFF'))
+
+    def test_f_accepts_ef_spelling_in_both_guide_and_independent_crop_check(self):
+        for spelling in ('F', 'eff', 'ef', 'Ef.'):
+            with self.subTest(spelling=spelling):
+                attempts = []
+                heard = iter([words('The', 'letter', spelling), words(spelling)])
+                result = make_verified_letter('F',
+                    lambda text, n: (attempts.append(n) or recording()),
+                    lambda data: next(heard))
+                self.assertTrue(result.startswith(b'RIFF'))
+                self.assertEqual(attempts, [0])
+
+    def test_f_still_rejects_wrong_letters_and_extra_speech_after_valid_guide(self):
+        prefixes = (('The', 'letter'), ('This', 'is', 'the', 'letter'),
+                    ('Listen', 'to', 'the', 'letter'))
+        for wrong in ('E', 'S', 'P', 'if', 'F hello'):
+            with self.subTest(wrong=wrong):
+                for prefix in prefixes:
+                    with self.assertRaises(LetterClarityError):
+                        extract_letter(recording(), 'F', ' '.join(prefix), words(*prefix, wrong))
+                heard = iter(item for prefix in prefixes
+                             for item in (words(*prefix, 'ef'), words(wrong), words(wrong, wrong)))
+                with self.assertRaisesRegex(LetterClarityError, 'after 3 attempts'):
+                    make_verified_letter('F', lambda text, n: recording(), lambda data: next(heard))
+
+    def test_short_letter_empty_transcript_requires_two_matching_unprompted_copies(self):
+        heard = iter([[], words('F', 'F')])
+        source = recording()
+        self.assertEqual(checked_letter_crop(source, 'F', lambda audio: next(heard)), source)
+        for result in (words('F'), words('F', 'P'), words('F', 'F', 'hello'), []):
+            heard = iter([[], result])
+            with self.assertRaises(LetterClarityError):
+                checked_letter_crop(source, 'F', lambda audio: next(heard))
+
+    def test_leading_guide_contamination_is_trimmed_only_after_two_fresh_checks(self):
+        # 3s source: each repeated clip starts at .6s and 4.2s.
+        contaminated = [
+            {'word': 'D', 'start': .6, 'end': .8},
+            {'word': 'F', 'start': 1.0, 'end': 1.48},
+            {'word': 'D', 'start': 4.2, 'end': 4.4},
+            {'word': 'F', 'start': 4.72, 'end': 5.1},
+        ]
+        heard = iter([[], contaminated, words('F', 'F')])
+        result = checked_letter_crop(recording(), 'F', lambda audio: next(heard))
+        with wave.open(io.BytesIO(result), 'rb') as wav:
+            self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), 2.7)
+        for final in ([], words('D', 'F', 'D', 'F'), words('F', 'P')):
+            heard = iter([[], contaminated, final])
+            with self.assertRaises(LetterClarityError):
+                checked_letter_crop(recording(), 'F', lambda audio: next(heard))
+        for bad_start in (float('nan'), .7, 5.5):
+            invalid = [dict(word) for word in contaminated]
+            invalid[1]['start'] = bad_start
+            heard = iter([[], invalid])
+            with self.assertRaises(LetterClarityError):
+                checked_letter_crop(recording(), 'F', lambda audio: next(heard))
 
     def test_bad_audio_cannot_escape_bounded_recovery(self):
         attempts = []

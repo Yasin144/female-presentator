@@ -20,7 +20,9 @@ NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
     'kay', 'ell', 'em', 'en', 'oh', 'pee', 'cue', 'are', 'ess', 'tee',
     'you', 'vee', 'double you', 'ex', 'why', 'zed')))
 ALIASES = {letter: {letter.lower(), name.lower()} for letter, name in NAMES.items()}
-for letter, alternatives in {'B': ['be'], 'C': ['sea'], 'E': ['ee'], 'G': ['gee'],
+# Whisper may spell the same letter name differently (for example ef/eff).
+# Use explicit equivalents only; fuzzy matching can accept a different letter.
+for letter, alternatives in {'B': ['be'], 'C': ['sea'], 'E': ['ee'], 'F': ['ef'], 'G': ['gee'],
         'I': ['i'], 'L': ['el'], 'Q': ['queue'], 'R': ['ar'],
         'P': ['pea'], 'T': ['tea'], 'W': ['double u'], 'X': ['eks']}.items():
     ALIASES[letter].update(alternatives)
@@ -100,7 +102,11 @@ def extract_letter(wav_bytes, letter, prefix, words):
     if [t for t, _ in recognized[:len(prefix_tokens)]] != prefix_tokens:
         raise LetterClarityError('The pronunciation guide was not recognized clearly.')
     suffix = recognized[len(prefix_tokens):]
-    if ' '.join(t for t, _ in suffix) not in ALIASES[letter]:
+    guide_name = ' '.join(t for t, _ in suffix)
+    # ASR often writes the letter symbol Z in a carrier regardless of accent.
+    # Permit that ambiguous guide spelling only to reach the independent crop
+    # check, which still requires explicit "zed" and never accepts Z or zee.
+    if guide_name not in ALIASES[letter] and not (letter == 'Z' and guide_name == 'z'):
         raise LetterClarityError(f'Expected {letter}; heard ' + ' '.join(t for t, _ in suffix))
     previous_end = float(recognized[len(prefix_tokens) - 1][1]['end'])
     start = float(suffix[0][1]['start'])
@@ -113,10 +119,14 @@ def extract_letter(wav_bytes, letter, prefix, words):
                 or end > duration + 0.05 or end - start > 2.5):
             raise LetterClarityError('The letter could not be separated cleanly from its guide.')
         first = max(previous_end, start - 0.035)
-        last = min(duration, end + 0.10)
+        # This is the final word of a fully checked guide. Whisper can place
+        # its end before the real letter finishes (notably H's final /ch/).
+        # Preserve the entire remaining tail and search its pause boundary;
+        # independent crop recognition below still rejects extra/wrong speech.
+        last = duration
         pcm = audio.readframes(params.nframes)
         boundary = pause_boundary(pcm, params.nchannels, params.framerate,
-            max(0, previous_end - .08, start - .12), end - .12)
+            max(0, previous_end - .08, start - .12), last - .12)
         if boundary is not None:
             first = boundary
         audio.setpos(min(params.nframes, round(first * params.framerate)))
@@ -133,6 +143,82 @@ def extract_letter(wav_bytes, letter, prefix, words):
         audio.setparams(params)
         audio.writeframes(padding + data + padding)
     return result.getvalue()
+
+
+def repeat_for_letter_check(clip):
+    """Give unprompted ASR two acoustic examples of a very short letter."""
+    with wave.open(io.BytesIO(clip), 'rb') as audio:
+        params = audio.getparams()
+        pcm = audio.readframes(params.nframes)
+    gap_seconds = .6
+    gap = bytes(round(params.framerate * gap_seconds) * params.nchannels * params.sampwidth)
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as audio:
+        audio.setparams(params)
+        audio.writeframes(gap + pcm + gap + pcm + gap)
+    return output.getvalue(), params.nframes / params.framerate, gap_seconds
+
+
+def checked_letter_crop(clip, letter, recognize):
+    """Check short clips without mistaking an empty ASR transcript for silence.
+
+    If the guide's final syllable leaked into the crop, two matching repeated
+    transcripts can locate it. Remove only that leading material, then require
+    a fresh unprompted recognition of both corrected copies. Never return the
+    repeated test audio to the lesson.
+    """
+    heard = ' '.join(token for word in recognize(clip) for token in tokens(word['word']))
+    if heard in ALIASES[letter]:
+        return clip
+    repeated, duration, gap = repeat_for_letter_check(clip)
+    recognized = [(token, word) for word in recognize(repeated) for token in tokens(word['word'])]
+    count = len(recognized)
+    if not count or count % 2:
+        raise LetterClarityError(f'The isolated {letter} could not be verified independently.')
+    first, second = recognized[:count // 2], recognized[count // 2:]
+    if [t for t, _ in first] != [t for t, _ in second]:
+        raise LetterClarityError('Repeated letter checks disagreed.')
+    phrase = ' '.join(t for t, _ in first)
+    if phrase in ALIASES[letter]:
+        return clip
+    # At most three leading tokens may be residual guide speech. Only matching
+    # target suffixes in BOTH copies are eligible for a measured correction.
+    boundary = next((i for i in range(1, min(4, len(first)))
+                     if ' '.join(t for t, _ in first[i:]) in ALIASES[letter]), None)
+    if boundary is None:
+        raise LetterClarityError(f'The isolated {letter} sounded like {phrase}.')
+    onsets = []
+    for index, group in enumerate((first, second)):
+        start = float(group[boundary][1]['start']) - (gap + index * (duration + gap))
+        end = float(group[-1][1]['end']) - (gap + index * (duration + gap))
+        previous_end = float(group[boundary - 1][1]['end']) - (gap + index * (duration + gap))
+        if (not all(map(math.isfinite, (start, end, previous_end)))
+                or start < .18 or end > duration + .1 or end - start < .12
+                or previous_end > start):
+            raise LetterClarityError('Repeated letter boundaries are not safe to trim.')
+        onsets.append(start)
+    if abs(onsets[0] - onsets[1]) > .2:
+        raise LetterClarityError('Repeated letter timing checks disagreed.')
+    # Preserve 100 ms before the earliest measured onset to protect consonants.
+    trim_seconds = min(onsets) - .1
+    with wave.open(io.BytesIO(clip), 'rb') as audio:
+        params = audio.getparams()
+        audio.setpos(round(trim_seconds * params.framerate))
+        pcm = audio.readframes(params.nframes)
+    signal = array('h', pcm)
+    rms = math.sqrt(sum(value * value for value in signal) / max(1, len(signal)))
+    if params.sampwidth != 2 or len(pcm) / (params.framerate * params.nchannels * params.sampwidth) < .12 or rms < 26:
+        raise LetterClarityError('Corrected letter is too short or too quiet.')
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as audio:
+        audio.setparams(params)
+        audio.writeframes(pcm)
+    corrected = output.getvalue()
+    repeated, _, _ = repeat_for_letter_check(corrected)
+    final_tokens = [token for word in recognize(repeated) for token in tokens(word['word'])]
+    if not any(final_tokens == tokens(alias) * 2 for alias in ALIASES[letter]):
+        raise LetterClarityError('Corrected letter did not pass both independent checks.')
+    return corrected
 
 
 def make_verified_letter(letter, generate, recognize, report=lambda message: None):
@@ -152,10 +238,7 @@ def make_verified_letter(letter, generate, recognize, report=lambda message: Non
             recording = generate(f'{prefix}. {name}.', attempt)
             report(f'Checking the recorded {letter} and its isolated pronunciation')
             crop = extract_letter(recording, letter, prefix, recognize(recording))
-            checked_words = recognize(crop)
-            heard = ' '.join(token for word in checked_words for token in tokens(word['word']))
-            if heard not in ALIASES[letter]:
-                raise LetterClarityError(f'The isolated {letter} sounded like {heard or "silence"}.')
+            crop = checked_letter_crop(crop, letter, recognize)
             report(f'{letter}: pronunciation checked')
             return crop
         except (LetterClarityError, TimeoutError, ConnectionError) as error:
