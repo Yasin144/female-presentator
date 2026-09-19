@@ -13751,15 +13751,40 @@ async function measureNarrationBlobDurationMs(blob) {
   }
 
   const objectUrl = URL.createObjectURL(blob);
+  let audioElement;
   try {
-    const audioElement = await createLoadedAudio(objectUrl);
+    audioElement = await createLoadedAudio(objectUrl);
     if (!Number.isFinite(audioElement.duration) || audioElement.duration <= 0) {
       throw new Error("Narration audio duration could not be verified. Generate narration again before exporting.");
     }
     return Math.ceil(audioElement.duration * 1000);
   } finally {
+    disposeRuntimeAudio(audioElement);
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function mapNarrationWithConcurrency(items, concurrency, generate) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  let failure;
+  let failed = false;
+  async function worker() {
+    while (!failed && nextIndex < items.length) {
+      const index = nextIndex++;
+      try {
+        results[index] = await generate(items[index], index);
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+      }
+    }
+  }
+  // Drain in-flight requests before reporting failure; never leave a hidden
+  // background batch running after the UI offers Retry.
+  await Promise.all(Array.from({ length: Math.min(items.length, Math.max(1, concurrency)) }, worker));
+  if (failed) throw failure;
+  return results;
 }
 
 async function generateNarrationChunkWithFallback(chunkText, voice, options = {}, depth = 0) {
@@ -13877,8 +13902,8 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     // SC3/pattan TTS has _synth_lock (single-threaded server) — parallel requests
     // queue up and later chunks time out on the CLIENT before the server even
     // starts them. Use SEQUENTIAL generation for SC3 so each chunk completes
-    // before the next one is sent. Edge TTS handles concurrency fine — keep
-    // parallel for it (glossary key→value gap elimination).
+    // before the next one is sent. Edge uses a bounded pool to avoid flooding
+    // its service and exhausting browser audio decoders on long lessons.
     const useSequential = (voice !== EDGE_NARRATION_VOICE);
     const modeLabel = useSequential ? 'one by one' : 'in parallel';
     if (typeof options.onProgress === "function") {
@@ -13925,12 +13950,10 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
           parallelResults.push(updateChunkProgress(chunkResult, idx));
         }
       } else {
-        // Parallel: Edge TTS can handle concurrent requests.
-        parallelResults = await Promise.all(
-          chunkEntries.map((chunk, index) =>
+        parallelResults = await mapNarrationWithConcurrency(
+          chunkEntries, 3, (chunk, index) =>
             generateNarrationChunkWithFallback(chunk.text, voice, options)
               .then((chunkResult) => updateChunkProgress(chunkResult, index))
-          )
         );
       }
       parallelResults.sort((a, b) => a.index - b.index);
@@ -17257,8 +17280,7 @@ async function applyVowelsConsonantsBuilder(options = {}) {
 }
 
 function getDynamicPdfLessonText() {
-  const pages = Array.isArray(state.pdf?.pages) ? state.pdf.pages : [];
-  const selected = pages.filter(page => page?.selected !== false);
+  const selected = getPdfSelectedPages();
   const texts = selected.map(page => String(page?.text || page?.extractedText || "").trim()).filter(Boolean);
   return texts.join("\n\n").trim();
 }
