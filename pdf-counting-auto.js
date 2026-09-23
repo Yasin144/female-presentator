@@ -70,7 +70,12 @@ export function analyzePdfPlaceValuePage({ text = '' } = {}) {
   const numbers = [];
   for (let value = 21; value <= 100; value += 1) {
     const word = EXTENDED_NUMBER_WORDS[value];
-    const pattern = new RegExp(`(?:^|[^a-z-])${word.replace('-', '[-\\s]')}(?=$|[^a-z-])`, 'i');
+    // Decorative schoolbook fonts often extract 1 as I and omit the visual
+    // gap between a number word and its printed numeral. Page 53, for example,
+    // becomes "One hundredI00". Treat only an I/l immediately followed by a
+    // digit as an OCR numeral boundary; ordinary adjoining letters still veto
+    // the match so prose cannot manufacture a counting range.
+    const pattern = new RegExp(`(?:^|[^a-z-])${word.replace('-', '[-\\s]')}(?=$|[^a-z-]|[il](?=\\d))`, 'i');
     if (pattern.test(normalized)) numbers.push(value);
   }
   const expectedLength = numbers[0] >= 51 ? 10 : 5;

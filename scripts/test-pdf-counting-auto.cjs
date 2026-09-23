@@ -52,6 +52,11 @@ test('recognizes complete consecutive 21–100 place-value rows', async () => {
   assert.equal(high.style, 'ten-frames');
   assert.equal(high.rangeStart, 91);
   assert.equal(high.rangeEnd, 100);
+  const joinedHundred = module.analyzePdfPlaceValuePage({
+    text: 'Numbers 9I to I00\nNinety-one9I\nNinety-two92\nNinety-three93\nNinety-four94\nNinety-five95\nNinety-six96\nNinety-seven97\nNinety-eight98\nNinety-nine99\nOne hundredI00'
+  });
+  assert.deepEqual(joinedHundred.numbers, [91, 92, 93, 94, 95, 96, 97, 98, 99, 100]);
+  assert.equal(joinedHundred.status, 'ready');
   assert.equal(module.analyzePdfPlaceValuePage({ text: 'Twenty-one Twenty-two Twenty-four Twenty-five' }).status, 'none');
 });
 
