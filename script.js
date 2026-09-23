@@ -6189,13 +6189,25 @@ async function buildExactWhisperSyncProfile(audioBlob, displayText = "", duratio
     unit.pauseEndMs = unit.speechEndMs;
   });
 
+  // Precompute the next spoken start in one reverse pass. The previous
+  // slice(...).find(...) scanned the remaining lesson again for every unit,
+  // which became quadratic and could pin the renderer at 85% for large PDFs.
+  const nextSpokenStartMs = new Array(units.length);
+  let followingSpokenStartMs = 0;
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    nextSpokenStartMs[index] = followingSpokenStartMs;
+    const unit = units[index];
+    if (String(unit.spokenText || "").trim()) {
+      followingSpokenStartMs = Math.max(0, Number(unit.speechStartMs) || 0);
+    }
+  }
+
   let previousEndMs = 0;
   for (let index = 0; index < units.length; index += 1) {
     const unit = units[index];
     if (String(unit.spokenText || "").trim()) {
       previousEndMs = unit.speechEndMs;
-      const nextSpoken = units.slice(index + 1).find((candidate) => String(candidate.spokenText || "").trim());
-      unit.pauseEndMs = Math.max(unit.speechEndMs, Number(nextSpoken?.speechStartMs) || unit.speechEndMs);
+      unit.pauseEndMs = Math.max(unit.speechEndMs, nextSpokenStartMs[index] || unit.speechEndMs);
     } else {
       unit.speechStartMs = previousEndMs;
       unit.speechEndMs = previousEndMs;
@@ -9865,18 +9877,33 @@ function drawPdfPlaceValueScene(page) {
   const timing = state.pdf.narration.pdfTiming?.find(item => item.pageIndex === page.index);
   const steps = Array.isArray(timing?.placeValueSteps) ? timing.placeValueSteps : [];
   const current = [...steps].reverse().find(step => state.pdf.currentTimeMs >= step.introStartMs) || null;
-  const number = current?.number || activity.numbers[0];
-  const starts = current?.starts || [];
-  const visible = starts.filter(start => state.pdf.currentTimeMs >= start).length;
-  const tens = Math.floor(number / 10), ones = number % 10;
-  const visibleTens = Math.min(tens, visible);
-  const visibleOnes = Math.min(ones, Math.max(0, visible - tens));
   const W = canvas.width, H = canvas.height, scale = Math.min(W / 1920, H / 1080);
   const colors = ["#ef476f", "#ffd166", "#06d6a0", "#118ab2", "#7b2cbf"];
   ctx.save();
   const bg = ctx.createLinearGradient(0, 0, W, H); bg.addColorStop(0, "#eefcff"); bg.addColorStop(1, "#fff4df");
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  // During the spoken page introduction, show a real title card only. The old
+  // fallback rendered the first number twice before its narration cue, making
+  // the title look like a broken 61 activity screen.
+  if (!current) {
+    ctx.fillStyle = "#087f8c";
+    ctx.font = `900 ${78 * scale}px "Nunito",sans-serif`;
+    ctx.fillText(activity.title.toUpperCase(), W / 2, H * .42, W * .84);
+    ctx.fillStyle = "#52677e";
+    ctx.font = `800 ${32 * scale}px "Nunito",sans-serif`;
+    ctx.fillText("Get ready to build each number with tens and ones.", W / 2, H * .54, W * .78);
+    ctx.restore();
+    return true;
+  }
+
+  const number = current.number;
+  const starts = current.starts || [];
+  const visible = starts.filter(start => state.pdf.currentTimeMs >= start).length;
+  const tens = Math.floor(number / 10), ones = number % 10;
+  const visibleTens = Math.min(tens, visible);
+  const visibleOnes = Math.min(ones, Math.max(0, visible - tens));
   ctx.fillStyle = "#087f8c"; ctx.font = `800 ${28 * scale}px "Nunito",sans-serif`;
   ctx.fillText(activity.title.toUpperCase(), W / 2, H * .075);
   ctx.fillStyle = "#172b45"; ctx.font = `900 ${94 * scale}px "Nunito",sans-serif`;
@@ -11617,14 +11644,22 @@ async function requestPdfNarrationBlob(text, voice, options = {}) {
   const spokenPdfScript = pagePlans
     .flatMap(plan => plan.map(cue => String(cue?.text || "").trim()).filter(Boolean))
     .join("\n");
-  if (spokenPdfScript && typeof buildExactWhisperSyncProfile === "function") {
+  // Counting and place-value pages already have exact clip-onset timings for
+  // every number/object. Running full-document Whisper alignment cannot improve
+  // those labels and made pure counting lessons wait at 85%. Reserve the costly
+  // word-alignment pass for selections that actually contain ordinary PDF text.
+  const hasReadingCues = pagePlans.some(plan => plan.some(cue => cue?.kind === "reading"));
+  if (hasReadingCues && spokenPdfScript && typeof buildExactWhisperSyncProfile === "function") {
     try {
       report("Synchronizing PDF highlights to the spoken words...");
       const exactProfile = await buildExactWhisperSyncProfile(blob, spokenPdfScript, cursorMs + 200);
+      report("Finalizing synchronized PDF highlights...");
       applyExactPdfReadingTiming(pdfTiming, pagePlans, exactProfile);
     } catch (error) {
       console.warn("[PDF] Exact spoken-word highlight timing was unavailable; keeping measured clip timing.", error);
     }
+  } else if (!hasReadingCues) {
+    report("Counting labels synchronized from narration timing.");
   }
   assertPdfNarrationRequestActive(options);
   const profile = getSpeechSyncProfile(text, cursorMs + 200);

@@ -49,7 +49,7 @@ function harness(pages, settings = {}) {
   const state = { preferredNarrationVoice: "edge", pdf: { requestId: 1, narration: {} } };
   const urlBlobs = new Map(), revokedUrls = [];
   let nextUrlId = 0;
-  let active = 0, maximumActive = 0, profile = null;
+  let active = 0, maximumActive = 0, profile = null, exactSyncCalls = 0;
   class AudioContext {
     constructor() { this.closed = false; contexts.push(this); }
     async decodeAudioData(bytes) {
@@ -105,7 +105,10 @@ function harness(pages, settings = {}) {
     window: { AudioContext, OfflineAudioContext },
     EDGE_NARRATION_VOICE: "edge",
     PDF_HIGHLIGHT_TIMING_VERSION: 2,
-    buildExactWhisperSyncProfile: async () => null,
+    buildExactWhisperSyncProfile: async (...args) => {
+      exactSyncCalls++;
+      return settings.exactSyncProfile?.(...args) ?? null;
+    },
     NARRATION_CHUNK_JOIN_GAP_MS: 250,
     NARRATION_CHUNK_FADE_MS: 18,
     getPdfSelectedPages: () => pages,
@@ -155,6 +158,7 @@ function harness(pages, settings = {}) {
     context, calls, schedules, contexts, progress, state, revokedUrls, urlBlobs,
     get active() { return active; },
     get maximumActive() { return maximumActive; },
+    get exactSyncCalls() { return exactSyncCalls; },
     get profile() { return profile; },
     run: (voice = "edge", options = {}) => context.requestPdfNarrationBlob("PDF counting text", voice, {
       onProgress: value => progress.push(value),
@@ -163,6 +167,19 @@ function harness(pages, settings = {}) {
     })
   };
 }
+
+test("pure counting lessons skip costly full-PDF Whisper alignment", async () => {
+  const h = harness([countingPage(60, 6), countingPage(61, 7)]);
+  await h.run();
+  assert.equal(h.exactSyncCalls, 0);
+  assert.match(h.progress.at(-1).label, /Counting labels synchronized/i);
+});
+
+test("ordinary original-PDF reading pages retain exact spoken-word alignment", async () => {
+  const h = harness([{ index: 45, visualLines: ["The red car is before the green car."] }]);
+  await h.run();
+  assert.equal(h.exactSyncCalls, 1);
+});
 
 test("count labels use the real merger start times, including subsecond clips", async () => {
   const h = harness([countingPage(25, 2), countingPage(26, 3)]);
