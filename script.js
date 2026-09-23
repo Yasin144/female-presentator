@@ -26546,6 +26546,12 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
       : `Rendering ${modeLabel} video with synced page text, visuals, and ${audioStatusLabel} at ${exportRenderSpeedMultiplier}x export speed. Please wait...`;
     setStatus(renderingPdfExportMessage);
     updateTaskProgressUi(0.24, true, { mirrorStage: true, label: renderingPdfExportMessage });
+    // Every PDF export owns a fresh title animation. A completed earlier
+    // preview/export leaves exitDone=true; without re-arming, a newly selected
+    // page exports correctly but its saved title badge remains invisible.
+    if (hasPdfTitleCard) {
+      armStartingTitleBadge({ immediate: true });
+    }
     state.pdf.currentTimeMs = 0;
     syncPdfPreviewPageFromTime(0);
     drawScene(0.12);

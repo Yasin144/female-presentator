@@ -12,7 +12,7 @@ function functionSource(name) {
 }
 
 function exportFixture(options = {}) {
-  const statuses = [], muxCalls = [], renderCalls = [], notifications = [];
+  const statuses = [], muxCalls = [], renderCalls = [], notifications = [], titleArmCalls = [];
   const state = { preferredNarrationVoice: 'test-voice', presentationMode: 'pdf',
     music: { enabled: false }, pdf: { playbackRate: options.rate || 1, totalDurationMs: 20000, narration: { fileName: 'test.wav', durationMs: 20000 } } };
   const track = { kind: 'video', stop() {} };
@@ -27,10 +27,12 @@ function exportFixture(options = {}) {
     getEffectiveExportRenderSpeedMultiplier: () => 2, getPdfRenderMode: () => 'context',
     getPdfPlaybackRate: () => state.pdf.playbackRate, getPdfCountingDisplayMode: () => 'reveal',
     getNarrationVoiceLabel: () => 'Test voice', getPdfPresentationText: () => options.silent ? '' : 'Three dogs.',
-    getPresentationTitleText: () => '', EXPORT_TITLE_OUTRO_MS: 2400,
+    getPresentationTitleText: () => options.title || '', EXPORT_TITLE_OUTRO_MS: 2400,
+    armStartingTitleBadge: settings => titleArmCalls.push(settings),
     createExportCanvasSurface: () => ({}), getAcceleratedExportCaptureRate: () => 48,
     createExportCanvasStream: () => stream, getPdfExportBitrate: () => 1000000,
     createSilentWavBlob: () => new Blob(['silent'], { type: 'audio/wav' }),
+    combineNarrationBlobs: async blobs => blobs[0],
     ensureAnjaliPdfNarrationReadyForExport: async () => {
       state.pdf.totalDurationMs = state.pdf.narration.durationMs = options.preparedDuration || 20000;
       return new Blob(['narration'], { type: 'audio/wav' });
@@ -55,11 +57,24 @@ function exportFixture(options = {}) {
     setStatus: status => statuses.push(status), clamp: (value, low, high) => Math.min(high, Math.max(low, value))
   };
   for (const name of ['downloadBtn', 'downloadPdfContextBtn', 'playBtn', 'stopStageBtn', 'recordBtn', 'stopRecordBtn', 'clearAudioBtn', 'audioInput']) bindings[name] = {};
-  for (const name of ['preventBackgroundThrottling', 'allowBackgroundThrottling', 'stopDictation', 'stopInputPreview', 'stopPlayback', 'syncExportVoiceSelection', 'updateTaskProgressUi', 'updateStageModeUi', 'setPdfRenderMode', 'useCanvasSurface', 'rebuildPdfPresentationSchedule', 'ensureVideoExportServer', 'syncPdfPreviewPageFromTime', 'drawScene', 'requestExportVideoFrame', 'freezeAvatarForExport', 'setExportCaptureRate', 'cancelVisualLoop', 'waitForNextPaint', 'stopActiveAudio', 'markSceneDirty', 'clearExportCaptureRate', 'restoreAvatarAfterExport', 'setRecordingUi', 'updateNarrationUi', 'updateSpeechToolsUi', 'updatePlaybackProgressUi', 'resetTaskProgressUi']) bindings[name] = () => {};
+  for (const name of ['preventBackgroundThrottling', 'allowBackgroundThrottling', 'stopDictation', 'stopInputPreview', 'stopPlayback', 'syncExportVoiceSelection', 'updateTaskProgressUi', 'updateStageModeUi', 'setPdfRenderMode', 'useCanvasSurface', 'rebuildPdfPresentationSchedule', 'ensureVideoExportServer', 'syncPdfPreviewPageFromTime', 'drawScene', 'requestExportVideoFrame', 'freezeAvatarForExport', 'setExportCaptureRate', 'cancelVisualLoop', 'waitForNextPaint', 'stopActiveAudio', 'markSceneDirty', 'clearExportCaptureRate', 'restoreAvatarAfterExport', 'setRecordingUi', 'updateNarrationUi', 'updateSpeechToolsUi', 'updatePlaybackProgressUi', 'resetTaskProgressUi', 'recordEndingTitleOutro']) bindings[name] = () => {};
   const context = vm.createContext(bindings);
   vm.runInContext(['createWhatsAppBrowserJob', 'finishWhatsAppBrowserJob', 'getWhatsAppOutputName', 'downloadWithWhatsAppJob', 'exportPdfModeVideo'].map(functionSource).join('\n'), context);
-  return { state, context, statuses, muxCalls, renderCalls, notifications };
+  return { state, context, statuses, muxCalls, renderCalls, notifications, titleArmCalls };
 }
+
+test('each PDF export re-arms a saved title after the selected page changes', async () => {
+  const first = exportFixture({ title: 'Numbers 61 to 70' });
+  await first.context.exportPdfModeVideo('context');
+  assert.equal(first.titleArmCalls.length, 1);
+  assert.equal(first.titleArmCalls[0].immediate, true);
+
+  const nextPage = exportFixture({ title: 'Numbers 71 to 80' });
+  nextPage.state.titleAnim = { exitDone: true, exitStartedAt: 1, startedAt: 1 };
+  await nextPage.context.exportPdfModeVideo('context');
+  assert.equal(nextPage.titleArmCalls.length, 1);
+  assert.equal(nextPage.titleArmCalls[0].immediate, true);
+});
 
 test('PDF Context export keeps narration natural while rendering video faster internally', async () => {
   for (const rate of [0.5, 1, 1.25, 2, 2.5]) {
