@@ -7756,8 +7756,9 @@ function shouldPreferPdfScreenFromInput() {
 }
 
 function getPdfPresentationText() {
+  const keepOriginalPdf = getPdfCountingDisplayMode() === "original";
   return getPdfSelectedPages()
-    .map((page) => String(page.narrationText || page.text || "").trim())
+    .map((page) => String(keepOriginalPdf ? page.text : (page.narrationText || page.text || "")).trim())
     .filter(Boolean)
     .join("\n\n");
 }
@@ -10363,7 +10364,9 @@ function drawPdfActionGlow(box, color, drawX, drawY, drawWidth, drawHeight, sour
 }
 
 function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
-  if (page?.countingActivity || page?.placeValueActivity || (!state.pdf.highlightColor && state.pdf.actionsEnabled === false)) return;
+  const preparedCountingIsReplacingThePage = getPdfCountingDisplayMode() === "reveal"
+    && (page?.countingActivity || page?.placeValueActivity);
+  if (preparedCountingIsReplacingThePage || (!state.pdf.highlightColor && state.pdf.actionsEnabled === false)) return;
   const timing = state.pdf.narration.pdfTiming?.find(item => item.pageIndex === page?.index);
   const segment = timing?.readingSegments?.find(item => state.pdf.currentTimeMs >= item.startMs && state.pdf.currentTimeMs < item.endMs);
   if (!segment) return;
@@ -11549,14 +11552,17 @@ function applyExactPdfReadingTiming(pdfTiming, pagePlans, exactProfile) {
 async function requestPdfNarrationBlob(text, voice, options = {}) {
   voice = requireNarrationVoiceId(voice);
   const pages = getPdfSelectedPages();
+  const revealPreparedCounting = typeof getPdfCountingDisplayMode === "function"
+    ? getPdfCountingDisplayMode() === "reveal"
+    : state.pdf?.countingDisplayMode !== "original";
   const blobs = [], entries = [], pdfTiming = [];
   const clips = new Map();
   const pagePlans = pages.map(page => {
     const activity = page.countingActivity;
     const placeValue = page.placeValueActivity;
-    if (placeValue) return buildPdfPlaceValueCuePlan(placeValue);
+    if (revealPreparedCounting && placeValue) return buildPdfPlaceValueCuePlan(placeValue);
     const visualLines = getPdfReadingNarrationLines(page);
-    return activity
+    return revealPreparedCounting && activity
       ? [`${activity.title}. Let us count the ${activity.noun}.`,
           ...PDF_COUNTING_WORDS.slice(1, activity.count + 1),
           `There ${activity.count === 1 ? "is" : "are"} ${PDF_COUNTING_WORDS[activity.count]} ${activity.noun}.`].map(text => ({ text, kind: "counting" }))
@@ -30689,6 +30695,8 @@ if (pdfCountingDisplaySelect) {
     }
     invalidatePdfPresentationRequest();
     state.pdf.countingDisplayMode = pdfCountingDisplaySelect.value === "original" ? "original" : "reveal";
+    resetPdfNarrationState();
+    rebuildPdfPresentationSchedule({ preserveTime: false });
     setPdfStatus(getPdfCountingDisplayMode() === "reveal"
       ? "Prepared counting pages reveal complete realistic pictures, with numerals above and number words below, on screen and in video export. Other pages keep their PDF layout."
       : "Original PDF artwork stays visible; number labels follow the narration, on screen and in video export.");

@@ -97,6 +97,16 @@ test('number-line and picture action branches are mutually exclusive', () => {
   assert.match(renderer, /if \(!numberLineBox && state\.pdf\.actionsEnabled !== false && isPdfPictureActionWord\(segment\)/);
 });
 
+test('original PDF mode keeps word highlights and actions on detected counting pages', () => {
+  const renderer = functionSource('drawPdfReadingHighlight');
+  assert.match(renderer, /getPdfCountingDisplayMode\(\) === "reveal"/);
+  assert.match(renderer, /page\?\.countingActivity \|\| page\?\.placeValueActivity/);
+  assert.doesNotMatch(renderer, /^\s*if \(page\?\.countingActivity \|\| page\?\.placeValueActivity/m);
+  const narrationBuilder = functionSource('requestPdfNarrationBlob');
+  assert.match(narrationBuilder, /revealPreparedCounting && placeValue/);
+  assert.match(narrationBuilder, /revealPreparedCounting && activity/);
+});
+
 test('PDF word highlights use measured narration timestamps instead of character estimates', () => {
   const context = vm.createContext({
     clamp: (value, min, max) => Math.min(max, Math.max(min, value)),
