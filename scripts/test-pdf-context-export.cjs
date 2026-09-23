@@ -61,42 +61,43 @@ function exportFixture(options = {}) {
   return { state, context, statuses, muxCalls, renderCalls, notifications };
 }
 
-test('PDF Context export target duration follows the selected narration speed', async () => {
+test('PDF Context export keeps narration natural while rendering video faster internally', async () => {
   for (const rate of [0.5, 1, 1.25, 2, 2.5]) {
     const f = exportFixture({ rate });
     await f.context.exportPdfModeVideo('context');
     assert.equal(f.muxCalls.length, 1, f.statuses.join('\n'));
-    assert.equal(f.muxCalls[0].targetDurationMs, 20000 / rate + 150);
-    assert.equal(f.muxCalls[0].audioSpeed, rate);
+    assert.equal(f.muxCalls[0].targetDurationMs, 20150);
+    assert.equal(f.muxCalls[0].audioSpeed, 1);
     assert.equal(f.muxCalls[0].videoSpeed, 2);
     assert.equal(f.state.exportingVideo, false);
   }
 });
 
-test('new voice duration and silent PDFs use the same scaled context target', async () => {
+test('new voice duration and silent PDFs retain their natural duration', async () => {
   for (const settings of [{ rate: 2.5, preparedDuration: 30000 }, { rate: 0.5, silent: true }]) {
     const f = exportFixture(settings);
     await f.context.exportPdfModeVideo('context');
     assert.equal(f.muxCalls.length, 1, f.statuses.join('\n'));
-    assert.equal(f.muxCalls[0].targetDurationMs, (settings.preparedDuration || 20000) / settings.rate + 150);
+    assert.equal(f.muxCalls[0].targetDurationMs, (settings.preparedDuration || 20000) + 150);
   }
 });
 
-test('context rendering and muxing retain one captured speed despite later UI changes', async () => {
+test('context rendering ignores UI playback speed while retaining fast internal capture', async () => {
   const f = exportFixture({ rate: 2.5, changedRate: 0.5 });
   await f.context.exportPdfModeVideo('context');
   assert.equal(f.muxCalls.length, 1, f.statuses.join('\n'));
-  assert.equal(f.renderCalls[0].settings.playbackRate, 2.5);
-  assert.equal(f.muxCalls[0].audioSpeed, 2.5);
-  assert.equal(f.muxCalls[0].targetDurationMs, 8150);
+  assert.equal(f.renderCalls[0].settings.playbackRate, 1);
+  assert.equal(f.muxCalls[0].audioSpeed, 1);
+  assert.equal(f.muxCalls[0].videoSpeed, 2);
+  assert.equal(f.muxCalls[0].targetDurationMs, 20150);
 });
 
 test('exact PDF duration still comes from its deterministic encoded timeline without context tail padding', async () => {
   const f = exportFixture({ rate: 2.5 });
   await f.context.exportPdfModeVideo('exact');
   assert.equal(f.muxCalls.length, 1, f.statuses.join('\n'));
-  assert.equal(f.muxCalls[0].targetDurationMs, 8000);
-  assert.equal(f.muxCalls[0].audioSpeed, 2.5);
+  assert.equal(f.muxCalls[0].targetDurationMs, 20000);
+  assert.equal(f.muxCalls[0].audioSpeed, 1);
   assert.equal(f.muxCalls[0].pdfExactTimeline, true);
 });
 

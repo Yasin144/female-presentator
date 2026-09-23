@@ -26400,7 +26400,10 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   );
   const previousRenderMode = getPdfRenderMode();
   const previousPresentationMode = state.presentationMode;
-  const pdfExportPlaybackRate = getPdfPlaybackRate();
+  // Export acceleration is an internal rendering optimization only. Keep the
+  // teacher's narration and the final lesson timeline at their natural 1x
+  // speed; exportRenderSpeedMultiplier still makes frame generation faster.
+  const pdfExportPlaybackRate = 1;
   const introClipRequested = typeof getIntroClipRequested === "function"
     ? getIntroClipRequested()
     : false;
