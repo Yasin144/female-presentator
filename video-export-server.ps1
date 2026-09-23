@@ -689,9 +689,18 @@ function Join-VideoSegments {
       $targetDimensions = Get-VideoDimensions -VideoPath $safeVideoPaths[0]
       $targetWidth = [Math]::Max(2, [int]$targetDimensions.Width)
       $targetHeight = [Math]::Max(2, [int]$targetDimensions.Height)
+      $lessonVideoSpeed = 1.0
+      if ($Metadata -and $Metadata.PSObject.Properties.Name -contains "introSegmentVideoSpeed") {
+        $lessonVideoSpeed = [Math]::Max(0.1, [double]$Metadata.introSegmentVideoSpeed)
+      }
       for ($index = 0; $index -lt $safeVideoPaths.Count; $index += 1) {
         $inputArgs += @("-i", $safeVideoPaths[$index])
-        $segmentFilter = "[{0}:v]setpts=PTS-STARTPTS,scale={1}:{2}:force_original_aspect_ratio=increase:flags=lanczos,crop={1}:{2},setsar=1,fps=30,format=yuv420p[v{0}]" -f $index, $targetWidth, $targetHeight
+        $setPts = if ($index -gt 0 -and [Math]::Abs($lessonVideoSpeed - 1.0) -gt 0.001) {
+          "setpts=$($lessonVideoSpeed.ToString([System.Globalization.CultureInfo]::InvariantCulture))*(PTS-STARTPTS)"
+        } else {
+          "setpts=PTS-STARTPTS"
+        }
+        $segmentFilter = "[{0}:v]{1},scale={2}:{3}:force_original_aspect_ratio=increase:flags=lanczos,crop={2}:{3},setsar=1,fps=30,format=yuv420p[v{0}]" -f $index, $setPts, $targetWidth, $targetHeight
         $filterParts += $segmentFilter
         $concatInputs += "[v$index]"
       }

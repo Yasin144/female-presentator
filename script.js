@@ -12068,9 +12068,20 @@ async function playPdfPresentation() {
     syncPdfPreviewPageFromTime(0);
   }
 
+  const shouldPlayPdfIntro = state.pdf.currentTimeMs <= 50 && getIntroClipRequested();
+  state.introPlayback.enabled = shouldPlayPdfIntro;
+  const playPdfIntro = async () => {
+    if (!shouldPlayPdfIntro) return;
+    await playIntroClipIfEnabled();
+    if (requestId !== state.pdf.requestId) {
+      throw new DOMException("PDF playback was cancelled.", "AbortError");
+    }
+  };
+
   const selectedVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
   if (hasMatchingPdfNarration(selectedVoice)) {
     try {
+      await playPdfIntro();
       await startPdfNarrationPlayback(`PDF presentation is playing with ${getNarrationVoiceLabel(selectedVoice)}.`);
     } catch (error) {
       if (error?.name !== "AbortError" && requestId === state.pdf.requestId) {
@@ -12083,6 +12094,7 @@ async function playPdfPresentation() {
 
   const pdfText = getPdfPresentationText();
   if (!pdfText) {
+    await playPdfIntro();
     startTimedPdfPresentation(`No readable text was found in the selected PDF pages, so the app is presenting ${getPdfPresentationFallbackLabel()} with the timeline controls.`);
     return;
   }
@@ -12105,6 +12117,7 @@ async function playPdfPresentation() {
       label: "Narration ready. Starting lesson playback..."
     });
     resetTaskProgressUi({ delayMs: 1100 });
+    await playPdfIntro();
     await startPdfNarrationPlayback(`PDF presentation is playing with ${getNarrationVoiceLabel(selectedVoice)}.`);
   } catch (error) {
     if (error?.name === "AbortError" || requestId !== state.pdf.requestId) return;
@@ -13323,6 +13336,10 @@ async function muxVideoSegmentsAndAudioChunked(videoBlobs, audioBlob, musicBlob,
       musicVolume,
       exportQuality,
       includeIntroSegment: Boolean(options.includeIntroSegment),
+      introSegmentVideoSpeed: Number.isFinite(Number(options.introSegmentVideoSpeed))
+        ? Math.max(0.1, Number(options.introSegmentVideoSpeed))
+        : 1,
+      pdfExactTimeline: options.pdfExactTimeline === true,
       targetDurationMs,
       holdLastFrameMs,
       outputFileName,
@@ -22514,7 +22531,7 @@ function scheduleStageVideoStartAfterDelay(options = {}) {
 
 async function playIntroClipIfEnabled() {
   const signal = getPlaybackSignal();
-  if (isPdfPresentationMode() || !state.introPlayback.enabled || state.numberTableIntroSuppressed) {
+  if (!state.introPlayback.enabled || state.numberTableIntroSuppressed) {
     return;
   }
 
@@ -22611,7 +22628,7 @@ async function playIntroClipIfEnabled() {
 }
 
 async function playIntroClipForExport(options = {}) {
-  if (isPdfPresentationMode() || !state.introPlayback.enabled) {
+  if (!state.introPlayback.enabled) {
     return false;
   }
 
@@ -26384,6 +26401,9 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   const previousRenderMode = getPdfRenderMode();
   const previousPresentationMode = state.presentationMode;
   const pdfExportPlaybackRate = getPdfPlaybackRate();
+  const introClipRequested = typeof getIntroClipRequested === "function"
+    ? getIntroClipRequested()
+    : false;
   const hasPdfTitleCard = Boolean(getPresentationTitleText());
   const pdfOutroSourceDurationMs = hasPdfTitleCard
     ? Math.round(EXPORT_TITLE_OUTRO_MS * pdfExportPlaybackRate)
@@ -26394,6 +26414,9 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
   stopInputPreview(false);
   stopPlayback(false);
   syncExportVoiceSelection();
+  if (state.introPlayback) {
+    state.introPlayback.enabled = introClipRequested;
+  }
   state.exportingVideo = true;
   const exportVoiceLabel = getNarrationVoiceLabel(state.preferredNarrationVoice);
   const preparingPdfExportMessage = `Preparing ${modeLabel} video with ${exportVoiceLabel} narration. Please wait...`;
@@ -26479,6 +26502,27 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
           { text: "pdf-title-outro", gapAfterMs: 0 }
         ]
       );
+    }
+
+    let introVideoBlob = null;
+    let includedIntroInExport = false;
+    if (introClipRequested) {
+      const introReady = await ensureDefaultIntroClip();
+      if (!introReady) {
+        throw new Error("The enabled intro clip could not be loaded for PDF export.");
+      }
+      introVideoBlob = await getIntroVideoSourceBlob();
+      const introAudioBlob = await getIntroExportBlob();
+      const adjustedPdfAudioBlob = await renderPlaybackRateAdjustedAudioBlob(exportAudioBlob, pdfExportPlaybackRate);
+      exportAudioBlob = await combineNarrationBlobs(
+        [introAudioBlob, adjustedPdfAudioBlob],
+        [
+          { text: "default-intro", gapAfterMs: 0 },
+          { text: "pdf-narration", gapAfterMs: 0 }
+        ]
+      );
+      exportAudioFileName = "intro-and-pdf-narration.wav";
+      includedIntroInExport = true;
     }
 
     // The selected voice can have a different duration from the page estimate
@@ -26615,17 +26659,30 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
     setStatus(combiningPdfExportMessage);
     updateTaskProgressUi(0.9, true, { mirrorStage: true, label: combiningPdfExportMessage });
     const shouldSaveToDownloads = !videoSaveHandle;
-    const finalResult = await muxVideoAndAudio(videoBlob, exportAudioBlob, {
+    if (includedIntroInExport) {
+      pdfExportTargetDurationMs = Math.max(1000, await measureNarrationBlobDurationMs(exportAudioBlob));
+    }
+    const muxOptions = {
       audioFileName: exportAudioFileName,
-      audioSpeed: pdfExportPlaybackRate,
-      videoSpeed: exportRenderSpeedMultiplier,
+      audioSpeed: includedIntroInExport ? 1 : pdfExportPlaybackRate,
+      videoSpeed: includedIntroInExport ? 1 : exportRenderSpeedMultiplier,
       videoFileName: normalizedRenderMode === "exact" ? "pdf-exact-timeline.ivf" : "canvas-export.webm",
       pdfExactTimeline: normalizedRenderMode === "exact",
       targetDurationMs: pdfExportTargetDurationMs,
       saveHandle: videoSaveHandle,
       saveToDefaultPath: shouldSaveToDownloads,
       outputFileName
-    });
+    };
+    const pdfMusicBlob = includedIntroInExport && state.music.enabled
+      ? await getBackgroundMusicExportBlob()
+      : null;
+    const finalResult = includedIntroInExport
+      ? await muxVideoSegmentsAndAudioChunked([introVideoBlob, videoBlob], exportAudioBlob, pdfMusicBlob, {
+        ...muxOptions,
+        includeIntroSegment: true,
+        introSegmentVideoSpeed: exportRenderSpeedMultiplier
+      })
+      : await muxVideoAndAudio(videoBlob, exportAudioBlob, muxOptions);
     if (!videoSaveHandle && !shouldSaveToDownloads && !finalResult) {
       throw new Error("The final PDF video file was not returned.");
     }
