@@ -346,12 +346,43 @@ three is less than nine"></textarea>
           </span>
         </summary>
         <div class="section-content">
+          <div class="outcomes-title-row pdf-outcomes-title-row">
+            <label class="field-label" for="pdfOutcomesTitleInput">Learning Outcomes Template Title</label>
+            <p class="upload-copy">Set the title used by the Learning Outcomes template in PDF Presenter. Changes saved here also update Lesson Presenter.</p>
+            <div class="toolbar toolbar-compact">
+              <input id="pdfOutcomesTitleInput" class="text-field-input outcomes-title-input" type="text" maxlength="72"
+                placeholder="e.g. LESSON-12 Numbers 61 to 70">
+              <button id="savePdfOutcomesTitleBtn" class="primary-btn" type="button">Save Title</button>
+            </div>
+            <p class="upload-copy" id="pdfOutcomesTitleStatus">The same saved title is used in PDF Presenter and Lesson Presenter.</p>
+          </div>
           <div class="pdf-upload-grid">
             <div class="upload-block pdf-upload-block">
               <label class="field-label" for="pdfInput">PDF File</label>
               <p class="upload-copy">Upload a PDF and the app will read the text from each page, place it in the lesson
                 box, and keep the presentation layout responsive for longer documents.</p>
               <input id="pdfInput" class="image-input" type="file" accept="application/pdf,.pdf">
+              <div class="pdf-reading-options" aria-label="PDF reading options">
+                <label class="style-field" for="pdfReadingScopeSelect">
+                  <span class="style-label">Reading portion</span>
+                  <select id="pdfReadingScopeSelect" class="theme-select">
+                    <option value="selected">Read selected pages</option>
+                    <option value="full">Read full PDF</option>
+                  </select>
+                </label>
+                <label class="style-field" for="pdfHighlightColorSelect">
+                  <span class="style-label">Reading highlight</span>
+                  <select id="pdfHighlightColorSelect" class="theme-select">
+                    <option value="">None (no highlight)</option>
+                    <option value="#fde047">Yellow</option>
+                    <option value="#60a5fa">Blue</option>
+                    <option value="#4ade80">Green</option>
+                    <option value="#f472b6">Pink</option>
+                    <option value="#fb923c">Orange</option>
+                    <option value="#c084fc">Purple</option>
+                  </select>
+                </label>
+              </div>
               <div class="toolbar toolbar-compact">
                 <button id="pdfShowBtn" class="primary-btn" type="button" disabled>Show Screen</button>
                 <button id="pdfPresentBtn" class="accent-btn" type="button" disabled>Read And Present Context</button>

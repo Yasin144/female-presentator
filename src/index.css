@@ -531,6 +531,28 @@ body::after {
 .panel-input > * {
   position: relative;
   z-index: 1;
+  order: 5;
+}
+
+/* Keep the most useful starting choices at the entrance to PDF Presenter. */
+.panel-input > .panel-head {
+  order: 0;
+}
+
+.panel-input > .workflow-surface {
+  order: 1;
+}
+
+.panel-input > .template-section-card {
+  order: -1;
+}
+
+.panel-input > .classic-source-links {
+  order: 3;
+}
+
+.panel-input > #pdfSection {
+  order: 4;
 }
 
 .panel-head {
@@ -939,11 +961,21 @@ body::after {
 .theme-toggle {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
 }
 
 .theme-toggle-standalone {
   padding: 0;
+}
+
+.theme-toggle-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .theme-toggle-input {
@@ -2707,10 +2739,13 @@ body[data-input-mode="pure"] #selectionStyleCard {
 
 .app-task-percent-indicator {
   position: fixed;
-  top: 18px;
+  top: 88px;
   right: 18px;
-  z-index: 120;
-  min-width: 240px;
+  z-index: 24000;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 36px));
+  min-width: 0;
+  max-width: calc(100vw - 36px);
   padding: 12px 14px;
   border-radius: 18px;
   display: grid;
@@ -4744,6 +4779,27 @@ kbd {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+.pdf-reading-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 6px;
+}
+.pdf-actions-field {
+  align-content: start;
+}
+.pdf-actions-toggle {
+  width: 100%;
+  min-height: 42px;
+}
+.pdf-actions-toggle[aria-pressed="true"] {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.14) !important;
+  color: #e0f7ff !important;
+}
+@media (max-width: 720px) {
+  .pdf-reading-options { grid-template-columns: 1fr; }
 }
 
 .pdf-page-range {

@@ -46,6 +46,20 @@ function StagePanel() {
   }, []);
 
   useEffect(() => {
+    const toolbar = document.querySelector("#stagePanel > .stage-actions");
+    if (!toolbar) return undefined;
+    const keepOnePanelOpen = event => {
+      const openedPanel = event.target;
+      if (!(openedPanel instanceof HTMLDetailsElement) || openedPanel.parentElement !== toolbar || !openedPanel.open) return;
+      toolbar.querySelectorAll(":scope > details[open]").forEach(panel => {
+        if (panel !== openedPanel) panel.open = false;
+      });
+    };
+    toolbar.addEventListener("toggle", keepOnePanelOpen, true);
+    return () => toolbar.removeEventListener("toggle", keepOnePanelOpen, true);
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem("stage-info-kids-logo-box", JSON.stringify(logoBox));
     } catch {
@@ -213,11 +227,11 @@ function StagePanel() {
           <div className="stage-toolbar-body">
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "4px 8px" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }} htmlFor="introClipEnabled">
-                <input id="introClipEnabled" type="checkbox" style={{ width: "16px", height: "16px" }} />
+                <input id="introClipEnabled" type="checkbox" defaultChecked style={{ width: "16px", height: "16px" }} />
                 <span style={{ fontSize: "0.75rem", color: "#fff", fontWeight: "600" }}>Play Intro Clip (optional)</span>
               </label>
               <p id="introClipStatus" className="stage-toolbar-meta" style={{ margin: 0 }}>
-                Unchecked — intro will be skipped. The lesson starts directly.
+                Enabled by default. Turn it off to start the lesson directly.
               </p>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.12)", paddingTop: "8px", marginTop: "2px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>

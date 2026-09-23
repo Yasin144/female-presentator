@@ -14,7 +14,6 @@ export const HOME_MODULES = [
   { id: 'resizer', label: 'Video Resizer', description: 'Fit a video to vertical, square, or wide formats.', icon: 'resizer', kind: 'workspace', target: 'resizer' },
   { id: 'translator', label: 'Translate Audio', description: 'Translate spoken audio into another language.', icon: 'audio', kind: 'translator', target: 'translator' },
   { id: 'transcription', label: 'Audio to Text', description: 'Turn a recording into editable text.', icon: 'audio', kind: 'section', target: 'audioToTextSection' },
-  { id: 'meta', label: 'Meta AI', description: 'Muse writing, images, transcription and local connection.', icon: 'quotes', kind: 'workspace', target: 'meta' },
 ];
 
 export const HOME_HELPERS = [

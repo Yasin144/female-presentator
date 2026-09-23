@@ -17,13 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app-operation-warning', handler);
   },
 
-  metaStatus: () => ipcRenderer.invoke('meta-status'),
-  metaSaveKey: input => ipcRenderer.invoke('meta-save-key', input),
-  metaForgetKey: kind => ipcRenderer.invoke('meta-forget-key', kind),
-  metaCheck: kind => ipcRenderer.invoke('meta-check', kind),
-  metaRun: input => ipcRenderer.invoke('meta-run', input),
-  metaCancel: () => ipcRenderer.invoke('meta-cancel'),
-
   // On-demand local OCR for scanned PDF counting pages only.
   pdfCountingOcr: request =>
     ipcRenderer.invoke('presentator-pdf-counting-ocr', request),

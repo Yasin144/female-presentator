@@ -15,6 +15,15 @@
 .simple-studio .simple-topbar-actions .studio-search { width: auto; min-height: 40px; }
 .simple-studio .studio-floating-tool { display: none !important; }
 .simple-studio .studio-appearance-panel { top: calc(var(--studio-topbar) + 10px); bottom: auto !important; right: 20px !important; z-index: 30000 !important; }
+.simple-studio .app-task-percent-indicator {
+  top: calc(var(--studio-topbar) + 12px) !important;
+  right: 18px !important;
+  z-index: 24000 !important;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 36px));
+  min-width: 0;
+  max-width: calc(100vw - 36px);
+}
 .simple-studio .studio-caption-workspace { position: relative; isolation: isolate; overflow: hidden; }
 .simple-studio .studio-caption-workspace .cb-page { height: 100% !important; width: 100% !important; }
 
@@ -32,12 +41,16 @@
 .simple-studio #inputPanel .hero-stage-actions { display: flex !important; flex-wrap: wrap; align-items: center; gap: 9px !important; }
 .simple-studio #inputPanel .hero-stage-actions #showScreenBtn { width: auto !important; }
 .simple-studio[data-section='pdfSection'] #inputPanel #subjectSelect { display: none !important; }
+.simple-studio[data-section='pdfSection'] #inputPanel { display: flex; flex-direction: column; }
+.simple-studio[data-section='pdfSection'] #pdfSection { order: 1; }
+.simple-studio[data-section='pdfSection'] #introPosterSection { order: 2; }
 .simple-studio[data-section='lessonContentSection'] #inputPanel { display: flex; flex-direction: column; }
-.simple-studio[data-section='lessonContentSection'] #lessonContentSection { order: 1; }
-.simple-studio[data-section='lessonContentSection'] #narrationSection { order: 2; }
-.simple-studio[data-section='lessonContentSection'] #mediaSection { order: 3; }
-.simple-studio[data-section='lessonContentSection'] #templateWorkflowSection { order: 4; }
-.simple-studio[data-section='lessonContentSection'] #speechToolsSection { order: 5; }
+.simple-studio[data-section='lessonContentSection'] #templateWorkflowSection { order: 1; }
+.simple-studio[data-section='lessonContentSection'] #lessonContentSection { order: 2; }
+.simple-studio[data-section='lessonContentSection'] #narrationSection { order: 3; }
+.simple-studio[data-section='lessonContentSection'] #introPosterSection { order: 4; }
+.simple-studio[data-section='lessonContentSection'] #mediaSection { order: 5; }
+.simple-studio[data-section='lessonContentSection'] #speechToolsSection { order: 6; }
 body:has(.simple-studio) #translateDubModule { left: 0; top: 76px; z-index: 20000; }
 body:has(.simple-studio) #translateDubModule .tdub-wrap { max-width: 1250px; }
 

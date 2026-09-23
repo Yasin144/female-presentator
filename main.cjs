@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, protocol, net, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, globalShortcut, protocol, net } = require('electron');
 
 // A second launch focuses this app instead of starting another set of workers.
 // Electron scopes this lock to the user-data profile, so isolated QA is separate.
@@ -44,11 +44,6 @@ const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
 const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
 const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
-const { registerMetaWorkspace, CHANNELS: metaDesktopChannels } = require('./meta-workspace.cjs');
-// Register separately from the mobile RPC/job observer: credentials and selected
-// prompts/audio stay desktop-only and are sent only by the new Meta workspace.
-const stopMetaWorkspace = registerMetaWorkspace(ipcMain, { getUserDataPath: () => app.getPath('userData'), safeStorage });
-app.on('before-quit', stopMetaWorkspace);
 // Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
 registerPdfCountingOcr(ipcMain, { getTempPath: () => app.getPath('temp') });
 const mobileIpcHandlers = new Map();
@@ -56,7 +51,6 @@ const mobileIpcHandlers = new Map();
 const desktopOnlyIpcChannels = new Set(['open-whatsapp-draft']);
 for (const channel of ['whatsapp-session-status', 'whatsapp-session-enable', 'whatsapp-session-connect']) desktopOnlyIpcChannels.add(channel);
 desktopOnlyIpcChannels.add('whatsapp-session-retry');
-for (const channel of metaDesktopChannels) desktopOnlyIpcChannels.add(channel);
 const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
 const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'finish-download-file', 'write-file']);
@@ -6560,10 +6554,10 @@ const MY_EXPORTER_VOICE_FALLBACK = {
   gu: 'gu-IN-DhwaniNeural', mr: 'mr-IN-AarohiNeural', ur: 'ur-IN-GulNeural', en: 'en-IN-NeerjaNeural'
 };
 
-async function generateSyncedEdgeTtsClip(text, requestedVoice, targetLanguage, attempts = 3) {
+async function generateSyncedEdgeTtsClip(text, requestedVoice, targetLanguage, attempts = 3, sameGenderFallback = '') {
   const languageCode = String(targetLanguage || requestedVoice || 'hi').slice(0, 2).toLowerCase();
   const fallbackVoice = MY_EXPORTER_VOICE_FALLBACK[languageCode] || 'hi-IN-SwaraNeural';
-  const voices = [...new Set([requestedVoice, fallbackVoice].filter(Boolean))];
+  const voices = [...new Set([requestedVoice, sameGenderFallback || fallbackVoice].filter(Boolean))];
   let lastResponse = null;
   for (const candidateVoice of voices) {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -6579,6 +6573,31 @@ async function generateSyncedEdgeTtsClip(text, requestedVoice, targetLanguage, a
     }
   }
   throw new Error(`EdgeTTS could not generate this sentence after automatic retries (requested voice: ${requestedVoice}, fallback: ${fallbackVoice}, last HTTP: ${lastResponse?.statusCode || 'none'}).`);
+}
+
+function getSyncedVoicePool(requestedVoice, targetLanguage) {
+  const languageCode = String(targetLanguage || requestedVoice || 'hi').slice(0, 2).toLowerCase();
+  const matching = Object.entries(MY_EXPORTER_VOICE_POOL).find(([baseVoice, pool]) => (
+    baseVoice.slice(0, 2).toLowerCase() === languageCode
+    || [...(pool.female || []), ...(pool.male || [])].includes(requestedVoice)
+  ));
+  return matching?.[1] || {
+    female: [MY_EXPORTER_VOICE_FALLBACK[languageCode] || requestedVoice || 'hi-IN-SwaraNeural'],
+    male: [requestedVoice && /(?:Madhur|Mohan|Valluvar|Gagan|Midhun|Bashkar|Niranjan|Manohar|Salman|Prabhat)/i.test(requestedVoice)
+      ? requestedVoice
+      : 'hi-IN-MadhurNeural']
+  };
+}
+
+function buildAtempoChain(tempo) {
+  let remaining = Math.max(1, Number(tempo) || 1);
+  const parts = [];
+  while (remaining > 2.000001) {
+    parts.push('atempo=2.0');
+    remaining /= 2;
+  }
+  if (remaining > 1.005) parts.push(`atempo=${remaining.toFixed(6)}`);
+  return parts.length ? `${parts.join(',')},` : '';
 }
 
 // Detect speaker gender for a time slice by comparing low-freq vs high-freq energy.
@@ -6665,7 +6684,7 @@ function assignSegmentVoices(segments, detectedGenders, voicePool) {
 //   5. Mix all TTS clips at their exact timestamps into a single audio track
 //   6. Mux new audio into original video (copy video stream – no re-encode)
 ipcMain.handle('export-synced-translated-video', async (event, opts) => {
-  const { videoPath, segments, voice, outputName, targetLanguage, singleVoice = false } = opts || {};
+  const { videoPath, segments, voice, outputName, targetLanguage, singleVoice = false, voiceMode = singleVoice ? 'female' : 'both', audioOnly = false } = opts || {};
   if (!videoPath || !Array.isArray(segments) || !segments.length)
     return { ok: false, error: 'videoPath and segments are required.' };
   if (!fs.existsSync(videoPath))
@@ -6689,8 +6708,11 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
 
     // STEP 2: Detect gender per segment
     send(8, `Detecting speakers in ${segments.length} segments…`);
-    const voicePool      = MY_EXPORTER_VOICE_POOL[voice] || { female: [voice || 'hi-IN-SwaraNeural'], male: ['hi-IN-MadhurNeural'] };
-    const detectedGenders = singleVoice ? segments.map(() => 'selected') : segments.map((seg, i) => {
+    const safeVoiceMode = ['female', 'male', 'both'].includes(voiceMode) ? voiceMode : 'both';
+    const voicePool = getSyncedVoicePool(voice, targetLanguage);
+    const detectedGenders = safeVoiceMode !== 'both' ? segments.map(() => safeVoiceMode) : segments.map((seg) => {
+      const suppliedGender = String(seg.speakerGender || seg.gender || '').toLowerCase();
+      if (suppliedGender === 'male' || suppliedGender === 'female') return suppliedGender;
       const dur = Number(seg.end || 0) - Number(seg.start || 0);
       return detectSegmentGender(ffmpeg, videoPath, Number(seg.start || 0), dur);
     });
@@ -6700,7 +6722,9 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     send(15, `Detected ${uniqueGenders.length} speaker type(s): ${uniqueGenders.join(', ')}`);
 
     // STEP 3: Assign per-segment voices
-    const segmentVoices = singleVoice ? segments.map(() => voice) : assignSegmentVoices(segments, detectedGenders, voicePool);
+    const segmentVoices = safeVoiceMode === 'both'
+      ? assignSegmentVoices(segments, detectedGenders, voicePool)
+      : segments.map(() => voicePool[safeVoiceMode]?.[0] || voice);
 
     // STEP 4: Generate TTS MP3 per segment
     const clipPaths = [];
@@ -6712,11 +6736,11 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       const segVoice = segmentVoices[i] || voice || 'hi-IN-SwaraNeural';
       send(
         Math.round(18 + (i / segments.length) * 42),
-        `Generating ${singleVoice ? 'consistent' : detectedGenders[i]} voice for segment ${i + 1}/${segments.length}…`
+        `Generating ${detectedGenders[i]} voice for segment ${i + 1}/${segments.length}…`
       );
 
       const clipPath = path.join(workDir, `clip_${String(i).padStart(4, '0')}.mp3`);
-      const generated = await generateSyncedEdgeTtsClip(text, segVoice, targetLanguage);
+      const generated = await generateSyncedEdgeTtsClip(text, segVoice, targetLanguage, 3, voicePool[detectedGenders[i]]?.[0] || segVoice);
       const ttsResp = generated.response;
       if (generated.voice !== segVoice) {
         send(Math.round(18 + (i / segments.length) * 42), `Segment ${i + 1}: ${segVoice} unavailable; continued with ${generated.voice}.`);
@@ -6744,7 +6768,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     // Write filter to FILE to avoid Windows 32,767-char CLI limit (ENAMETOOLONG)
     send(63, 'Mixing dubbed audio track with all speaker voices...');
 
-    const mixedAudio       = path.join(workDir, 'dubbed_audio.aac');
+    const mixedAudio       = path.join(workDir, 'dubbed_audio.mp3');
     const filterScriptPath = path.join(workDir, 'mix_filter.txt');
     const mixInputArgs     = ['-f', 'lavfi', '-t', String(totalDuration), '-i', 'anullsrc=r=44100:cl=stereo'];
     for (const clip of clipPaths) mixInputArgs.push('-i', clip.path);
@@ -6757,7 +6781,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       // A generated sentence can be longer than its Whisper time slot. Fit it
       // into that slot and trim at the boundary so adjacent voices never overlap.
       const tempo = Math.max(1, clip.generatedDuration / slotDuration);
-      const tempoFilter = tempo > 1.005 ? `atempo=${tempo.toFixed(6)},` : '';
+      const tempoFilter = buildAtempoChain(tempo);
       mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[c${i}]`);
     }
     const mixLabels = ['[base]', ...clipPaths.map((_, i) => `[c${i}]`)].join('');
@@ -6770,7 +6794,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       const proc = spawn(ffmpeg, [
         '-y', ...mixInputArgs,
         '-filter_complex_script', filterScriptPath,
-        '-map', '[aout]', '-c:a', 'aac', '-b:a', '192k', '-t', String(totalDuration),
+        '-map', '[aout]', '-c:a', 'libmp3lame', '-b:a', '192k', '-t', String(totalDuration),
         mixedAudio,
       ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
       let stderr = '';
@@ -6778,6 +6802,12 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       proc.on('error', reject);
       proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Audio mix failed (${code}): ${stderr.slice(-400)}`)));
     });
+
+    const audioBase64 = fs.readFileSync(mixedAudio).toString('base64');
+    if (audioOnly) {
+      send(100, `Done! Synchronized ${safeVoiceMode} narration audio is ready.`);
+      return { ok: true, audioBase64, audioContentType: 'audio/mpeg', voiceMode: safeVoiceMode, detectedGenders };
+    }
 
     // STEP 6: Mux new audio into original video — NO video re-encode
     send(84, 'Muxing dubbed audio into original video…');
@@ -6790,7 +6820,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
         '-map', '0:v',
         '-map', '1:a',
         '-c:v', 'copy',
-        '-c:a', 'copy',
+        '-c:a', 'aac', '-b:a', '192k',
         '-t', String(totalDuration),
         outputPath,
       ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
@@ -6807,7 +6837,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       return `${g} (${pool.slice(0, 2).join(', ')})`;
     }).join(' + ');
     send(100, `Done! ${uniqueGenders.length} speaker voice(s) used: ${speakerSummary} → ${path.basename(outputPath)}`);
-    return { ok: true, outputPath };
+    return { ok: true, outputPath, audioBase64, audioContentType: 'audio/mpeg', voiceMode: safeVoiceMode, detectedGenders };
 
   } catch (err) {
     return { ok: false, error: err.message };

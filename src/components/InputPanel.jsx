@@ -35,18 +35,11 @@ function InputPanel() {
             <p className="hero-stage-note">Workspace settings</p>
             <div className="hero-stage-actions">
               <button id="resetInputsBtn" className="primary-btn reset-btn ghost-btn" type="button">Reset</button>
-              <select id="subjectSelect" className="theme-select text-style-select" aria-label="Choose subject" style={{ marginRight: "8px" }} defaultValue="maths">
-                <option value="maths">Maths</option>
+              <select id="subjectSelect" className="theme-select text-style-select" aria-label="Choose subject" style={{ marginRight: "8px" }} defaultValue="english">
                 <option value="english">English</option>
               </select>
               <button id="showScreenBtn" className="primary-btn input-show-screen-btn hero-show-screen-btn"
                 type="button">Open preview &rarr;</button>
-              <label className="theme-toggle theme-toggle-standalone" htmlFor="themeToggle" title="Presentation background: day or dark">
-                <input id="themeToggle" className="theme-toggle-input" type="checkbox" aria-label="Use dark presentation background" />
-                <span className="theme-toggle-track">
-                  <span className="theme-toggle-thumb"></span>
-                </span>
-              </label>
             </div>
           </div>
 
@@ -104,11 +97,48 @@ function InputPanel() {
           </span>
         </summary>
         <div className="section-content">
+          <div className="outcomes-title-row pdf-outcomes-title-row">
+            <label className="field-label" htmlFor="pdfOutcomesTitleInput">Learning Outcomes Template Title</label>
+            <p className="upload-copy">Change the Learning Outcomes heading for this PDF lesson. The saved title also updates Lesson Presenter.</p>
+            <div className="toolbar toolbar-compact">
+              <input id="pdfOutcomesTitleInput" className="text-field-input outcomes-title-input" type="text" maxLength="72"
+                placeholder="e.g. LESSON-12 Numbers 61 to 70" />
+              <button id="savePdfOutcomesTitleBtn" className="primary-btn" type="button">Save Title</button>
+            </div>
+            <p className="upload-copy" id="pdfOutcomesTitleStatus">The same saved title is available in PDF Presenter and Lesson Presenter.</p>
+          </div>
           <div className="pdf-upload-grid">
             <div className="upload-block pdf-upload-block">
               <label className="field-label" htmlFor="pdfInput">1. Choose your PDF</label>
               <p className="upload-copy">Page previews appear below after upload. Your original document stays unchanged.</p>
               <input id="pdfInput" className="image-input" type="file" accept="application/pdf,.pdf" />
+              <div className="pdf-reading-options" aria-label="PDF reading and highlighting options">
+                <label className="style-field" htmlFor="pdfReadingScopeSelect">
+                  <span className="style-label">Reading portion</span>
+                  <select id="pdfReadingScopeSelect" className="theme-select text-style-select" defaultValue="selected">
+                    <option value="selected">Read selected pages</option>
+                    <option value="full">Read full PDF</option>
+                  </select>
+                </label>
+                <label className="style-field" htmlFor="pdfHighlightColorSelect">
+                  <span className="style-label">PDF text highlight colour</span>
+                  <select id="pdfHighlightColorSelect" className="theme-select text-style-select" defaultValue="">
+                    <option value="">None (no highlight)</option>
+                    <option value="#fde047">Yellow</option>
+                    <option value="#60a5fa">Blue</option>
+                    <option value="#4ade80">Green</option>
+                    <option value="#f472b6">Pink</option>
+                    <option value="#fb923c">Orange</option>
+                    <option value="#c084fc">Purple</option>
+                  </select>
+                </label>
+                <div className="style-field pdf-actions-field">
+                  <span className="style-label">Interactive actions</span>
+                  <button id="pdfActionsToggle" className="ghost-btn pdf-actions-toggle" type="button"
+                    aria-pressed="false" title="Turn synchronized PDF actions on or off">Actions: Off</button>
+                </div>
+              </div>
+              <p className="upload-copy">During narration, only the spoken word is highlighted. With Actions on, matching pictures glow and number-line values light up as they are spoken. Preview and video export use the same actions.</p>
               <label className="style-field" htmlFor="pdfVoiceSelect">
                 <span className="style-label">2. Choose the narration voice</span>
                 <select id="pdfVoiceSelect" className="theme-select text-style-select" aria-describedby="pdfVoiceHint" defaultValue="anjali">
@@ -201,7 +231,7 @@ function InputPanel() {
         </div>
       </details>
 
-      <details className="section-card classic-prepare-section template-section-card" id="templateWorkflowSection">
+      <details className="section-card classic-prepare-section template-section-card" id="templateWorkflowSection" open>
         <summary className="section-summary">
           <span className="summary-head">
             <span className="section-icon">TPL</span>
@@ -465,6 +495,38 @@ function InputPanel() {
                 title for that template.</p>
             </div>
 
+          </div>
+        </div>
+      </details>
+
+      <details className="section-card classic-prepare-section" id="introPosterSection" open>
+        <summary className="section-summary">
+          <span className="summary-head">
+            <span className="section-icon">IN</span>
+            <span className="summary-copy">
+              <span className="section-title">Intro &amp; Poster</span>
+              <span className="section-meta">Optional · Play the intro clip or show a poster before this lesson.</span>
+            </span>
+          </span>
+        </summary>
+        <div className="section-content">
+          <div className="upload-block">
+            <label className="toggle-check" htmlFor="introClipEnabled">
+              <input id="introClipEnabled" type="checkbox" defaultChecked />
+              <span>Play Intro Clip Before This Lesson</span>
+            </label>
+            <p className="upload-copy" id="introClipStatus">
+              Intro clip will play before the lesson when available.
+            </p>
+            <div style={{marginTop:'10px'}}>
+              <label className="field-label" style={{marginBottom:'4px'}}>Intro Poster Image (Optional)</label>
+              <p className="upload-copy" style={{marginBottom:'6px'}}>Upload a full-screen image to show before the lesson starts. It works independently of the intro clip.</p>
+              <div className="toolbar toolbar-compact">
+                <button id="introPosterUploadBtn" className="ghost-btn" type="button">Upload Poster Image</button>
+              </div>
+              <input id="introPosterInput" type="file" accept="image/*" style={{display:'none'}} />
+              <p className="upload-copy" id="introPosterStatus" style={{marginTop:'4px'}}>No poster uploaded.</p>
+            </div>
           </div>
         </div>
       </details>
@@ -1920,25 +1982,6 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
               <span>Enable Audio Ducking (Lower music volume when Anjali speaks)</span>
             </label>
 
-            {/* ── Intro Clip Enable / Disable ── */}
-            <label className="toggle-check" htmlFor="introClipEnabled" style={{marginTop:'10px'}}>
-              <input id="introClipEnabled" type="checkbox" defaultChecked />
-              <span>🎬 Play Intro Clip Before Every Lesson</span>
-            </label>
-            <p className="upload-copy" id="introClipStatus" style={{fontSize:'0.78rem', marginTop:'2px'}}>
-              Intro clip will play before the lesson when available.
-            </p>
-
-            {/* ── Intro Poster Upload ── */}
-            <div style={{marginTop:'10px'}}>
-              <label className="field-label" style={{marginBottom:'4px'}}>Intro Poster Image (Optional)</label>
-              <p className="upload-copy" style={{marginBottom:'6px'}}>Upload a full-screen image to show before the lesson starts. Works independently of the intro clip.</p>
-              <div className="toolbar toolbar-compact">
-                <button id="introPosterUploadBtn" className="ghost-btn" type="button">Upload Poster Image</button>
-              </div>
-              <input id="introPosterInput" type="file" accept="image/*" style={{display:'none'}} />
-              <p className="upload-copy" id="introPosterStatus" style={{marginTop:'4px'}}>No poster uploaded.</p>
-            </div>
           </div>
 
 

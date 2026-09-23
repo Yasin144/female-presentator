@@ -114,7 +114,7 @@ export default function StudioPreferences({ appTheme, onToggleTheme, compact = f
     <button type="button" className="studio-icon-toggle is-moon" id="studio-theme-toggle"
       role="switch" aria-label="Dark mode" aria-checked={appTheme === 'dark'}
       title={`Dark mode ${appTheme === 'dark' ? 'on' : 'off'} — click to toggle`} onClick={onToggleTheme}>
-      <StudioIcon name="moon" size={22} />
+      <StudioIcon name={appTheme === 'dark' ? 'moon' : 'sun'} size={22} />
     </button>
   </section>;
 
@@ -143,7 +143,7 @@ export default function StudioPreferences({ appTheme, onToggleTheme, compact = f
       <button type="button" className="studio-icon-toggle is-moon" id="studio-theme-toggle"
         role="switch" aria-label="Dark mode" aria-checked={appTheme === 'dark'}
         title={`Dark mode: ${appTheme === 'dark' ? 'On — click to turn off' : 'Off — click to turn on'}. Videos stay unchanged.`} onClick={onToggleTheme}>
-        <StudioIcon name="moon" size={25} />
+        <StudioIcon name={appTheme === 'dark' ? 'moon' : 'sun'} size={25} />
         <span>Dark mode</span><small>{appTheme === 'dark' ? 'On' : 'Off'}</small>
       </button>
       {reviewOpen && <div className="studio-whatsapp-drafts" id="studio-whatsapp-drafts" role="region" aria-labelledby="studio-whatsapp-drafts-heading">

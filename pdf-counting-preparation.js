@@ -1,16 +1,17 @@
-import { analyzePdfCountingPage } from './pdf-counting-auto.js';
+import { analyzePdfCountingPage, analyzePdfPlaceValuePage, pdfCountingNumberWord } from './pdf-counting-auto.js';
 import { readPdfCountingLocalState, savePdfCountingLocalAsset, savePdfCountingPageReview, validatePdfCountingLocalAsset, validatePdfCountingPageReview } from './pdf-counting-local-store.js';
 
 const SAFE_NOUN = /^[a-z]+(?:[ -][a-z]+)*$/;
 const normalize = value => String(value || '').toLowerCase().trim().replace(/\s+/g, ' ');
 
 export function validateBuiltinCountingLibrary(catalog) {
-  const nouns = ['dogs', 'books', 'candies', 'birds', 'bananas', 'butterflies', 'gifts', 'ants', 'leaves', 'stars'];
+  const nouns = ['dogs', 'books', 'candies', 'birds', 'bananas', 'butterflies', 'gifts', 'ants', 'leaves', 'stars',
+    'vases', 'cars', 'bags', 'flowers', 'tops', 'kites', 'hats'];
   if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.assets) || catalog.assets.length !== nouns.length) throw new Error('Local counting picture library is incomplete.');
   return catalog.assets.map((asset, index) => {
     const bounds = asset?.contentBounds;
     if (asset?.noun !== nouns[index] || asset.id !== `builtin:${asset.noun}`
-        || asset.src !== `assets/pdf-counting/realistic-v2/${asset.noun}.png`
+        || asset.src !== `assets/pdf-counting/${index < 10 ? 'realistic-v2' : 'lkg-textbook'}/${asset.noun}.png`
         || !Array.isArray(asset.aliases) || !asset.aliases.includes(asset.noun) || !asset.aliases.every(noun => SAFE_NOUN.test(noun))
         || !Number.isInteger(asset.width) || !Number.isInteger(asset.height) || asset.width < 32 || asset.height < 32 || asset.width > 4096 || asset.height > 4096
         || !Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(Number.isInteger)
@@ -28,6 +29,8 @@ export function createPdfCountingPreparation({ builtins, assets = [], reviews = 
     storageWarning,
     listAssets: () => Array.from(pictures.values()),
     getAsset: id => pictures.get(id),
+    analyzePlaceValue: input => analyzePdfPlaceValuePage(input),
+    numberWord: value => pdfCountingNumberWord(value),
     prepare({ text, items = [], fingerprint, pageNumber }) {
       const analysis = analyzePdfCountingPage({ text, items });
       const review = decisions.get(`${fingerprint}:${pageNumber}`);

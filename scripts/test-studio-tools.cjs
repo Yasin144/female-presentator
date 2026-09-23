@@ -17,7 +17,7 @@ function fixture(fromPreview = true, state = {}) {
     };
   };
   const input = node('inputPanel', fromPreview), stage = node('stagePanel', !fromPreview);
-  const entries = new Map([['inputPanel', input], ['stagePanel', stage], ...tools.PREPARATION_TOOLS.map(tool => [tool.id, node(tool.id)])]);
+  const entries = new Map([['inputPanel', input], ['stagePanel', stage], ['introPosterSection', node('introPosterSection')], ...tools.PREPARATION_TOOLS.map(tool => [tool.id, node(tool.id)])]);
   return { input, stage, entries, calls, context: { document: { getElementById: id => entries.get(id) }, state } };
 }
 
@@ -108,7 +108,15 @@ test('written lessons include only their relevant preparation helpers', () => {
   f.input.children = [...f.entries.values()].filter(node => node !== f.input && node !== f.stage);
   tools.focusPreparationTool('lessonContentSection', f.context.document);
   const visible = f.input.children.filter(node => node.dataset.studioToolVisible === 'true').map(node => node.id).sort();
-  assert.deepEqual(visible, ['lessonContentSection', 'mediaSection', 'narrationSection', 'speechToolsSection', 'templateWorkflowSection'].sort());
+  assert.deepEqual(visible, ['lessonContentSection', 'introPosterSection', 'mediaSection', 'narrationSection', 'speechToolsSection', 'templateWorkflowSection'].sort());
+});
+
+test('PDF Presenter exposes its own PDF controls and the shared Intro & Poster section', () => {
+  const f = fixture(false);
+  f.input.children = [...f.entries.values()].filter(node => node !== f.input && node !== f.stage);
+  tools.focusPreparationTool('pdfSection', f.context.document);
+  const visible = f.input.children.filter(node => node.dataset.studioToolVisible === 'true').map(node => node.id).sort();
+  assert.deepEqual(visible, ['introPosterSection', 'pdfSection']);
 });
 
 test('the local caption action strip belongs only to the local caption screen', () => {

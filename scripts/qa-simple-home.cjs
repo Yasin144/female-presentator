@@ -195,43 +195,6 @@ app.whenReady().then(async () => {
     assert.deepEqual(await run(`[...document.querySelectorAll('[data-workspace]')].filter(window.__qaVisible).map(el=>el.dataset.workspace).filter(id=>id!=='home')`), [], 'Home hides working module screens');
     assert.ok(await run(`!document.querySelector('.studio-sidebar') || !window.__qaVisible(document.querySelector('.studio-sidebar'))`), 'Home has no competing sidebar');
   }
-  async function verifyMetaWorkspace(viewport) {
-    await openTool('meta');
-    await capture(viewport + '-meta-spark', 'Muse Spark 1.3');
-    assert.equal(await run(`document.querySelectorAll('.meta-tool').length`), 4);
-    if (viewport === 'desktop') {
-      await fillField('meta-key', 'LLM_FAKE_UI_FIXTURE_ONLY');
-      await run(`[...document.querySelectorAll('.meta-workspace button')].find(b => b.textContent === 'Save key securely').click()`);
-      await pause(100);
-      assert.equal(await run(`document.getElementById('meta-key').value`), '', 'Key field clears immediately');
-      await run(`[...document.querySelectorAll('.meta-workspace button')].find(b => b.textContent === 'Check connection & models').click()`);
-      await pause(100);
-      await run(`(() => { const input = document.getElementById('meta-prompt'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'A fixture prompt'); input.dispatchEvent(new Event('input', { bubbles:true })); })()`);
-      await pause(100);
-      assert.equal(await run(`document.querySelector('.meta-primary').disabled`), true, 'Cloud request needs explicit consent');
-      await click('.meta-consent input');
-      assert.equal(await run(`document.querySelector('.meta-primary').disabled`), false, 'Checked model plus consent unlocks request');
-      await click('.meta-primary');
-      await pause(100);
-      await capture('desktop-meta-result', 'Isolated QA answer');
-      await goHome(); await openTool('meta');
-      assert.ok(await run(`document.querySelector('.meta-result').textContent.includes('Isolated QA answer')`), 'Returning Home retains Meta results');
-    }
-    for (const [index, name] of [[1, 'voice'], [2, 'image'], [3, 'glimmer']]) {
-      await run(`document.querySelectorAll('.meta-tool')[${index}].click()`);
-      await pause(100);
-      await capture(viewport + '-meta-' + name, name === 'glimmer' ? 'Local server connection' : name === 'voice' ? 'Choose a recording' : 'Describe your picture');
-    }
-    await run(`[...document.querySelectorAll('.meta-workspace button')].find(b => b.textContent === 'Check connection').click()`);
-    await pause(100);
-    assert.ok(await run(`document.querySelector('.meta-workspace').textContent.includes('Local Glimmer server is unavailable')`), 'Missing local model is honest and non-blocking');
-    const previousTheme = await run(`document.querySelector('.simple-studio').dataset.appTheme`);
-    await run(`document.querySelector('.simple-studio').dataset.appTheme = 'dark'`);
-    await capture(viewport + '-meta-dark', 'Local server connection');
-    await run(`document.querySelector('.simple-studio').dataset.appTheme = ${JSON.stringify(previousTheme)}`);
-    await goHome();
-    report.interactions.push({ name: viewport + ': Meta tools, setup, privacy, results and local-unavailable state', ok: true });
-  }
   async function openTool(id, keyboard = false) {
     await goHome();
     if (keyboard) {
@@ -640,7 +603,7 @@ app.whenReady().then(async () => {
     assert.equal(homeCards.filter(card => card.id === id).length, 1, 'A single discoverable Home card exists for ' + id);
     assert.equal(homeCards.find(card => card.id === id).tag, 'BUTTON', 'Home card uses native keyboard-operable button: ' + id);
   }
-  report.interactions.push({ name: 'All ten primary tools have one native Home card and retained engine IDs are unique', ok: true, homeCards, idCounts });
+  report.interactions.push({ name: 'All primary tools have one native Home card and retained engine IDs are unique', ok: true, homeCards, idCounts });
   await verifyAppPreferences();
   await installNavigationFixtures();
 
@@ -650,7 +613,6 @@ app.whenReady().then(async () => {
     await goHome();
     if (viewport.name === 'mobile') await verifyNarrowPreferences();
     await capture(viewport.name + '-01-home', 'Sing Song');
-    await verifyMetaWorkspace(viewport.name);
     for (let index = 0; index < sectionTools.length; index++) {
       const tool = sectionTools[index];
       await openTool(tool.id, index === 0);

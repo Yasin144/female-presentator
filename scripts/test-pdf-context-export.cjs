@@ -27,6 +27,7 @@ function exportFixture(options = {}) {
     getEffectiveExportRenderSpeedMultiplier: () => 2, getPdfRenderMode: () => 'context',
     getPdfPlaybackRate: () => state.pdf.playbackRate, getPdfCountingDisplayMode: () => 'reveal',
     getNarrationVoiceLabel: () => 'Test voice', getPdfPresentationText: () => options.silent ? '' : 'Three dogs.',
+    getPresentationTitleText: () => '', EXPORT_TITLE_OUTRO_MS: 2400,
     createExportCanvasSurface: () => ({}), getAcceleratedExportCaptureRate: () => 48,
     createExportCanvasStream: () => stream, getPdfExportBitrate: () => 1000000,
     createSilentWavBlob: () => new Blob(['silent'], { type: 'audio/wav' }),

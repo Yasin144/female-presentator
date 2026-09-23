@@ -5,6 +5,25 @@ const NUMBER_WORDS = Object.freeze([
   'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
   'seventeen', 'eighteen', 'nineteen', 'twenty',
 ]);
+const EXTENDED_NUMBER_WORDS = Object.freeze([
+  ...NUMBER_WORDS,
+  'twenty-one', 'twenty-two', 'twenty-three', 'twenty-four', 'twenty-five',
+  'twenty-six', 'twenty-seven', 'twenty-eight', 'twenty-nine', 'thirty',
+  'thirty-one', 'thirty-two', 'thirty-three', 'thirty-four', 'thirty-five',
+  'thirty-six', 'thirty-seven', 'thirty-eight', 'thirty-nine', 'forty',
+  'forty-one', 'forty-two', 'forty-three', 'forty-four', 'forty-five',
+  'forty-six', 'forty-seven', 'forty-eight', 'forty-nine', 'fifty',
+  'fifty-one', 'fifty-two', 'fifty-three', 'fifty-four', 'fifty-five',
+  'fifty-six', 'fifty-seven', 'fifty-eight', 'fifty-nine', 'sixty',
+  'sixty-one', 'sixty-two', 'sixty-three', 'sixty-four', 'sixty-five',
+  'sixty-six', 'sixty-seven', 'sixty-eight', 'sixty-nine', 'seventy',
+  'seventy-one', 'seventy-two', 'seventy-three', 'seventy-four', 'seventy-five',
+  'seventy-six', 'seventy-seven', 'seventy-eight', 'seventy-nine', 'eighty',
+  'eighty-one', 'eighty-two', 'eighty-three', 'eighty-four', 'eighty-five',
+  'eighty-six', 'eighty-seven', 'eighty-eight', 'eighty-nine', 'ninety',
+  'ninety-one', 'ninety-two', 'ninety-three', 'ninety-four', 'ninety-five',
+  'ninety-six', 'ninety-seven', 'ninety-eight', 'ninety-nine', 'one hundred',
+]);
 const WORD_VALUES = new Map(NUMBER_WORDS.map((word, value) => [word, value]));
 const TENS = new Map([
   ['twenty', 20], ['thirty', 30], ['forty', 40], ['fifty', 50],
@@ -40,7 +59,36 @@ const NON_NOUNS = new Set((
 for (const word of [...WORD_VALUES.keys(), ...TENS.keys()]) NON_NOUNS.add(word);
 
 export function pdfCountingNumberWord(count) {
-  return Number.isInteger(count) && count >= 1 && count <= 20 ? NUMBER_WORDS[count] : '';
+  return Number.isInteger(count) && count >= 1 && count <= 100 ? EXTENDED_NUMBER_WORDS[count] : '';
+}
+
+// The LKG 21–100 pages are place-value lists, not single-object headings. Use
+// the printed number words as the trustworthy signal because the decorative
+// font often extracts 1 as I (for example, 21 becomes 2I).
+export function analyzePdfPlaceValuePage({ text = '' } = {}) {
+  const normalized = cleanLine(text).toLowerCase().replace(/[–—]/g, '-');
+  const numbers = [];
+  for (let value = 21; value <= 100; value += 1) {
+    const word = EXTENDED_NUMBER_WORDS[value];
+    const pattern = new RegExp(`(?:^|[^a-z-])${word.replace('-', '[-\\s]')}(?=$|[^a-z-])`, 'i');
+    if (pattern.test(normalized)) numbers.push(value);
+  }
+  const expectedLength = numbers[0] >= 51 ? 10 : 5;
+  if (![5, 10].includes(numbers.length)
+      || numbers.length !== expectedLength
+      || numbers.some((value, index) => index && value !== numbers[index - 1] + 1)) {
+    return { status: 'none', reason: 'No complete consecutive place-value list from 21 to 100 was found.', numbers: [] };
+  }
+  const tens = Math.floor(numbers[0] / 10);
+  if (numbers.some(value => Math.floor(value / 10) !== tens && value % 10 !== 0)) {
+    return { status: 'review', reason: 'The number list crosses an unexpected place-value boundary.', numbers };
+  }
+  return {
+    status: 'ready', numbers,
+    rangeStart: numbers[0], rangeEnd: numbers.at(-1),
+    style: numbers[0] >= 51 ? 'ten-frames' : numbers[0] < 31 ? 'bowls' : numbers[0] < 41 ? 'loops' : 'garlands',
+    reason: `${numbers.length} consecutive printed number words form a verified 21–100 place-value lesson.`
+  };
 }
 
 function cleanLine(value) {
@@ -269,7 +317,21 @@ export function analyzePdfCountingPage({ text = '', items = [] } = {}) {
       }
     }
   }
-  const contextHeadings = headings.length ? lines.flatMap((line, index) => consumed.has(index) ? [] : contextualHeadings(line.text)) : [];
+  const standaloneHeadingLines = geometry ? lines.filter((_, index) => consumed.has(index)) : [];
+  const prominentHeading = standaloneHeadingLines.length === 1 ? standaloneHeadingLines[0] : null;
+  const isVisuallySecondaryInstruction = line => Boolean(geometry && prominentHeading
+    && /^(?:count|join|trace|write|draw|colou?r|circle|match|tick)\b/i.test(line.text)
+    && line.height <= prominentHeading.height * .95
+    && prominentHeading.y - line.y >= prominentHeading.height * 4);
+  const isVisuallySecondaryExerciseMark = line => Boolean(geometry && prominentHeading
+    && Math.abs(prominentHeading.y - line.y) >= prominentHeading.height * 4
+    && (line.height <= prominentHeading.height * .65
+      || (/^[a-z]\.$/i.test(line.text) && line.height <= prominentHeading.height * .95)));
+  // A large, standalone activity title above a smaller instruction block is
+  // the lesson heading. The instruction may mention another set to colour or
+  // tick, but it must not override the pictured title object.
+  const contextHeadings = headings.length ? lines.flatMap((line, index) =>
+    consumed.has(index) || isVisuallySecondaryInstruction(line) ? [] : contextualHeadings(line.text)) : [];
   const allHeadings = [...headings, ...contextHeadings];
   const candidates = [...new Map(allHeadings.flatMap(heading => heading.labels.map(count => {
     const candidate = { count, noun: heading.noun };
@@ -305,6 +367,9 @@ export function analyzePdfCountingPage({ text = '', items = [] } = {}) {
     // A small bottom number aligned with explicit footer text is not a title
     // label. This decision requires geometry; bare text alone stays uncertain.
     if (isGeometricFooterNumber(line)) return [];
+    // Small tracing samples above a prominent count-and-object heading belong
+    // to the writing exercise, not to the pictured lesson title.
+    if (isVisuallySecondaryExerciseMark(line)) return [];
     const tokens = headingTokens(line.text), values = [];
     for (let start = 0; start < tokens.length;) {
       const number = readNumber(tokens, start);
@@ -315,7 +380,8 @@ export function analyzePdfCountingPage({ text = '', items = [] } = {}) {
   if (detachedNumbers.some(value => value !== candidates[0]?.count)) {
     return review('A separate number conflicts with the counting heading. Confirm it is not a page number or another activity.');
   }
-  if (lines.some((line, index) => !consumed.has(index) && !isNeutralContext(line.text))) {
+  if (lines.some((line, index) => !consumed.has(index) && !isNeutralContext(line.text)
+      && !isVisuallySecondaryInstruction(line) && !isVisuallySecondaryExerciseMark(line))) {
     return review('A possible heading appears with other text; confirm it is a counting activity.');
   }
   const [{ count, noun }] = candidates;

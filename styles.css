@@ -3254,3 +3254,51 @@ body[data-subject="maths"] .english-label {
   margin: 8px 0;
 }
 .pdf-counting-sample[hidden] { display: none; }
+.pdf-reading-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+@media (max-width: 720px) { .pdf-reading-options { grid-template-columns: 1fr; } }
+.pdf-place-value-review-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pdf-place-value-review-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 48px minmax(92px, .55fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 68px;
+  padding: 7px;
+  color: #172b45;
+  background: #fff;
+  border: 1px solid #ff8d8d;
+  border-radius: 9px;
+}
+.pdf-place-value-review-pictures {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+.pdf-place-value-review-group { width: 42px; height: 48px; object-fit: contain; flex: 0 0 auto; }
+.pdf-place-value-review-one { width: 13px; height: 18px; object-fit: contain; flex: 0 0 auto; }
+.pdf-place-value-review-number {
+  display: grid;
+  place-items: center;
+  min-height: 45px;
+  font-size: 24px;
+  background: #fffbea;
+  border: 1px solid #ff8d8d;
+  border-radius: 8px;
+}
+.pdf-place-value-review-word { font-weight: 800; font-size: 13px; line-height: 1.15; }
+@media (max-width: 720px) {
+  .pdf-place-value-review-row { grid-template-columns: minmax(130px, 1fr) 42px 82px; }
+  .pdf-place-value-review-group { width: 34px; }
+  .pdf-place-value-review-one { width: 11px; }
+}

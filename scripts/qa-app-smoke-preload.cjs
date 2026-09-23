@@ -6,7 +6,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 const encodedMethods = process.argv.find(arg => arg.startsWith('--qa-api-methods='))?.slice('--qa-api-methods='.length) || '';
 const methods = JSON.parse(Buffer.from(encodedMethods, 'base64').toString('utf8') || '[]');
 const api = { isElectron: true, isMobileRemote: process.argv.includes('--qa-mobile-remote'), platform: 'win32' };
-const metaState = { ok: true, hasCloudKey: false, hasLocalKey: false, cloudModels: [], localReady: false, memoryGB: 16, encryptionReady: true };
 const health = { anjali: true, edgeTts: true, transcribe: true, videoExport: true, sc3Singing: true, imageGenerator: false, translation: true, vite: false, configured: {} };
 const report = (kind, detail) => ipcRenderer.send('qa-smoke-report', { kind, detail });
 const whatsapp = {
@@ -46,12 +45,6 @@ Object.assign(api, {
     whatsappSession.history = [{ id: 'qa-auto-job', status: 'failed', processName: 'Sing Song', details: 'Voice engine timed out.', delivery: 'delivered', at: new Date().toISOString() }];
     return { ...whatsappSession };
   },
-  metaStatus: async () => ({ ...metaState }),
-  metaSaveKey: async input => { metaState[input.kind === 'local' ? 'hasLocalKey' : 'hasCloudKey'] = true; return { ...metaState }; },
-  metaForgetKey: async kind => { metaState[kind === 'local' ? 'hasLocalKey' : 'hasCloudKey'] = false; if (kind === 'cloud') metaState.cloudModels = []; return { ...metaState }; },
-  metaCheck: async kind => { if (kind === 'cloud') metaState.cloudModels = ['muse-spark-1.3', 'muse-image-1.0', 'muse-voice-transcribe-1.0']; else return { ok: false, error: 'Local Glimmer server is unavailable at 127.0.0.1:8080. No model was downloaded or started.' }; return { ...metaState }; },
-  metaRun: async () => ({ ok: true, text: 'Isolated QA answer. No request reached Meta.' }),
-  metaCancel: async () => ({ ok: true }),
   getMobileLink: async () => ({ wifiUrl: 'http://127.0.0.1:8433', mobileUrl: '', status: 'smoke-test' }),
   getWhatsAppAutoSend: async () => { recordWhatsApp('getWhatsAppAutoSend'); return whatsappStatus(); },
   setWhatsAppAutoSend: async enabled => {

@@ -208,6 +208,11 @@ def _run_direct_model(payload):
         song_base64 = str(payload.get("songBase64") or "")
         file_path   = str(payload.get("filePath") or "")
         voice       = payload.get("voice", "sc3")
+        requested_tau = payload.get("tonePreservation", 0.1)
+        try:
+            conversion_tau = min(0.65, max(0.05, float(requested_tau)))
+        except (TypeError, ValueError):
+            conversion_tau = 0.1
 
         print("[sc3-singing] received direct conversion request.", flush=True)
 
@@ -230,14 +235,14 @@ def _run_direct_model(payload):
             print(f"[sc3-singing] converting uploaded audio to {voice}.", flush=True)
             converter, target_se = _ensure_converter("cpu", voice)
             source_se = converter.extract_se(str(prepared_path))
-            # tau=0.1 → maximum timbre transfer strength (0=full target, 1=full source).
-            # At 0.1 the output voice identity locks to sc3 reference as closely as possible.
+            # Low tau prioritizes SC3 identity; higher values preserve more source
+            # articulation. The default remains 0.1 for existing singing jobs.
             converter.convert(
                 audio_src_path=str(prepared_path),
                 src_se=source_se,
                 tgt_se=target_se,
                 output_path=str(converted_path),
-                tau=0.1,
+                tau=conversion_tau,
             )
         print("[sc3-singing] writing mp3 output.", flush=True)
         _write_mp3(converted_path, output_path)

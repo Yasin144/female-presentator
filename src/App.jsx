@@ -7,21 +7,19 @@ import VideoResizer from './components/VideoResizer/VideoResizer';
 import StudioIcon from './components/StudioIcon';
 import StudioHome, { HOME_MODULES, HOME_HELPERS } from './components/StudioHome';
 import StudioPreferences from './components/StudioPreferences';
-import MetaWorkspace from './components/MetaWorkspace';
-import { loadAppTheme, saveAppTheme } from './studioPreferences.mjs';
+import { saveAppTheme } from './studioPreferences.mjs';
 import { PREPARATION_TOOLS, checkPreparationToolAccess, revealPreparationTool, isPresentationBusy, focusPreparationTool } from './studioTools.mjs';
 const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'meta']);
+const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'home';
 const STUDIO_MODULES = [
   { id: 'presentator', label: 'Presentator', detail: 'Lessons & PDF presentations' },
   { id: 'quotes', label: 'Quote Studio', detail: 'Create a story from your words' },
   { id: 'exporter', label: 'My Exporter', detail: 'Edit, caption & export videos' },
   { id: 'resizer', label: 'Video Resizer', detail: 'A perfect fit for every platform' },
-  { id: 'meta', label: 'Meta AI', detail: 'Muse creative tools & local connection' },
 ];
 
 class CaptionErrorBoundary extends React.Component {
@@ -118,8 +116,13 @@ function appPreferenceStorage() {
 }
 
 function App() {
-  const [appTheme, setAppTheme] = useState(() => loadAppTheme(appPreferenceStorage()));
-  useEffect(() => { saveAppTheme(appPreferenceStorage(), appTheme); }, [appTheme]);
+  // Always open the workspace in dark mode. The moon control can still switch
+  // the current session, but an old Light choice must not override startup.
+  const [appTheme, setAppTheme] = useState('dark');
+  useEffect(() => {
+    document.body.setAttribute('data-theme', appTheme);
+    saveAppTheme(appPreferenceStorage(), appTheme);
+  }, [appTheme]);
   const [panelOpen, setPanelOpen]       = useState(false);
   const [captionOpen, setCaptionOpen]   = useState(false);
   const [captionResetKey, setCaptionResetKey] = useState(0);
@@ -716,11 +719,6 @@ function App() {
         </div>
 
         {/* ── Viral Quote Studio ── */}
-        <div className="studio-module" data-workspace="meta" style={{ display: (!captionOpen && currentModule === 'meta') ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-          <ModuleErrorBoundary moduleName="Meta AI">
-            <MetaWorkspace active={!captionOpen && currentModule === 'meta'} />
-          </ModuleErrorBoundary>
-        </div>
         <div className="studio-module" data-workspace="quotes" style={{ display: (!captionOpen && currentModule === 'quotes') ? 'block' : 'none', height: '100vh', overflow: 'auto', boxSizing: 'border-box' }}>
           <ModuleErrorBoundary moduleName="Viral Quote Studio">
                 <QuoteStudio active={!captionOpen && currentModule === 'quotes'} />

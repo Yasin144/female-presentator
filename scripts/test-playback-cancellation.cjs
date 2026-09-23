@@ -158,7 +158,7 @@ for (const phase of ['generation', 'intro', 'title']) {
     const noop = () => {};
     const { context, state } = harness({
       clearPlayLoadingOverlay: noop, armStartingTitleBadge: noop, commitLatestLessonText: () => 'Lesson',
-      introClipEnabled: { checked: false }, isPdfPresentationMode: () => false,
+      introClipEnabled: { checked: false }, getIntroClipRequested: () => false, isPdfPresentationMode: () => false,
       shouldPreferPdfScreenFromInput: () => false, ensureLessonTextIsReady: () => true,
       stopDictation: noop, stopInputPreview: noop, stagePanel: { classList: { contains: () => false } },
       hasFreshGeneratedAnjaliNarration: () => phase !== 'generation', ENABLE_PREPARED_LESSON_EXPORT: false,
@@ -166,6 +166,7 @@ for (const phase of ['generation', 'intro', 'title']) {
       playTitleIntroBeforeLesson: () => phase === 'title' ? pending.promise : Promise.resolve(),
       normalizeNarrationVoiceId: value => value, playNarrationAudio: () => { started++; },
       setPlayLoadingStep: noop, updatePlayLoadingProgress: noop, startNarrationLiveProgress: noop,
+      finishNarrationLiveProgress: noop, hideNarrationLiveProgress: noop, resetTaskProgressUi: noop,
       getNarrationVoiceLabel: () => 'Selected voice', updateTaskProgressUi: noop,
       getLongNarrationRequestTimeoutMs: () => 1000, ensureNarrationReadyForSlide: () => pending.promise
     }, ['playSlide']);
@@ -195,6 +196,11 @@ test('Stop settles the title wait without waiting for an ended event', async () 
   await playing;
   assert.equal(state.activeAudio, null);
   assert.equal(element.removed, true);
+});
+
+test('publishing narration for live Play preserves its playback signal', () => {
+  assert.match(source, /setNarrationFromBlob\(blob, fileName, label, currentText, voice, \{\s*syncProfile,\s*preservePlaybackSignal: true/s);
+  assert.match(source, /if \(!options\.preservePlaybackSignal\) \{\s*stopPlayback\(false\);/s);
 });
 
 test('PDF Context draws its backdrop with state mouth position, including an empty selection', () => {

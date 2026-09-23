@@ -141,6 +141,37 @@ test('unknown PDFs automatically prepare 3 dogs, 1 dog, and 20 stars without sou
   assert.deepEqual(f.writes, [], 'Automatic preparation must not invent persisted user reviews');
 });
 
+test('21–25 cue plan gives every basket and single ball its own reveal cue', async () => {
+  const f = await fixture();
+  const r = renderer(f.manager);
+  const page = r.page('Numbers 2I to 30 Twenty-one Twenty-two Twenty-three Twenty-four Twenty-five', 'lkg-place-value', 37);
+  assert.deepEqual(Array.from(page.placeValueActivity.numbers), [21, 22, 23, 24, 25]);
+  const plan = r.context.buildPdfPlaceValueCuePlan(page.placeValueActivity);
+  const intros = plan.filter(cue => cue.kind === 'number-intro');
+  assert.deepEqual(Array.from(intros, cue => cue.number), [21, 22, 23, 24, 25]);
+  for (const number of page.placeValueActivity.numbers) {
+    const visuals = plan.filter(cue => cue.kind === 'visual' && cue.number === number);
+    assert.equal(visuals.length, Math.floor(number / 10) + (number % 10));
+    assert.deepEqual(Array.from(visuals, cue => cue.visualIndex), Array.from({ length: visuals.length }, (_, index) => index));
+  }
+});
+
+test('51–100 pages use ten-dot frames with one synchronized cue per group and single', async () => {
+  const f = await fixture();
+  const r = renderer(f.manager);
+  const page = r.page('Numbers 9I to I00 Ninety-one Ninety-two Ninety-three Ninety-four Ninety-five Ninety-six Ninety-seven Ninety-eight Ninety-nine One hundred', 'lkg-place-value', 53);
+  assert.deepEqual(Array.from(page.placeValueActivity.numbers), [91, 92, 93, 94, 95, 96, 97, 98, 99, 100]);
+  assert.equal(page.placeValueActivity.style, 'ten-frames');
+  assert.equal(page.narrationText, 'ninety-one, ninety-two, ninety-three, ninety-four, ninety-five, ninety-six, ninety-seven, ninety-eight, ninety-nine, one hundred');
+  const plan = r.context.buildPdfPlaceValueCuePlan(page.placeValueActivity);
+  assert.match(plan[0].text, /ten-dot frames and single dots/);
+  for (const number of page.placeValueActivity.numbers) {
+    const visuals = plan.filter(cue => cue.kind === 'visual' && cue.number === number);
+    assert.equal(visuals.length, Math.floor(number / 10) + (number % 10));
+  }
+  assert.equal(plan.filter(cue => cue.kind === 'visual' && cue.number === 100).length, 10);
+});
+
 test('unsupported objects preserve original narration and original rendering until a local image is imported', async () => {
   const f = await fixture();
   const r = renderer(f.manager);

@@ -1,6 +1,8 @@
 .voiceclone-venv/
 .edge-tts-venv/
 .singing-venv/
+.indicf5-venv/
+.indicf5-isolated-venv/
 __pycache__/
 processed/
 caption-work/

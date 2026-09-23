@@ -11,6 +11,8 @@ const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const input = read('src/components/InputPanel.jsx');
 const stage = read('src/components/StagePanel.jsx');
+const presenterCss = read('src/classic-presentator.css');
+const legacySource = read('script.js');
 const appSource = read('src/App.jsx');
 const homeSource = read('src/components/StudioHome.jsx');
 const harness = read('scripts/qa-simple-home.cjs');
@@ -43,9 +45,21 @@ test('command search keeps its dialog and text input accessible', () => {
 
 test('lesson preparation retains the legacy engine control IDs', () => {
   const actual = new Set(ids(input));
-  for (const id of ['inputPanel', 'subjectSelect', 'lessonInput', 'showScreenBtn', 'resetInputsBtn', 'themeToggle', 'themeSelect', 'templateWorkflowSection', 'lessonContentSection']) {
+  for (const id of ['inputPanel', 'subjectSelect', 'lessonInput', 'showScreenBtn', 'resetInputsBtn', 'themeSelect', 'templateWorkflowSection', 'lessonContentSection']) {
     assert.ok(actual.has(id), 'Missing legacy input ID: ' + id);
   }
+});
+
+test('the duplicate stage theme switch is removed and the header moon owns appearance', () => {
+  assert.doesNotMatch(input, /id="themeToggle"|themeToggleLabel/);
+  assert.match(appSource, /document\.body\.setAttribute\('data-theme', appTheme\)/);
+});
+
+test('the header theme icon changes from moon to sun in light mode', () => {
+  const preferences = read('src/components/StudioPreferences.jsx');
+  const icons = read('src/components/StudioIcon.jsx');
+  assert.match(preferences, /appTheme === 'dark' \? 'moon' : 'sun'/);
+  assert.match(icons, /sun:/);
 });
 
 test('PDF preview, local preparation, page selection, and narration controls remain wired', () => {
@@ -60,6 +74,42 @@ test('stage retains its playback, stop, edit, and page-navigation controls', () 
   for (const id of ['stagePanel', 'editBtn', 'playBtn', 'pauseStageBtn', 'stopStageBtn', 'prevPageBtn', 'nextPageBtn', 'stagePlaybackSpeedSelect', 'stageImageUploadBtn', 'stageVideoUploadBtn']) {
     assert.ok(actual.has(id), 'Missing stage ID: ' + id);
   }
+});
+
+test('intro controls stay synchronized, default on, and an unchecked control is authoritative', () => {
+  assert.match(stage, /id="introClipEnabled" type="checkbox" defaultChecked/);
+  assert.match(legacySource, /introClipEnabledControls\.forEach/);
+  assert.match(legacySource, /function getIntroClipRequested\(\)/);
+  assert.doesNotMatch(legacySource, /introClipEnabled\?\.checked \|\| state\.introPlayback\.enabled/);
+});
+
+test('English lesson rendering preserves typed whitespace and open style panels use the full row', () => {
+  assert.match(legacySource, /isPureInputModeEnabled\(\) \|\| state\.subjectMode === "english"/);
+  assert.match(presenterCss, /\.stage-toolbar-card\[open\][^{]*\{[^}]*flex:\s*1 0 100%/s);
+  assert.match(stage, /keepOnePanelOpen/);
+});
+
+test('font size buttons invalidate the cached lesson layout before their immediate redraw', () => {
+  const setter = legacySource.match(/function setFontScale\(nextScale\) \{[\s\S]*?window\.ppSetFontScale/)?.[0] || '';
+  const invalidateAt = setter.indexOf('invalidateDrawSceneLayoutCache()');
+  const drawAt = setter.indexOf('drawScene(state.mouthOpen)');
+  assert.ok(invalidateAt >= 0, 'font scale change clears the cached layout');
+  assert.ok(drawAt > invalidateAt, 'font scale redraw happens after cache invalidation');
+});
+
+test('added stage images have calm rendering, full-canvas movement, and direct removal', () => {
+  assert.doesNotMatch(legacySource, /drawGenericImageScanner/);
+  assert.match(legacySource, /function getSlideImageWorkspace[\s\S]*?x:\s*0,[\s\S]*?y:\s*0,[\s\S]*?width:\s*canvas\.width,[\s\S]*?height:\s*canvas\.height/);
+  assert.match(legacySource, /removeHandle:\s*isHovered \? removeHandle : null/);
+  assert.match(legacySource, /return \{ index: box\.index, mode: "remove" \}/);
+  assert.match(legacySource, /if \(hit\.mode === "remove"\)[\s\S]*?removeImageAt\(hit\.index\)/);
+});
+
+test('the header subject selector exposes only English without removing maths tools elsewhere', () => {
+  const subjectSelect = input.match(/<select id="subjectSelect"[\s\S]*?<\/select>/)?.[0] || '';
+  assert.match(subjectSelect, /value="english"/);
+  assert.doesNotMatch(subjectSelect, /value="maths"/);
+  assert.match(input, /id="mathsTranslatorStatus"/);
 });
 
 test('the redesign adds no duplicate static engine IDs within or across panels', () => {
@@ -128,6 +178,14 @@ test('Home cards open mounted tools rather than replacing protected controls', (
   assert.match(appSource, /data-section=\{activeLessonTool\}/);
   for (const id of ['singSongInput', 'sc3VideoInput', 'singSongProcessBtn', 'captionVideoInput', 'captionActionBtn', 'captionExportBtn']) {
     assert.equal(ids(input).filter(actual => actual === id).length, 1, 'Protected original control remains unique: ' + id);
+  }
+});
+
+test('the retired Meta AI integration is absent while local tools remain available', () => {
+  assert.doesNotMatch(appSource, /MetaWorkspace|data-workspace="meta"|id:\s*'meta'/);
+  assert.doesNotMatch(homeSource, /Meta AI|target:\s*'meta'/);
+  for (const label of ['Sing Song', 'AI Captioning (Local)', 'Caption Burner']) {
+    assert.match(homeSource, new RegExp(label.replace(/[()]/g, '\\$&')));
   }
 });
 

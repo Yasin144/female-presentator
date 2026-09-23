@@ -19,7 +19,7 @@ test('accepts standalone headings in unfamiliar PDFs without an artwork whitelis
   }
 });
 
-test('preserves singular nouns and supports the exact 1–20 boundaries', async () => {
+test('preserves singular nouns and provides number words through one hundred', async () => {
   const module = await modulePromise;
   for (let count = 1; count <= 20; count += 1) {
     const noun = count === 1 ? 'dog' : 'dogs';
@@ -29,8 +29,30 @@ test('preserves singular nouns and supports the exact 1–20 boundaries', async 
     assert.equal(result.noun, noun);
   }
   assert.equal(module.pdfCountingNumberWord(0), '');
-  assert.equal(module.pdfCountingNumberWord(21), '');
+  assert.equal(module.pdfCountingNumberWord(21), 'twenty-one');
+  assert.equal(module.pdfCountingNumberWord(40), 'forty');
+  assert.equal(module.pdfCountingNumberWord(50), 'fifty');
+  assert.equal(module.pdfCountingNumberWord(51), 'fifty-one');
+  assert.equal(module.pdfCountingNumberWord(99), 'ninety-nine');
+  assert.equal(module.pdfCountingNumberWord(100), 'one hundred');
+  assert.equal(module.pdfCountingNumberWord(101), '');
   assert.equal(module.pdfCountingNumberWord(1.1), '');
+});
+
+test('recognizes complete consecutive 21–100 place-value rows', async () => {
+  const module = await modulePromise;
+  assert.deepEqual(module.analyzePdfPlaceValuePage({ text: 'Numbers 2I to 30 Twenty-one Twenty-two Twenty-three Twenty-four Twenty-five' }), {
+    status: 'ready', numbers: [21, 22, 23, 24, 25], rangeStart: 21, rangeEnd: 25,
+    style: 'bowls', reason: '5 consecutive printed number words form a verified 21–100 place-value lesson.'
+  });
+  assert.equal(module.analyzePdfPlaceValuePage({ text: 'Thirty-six Thirty-seven Thirty-eight Thirty-nine Forty' }).style, 'loops');
+  assert.equal(module.analyzePdfPlaceValuePage({ text: 'Forty-six Forty-seven Forty-eight Forty-nine Fifty' }).style, 'garlands');
+  const high = module.analyzePdfPlaceValuePage({ text: 'Ninety-one Ninety-two Ninety-three Ninety-four Ninety-five Ninety-six Ninety-seven Ninety-eight Ninety-nine One hundred' });
+  assert.deepEqual(high.numbers, [91, 92, 93, 94, 95, 96, 97, 98, 99, 100]);
+  assert.equal(high.style, 'ten-frames');
+  assert.equal(high.rangeStart, 91);
+  assert.equal(high.rangeEnd, 100);
+  assert.equal(module.analyzePdfPlaceValuePage({ text: 'Twenty-one Twenty-two Twenty-four Twenty-five' }).status, 'none');
 });
 
 test('accepts agreeing labels in either order and repeated agreeing headings', async () => {
@@ -99,6 +121,40 @@ test('competing activities inside instructions can veto but cannot create a head
   }
   assert.equal((await analyze({ text: 'ELEVEN DOGS\nCount eleven dogs.' })).status, 'ready');
   assert.equal((await analyze({ text: 'Count eleven dogs.' })).status, 'none');
+});
+
+test('a smaller lower instruction does not override the prominent pictured lesson heading', async () => {
+  const result = await analyze({ items: [
+    item('Fourteen', 352.5, 540.1, 83, 20),
+    item('Vases', 440.9, 540.1, 54.2, 20),
+    item('Count and colour only', 63.8, 281.4, 185.8, 18),
+    item('fourteen', 254.3, 281.4, 72.2, 18),
+    item('keys.', 331.2, 281.4, 42, 18),
+  ] });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.count, 14);
+  assert.equal(result.noun, 'vases');
+  const sameSizeConflict = await analyze({ items: [
+    item('Fourteen Vases', 40, 540, 160, 20),
+    item('Count fifteen cars.', 40, 440, 170, 20),
+  ] });
+  assert.equal(sameSizeConflict.status, 'review');
+});
+
+test('small tracing numerals above a prominent heading are not competing title labels', async () => {
+  const result = await analyze({ items: [
+    item('Fourteen Vases', 352, 540, 145, 20),
+    item('1', 104, 711, 3, 10), item('2', 156, 672, 6, 10), item('3', 187, 661, 6, 10),
+  ] });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.count, 14);
+  assert.equal(result.noun, 'vases');
+  const dotsBelow = await analyze({ items: [
+    item('Eighteen Tops', 350, 540, 145, 20),
+    item('1', 100, 146, 3, 12), item('2', 155, 192, 7, 12), item('a.', 68, 244, 15, 18),
+  ] });
+  assert.equal(dotsBelow.status, 'ready');
+  assert.equal(dotsBelow.noun, 'tops');
 });
 
 test('blank or unreadable scans require review and ordinary text has no activity', async () => {

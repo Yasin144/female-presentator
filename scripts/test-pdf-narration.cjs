@@ -79,6 +79,7 @@ function harness(pages, settings = {}) {
   }
   const context = vm.createContext({
     Blob, DOMException,
+    clamp: (value, min, max) => Math.min(max, Math.max(min, value)),
     state,
     URL: {
       createObjectURL: blob => {
@@ -103,12 +104,16 @@ function harness(pages, settings = {}) {
     normalizeNarrationVoiceId: voice => voice,
     window: { AudioContext, OfflineAudioContext },
     EDGE_NARRATION_VOICE: "edge",
+    PDF_HIGHLIGHT_TIMING_VERSION: 2,
+    buildExactWhisperSyncProfile: async () => null,
     NARRATION_CHUNK_JOIN_GAP_MS: 250,
     NARRATION_CHUNK_FADE_MS: 18,
     getPdfSelectedPages: () => pages,
+    getPdfReadingLineGeometry: page => (page.visualLines || []).map(text => ({ text })),
+    getPdfReadingNarrationLines: page => page.visualLines || [],
     getNarrationVoiceLabel: voice => voice,
     requireNarrationVoiceId: voice => voice,
-    getSpeechSyncProfile: (text, durationMs) => ({ text, durationMs }),
+    getSpeechSyncProfile: (text, durationMs) => ({ text, totalDurationMs: durationMs, units: [{ speechStartMs: 0, speechEndMs: durationMs, pauseEndMs: durationMs }] }),
     audioBufferToWavBlob: buffer => new Blob([JSON.stringify(buffer)]),
     requestNarrationBlob: async (text, voice) => {
       calls.push({ text, voice, generic: true });
@@ -135,11 +140,13 @@ function harness(pages, settings = {}) {
     functionSource("getWhatsAppOutputName"),
     functionSource("normalizeNarrationChunkEntries"),
     functionSource("combineNarrationBlobs"),
+    functionSource("getPdfReadingSpokenText"),
     generatorSource,
     functionSource("ensurePdfNarrationReadyForPresentation"),
     functionSource("hasMatchingPdfNarration"),
     functionSource("ensureAnjaliPdfNarrationReadyForExport"),
     functionSource("getSelectedEdgeExportVoice"),
+    functionSource("scalePdfNarrationTiming"),
     functionSource("setPdfNarrationFromBlob"),
     functionSource("resetPdfNarrationState"),
     "globalThis.cacheSizes = () => [pdfNarrationClipCache.size, pdfNarrationClipsInFlight.size];"
@@ -210,6 +217,15 @@ test("PCM onset remains finite and bounded for silence, tiny clips and unusable 
   }
   const longClip = pcmBuffer({ duration: 4, onsetMs: 3500 });
   assert.equal(detect(longClip), 0, "Audio scanning is capped at three seconds");
+});
+
+test("PDF narration removes only excessive TTS tail padding and keeps a natural pause", () => {
+  const trimmingSource = functionSource("trimPdfNarrationTrailingSilence");
+  assert.match(trimmingSource, /durationMs - audibleEndMs < 650/);
+  assert.match(trimmingSource, /audibleEndMs \+ 180/);
+  const clipSource = functionSource("getPdfNarrationClip");
+  assert.match(clipSource, /trimPdfNarrationTrailingSilence\(decoded, blob\)/);
+  assert.match(clipSource, /blobs: preparedBlobs/);
 });
 
 test("only count labels receive PCM onset offsets; assembled audio and page durations stay unchanged", async () => {
@@ -288,11 +304,81 @@ test("failed clips are retryable and pending workers finish before context clean
   assert.ok(h.profile.pdfTiming.length);
 });
 
-test("non-counting PDFs keep the existing narration path and selected voice", async () => {
+test("non-counting PDFs prepare line-level narration timing with the selected voice", async () => {
   const h = harness([{ index: 0, text: "A lesson without counting." }]);
   await h.run("pattan");
-  assert.deepEqual(h.calls, [{ text: "PDF counting text", voice: "pattan", generic: true }]);
-  assert.equal(h.contexts.length, 0);
+  assert.deepEqual(h.calls, [{ text: "A lesson without counting.", voice: "pattan" }]);
+  assert.equal(h.contexts.length, 1);
+  assert.deepEqual(Array.from(h.profile.pdfTiming[0].readingSegments, segment => segment.text), ["A", "lesson", "without", "counting"]);
+});
+
+test("ordinary PDF narration follows visual title-to-body order and times one word at a time", async () => {
+  const h = harness([{
+    index: 0,
+    text: "Body sentence. Big - Small",
+    visualLines: ["Big - Small", "Body sentence."]
+  }]);
+  await h.run("edge");
+  assert.deepEqual(h.calls.map(call => call.text), ["Big - Small", "Body sentence."]);
+  const segments = Array.from(h.profile.pdfTiming[0].readingSegments);
+  assert.deepEqual(segments.map(segment => segment.text), ["Big", "Small", "Body", "sentence"]);
+  assert.deepEqual(segments.map(segment => segment.lineText), ["Big - Small", "Big - Small", "Body sentence.", "Body sentence."]);
+  assert.ok(segments.every((segment, index) => !index || segment.startMs >= segments[index - 1].endMs));
+});
+
+test("same-height exercise columns remain separate so short numeral answers are not swallowed", () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('repairPdfReadingLineGeometry')}; ${functionSource('getPdfReadingLineGeometry')}; globalThis.lines = getPdfReadingLineGeometry;`, context);
+  const item = (str, x, width) => ({ str, width, height: 12, transform: [12, 0, 0, 12, x, 300] });
+  const lines = context.lines({ countingTextItems: [
+    item('3 comes before', 50, 88), item('4.', 143, 12),
+    item('3 comes after', 350, 82), item('2.', 437, 12)
+  ] });
+  assert.deepEqual(Array.from(lines, line => line.text), ['3 comes before 4.', '3 comes after 2.']);
+  assert.deepEqual(Array.from(lines[0].words, word => word.text), ['3', 'comes', 'before', '4']);
+});
+
+test("headless ones and missing four glyphs are recovered only in proven maths context", () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('repairPdfReadingLineGeometry')}; globalThis.repair = repairPdfReadingLineGeometry;`, context);
+  const word = (text, x) => ({ text, x, y: 200, width: 8, height: 16 });
+  const repairedOne = context.repair({ text: 'I comes before 2.', words: [word('I', 10), word('comes', 22), word('before', 65), word('2', 120)], items: [], x: 10, y: 200, width: 120, height: 16 });
+  assert.equal(repairedOne.text, '1 comes before 2.');
+  assert.equal(repairedOne.words[0].text, '1');
+  const repairedFour = context.repair({ text: '3 comes before .', words: [word('3', 10), word('comes', 22), word('before', 65)], items: [{ text: '.', x: 130 }], x: 10, y: 200, width: 125, height: 16 });
+  assert.equal(repairedFour.text, '3 comes before 4.');
+  assert.equal(repairedFour.words.at(-1).text, '4');
+  const numberLine = context.repair({ text: '0 I 2 3 5 6 7 8 9 I0', words: ['0','I','2','3','5','6','7','8','9','I0'].map((text,index)=>word(text,10+index*20)), items: [], x: 10, y: 200, width: 200, height: 16 });
+  assert.deepEqual(Array.from(numberLine.words, value => value.text), ['0','1','2','3','4','5','6','7','8','9','10']);
+  assert.equal(context.repair({ text: 'I am happy.', words: [word('I', 10)], items: [], x: 10, y: 200, width: 80, height: 16 }).text, 'I am happy.');
+});
+
+test("page narration uses repaired maths text so actions can follow 1 and inferred 4", () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('repairPdfReadingLineGeometry')}; ${functionSource('getPdfReadingLineGeometry')}; ${functionSource('getPdfReadingNarrationLines')}; globalThis.lines = getPdfReadingNarrationLines;`, context);
+  const item = (str, x, width, y = 300) => ({ str, width, height: 12, transform: [12, 0, 0, 12, x, y] });
+  const lines = context.lines({ sourceHeight: 600, countingTextItems: [
+    item('I comes before', 50, 88), item('2.', 143, 12),
+    item('3 comes before', 50, 88, 270), item('.', 143, 4, 270)
+  ] });
+  assert.deepEqual(Array.from(lines), ['1 comes before 2.', '3 comes before 4.']);
+});
+
+test("standalone PDF numerals are spoken explicitly while printed digits remain available for highlighting", () => {
+  const h = harness([]);
+  assert.equal(h.context.getPdfReadingSpokenText('3 comes before 4.'), 'three comes before four.');
+  assert.equal(h.context.getPdfReadingSpokenText('100 comes after 99.'), 'one hundred comes after ninety-nine.');
+});
+
+test("PDF line highlights scale to the final loaded narration duration", () => {
+  const h = harness([]);
+  const scaled = h.context.scalePdfNarrationTiming([{
+    pageIndex: 4, startMs: 0, endMs: 1000, countStarts: [], placeValueSteps: [],
+    readingSegments: [{ text: "The green car is between the red and blue car.", startMs: 200, endMs: 900 }]
+  }], 1000, 1500);
+  assert.equal(scaled[0].endMs, 1500);
+  assert.equal(scaled[0].readingSegments[0].startMs, 300);
+  assert.equal(scaled[0].readingSegments[0].endMs, 1350);
 });
 
 test("PDF playback and export both honor the chosen voice and reuse matching narration", async () => {

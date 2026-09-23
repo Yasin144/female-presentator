@@ -21,6 +21,7 @@
     target: LANGUAGES[0],
     captionLanguage: "Auto Detect",
     voiceEngine: "original",
+    voiceMode: "both",
     file: null,
     filePath: "",
     detectedLanguage: "",
@@ -282,6 +283,7 @@
         button.disabled = state.busy;
       });
     }
+    syncVoiceModeUi();
   }
 
   function base64ToBlobUrl(base64, contentType) {
@@ -494,6 +496,22 @@
     }
   }
 
+  function getVoiceForMode(target = state.target, mode = state.voiceMode) {
+    const wanted = mode === "male" ? "male" : "female";
+    const match = (target.voices || []).find((item) => String(item.name || "").toLowerCase().includes(wanted));
+    return match?.id || target.voice || target.voices?.[0]?.id;
+  }
+
+  function syncVoiceModeUi() {
+    if (!els.voiceMode || !els.voiceModel) return;
+    els.voiceMode.value = state.voiceMode;
+    els.voiceModel.disabled = state.busy || state.voiceMode === "both";
+    if (state.voiceMode !== "both") {
+      state.target = { ...state.target, voice: getVoiceForMode(state.target, state.voiceMode) };
+      els.voiceModel.value = state.target.voice;
+    }
+  }
+
   function captionLanguageCode(label) {
     return { English: "en", Telugu: "te", Hindi: "hi", Tamil: "ta", Kannada: "kn", Malayalam: "ml", Bengali: "bn", Gujarati: "gu", Marathi: "mr", Urdu: "ur" }[label] || "";
   }
@@ -606,7 +624,7 @@
 
       setProgress(45, "Translating", "Detected " + state.detectedLanguage + " to " + state.target.label);
       setStatus("Step 3 of 4: detected " + state.detectedLanguage + ", translating to " + state.target.label + ".");
-      if (isVideoFile(state.file) && state.segments.length) {
+      if (state.segments.length) {
         state.translatedSegments = await translateSegmentTexts(state.segments, state.target.code);
         state.translated = cleanText(state.translatedSegments.map((segment) => segment.translatedText).join(" "));
       } else {
@@ -620,10 +638,11 @@
       if (isVideoFile(state.file)) {
         showPreExportCaptionPreview();
         setProgress(70, "Generating preview", state.voiceEngine === "original" ? "Uploaded video voice" : (state.voiceEngine === "sc3" ? "SC3 preview voice" : "TTS preview voice"));
-        await synthesizeTranslatedAudio("Step 4 of 4: generating preview audio. Export will wait for your click.");
         if (state.translatedSegments.length) {
           setProgress(82, "Synchronizing preview", "Building the selected voice over the original video background");
           await exportSyncedTranslatedVideoNow("Building synchronized voice preview.");
+        } else {
+          await synthesizeTranslatedAudio("Step 4 of 4: generating preview audio. Export will wait for your click.");
         }
         setProgress(100, "Preview ready", "Export MP3, Export MP4, or open AI Video Captioning when ready");
         setStatus("Preview ready. Voice: " + state.target.label + ". Captions: " + resolvedCaptionLanguage(false) + ". Play the video to verify synchronization.");
@@ -653,6 +672,27 @@
     const text = cleanText(els.translation.value || state.translated);
     if (!text) throw new Error("Translated text is empty.");
     setStatus(message || "Generating translated audio.");
+    if (state.filePath && state.translatedSegments.length && api().exportSyncedTranslatedVideo) {
+      const synced = await api().exportSyncedTranslatedVideo({
+        videoPath: state.filePath,
+        segments: state.translatedSegments,
+        voice: state.target.voice,
+        voiceMode: state.voiceMode,
+        singleVoice: state.voiceMode !== "both",
+        targetLanguage: state.target.code,
+        audioOnly: true,
+      });
+      if (!synced?.ok || !synced.audioBase64) throw new Error(synced?.error || "Synchronized audio generation failed.");
+      state.translated = text;
+      state.audioBase64 = synced.audioBase64;
+      els.audio.pause();
+      els.audio.src = base64ToBlobUrl(synced.audioBase64, synced.audioContentType || "audio/aac");
+      els.audio.load();
+      try { els.audio.currentTime = 0; } catch (_) {}
+      els.save.disabled = false;
+      els.exportVideo.disabled = !isVideoFile(state.file);
+      return;
+    }
     const useUploadedVoice = state.voiceEngine === "original" && Boolean(state.filePath);
     const useSc3 = state.voiceEngine === "sc3";
     const narrate = useUploadedVoice ? api().narrateUploadedVideoVoice : (useSc3 ? api().narrateSc3Text : api().narrateEdgeTts);
@@ -779,11 +819,20 @@
       videoPath: state.filePath,
       segments,
       voice: state.target.voice,
+      voiceMode: state.voiceMode,
+      singleVoice: state.voiceMode !== "both",
       targetLanguage: state.target.code,
       preserveIntroSeconds: getPreservedIntroSeconds(),
       outputName,
     });
     if (!exported || exported.ok === false) throw new Error((exported && exported.error) || "Synced video export failed.");
+    if (exported.audioBase64) {
+      state.audioBase64 = exported.audioBase64;
+      els.audio.pause();
+      els.audio.src = base64ToBlobUrl(exported.audioBase64, exported.audioContentType || "audio/aac");
+      els.audio.load();
+      els.save.disabled = false;
+    }
     state.exportedVideoPath = exported.outputPath || "";
     showVideoPreview(exported, "Synced video preview");
     return exported;
@@ -875,6 +924,7 @@
       });
       els.voiceModel.value = state.target.voice;
     }
+    syncVoiceModeUi();
     setStatus("Voice language: " + selected.label + ". Caption language: " + resolvedCaptionLanguage(false) + ".");
   }
 
@@ -913,7 +963,8 @@
       '        <div class="tdub-file-name">No file selected</div>',
       '      </label>',
       '      <div class="tdub-lang-row"></div>',
-      '      <div class="tdub-model-row"><label>Voice Model</label><select class="tdub-voice-model"></select><small>Voice, translated text and captions stay linked.</small></div>',
+      '      <div class="tdub-model-row"><label>Narration speakers</label><select class="tdub-voice-mode"><option value="female">Female only</option><option value="male">Male only</option><option value="both" selected>Both — match male and female speakers</option></select><small>This choice controls preview, MP3 and MP4.</small></div>',
+      '      <div class="tdub-model-row"><label>Voice Model</label><select class="tdub-voice-model"></select><small>With Both selected, matching male and female models are chosen automatically.</small></div>',
       '      <div class="tdub-voice-row">',
       '        <button class="tdub-voice is-active" type="button" data-engine="original">Clone Original Voice</button>',
       '        <button class="tdub-voice" type="button" data-engine="edge">TTS Sync Voice</button>',
@@ -993,6 +1044,7 @@
       caption: root.querySelector(".tdub-caption"),
       captionSelect: root.querySelector(".tdub-caption-select"),
       voiceModel: root.querySelector(".tdub-voice-model"),
+      voiceMode: root.querySelector(".tdub-voice-mode"),
       status: root.querySelector(".tdub-status"),
       progressFill: root.querySelector(".tdub-progress-fill"),
       progressPct: root.querySelector(".tdub-progress-pct"),
@@ -1039,9 +1091,24 @@
       setStatus("Voice: " + state.target.label + ". Captions: " + resolvedCaptionLanguage(false) + ". Export will keep both synchronized.");
     });
     if (els.voiceModel) els.voiceModel.disabled = state.busy;
+    els.voiceMode.addEventListener("change", async () => {
+      state.voiceMode = ["male", "female", "both"].includes(els.voiceMode.value) ? els.voiceMode.value : "both";
+      state.voiceEngine = "edge";
+      syncVoiceButtons();
+      syncVoiceModeUi();
+      state.audioBase64 = "";
+      state.exportedVideoPath = "";
+      setStatus(state.voiceMode === "both"
+        ? "Narration: both speakers. Male speech uses the male model and female speech uses the female model."
+        : `Narration: ${state.voiceMode} only. Every spoken segment will use the ${state.voiceMode} model.`);
+      if (cleanText(state.translated)) await regenerateAudio();
+    });
     els.voiceModel.addEventListener("change", async () => {
       state.target = { ...state.target, voice: els.voiceModel.value || state.target.voice };
       const model = state.target.voices?.find((item) => item.id === state.target.voice);
+      if (/male/i.test(model?.name || "")) state.voiceMode = "male";
+      else if (/female/i.test(model?.name || "")) state.voiceMode = "female";
+      syncVoiceModeUi();
       setStatus(`${state.target.label} voice model: ${model?.name || state.target.voice}. Captions remain ${state.target.label}.`);
       if (cleanText(state.translated)) await regenerateAudio();
     });

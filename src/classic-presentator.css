@@ -404,8 +404,20 @@
   padding: 6px 9px !important;
   box-shadow: none !important;
 }
-.classic-studio #stagePanel > .stage-actions .stage-toolbar-primary[open] { flex: 1 1 340px !important; max-width: 460px !important; }
-.classic-studio #stagePanel > .stage-actions .stage-toolbar-card[open]:not(.stage-toolbar-primary) { flex: 1 1 220px !important; max-width: 360px !important; }
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-card[open] {
+  flex: 1 0 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: min(62vh, 560px) !important;
+}
+.classic-studio #stagePanel > .stage-actions .stage-toolbar-card[open] > .stage-toolbar-body {
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.classic-studio #stagePanel > .stage-actions .stage-model-grid {
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)) !important;
+}
 .classic-studio #stagePanel > .stage-actions .stage-toolbar-summary { padding: 5px 1px !important; gap: 8px !important; }
 .classic-studio #stagePanel > .stage-actions .stage-toolbar-summary::after { background: #eef2f3 !important; color: #365162 !important; font-size: 13px !important; }
 .classic-studio #stagePanel > .stage-actions .stage-toolbar-label { color: #243746 !important; font-size: 13px !important; font-weight: 600 !important; }

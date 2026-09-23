@@ -42,6 +42,22 @@ from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+# ── Single persistent event loop for all async TTS calls ──────────────────────
+# ThreadingHTTPServer handles each request in a separate thread. Using
+# asyncio.run() per call creates a new event loop each time, which causes
+# "ECONNREFUSED" / connection-reset errors when two requests fire concurrently.
+# Instead we run one event loop forever in a daemon thread and submit all
+# coroutines to it with run_coroutine_threadsafe().
+_tts_loop = asyncio.new_event_loop()
+_tts_loop_thread = threading.Thread(target=_tts_loop.run_forever, daemon=True, name="tts-event-loop")
+_tts_loop_thread.start()
+
+
+def _run_async(coro):
+    """Submit a coroutine to the shared TTS event loop and block until done."""
+    future = asyncio.run_coroutine_threadsafe(coro, _tts_loop)
+    return future.result()  # blocks calling thread; raises on exception
+
 import edge_tts
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -53,7 +69,7 @@ TOLERANCE_S       = 0.25          # accept ±250 ms from target
 MAX_ITERATIONS    = 8             # binary search cap
 RATE_MIN          = -50           # Edge TTS rate floor  (%)
 RATE_MAX          = 200           # Edge TTS rate ceiling (%)
-CACHE_LIMIT       = 64
+CACHE_LIMIT       = 256
 
 # Voice reference — EVS C5 8th Lesson, Fact File, Scene 3
 VOICE_REFERENCE_SOURCE = (
@@ -198,7 +214,7 @@ def generate_single_pass(text: str, voice: str, rate: str, pitch: str, volume: s
     cached = _get_cached(key)
     if cached is not None:
         return cached
-    mp3 = asyncio.run(_synthesize_mp3(text, voice, rate, pitch, volume))
+    mp3 = _run_async(_synthesize_mp3(text, voice, rate, pitch, volume))
     wav = _mp3_to_wav(mp3)
     _store_cached(key, wav)
     return wav
@@ -210,7 +226,7 @@ def generate_single_pass_mp3(text: str, voice: str, rate: str, pitch: str, volum
     cached = _get_cached(key)
     if cached is not None:
         return cached
-    mp3 = asyncio.run(_synthesize_mp3(text, voice, rate, pitch, volume))
+    mp3 = _run_async(_synthesize_mp3(text, voice, rate, pitch, volume))
     _store_cached(key, mp3)
     return mp3
 

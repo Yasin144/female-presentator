@@ -170,6 +170,34 @@
         1041,
         998
       ]
+    },
+    {
+      "id": "builtin:vases", "noun": "vases", "aliases": ["vases", "vase"],
+      "src": "assets/pdf-counting/lkg-textbook/vases.png", "width": 187, "height": 255, "contentBounds": [0, 0, 187, 255]
+    },
+    {
+      "id": "builtin:cars", "noun": "cars", "aliases": ["cars", "car"],
+      "src": "assets/pdf-counting/lkg-textbook/cars.png", "width": 295, "height": 141, "contentBounds": [0, 0, 295, 141]
+    },
+    {
+      "id": "builtin:bags", "noun": "bags", "aliases": ["bags", "bag"],
+      "src": "assets/pdf-counting/lkg-textbook/bags.png", "width": 157, "height": 210, "contentBounds": [0, 0, 157, 210]
+    },
+    {
+      "id": "builtin:flowers", "noun": "flowers", "aliases": ["flowers", "flower"],
+      "src": "assets/pdf-counting/lkg-textbook/flowers.png", "width": 158, "height": 246, "contentBounds": [0, 0, 158, 246]
+    },
+    {
+      "id": "builtin:tops", "noun": "tops", "aliases": ["tops", "top", "spinning tops", "spinning top"],
+      "src": "assets/pdf-counting/lkg-textbook/tops.png", "width": 175, "height": 192, "contentBounds": [0, 0, 175, 192]
+    },
+    {
+      "id": "builtin:kites", "noun": "kites", "aliases": ["kites", "kite"],
+      "src": "assets/pdf-counting/lkg-textbook/kites.png", "width": 189, "height": 177, "contentBounds": [0, 0, 189, 177]
+    },
+    {
+      "id": "builtin:hats", "noun": "hats", "aliases": ["hats", "hat"],
+      "src": "assets/pdf-counting/lkg-textbook/hats.png", "width": 215, "height": 128, "contentBounds": [0, 0, 215, 128]
     }
   ]
 }

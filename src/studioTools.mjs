@@ -23,8 +23,12 @@ export function isPresentationBusy(state, exporting = false) {
 export function focusPreparationTool(id, document) {
   const input = document.getElementById('inputPanel');
   const sections = id === 'lessonContentSection'
-    ? ['lessonContentSection', 'narrationSection', 'mediaSection', 'templateWorkflowSection', 'speechToolsSection']
-    : [id];
+    ? ['lessonContentSection', 'narrationSection', 'introPosterSection', 'mediaSection', 'templateWorkflowSection', 'speechToolsSection']
+    : id === 'pdfSection'
+      ? ['pdfSection', 'introPosterSection']
+      : id === 'mediaSection'
+        ? ['introPosterSection', 'mediaSection']
+        : [id];
   for (const child of Array.from(input?.children || [])) {
     const presenterHeader = ['pdfSection', 'lessonContentSection'].includes(id) && child.classList.contains('panel-head');
     const captionActions = id === 'aiCaptionSection' && Boolean(child.querySelector('#aiCapSttBtn'));

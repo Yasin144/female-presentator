@@ -206,7 +206,7 @@ test('app appearance stays independent of presentation and exported media', () =
   const appSource = read('src/App.jsx');
   const helperSource = read('src/studioPreferences.mjs');
   assert.match(appSource, /data-app-theme=\{appTheme\}/);
-  assert.match(appSource, /loadAppTheme\(/);
+  assert.match(appSource, /\[appTheme, setAppTheme\] = useState\('dark'\)/);
   assert.match(appSource, /saveAppTheme\(/);
   assert.doesNotMatch(helperSource, /themeToggle|themeSelect|previewCanvas|sendWhatsApp/);
   assert.doesNotMatch(appSource, /setWhatsAppAutoSend/);
