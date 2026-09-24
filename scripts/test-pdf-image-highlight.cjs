@@ -63,6 +63,36 @@ test('picture actions reject numerals and relation words that caused unrelated m
   for (const text of ['car', 'cars', 'duck', 'apples', 'green']) {
     assert.equal(context.isPictureWord({ text }), true, `${text} may activate a relevant picture`);
   }
+  for (const text of ['long', 'short', 'big', 'small', 'tall', 'heavy', 'light']) {
+    assert.equal(context.isPictureWord({ text }), false, `${text} must not retrigger an object glow`);
+  }
+});
+
+test('a missing ribbon picture never borrows the train image from the row below', () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('getPdfNearbyPictureActionBox')}; globalThis.pickPicture = getPdfNearbyPictureActionBox;`, context);
+  const sourceWidth = 638;
+  const sourceHeight = 842;
+  const ribbonRow = { x: 65, y: 560, width: 190, height: 16 };
+  const ribbonWord = { x: 95, y: 560, width: 45, height: 16 };
+  // Top-down y=310 places this image below the ribbon label, like the train
+  // artwork on the next worksheet row. It must never glow for "ribbon".
+  const trainBelow = { x: 75, y: 310, width: 160, height: 72 };
+  assert.equal(context.pickPicture(ribbonRow, ribbonWord, [trainBelow], sourceWidth, sourceHeight), null);
+});
+
+test('a picture directly above its matching label remains eligible for one glow', () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('getPdfNearbyPictureActionBox')}; globalThis.pickPicture = getPdfNearbyPictureActionBox;`, context);
+  const sourceWidth = 638;
+  const sourceHeight = 842;
+  const trainRow = { x: 65, y: 400, width: 190, height: 16 };
+  const trainWord = { x: 95, y: 400, width: 38, height: 16 };
+  const trainAbove = { x: 75, y: 340, width: 160, height: 72 };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.pickPicture(trainRow, trainWord, [trainAbove], sourceWidth, sourceHeight))),
+    trainAbove
+  );
 });
 
 test('car comparison narration maps red, green and blue to the correct car in sentence order', () => {
@@ -99,12 +129,27 @@ test('number-line and picture action branches are mutually exclusive', () => {
 
 test('original PDF mode keeps word highlights and actions on detected counting pages', () => {
   const renderer = functionSource('drawPdfReadingHighlight');
-  assert.match(renderer, /getPdfCountingDisplayMode\(\) === "reveal"/);
-  assert.match(renderer, /page\?\.countingActivity \|\| page\?\.placeValueActivity/);
+  assert.match(renderer, /shouldRevealPdfCountingObjects\(page\)/);
+  assert.match(renderer, /getPdfCountingDisplayMode\(\) === "reveal" && page\?\.placeValueActivity/);
   assert.doesNotMatch(renderer, /^\s*if \(page\?\.countingActivity \|\| page\?\.placeValueActivity/m);
   const narrationBuilder = functionSource('requestPdfNarrationBlob');
   assert.match(narrationBuilder, /revealPreparedCounting && placeValue/);
-  assert.match(narrationBuilder, /revealPreparedCounting && activity/);
+  assert.match(narrationBuilder, /\(revealPreparedCounting \|\| shouldUsePreparedCountingScene\(page\)\) && activity/);
+});
+
+test('one spoken word is limited to one PDF text highlight', () => {
+  const renderer = functionSource('drawPdfReadingHighlight');
+  assert.match(renderer, /matches = matches\.slice\(0, 1\)/);
+  assert.match(renderer, /sameWords\[0\]\.word/);
+});
+
+test('a headless numeral one is visibly corrected at its spoken PDF position', () => {
+  const renderer = functionSource('drawPdfReadingHighlight');
+  const overlay = functionSource('drawPdfCorrectedNumeral');
+  assert.match(renderer, /drawPdfCorrectedNumeral\(boxes\[0\]/);
+  assert.match(overlay, /box\.sourceText/);
+  assert.match(overlay, /strokeText\("1"/);
+  assert.match(overlay, /fillText\("1"/);
 });
 
 test('PDF word highlights use measured narration timestamps instead of character estimates', () => {

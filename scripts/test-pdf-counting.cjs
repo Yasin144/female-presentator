@@ -216,6 +216,23 @@ test("an unreviewed counting page never draws a generic grid or invented object 
   assert.equal(h.texts.length, 0);
 });
 
+test("an unreviewed portrait page never draws a detached side-margin counter or internal warning", () => {
+  const h = harness();
+  const page = { index: 101, countingActivity: h.api.getPdfCountingActivity("eighteen tops", {
+    fingerprint: "different", pageNumber: 29,
+    preparation: { status: "ready", count: 18, noun: "tops", assetId: "builtin:tops" }
+  }) };
+  h.state.pdf.narration.pdfTiming = [{
+    pageIndex: page.index,
+    countStarts: Array.from({ length: 18 }, (_, index) => index * 500)
+  }];
+  h.state.pdf.currentTimeMs = 9000;
+  h.api.drawPdfCountingMarkers(page, 610, 20, 820, 1400, 0);
+  assert.equal(h.texts.length, 0);
+  assert.equal(h.arcs.length, 0);
+  assert.equal(h.lines.length, 0);
+});
+
 test("invalid or partial layout coordinates are rejected rather than silently placing labels", () => {
   const h = harness();
   const good = h.page(26).countingActivity;

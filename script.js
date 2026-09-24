@@ -183,6 +183,11 @@ const editBtn = document.getElementById("editBtn");
 const playBtn = document.getElementById("playBtn");
 const playbackPercentIndicator = document.getElementById("playbackPercentIndicator");
 const taskPercentIndicator = document.getElementById("taskPercentIndicator");
+const pdfWorkIndicator = document.getElementById("pdfWorkIndicator");
+const pdfWorkStage = document.getElementById("pdfWorkStage");
+const pdfWorkPercent = document.getElementById("pdfWorkPercent");
+const pdfWorkBar = document.getElementById("pdfWorkBar");
+const pdfWorkTime = document.getElementById("pdfWorkTime");
 const pauseStageBtn = document.getElementById("pauseStageBtn");
 const stopStageBtn = document.getElementById("stopStageBtn");
 const stageImageUploadBtn = document.getElementById("stageImageUploadBtn");
@@ -881,7 +886,10 @@ const NARRATION_VOICE_OPTIONS = Object.freeze([
   }
 ]);
 const EDGE_TTS_VOICE_STORAGE_KEY = "pp_preferred_voice";
-const EXPORT_TITLE_PREROLL_MS = 500;
+// MediaRecorder can take several hundred milliseconds to begin emitting stable
+// frames after a separate intro segment. Keep the title entrance long enough
+// that its movement is always visible in the final joined MP4.
+const EXPORT_TITLE_PREROLL_MS = 1800;
 const TITLE_TO_CONTEXT_GAP_MS = 300;
 const EXPORT_TITLE_OUTRO_MS = 2400;
 const PDF_HIGHLIGHT_TIMING_VERSION = 2;
@@ -1540,6 +1548,15 @@ const state = {
     label: "",
     startedAt: 0,
     lastCompletionAlertKey: ""
+  },
+  pdfWorkProgress: {
+    active: false,
+    progress: 0,
+    label: "",
+    stage: "",
+    startedAt: 0,
+    tickerId: 0,
+    hideTimeoutId: 0
   },
   audioContext: null,
   audioGraph: null,
@@ -2800,6 +2817,102 @@ function setIndicatorProgress(indicator, progress = 0) {
   indicator.style.setProperty("--indicator-progress", `${Math.round(safeProgress * 100)}%`);
 }
 
+function getPdfWorkStage(label = "") {
+  const cleanLabel = String(label || "").replace(/\s+/g, " ").trim();
+  if (/ffmpeg|combining|mux|finaliz|download/i.test(cleanLabel)) return "Finalizing PDF video";
+  if (/render|export/i.test(cleanLabel)) return "Rendering PDF video";
+  if (/highlight|synchron/i.test(cleanLabel)) return "Synchronizing PDF highlights";
+  if (/narrat|voice|audio/i.test(cleanLabel)) return "Preparing PDF narration";
+  if (/scann|ocr/i.test(cleanLabel)) return "Reading scanned PDF pages";
+  if (/page|read|load|prepar|pdf/i.test(cleanLabel)) return "Reading PDF pages";
+  return "Preparing PDF lesson";
+}
+
+function clearPdfWorkTimers() {
+  if (state.pdfWorkProgress.tickerId) {
+    window.clearInterval(state.pdfWorkProgress.tickerId);
+    state.pdfWorkProgress.tickerId = 0;
+  }
+  if (state.pdfWorkProgress.hideTimeoutId) {
+    window.clearTimeout(state.pdfWorkProgress.hideTimeoutId);
+    state.pdfWorkProgress.hideTimeoutId = 0;
+  }
+}
+
+function paintPdfWorkIndicator() {
+  if (!pdfWorkIndicator || !state.pdfWorkProgress.active) return;
+  const safeProgress = clamp(state.pdfWorkProgress.progress, 0, 1);
+  const elapsedMs = Math.max(0, performance.now() - state.pdfWorkProgress.startedAt);
+  let timeText = `${formatDurationMs(elapsedMs)} elapsed • estimating time…`;
+  if (safeProgress >= 0.999) {
+    timeText = `${formatDurationMs(elapsedMs)} elapsed • complete`;
+  } else if (safeProgress >= 0.03 && elapsedMs >= 3000) {
+    const remainingMs = Math.max(0, (elapsedMs / safeProgress) - elapsedMs);
+    timeText = `${formatDurationMs(elapsedMs)} elapsed • about ${formatDurationMs(remainingMs)} left`;
+  }
+  if (pdfWorkStage) pdfWorkStage.textContent = state.pdfWorkProgress.stage;
+  if (pdfWorkPercent) pdfWorkPercent.textContent = formatControlPercent(safeProgress);
+  if (pdfWorkBar) pdfWorkBar.style.width = `${Math.round(safeProgress * 100)}%`;
+  if (pdfWorkTime) pdfWorkTime.textContent = timeText;
+  pdfWorkIndicator.setAttribute("aria-valuenow", String(Math.round(safeProgress * 100)));
+  pdfWorkIndicator.setAttribute("aria-label", `${state.pdfWorkProgress.stage}, ${formatControlPercent(safeProgress)}. ${timeText}`);
+  pdfWorkIndicator.classList.toggle("is-complete", safeProgress >= 0.999);
+}
+
+function updatePdfWorkIndicator(progress = 0, active = false, label = "") {
+  if (!pdfWorkIndicator) return;
+  const safeProgress = clamp(Number(progress) || 0, 0, 1);
+  if (!active) {
+    clearPdfWorkTimers();
+    const delayMs = state.pdfWorkProgress.progress >= 0.999 ? 1200 : 180;
+    state.pdfWorkProgress.hideTimeoutId = window.setTimeout(() => {
+      pdfWorkIndicator.classList.add("hidden");
+      pdfWorkIndicator.classList.remove("is-active", "is-complete");
+      if (pdfWorkBar) pdfWorkBar.style.width = "0%";
+      state.pdfWorkProgress.active = false;
+      state.pdfWorkProgress.progress = 0;
+      state.pdfWorkProgress.label = "";
+      state.pdfWorkProgress.stage = "";
+      state.pdfWorkProgress.startedAt = 0;
+      state.pdfWorkProgress.hideTimeoutId = 0;
+    }, delayMs);
+    return;
+  }
+
+  if (state.pdfWorkProgress.hideTimeoutId) {
+    window.clearTimeout(state.pdfWorkProgress.hideTimeoutId);
+    state.pdfWorkProgress.hideTimeoutId = 0;
+  }
+  const nextStage = getPdfWorkStage(label);
+  const stageChanged = nextStage !== state.pdfWorkProgress.stage;
+  if (!state.pdfWorkProgress.active || stageChanged || safeProgress < state.pdfWorkProgress.progress) {
+    state.pdfWorkProgress.startedAt = performance.now();
+  }
+  state.pdfWorkProgress.active = true;
+  state.pdfWorkProgress.progress = safeProgress;
+  state.pdfWorkProgress.label = String(label || "").trim();
+  state.pdfWorkProgress.stage = nextStage;
+  pdfWorkIndicator.classList.remove("hidden");
+  pdfWorkIndicator.classList.add("is-active");
+  paintPdfWorkIndicator();
+  if (!state.pdfWorkProgress.tickerId && safeProgress < 0.999) {
+    state.pdfWorkProgress.tickerId = window.setInterval(paintPdfWorkIndicator, 1000);
+  }
+  if (safeProgress >= 0.999) {
+    if (state.pdfWorkProgress.tickerId) {
+      window.clearInterval(state.pdfWorkProgress.tickerId);
+      state.pdfWorkProgress.tickerId = 0;
+    }
+    updatePdfWorkIndicator(safeProgress, false, label);
+  }
+}
+
+function shouldMirrorPdfWorkProgress(label = "", options = {}) {
+  if (options.pdfTask === true || state.pdfLoading) return true;
+  if (state.presentationMode === "pdf" && (state.exportingVideo || state.speaking || state.pdf?.pages?.length)) return true;
+  return /\bpdf\b|pdf highlight/i.test(String(label || ""));
+}
+
 function clearTaskProgressHideTimer() {
   if (state.taskProgress.hideTimeoutId) {
     window.clearTimeout(state.taskProgress.hideTimeoutId);
@@ -2849,6 +2962,24 @@ function syncLessonPlaybackProgressUi(progress = 0, active = state.speaking) {
 }
 
 function updateTaskProgressUi(progress = 0, active = false, options = {}) {
+  const taskLabel = typeof options.label === "string" && options.label.trim()
+    ? options.label.trim()
+    : (statusText?.textContent?.trim() || "");
+  const mirrorPdfWork = shouldMirrorPdfWorkProgress(taskLabel, options);
+  if (mirrorPdfWork) {
+    updatePdfWorkIndicator(progress, active, taskLabel);
+    // PDF work uses its own compact indicator. Do not stack the older generic
+    // card on top of it, which previously obscured a large part of the canvas.
+    if (taskPercentIndicator) {
+      clearTaskProgressHideTimer();
+      taskPercentIndicator.classList.add("hidden");
+      taskPercentIndicator.classList.remove("is-active", "is-complete");
+    }
+    if (options.mirrorStage) {
+      updatePlaybackProgressUi(progress, active);
+    }
+    return state.taskProgress.revision;
+  }
   if (!taskPercentIndicator) {
     if (options.mirrorStage) {
       updatePlaybackProgressUi(progress, active);
@@ -2876,9 +3007,7 @@ function updateTaskProgressUi(progress = 0, active = false, options = {}) {
     state.taskProgress.startedAt = performance.now();
   }
   state.taskProgress.progress = safeProgress;
-  state.taskProgress.label = typeof options.label === "string" && options.label.trim()
-    ? options.label.trim()
-    : (statusText?.textContent?.trim() || "");
+  state.taskProgress.label = taskLabel;
 
   const humanLabel = buildHumanTaskLabel(state.taskProgress.label);
   let detailText = humanLabel.detail;
@@ -7519,7 +7648,7 @@ function resetPdfProgress() {
   pdfProgress.setAttribute("aria-valuenow", "0");
   pdfProgressBar.style.width = "0%";
   pdfProgressLabel.textContent = "0% complete";
-  resetTaskProgressUi();
+  resetTaskProgressUi({ pdfTask: true });
 }
 
 function setPdfProgress(percent, message = "") {
@@ -7528,7 +7657,8 @@ function setPdfProgress(percent, message = "") {
   pdfProgress.setAttribute("aria-valuenow", String(safePercent));
   pdfProgressBar.style.width = `${safePercent}%`;
   updateTaskProgressUi(safePercent / 100, true, {
-    label: message || "Loading PDF"
+    label: message || "Loading PDF",
+    pdfTask: true
   });
   pdfProgressLabel.textContent = message
     ? `${safePercent}% - ${message}`
@@ -7756,9 +7886,10 @@ function shouldPreferPdfScreenFromInput() {
 }
 
 function getPdfPresentationText() {
-  const keepOriginalPdf = getPdfCountingDisplayMode() === "original";
   return getPdfSelectedPages()
-    .map((page) => String(keepOriginalPdf ? page.text : (page.narrationText || page.text || "")).trim())
+    .map((page) => String(shouldUsePreparedCountingScene(page)
+      ? (page.countingActivity?.narrationText || page.narrationText || page.text || "")
+      : (getPdfCountingDisplayMode() === "original" ? page.text : (page.narrationText || page.text || ""))).trim())
     .filter(Boolean)
     .join("\n\n");
 }
@@ -8785,10 +8916,14 @@ async function populatePdfThumbnailPreviews(pages = [], pdfDocument = null) {
     } catch (error) {
       console.error(`Could not render PDF thumbnail ${pageData.pageNumber}.`, error);
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    // Thumbnail rendering is optional background work. Yield long enough for
+    // playback preparation and controls to stay responsive on large PDFs.
+    await new Promise((resolve) => window.setTimeout(resolve, 30));
     await renderNextThumbnail();
   };
-  await Promise.all(Array.from({ length: Math.min(3, pages.length) }, () => renderNextThumbnail()));
+  // PDF.js rendering is CPU-heavy. A single worker prevents thumbnails from
+  // competing with narration decoding when several pages are selected.
+  await renderNextThumbnail();
 }
 
 function escapeHtml(text) {
@@ -9511,15 +9646,23 @@ async function ensurePdfCountingAutomationLoaded() {
   return pdfCountingPreparationPromise;
 }
 
+function shouldUsePreparedCountingScene(page) {
+  const activity = page?.countingActivity;
+  return getPdfCountingDisplayMode() === "reveal"
+    || Boolean(activity?.objectSource === "local-library" && activity?.markersVerified !== true);
+}
+
 function shouldRevealPdfCountingObjects(page) {
   const activity = page?.countingActivity;
-  if (getPdfCountingDisplayMode() === "reveal" && activity?.objectSource === "local-library") {
+  const preparedScene = getPdfCountingDisplayMode() === "reveal"
+    || Boolean(activity?.objectSource === "local-library" && activity?.markersVerified !== true);
+  if (preparedScene && activity?.objectSource === "local-library") {
     return activity.objectDocumentId === page.sourceFingerprint
       && activity.objectPageNumber === Number(page.pageNumber)
       && Number.isInteger(activity.count) && activity.count >= 1 && activity.count <= 20
       && Boolean(pdfCountingPreparation?.getAsset(activity.objectAssetId));
   }
-  return getPdfCountingDisplayMode() === "reveal"
+  return preparedScene
     && activity?.objectDocumentId === PDF_COUNTING_DOCUMENT_ID
     && activity?.objectPageNumber === Number(page.pageNumber)
     && PDF_COUNTING_LAYOUTS[page.pageNumber]?.points.length === activity.count;
@@ -9889,12 +10032,28 @@ function drawPdfPlaceValueScene(page) {
   // fallback rendered the first number twice before its narration cue, making
   // the title look like a broken 61 activity screen.
   if (!current) {
+    const rawIntroProgress = state.titleIntroActive
+      && typeof state.titleIntroMotionProgress === "number"
+      && Number.isFinite(state.titleIntroMotionProgress)
+      ? Math.min(1, Math.max(0, state.titleIntroMotionProgress))
+      : 1;
+    const titleProgress = rawIntroProgress * rawIntroProgress * (3 - 2 * rawIntroProgress);
+    const subtitleProgress = Math.min(1, Math.max(0, (rawIntroProgress - .38) / .62));
+    const titleText = activity.title.toUpperCase();
+    const subtitleText = "Get ready to build each number with tens and ones.";
+    const visibleSubtitle = subtitleText.slice(0, Math.ceil(subtitleText.length * subtitleProgress));
+    ctx.save();
+    ctx.globalAlpha = Math.max(.02, titleProgress);
     ctx.fillStyle = "#087f8c";
     ctx.font = `900 ${78 * scale}px "Nunito",sans-serif`;
-    ctx.fillText(activity.title.toUpperCase(), W / 2, H * .42, W * .84);
+    ctx.fillText(titleText, W / 2, H * .42 + (1 - titleProgress) * 70 * scale, W * .84);
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = Math.max(.02, subtitleProgress);
     ctx.fillStyle = "#52677e";
     ctx.font = `800 ${32 * scale}px "Nunito",sans-serif`;
-    ctx.fillText("Get ready to build each number with tens and ones.", W / 2, H * .54, W * .78);
+    ctx.fillText(visibleSubtitle, W / 2, H * .54, W * .78);
+    ctx.restore();
     ctx.restore();
     return true;
   }
@@ -10145,30 +10304,9 @@ function drawPdfCountingMarkers(page, drawX, drawY, drawWidth, drawHeight, prese
     ctx.restore();
   });
 
-  // A large synchronized readout in the unused side margin keeps thin-object
-  // labels legible without enlarging them over the artwork. No fake anchors
-  // are drawn for an unreviewed document.
-  if (drawX > canvas.width * .12) {
-    const sideX = drawX / 2;
-    const sideWidth = drawX - 28;
-    const size = Math.min(canvas.height * .16, sideWidth * .58);
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const readoutColors = ["#ff6688", "#ffac66", "#ffd166", "#46edbb", "#58cbff", "#c5a3ff", "#ff91cf"];
-    ctx.fillStyle = readoutColors[(visibleCount - 1) % readoutColors.length];
-    ctx.font = `900 ${size}px "Nunito", sans-serif`;
-    ctx.fillText(String(visibleCount), sideX, canvas.height * .47);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `800 ${Math.min(30, sideWidth * .09)}px "Nunito", sans-serif`;
-    ctx.fillText(`of ${activity.count} ${activity.noun}`, sideX, canvas.height * .59, sideWidth);
-    if (!markers.length) {
-      ctx.fillStyle = "#fcd34d";
-      ctx.font = `700 ${Math.min(18, sideWidth * .065)}px sans-serif`;
-      ctx.fillText("Object positions not verified", sideX, canvas.height * .65, sideWidth);
-    }
-    ctx.restore();
-  }
+  // Never place a detached counter in the page margin. A number is useful only
+  // when it is anchored to the matching verified object. Unknown layouts stay
+  // visually clean until the local preparation pipeline has real coordinates.
 }
 
 function getPdfReadingLineGeometry(page) {
@@ -10191,6 +10329,13 @@ function getPdfReadingLineGeometry(page) {
   });
   const uniqueRecords = records.filter((item, index, all) => !all.slice(0, index).some(previous =>
     previous.text === item.text && Math.abs(previous.x - item.x) < .5 && Math.abs(previous.y - item.y) < .5));
+  const pageText = uniqueRecords.map(item => item.text).join(" ").replace(/\s+/g, " ");
+  // Some primary-school fonts encode the digit 1 with a glyph that PDF.js
+  // extracts as capital I. Once the page proves it is a 1/2/3 number lesson,
+  // repair that same glyph in labels such as "I Finger" and "I Aeroplane".
+  const pageMathContext = /\bnumbers?\s+(?:I|1)\s*[, ]+\s*2\s*[, ]+\s*3\b/i.test(pageText)
+    || (/\bone\b/i.test(pageText) && /\btwo\b/i.test(pageText) && /\bthree\b/i.test(pageText)
+      && /\b(?:trace|count|numbers?)\b/i.test(pageText));
   const rows = [];
   for (const item of uniqueRecords.sort((a, b) => b.y - a.y || a.x - b.x)) {
     let row = rows.find(candidate => Math.abs(candidate.y - item.y) <= Math.max(2, Math.min(candidate.height, item.height) * .55));
@@ -10211,21 +10356,25 @@ function getPdfReadingLineGeometry(page) {
     return groups.map(group => {
       const left = Math.min(...group.map(item => item.x));
       const right = Math.max(...group.map(item => item.x + item.width));
-      return repairPdfReadingLineGeometry({
+      return { ...repairPdfReadingLineGeometry({
         text: group.map(item => item.text).join(" ").replace(/\s+/g, " ").trim(),
         x: left, y: row.y, width: right - left, height: row.height,
         words: group.flatMap(item => item.words || []), items: group
-      });
+      }, { pageMathContext }), pageMathContext };
     });
   });
 }
 
-function repairPdfReadingLineGeometry(line) {
+function repairPdfReadingLineGeometry(line, options = {}) {
+  const pageMathContext = options.pageMathContext === true;
+  const genuineFirstPerson = /^\s*I\s+(?:am|have|had|will|can|could|would|should|do|did|was|want|like|see|know|think|feel|need|use|read|write|go|went|come|came|say|said|look|love)\b/i.test(line.text);
+  if (genuineFirstPerson) return line;
   const mathContext = /\b(?:comes|before|after|between|number|numbers)\b/i.test(line.text)
     || (line.words?.length >= 4 && line.words.every(word => /^(?:\d+|I0|I)$/i.test(word.text)));
-  if (!mathContext) return line;
+  if (!mathContext && (!pageMathContext || genuineFirstPerson || !/\b(?:I0|I)\b/.test(line.text))) return line;
   const correctedWords = (line.words || []).map(word => ({
     ...word,
+    sourceText: word.sourceText || word.text,
     text: /^I0$/i.test(word.text) ? "10" : (/^I$/i.test(word.text) ? "1" : word.text)
   }));
   let correctedText = line.text.replace(/\bI0\b/g, "10").replace(/\bI\b/g, "1");
@@ -10276,7 +10425,7 @@ function getPdfReadingNarrationLines(page) {
       text: selectedItems.map(item => item.text).join(" ").replace(/\s+/g, " ").trim(),
       words: selectedItems.flatMap(item => item.words || []),
       items: selectedItems
-    });
+    }, { pageMathContext: row.pageMathContext === true });
     return selectedLine.text;
   }).filter(Boolean);
 }
@@ -10308,9 +10457,46 @@ function isPdfPictureActionWord(segment) {
   const nonPictureWords = new Set([
     "the", "and", "are", "was", "were", "is", "be", "to", "of", "in", "on", "at", "for", "from", "with",
     "this", "that", "these", "those", "now", "look", "similarly", "remember", "comes", "come", "before",
-    "after", "between", "number", "numbers", "line", "left", "right", "than", "first", "second", "third"
+    "after", "between", "number", "numbers", "line", "left", "right", "than", "first", "second", "third",
+    // Describing or instruction words must not retrigger the same picture.
+    // The object noun itself (for example ribbon or train) owns the glow.
+    "big", "small", "long", "short", "tall", "high", "low", "heavy", "light", "thick", "thin",
+    "same", "different", "tick", "circle", "colour", "color", "match", "write", "draw", "trace"
   ]);
   return !nonPictureWords.has(value);
+}
+
+function getPdfNearbyPictureActionBox(pageRow, activeBox, imageBounds, sourceWidth, sourceHeight) {
+  if (!pageRow || !activeBox || !Array.isArray(imageBounds) || !imageBounds.length) return null;
+
+  // PDF text geometry is bottom-up while embedded image bounds are top-down.
+  // A worksheet label describes the artwork immediately above that same row.
+  // Requiring that relationship prevents a missing/vector ribbon picture from
+  // borrowing the raster train image in the next row below it.
+  const rowTop = sourceHeight - (Number(pageRow.y) || 0) - (Number(pageRow.height) || 0);
+  const wordCenterX = (Number(activeBox.x) || 0) + (Number(activeBox.width) || 0) / 2;
+  const maximumGap = sourceHeight * .115;
+  const edgeTolerance = sourceHeight * .018;
+  const candidates = imageBounds.filter(bounds => {
+    const x = Number(bounds?.x) || 0;
+    const y = Number(bounds?.y) || 0;
+    const width = Number(bounds?.width) || 0;
+    const height = Number(bounds?.height) || 0;
+    const bottom = y + height;
+    const gapAboveText = rowTop - bottom;
+    const centerX = x + width / 2;
+    return y > sourceHeight * .10 && bottom < sourceHeight * .94
+      && gapAboveText >= -edgeTolerance && gapAboveText <= maximumGap
+      && Math.abs(centerX - wordCenterX) <= sourceWidth * .26;
+  }).map(bounds => {
+    const centerX = bounds.x + bounds.width / 2;
+    const bottom = bounds.y + bounds.height;
+    const horizontalDistance = Math.abs(centerX - wordCenterX) / Math.max(1, sourceWidth);
+    const verticalGap = Math.max(0, rowTop - bottom) / Math.max(1, sourceHeight);
+    return { bounds, score: horizontalDistance * 1.25 + verticalGap * 2.2 };
+  }).sort((left, right) => left.score - right.score);
+
+  return candidates[0]?.score <= .24 ? candidates[0].bounds : null;
 }
 
 function getPdfCarColorAction(pageRow, segment, imageBounds, sourceWidth, sourceHeight) {
@@ -10363,9 +10549,27 @@ function drawPdfActionGlow(box, color, drawX, drawY, drawWidth, drawHeight, sour
   ctx.restore();
 }
 
+function drawPdfCorrectedNumeral(box, color, drawX, drawY, drawWidth, drawHeight, sourceWidth, sourceHeight) {
+  if (!box || !/^I$/i.test(String(box.sourceText || "")) || String(box.text || "") !== "1") return;
+  const centerX = drawX + (box.x + box.width / 2) / sourceWidth * drawWidth;
+  const centerY = drawY + (sourceHeight - box.y - box.height / 2) / sourceHeight * drawHeight;
+  const fontSize = Math.max(15, box.height / sourceHeight * drawHeight * 1.35);
+  ctx.save();
+  ctx.font = `800 ${fontSize}px Arial, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(3, fontSize * .18);
+  ctx.strokeStyle = "rgba(255,255,255,.96)";
+  ctx.strokeText("1", centerX, centerY);
+  ctx.fillStyle = color || "#0284c7";
+  ctx.fillText("1", centerX, centerY);
+  ctx.restore();
+}
+
 function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
-  const preparedCountingIsReplacingThePage = getPdfCountingDisplayMode() === "reveal"
-    && (page?.countingActivity || page?.placeValueActivity);
+  const preparedCountingIsReplacingThePage = shouldRevealPdfCountingObjects(page)
+    || (getPdfCountingDisplayMode() === "reveal" && page?.placeValueActivity);
   if (preparedCountingIsReplacingThePage || (!state.pdf.highlightColor && state.pdf.actionsEnabled === false)) return;
   const timing = state.pdf.narration.pdfTiming?.find(item => item.pageIndex === page?.index);
   const segment = timing?.readingSegments?.find(item => state.pdf.currentTimeMs >= item.startMs && state.pdf.currentTimeMs < item.endMs);
@@ -10387,6 +10591,10 @@ function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
     }).sort((left, right) => right.score - left.score);
     if (ranked[0]?.score >= .55) matches = [ranked[0].row];
   }
+  // One spoken word must produce one text highlight. Repeated worksheet labels
+  // can have identical text; choosing every matching row created simultaneous
+  // highlights far away from the narration.
+  matches = matches.slice(0, 1);
   const sourceWidth = Number(page.sourceWidth) || Number(page.width) || 1;
   const sourceHeight = Number(page.sourceHeight) || Number(page.height) || 1;
   const boxes = matches.flatMap(row => {
@@ -10394,8 +10602,10 @@ function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
     const requestedIndex = Math.max(0, Number(segment.wordIndex) || 0);
     const exact = row.words?.[requestedIndex];
     if (exact && normalize(exact.text) === normalize(segment.text)) return [exact];
-    const sameWords = (row.words || []).filter(word => normalize(word.text) === normalize(segment.text));
-    return sameWords.length ? [sameWords[Math.min(requestedIndex, sameWords.length - 1)]] : [];
+    const sameWords = (row.words || []).map((word, index) => ({ word, index }))
+      .filter(item => normalize(item.word.text) === normalize(segment.text))
+      .sort((left, right) => Math.abs(left.index - requestedIndex) - Math.abs(right.index - requestedIndex));
+    return sameWords.length ? [sameWords[0].word] : [];
   });
   ctx.save();
   if (state.pdf.highlightColor) {
@@ -10409,6 +10619,9 @@ function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
     }
   }
   const actionColor = state.pdf.highlightColor || "#38bdf8";
+  // If PDF.js extracted a schoolbook's headless numeral 1 as capital I, make
+  // the correction visible at the exact spoken position as well as audible.
+  drawPdfCorrectedNumeral(boxes[0], actionColor, drawX, drawY, drawWidth, drawHeight, sourceWidth, sourceHeight);
   const numberLineBox = getPdfNumberLineActionBox(rows, segment);
   drawPdfActionGlow(numberLineBox, actionColor, drawX, drawY, drawWidth, drawHeight, sourceWidth, sourceHeight, 9);
   const activeBox = boxes[0];
@@ -10422,23 +10635,7 @@ function drawPdfReadingHighlight(page, drawX, drawY, drawWidth, drawHeight) {
   if (!numberLineBox && state.pdf.actionsEnabled !== false && carColorAction.handled) {
     drawPdfActionGlow(carColorAction.box, actionColor, drawX, drawY, drawWidth, drawHeight, sourceWidth, sourceHeight, 10, true);
   } else if (!numberLineBox && state.pdf.actionsEnabled !== false && isPdfPictureActionWord(segment) && activeBox && imageBounds.length) {
-    const wordCenter = {
-      x: activeBox.x + activeBox.width / 2,
-      y: sourceHeight - activeBox.y - activeBox.height / 2
-    };
-    const candidates = wordCenter.y < sourceHeight * .22 ? [] : imageBounds.filter(bounds => {
-      const centerY = bounds.y + bounds.height / 2;
-      const verticalDistance = Math.abs(centerY - wordCenter.y);
-      return bounds.y > sourceHeight * .16 && bounds.y + bounds.height < sourceHeight * .94
-        && verticalDistance < sourceHeight * .24;
-    }).map(bounds => {
-      const centerX = bounds.x + bounds.width / 2;
-      const centerY = bounds.y + bounds.height / 2;
-      const horizontalDistance = Math.abs(centerX - wordCenter.x) / Math.max(1, sourceWidth);
-      const verticalDistance = Math.abs(centerY - wordCenter.y) / Math.max(1, sourceHeight);
-      return { bounds, score: horizontalDistance * 1.35 + verticalDistance };
-    }).sort((left, right) => left.score - right.score);
-    const related = candidates[0]?.score < .34 ? candidates[0].bounds : null;
+    const related = getPdfNearbyPictureActionBox(matchedRow, activeBox, imageBounds, sourceWidth, sourceHeight);
     if (related) {
       drawPdfActionGlow(related, actionColor, drawX, drawY, drawWidth, drawHeight, sourceWidth, sourceHeight, 10, true);
     }
@@ -11562,7 +11759,7 @@ async function requestPdfNarrationBlob(text, voice, options = {}) {
     const placeValue = page.placeValueActivity;
     if (revealPreparedCounting && placeValue) return buildPdfPlaceValueCuePlan(placeValue);
     const visualLines = getPdfReadingNarrationLines(page);
-    return revealPreparedCounting && activity
+    return (revealPreparedCounting || shouldUsePreparedCountingScene(page)) && activity
       ? [`${activity.title}. Let us count the ${activity.noun}.`,
           ...PDF_COUNTING_WORDS.slice(1, activity.count + 1),
           `There ${activity.count === 1 ? "is" : "are"} ${PDF_COUNTING_WORDS[activity.count]} ${activity.noun}.`].map(text => ({ text, kind: "counting" }))
@@ -12787,6 +12984,120 @@ async function ensureVideoExportServer() {
   return state.videoExportServerReady;
 }
 
+async function inspectPcmWavBlob(blob) {
+  if (!blob || blob.size < 44) return null;
+  const bytes = await blob.arrayBuffer();
+  const view = new DataView(bytes);
+  const ascii = (offset, length) => Array.from(
+    new Uint8Array(bytes, offset, length),
+    (value) => String.fromCharCode(value)
+  ).join("");
+  if (ascii(0, 4) !== "RIFF" || ascii(8, 4) !== "WAVE") return null;
+
+  let offset = 12;
+  let format = null;
+  let dataOffset = -1;
+  let dataLength = 0;
+  while (offset + 8 <= view.byteLength) {
+    const chunkId = ascii(offset, 4);
+    const chunkLength = view.getUint32(offset + 4, true);
+    const payloadOffset = offset + 8;
+    if (payloadOffset + chunkLength > view.byteLength) return null;
+    if (chunkId === "fmt " && chunkLength >= 16) {
+      format = {
+        audioFormat: view.getUint16(payloadOffset, true),
+        channels: view.getUint16(payloadOffset + 2, true),
+        sampleRate: view.getUint32(payloadOffset + 4, true),
+        byteRate: view.getUint32(payloadOffset + 8, true),
+        blockAlign: view.getUint16(payloadOffset + 12, true),
+        bitsPerSample: view.getUint16(payloadOffset + 14, true)
+      };
+    } else if (chunkId === "data") {
+      dataOffset = payloadOffset;
+      dataLength = chunkLength;
+      break;
+    }
+    offset = payloadOffset + chunkLength + (chunkLength % 2);
+  }
+  if (!format || format.audioFormat !== 1 || format.bitsPerSample !== 16 || dataOffset < 0) return null;
+  dataLength -= dataLength % Math.max(1, format.blockAlign);
+  return { blob, ...format, dataOffset, dataLength };
+}
+
+function createPcmWavHeader(format, dataLength) {
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const writeAscii = (offset, value) => {
+    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, format.channels, true);
+  view.setUint32(24, format.sampleRate, true);
+  view.setUint32(28, format.byteRate, true);
+  view.setUint16(32, format.blockAlign, true);
+  view.setUint16(34, format.bitsPerSample, true);
+  writeAscii(36, "data");
+  view.setUint32(40, dataLength, true);
+  return header;
+}
+
+async function combineCompatiblePcmWavBlobs(blobs, narrationChunks) {
+  const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
+  // Direct PCM joining is safe when each spoken phrase has a real silence
+  // boundary. Continuous speech still uses the cross-faded WebAudio path.
+  const hasCleanBoundaries = blobs.slice(0, -1).every((_, index) => (
+    Number(safeChunks[index]?.gapAfterMs ?? NARRATION_CHUNK_JOIN_GAP_MS) > 200
+  ));
+  if (!hasCleanBoundaries) return null;
+
+  const wavFiles = [];
+  for (let index = 0; index < blobs.length; index += 1) {
+    wavFiles.push(await inspectPcmWavBlob(blobs[index]));
+    if ((index + 1) % 4 === 0 && typeof window?.setTimeout === "function") {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
+  if (wavFiles.some((entry) => !entry)) return null;
+  const format = wavFiles[0];
+  const compatible = wavFiles.every((entry) => (
+    entry.channels === format.channels
+    && entry.sampleRate === format.sampleRate
+    && entry.blockAlign === format.blockAlign
+    && entry.bitsPerSample === format.bitsPerSample
+  ));
+  if (!compatible) return null;
+
+  const parts = [];
+  let dataLength = 0;
+  wavFiles.forEach((entry, index) => {
+    const previousGapMs = index > 0
+      ? Number(safeChunks[index - 1]?.gapAfterMs ?? NARRATION_CHUNK_JOIN_GAP_MS)
+      : 0;
+    const leadMs = previousGapMs > 200 ? 80 : 0;
+    const gapMs = Math.max(0, Number(safeChunks[index]?.gapAfterMs ?? (index < wavFiles.length - 1 ? NARRATION_CHUNK_JOIN_GAP_MS : 0)) || 0);
+    const silenceBytes = (milliseconds) => (
+      Math.round((format.sampleRate * milliseconds) / 1000) * format.blockAlign
+    );
+    const leadBytes = silenceBytes(leadMs);
+    const gapBytes = silenceBytes(gapMs);
+    if (leadBytes) parts.push(new Uint8Array(leadBytes));
+    parts.push(entry.blob.slice(entry.dataOffset, entry.dataOffset + entry.dataLength));
+    if (gapBytes) parts.push(new Uint8Array(gapBytes));
+    dataLength += leadBytes + entry.dataLength + gapBytes;
+  });
+  // Match the padding used by the WebAudio fallback so the last phrase is
+  // never clipped by video assembly.
+  const tailBytes = Math.round(format.sampleRate * 0.2) * format.blockAlign;
+  parts.push(new Uint8Array(tailBytes));
+  dataLength += tailBytes;
+  return new Blob([createPcmWavHeader(format, dataLength), ...parts], { type: "audio/wav" });
+}
+
 async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
   if (blobs.some(blob => !blob || !blob.size)) {
     throw new Error("A narration part is empty or missing. Export stopped to avoid skipping lesson text. Generate narration again.");
@@ -12800,6 +13111,11 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
     return safeBlobs[0];
   }
 
+  const fastWavMerge = typeof combineCompatiblePcmWavBlobs === "function"
+    ? await combineCompatiblePcmWavBlobs(safeBlobs, narrationChunks)
+    : null;
+  if (fastWavMerge) return fastWavMerge;
+
   const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
   const OfflineAudioContextConstructor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   if (!AudioContextConstructor || !OfflineAudioContextConstructor) {
@@ -12811,10 +13127,15 @@ async function combineNarrationBlobs(blobs = [], narrationChunks = []) {
   try {
     const safeChunks = normalizeNarrationChunkEntries(narrationChunks);
     const decodedBuffers = [];
-    for (const blob of safeBlobs) {
+    for (let index = 0; index < safeBlobs.length; index += 1) {
+      const blob = safeBlobs[index];
       const arrayBuffer = await blob.arrayBuffer();
       const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
       decodedBuffers.push(decoded);
+      // Decoding many clips must not starve Electron's UI event loop.
+      if ((index + 1) % 3 === 0 && typeof window?.setTimeout === "function") {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
     }
 
     const sampleRate = decodedBuffers.reduce((best, buffer) => Math.max(best, buffer.sampleRate || 24000), 24000);
@@ -23133,6 +23454,10 @@ async function encodePdfExactTimelineForExport(options = {}) {
   const plan = buildPdfExactExportFramePlan(options.durationMs, options.playbackRate, options.frameRate || 30);
   const contentDurationMs = Math.max(1, Number(options.contentDurationMs) || plan.sourceDurationMs);
   const outroDurationMs = Math.max(0, Number(options.outroDurationMs) || 0);
+  const titleIntroDurationMs = Math.min(
+    contentDurationMs,
+    Math.max(1, Number(options.titleIntroDurationMs) || 1800)
+  );
   const config = {
     codec: "vp8", width: canvas.width, height: canvas.height,
     bitrate: getPdfExportBitrate(getEffectiveExportQuality(), "exact"),
@@ -23164,6 +23489,13 @@ async function encodePdfExactTimelineForExport(options = {}) {
       if (encoderError) throw encoderError;
       const encodedSourceTimeMs = Math.min(Math.max(0, plan.sourceDurationMs - 0.001), frameIndex * 1000 / plan.frameRate * plan.playbackRate);
       const sourceTimeMs = Math.min(contentDurationMs, encodedSourceTimeMs);
+      // Exact PDF exports bypass MediaRecorder and step frames directly. Give
+      // this encoder its own deterministic title entrance; otherwise live
+      // playback animates while every encoded title frame is already final.
+      state.titleIntroActive = encodedSourceTimeMs < titleIntroDurationMs;
+      state.titleIntroMotionProgress = state.titleIntroActive
+        ? Math.min(1, Math.max(0, encodedSourceTimeMs / titleIntroDurationMs))
+        : null;
       state.titleOutroMotionProgress = outroDurationMs > 0 && encodedSourceTimeMs >= contentDurationMs
         ? clamp((encodedSourceTimeMs - contentDurationMs) / outroDurationMs, 0, 1)
         : null;
@@ -23211,6 +23543,8 @@ async function encodePdfExactTimelineForExport(options = {}) {
       frameCount: plan.frameCount
     };
   } finally {
+    state.titleIntroActive = false;
+    state.titleIntroMotionProgress = null;
     state.titleOutroMotionProgress = null;
     if (encoder.state !== "closed") encoder.close();
   }
@@ -26570,6 +26904,7 @@ async function exportPdfModeVideo(renderMode = "context", options = {}) {
         durationMs: pdfTimelineDurationMs + pdfOutroSourceDurationMs,
         contentDurationMs: pdfTimelineDurationMs,
         outroDurationMs: pdfOutroSourceDurationMs,
+        titleIntroDurationMs: 1800,
         playbackRate: pdfExportPlaybackRate,
         frameRate: 30
       });
@@ -26923,6 +27258,16 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
   let audioUrl = "";
   let audioElement = null;
 
+  // Pre-arm the title before captureStream and MediaRecorder see the canvas.
+  // Otherwise their initial video frame is the already-completed static PDF
+  // title card; Chromium may hold that frame across the short entrance even
+  // though the live preview animates correctly.
+  if (titlePrerollMs > 0) {
+    state.titleIntroActive = true;
+    state.titleIntroMotionProgress = 0;
+    markSceneDirty();
+  }
+
   // Clear the capture rate so scheduleVisualLoopTick uses requestAnimationFrame (smooth 60fps)
   // instead of a coarse setTimeout. Realtime export renders at the audio's real-time pace,
   // so the rAF-driven loop is the correct choice here.
@@ -27102,6 +27447,9 @@ async function recordLessonVideoRealtimeForExport(audioBlob, playbackRate, optio
     if (canvasStream) {
       canvasStream.getTracks().forEach((track) => track.stop());
     }
+    state.titleIntroActive = false;
+    state.titleIntroMotionProgress = null;
+    markSceneDirty();
     state.exportVideoTrack = null;
   }
 }

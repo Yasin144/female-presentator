@@ -368,6 +368,21 @@ test("headless ones and missing four glyphs are recovered only in proven maths c
   const numberLine = context.repair({ text: '0 I 2 3 5 6 7 8 9 I0', words: ['0','I','2','3','5','6','7','8','9','I0'].map((text,index)=>word(text,10+index*20)), items: [], x: 10, y: 200, width: 200, height: 16 });
   assert.deepEqual(Array.from(numberLine.words, value => value.text), ['0','1','2','3','4','5','6','7','8','9','10']);
   assert.equal(context.repair({ text: 'I am happy.', words: [word('I', 10)], items: [], x: 10, y: 200, width: 80, height: 16 }).text, 'I am happy.');
+  assert.equal(context.repair({ text: 'I Finger', words: [word('I', 10), word('Finger', 22)], items: [], x: 10, y: 200, width: 80, height: 16 }, { pageMathContext: true }).text, '1 Finger');
+  assert.equal(context.repair({ text: 'I Finger', words: [word('I', 10), word('Finger', 22)], items: [], x: 10, y: 200, width: 80, height: 16 }, { pageMathContext: true }).words[0].sourceText, 'I');
+  assert.equal(context.repair({ text: 'I am learning numbers.', words: [word('I', 10), word('am', 22)], items: [], x: 10, y: 200, width: 120, height: 16 }, { pageMathContext: true }).text, 'I am learning numbers.');
+});
+
+test("a Numbers 1, 2, 3 page repairs every headless one before narration", () => {
+  const context = vm.createContext({});
+  vm.runInContext(`${functionSource('repairPdfReadingLineGeometry')}; ${functionSource('getPdfReadingLineGeometry')}; ${functionSource('getPdfReadingNarrationLines')}; globalThis.lines = getPdfReadingNarrationLines;`, context);
+  const item = (str, x, width, y) => ({ str, width, height: 12, transform: [12, 0, 0, 12, x, y] });
+  const lines = context.lines({ sourceHeight: 600, countingTextItems: [
+    item('Numbers I, 2, 3', 40, 130, 520),
+    item('One', 40, 30, 460), item('I Finger', 40, 65, 420),
+    item('One Aeroplane', 220, 95, 420), item('Trace and write', 40, 100, 360)
+  ] });
+  assert.deepEqual(Array.from(lines), ['Numbers 1, 2, 3', 'One', '1 Finger', 'One Aeroplane', 'Trace and write']);
 });
 
 test("page narration uses repaired maths text so actions can follow 1 and inferred 4", () => {

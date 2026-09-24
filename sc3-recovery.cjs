@@ -153,11 +153,72 @@ function naturalMuxArgs(video, audio, output, filterPath, seconds) {
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output];
 }
 function narrationTokens(text) {
-  return String(text || '').normalize('NFKC').toLowerCase().replace(/[’‘]/g, "'")
+  const tokens = String(text || '').normalize('NFKC').toLowerCase().replace(/[’‘]/g, "'")
     .replace(/\bwon't\b/g, 'will not').replace(/\bcan't\b/g, 'cannot')
     .replace(/\blet's\b/g, 'let us').replace(/n't\b/g, ' not')
     .replace(/\bcolours?\b/g, word => word === 'colours' ? 'colors' : 'color')
     .match(/[\p{L}\p{N}]+/gu) || [];
+  return normalizeNarrationNumbers(tokens);
+}
+
+function normalizeNarrationNumbers(tokens) {
+  const small = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+    seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+    thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+    seventeen: 17, eighteen: 18, nineteen: 19
+  };
+  const tens = {
+    twenty: 20, thirty: 30, forty: 40, fifty: 50,
+    sixty: 60, seventy: 70, eighty: 80, ninety: 90
+  };
+  const normalized = [];
+  for (let index = 0; index < tokens.length;) {
+    const token = tokens[index];
+    if (/^\d+$/.test(token)) {
+      normalized.push(`#${Number(token)}`);
+      index += 1;
+      continue;
+    }
+    if (Object.hasOwn(tens, token)) {
+      let value = tens[token];
+      if (Object.hasOwn(small, tokens[index + 1]) && small[tokens[index + 1]] > 0 && small[tokens[index + 1]] < 10) {
+        value += small[tokens[index + 1]];
+        index += 1;
+      }
+      normalized.push(`#${value}`);
+      index += 1;
+      continue;
+    }
+    if (Object.hasOwn(small, token)) {
+      let value = small[token];
+      let consumed = 1;
+      if (value > 0 && tokens[index + 1] === 'hundred') {
+        value *= 100;
+        consumed = 2;
+        const tailIndex = index + consumed + (tokens[index + consumed] === 'and' ? 1 : 0);
+        const tail = tokens[tailIndex];
+        if (Object.hasOwn(tens, tail)) {
+          value += tens[tail];
+          consumed = tailIndex - index + 1;
+          const final = tokens[index + consumed];
+          if (Object.hasOwn(small, final) && small[final] > 0 && small[final] < 10) {
+            value += small[final];
+            consumed += 1;
+          }
+        } else if (Object.hasOwn(small, tail)) {
+          value += small[tail];
+          consumed = tailIndex - index + 1;
+        }
+      }
+      normalized.push(`#${value}`);
+      index += consumed;
+      continue;
+    }
+    normalized.push(token);
+    index += 1;
+  }
+  return normalized;
 }
 
 function compareNarration(expected, recognized) {
@@ -212,4 +273,4 @@ function preserveSourceSound(section) {
   return seconds > 0 && ((seconds <= .4 && /^(um|uh|hmm|hm|ah|oh)$/.test(text)) ||
     (seconds <= 1.5 && /^(choo choo|hmm|hm)$/.test(text)));
 }
-module.exports = { retryable, retry, duration, muxArgs, checkpointDirectory, checkpoint, transcriptionWindows, timedSections, fitAudioFilter, naturalSpeechSeconds, naturalVideoTimeline, naturalVideoFilter, naturalMuxArgs, narrationTokens, compareNarration, verifyNarration, recoveryPhrases, preserveSourceSound, isHarmlessBrandTitleMisrecognition };
+module.exports = { retryable, retry, duration, muxArgs, checkpointDirectory, checkpoint, transcriptionWindows, timedSections, fitAudioFilter, naturalSpeechSeconds, naturalVideoTimeline, naturalVideoFilter, naturalMuxArgs, narrationTokens, normalizeNarrationNumbers, compareNarration, verifyNarration, recoveryPhrases, preserveSourceSound, isHarmlessBrandTitleMisrecognition };

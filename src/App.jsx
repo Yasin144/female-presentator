@@ -590,6 +590,13 @@ function App() {
 
           {/* Floating Global Elements from legacy index.html */}
           <div id="taskPercentIndicator" className="control-indicator playback-percent-indicator app-task-percent-indicator hidden" aria-live="polite">0%</div>
+          <div id="pdfWorkIndicator" className="pdf-work-indicator hidden" role="progressbar" aria-live="polite" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span className="pdf-work-spinner" aria-hidden="true"></span>
+            <span id="pdfWorkStage" className="pdf-work-stage">Preparing PDF</span>
+            <strong id="pdfWorkPercent" className="pdf-work-percent">0%</strong>
+            <span className="pdf-work-track" aria-hidden="true"><span id="pdfWorkBar" className="pdf-work-bar"></span></span>
+            <span id="pdfWorkTime" className="pdf-work-time">Starting…</span>
+          </div>
           <img id="stageLogoImage" className="hidden" alt="Info kids logo" />
           
           <div id="floatingColorPalette" style={{ display: "none", position: "fixed", zIndex: 10000, background: "#161b22", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", padding: "6px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", width: "154px", flexWrap: "wrap", gap: "6px", pointerEvents: "auto" }}>

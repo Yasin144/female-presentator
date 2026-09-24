@@ -16,6 +16,14 @@ test('verification flags omitted, repeated, substituted and reordered words',()=
   assert.equal(compareNarration("Let's restore the colours!",'Let us restore the colors.').ok,true);
   assert.equal(compareNarration('eleven dogs','twelve dogs').ok,false);
 });
+test('printed digits and correctly spoken number words are strictly equivalent',()=>{
+  assert.equal(compareNarration('the red number 1 comes before 2.','The red number one comes before two.').ok,true);
+  assert.equal(compareNarration('21 comes before 22','twenty-one comes before twenty two').ok,true);
+  assert.equal(compareNarration('101 comes after 100','one hundred and one comes after one hundred').ok,true);
+  assert.equal(compareNarration('1 comes before 2','two comes before one').ok,false);
+  assert.equal(compareNarration('eleven dogs','12 dogs').ok,false);
+  assert.deepEqual(require('../sc3-recovery.cjs').narrationTokens('Count 1, 2, 3'), ['count','#1','#2','#3']);
+});
 test('mismatched narration is regenerated and only matching audio is accepted',async()=>{
   const attempts=[];
   const audio=await verifyNarration('eleven dogs',async attempt=>{
