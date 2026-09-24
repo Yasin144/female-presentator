@@ -17774,6 +17774,117 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
   return cursorX - x;
 }
 
+// Image-led lessons use the lesson text as a real caption track. Keep the
+// complete current sentence visible and highlight only the spoken word.
+function getCurrentLessonSentenceCaption(elapsedMs = getPlaybackElapsedMs()) {
+  const text = String(state.text || "");
+  if (!text.trim()) return null;
+  const durationMs = Math.max(1, Number(state.narration?.durationMs) || getDefaultNarrationDurationMs());
+  const profile = getResolvedSpeechSyncProfile(text, durationMs, {
+    syncProfileData: state.narration?.syncProfile?.text === text ? state.narration.syncProfile : null
+  });
+  const units = Array.isArray(profile?.units) ? profile.units : [];
+  if (!units.length) return null;
+
+  const clock = clamp(Number(elapsedMs) || 0, 0, Math.max(durationMs, profile.totalDurationMs || 0));
+  let activeIndex = units.findIndex(unit => unit.spokenText && clock >= unit.speechStartMs && clock < unit.pauseEndMs);
+  if (activeIndex < 0) activeIndex = units.findLastIndex(unit => unit.spokenText && clock >= unit.speechStartMs);
+  if (activeIndex < 0) activeIndex = units.findIndex(unit => unit.spokenText);
+  if (activeIndex < 0) return null;
+
+  let first = activeIndex;
+  while (first > 0) {
+    const previous = String(units[first - 1]?.displayText || "");
+    if (/\r?\n/.test(previous) || /[.!?]/.test(previous)) break;
+    first -= 1;
+  }
+  let last = activeIndex;
+  while (last < units.length - 1) {
+    const value = String(units[last]?.displayText || "");
+    if (/\r?\n/.test(value) || /[.!?]/.test(value)) break;
+    last += 1;
+    const nextValue = String(units[last]?.displayText || "");
+    if (/\r?\n/.test(nextValue) || /[.!?]/.test(nextValue)) break;
+  }
+
+  const sentenceUnits = units.slice(first, last + 1).filter(unit => !/^\s*\r?\n\s*$/.test(String(unit.displayText || "")));
+  const sentence = sentenceUnits.map(unit => unit.displayText || "").join("").replace(/\s+/g, " ").trim();
+  if (!sentence) return null;
+  const activeUnitIndex = sentenceUnits.indexOf(units[activeIndex]);
+  const prefixBeforeActive = sentenceUnits.slice(0, Math.max(0, activeUnitIndex))
+    .map(unit => unit.displayText || "").join("").trim();
+  const activeWordIndex = prefixBeforeActive ? prefixBeforeActive.split(/\s+/).filter(Boolean).length : 0;
+  return { text: sentence, activeWordIndex };
+}
+
+function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex) {
+  // Every narrated/exported lesson uses the same karaoke layer. Some generated
+  // picture scenes are not registered as ordinary page images, so conditioning
+  // this on getStageHasVisibleImagesForPage() made their export fall back to
+  // tiny one-word fragments.
+  const narrationActive = state.speaking
+    || state.exportingVideo
+    || state.exportVideoTrack?.readyState === "live";
+  if (!narrationActive) return false;
+  const caption = getCurrentLessonSentenceCaption();
+  if (!caption?.text) return false;
+
+  const maxWidth = canvas.width * .82;
+  const fontSize = clamp(Math.round(canvas.height * .045), 30, 52);
+  const lineHeight = Math.round(fontSize * 1.25);
+  ctx.save();
+  ctx.font = `800 ${fontSize}px "Nunito", sans-serif`;
+  const words = caption.text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = [];
+  words.forEach((word, wordIndex) => {
+    const candidate = [...line, { word, wordIndex }];
+    const width = ctx.measureText(candidate.map(item => item.word).join(" ")).width;
+    if (line.length && width > maxWidth) { lines.push(line); line = [{ word, wordIndex }]; }
+    else line = candidate;
+  });
+  if (line.length) lines.push(line);
+
+  const padX = 34, padY = 20;
+  const boxWidth = Math.min(canvas.width - 72, maxWidth + padX * 2);
+  const boxHeight = lines.length * lineHeight + padY * 2;
+  const boxX = (canvas.width - boxWidth) / 2;
+  const boxY = canvas.height - boxHeight - Math.max(42, canvas.height * .055);
+  ctx.fillStyle = "rgba(10,18,32,.86)";
+  ctx.shadowColor = "rgba(15,23,42,.40)";
+  ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 22); ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.textBaseline = "middle";
+
+  lines.forEach((items, lineIndex) => {
+    const spaceWidth = ctx.measureText(" ").width;
+    const widths = items.map(item => ctx.measureText(item.word).width);
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0) + spaceWidth * Math.max(0, items.length - 1);
+    let x = (canvas.width - totalWidth) / 2;
+    const y = boxY + padY + lineHeight * (lineIndex + .5);
+    items.forEach((item, index) => {
+      const active = item.wordIndex === caption.activeWordIndex;
+      const completed = item.wordIndex < caption.activeWordIndex;
+      if (active) {
+        ctx.fillStyle = "#fde047";
+        ctx.shadowColor = "rgba(250,204,21,.72)";
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.roundRect(x - 7, y - fontSize * .55, widths[index] + 14, fontSize * 1.12, 9);
+        ctx.fill();
+      }
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = active ? "#172554" : (completed ? "#67e8f9" : "#ffffff");
+      ctx.fillText(item.word, x, y);
+      x += widths[index] + spaceWidth;
+    });
+  });
+  ctx.restore();
+  return true;
+}
+
 function drawSceneVfx() {
   if (normalizePresentationTemplate(state.presentationTemplate) === PRESENTATION_TEMPLATE_OUTCOMES) {
     return;
@@ -21341,6 +21452,7 @@ function drawScene(mouthOpen = 0.12) {
     state.contentScrollOffset = 0;
     drawMathPlaceValueBoard(contentArea, boardData, currentPageIndex, totalPageCount);
     drawOptionalImages(currentPageIndex, totalPageCount);
+    drawCurrentLessonSentenceCaption(currentPageIndex);
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
@@ -21354,6 +21466,7 @@ function drawScene(mouthOpen = 0.12) {
     state.contentScrollOffset = 0;
     drawNumberTableBoard(contentArea, numberTableData);
     drawOptionalImages(currentPageIndex, totalPageCount);
+    drawCurrentLessonSentenceCaption(currentPageIndex);
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
@@ -21489,6 +21602,7 @@ function drawScene(mouthOpen = 0.12) {
 
   ctx.restore();
   drawOptionalImages(currentPageIndex, totalPageCount);
+  drawCurrentLessonSentenceCaption(currentPageIndex);
   drawProceduralConceptAnimations();
   drawAutoQuizOverlay();
   drawWhiteboardStrokes();
