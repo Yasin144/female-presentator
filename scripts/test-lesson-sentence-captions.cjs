@@ -65,6 +65,30 @@ test('lesson export keeps exact Whisper timing attached to the spoken narration 
   assert.match(exporter, /state\.narration\.syncProfile = \{[\s\S]*?text: exactAlignmentText,/);
 });
 
+test('exact alignment retains Whisper phrase text and word timing for karaoke', () => {
+  const start = script.indexOf('async function buildExactWhisperSyncProfile');
+  const end = script.indexOf('\nfunction getSpeechSyncFrame', start);
+  const builder = script.slice(start, end);
+  assert.match(builder, /word: String\(word\.word \|\| word\.text/);
+  assert.match(builder, /const captionSegments =/);
+  assert.match(builder, /normalizeSpokenCaptionWord\(word\.word\)/);
+  assert.match(builder, /return \{ units, captionSegments, totalDurationMs: finalDurationMs \}/);
+});
+
+test('karaoke resolves a whole recognized phrase before its active word', () => {
+  const start = script.indexOf('function getCurrentLessonSentenceCaption');
+  const end = script.indexOf('\nfunction drawCurrentLessonSentenceCaption', start);
+  const resolver = script.slice(start, end);
+  assert.match(resolver, /const exactCaptionSegments =/);
+  assert.match(resolver, /segment\.words/);
+  assert.match(resolver, /text: normalizeSpokenCaptionText\(segment\.text\)/);
+});
+
+test('spoken caption numerals are displayed as words', () => {
+  assert.match(script, /function normalizeSpokenCaptionWord/);
+  assert.match(script, /convertIntegerToInternationalWords\(String\(parsed\)\)/);
+});
+
 test('scene renderers do not paint the final karaoke layer twice', () => {
   const directDraws = [...script.matchAll(/drawCurrentLessonSentenceCaption\(/g)];
   // Definition + the two branches inside the single final compositor.

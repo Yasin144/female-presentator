@@ -5950,6 +5950,20 @@ function scaleSpeechSyncProfile(profile, targetDurationMs = 0) {
   return {
     ...profile,
     units: scaledUnits,
+    captionSegments: Array.isArray(profile.captionSegments)
+      ? profile.captionSegments.map((segment) => ({
+        ...segment,
+        startMs: Math.round((Math.max(0, Number(segment.startMs) || 0) / baseDurationMs) * safeTargetDurationMs),
+        endMs: Math.round((Math.max(0, Number(segment.endMs) || 0) / baseDurationMs) * safeTargetDurationMs),
+        words: Array.isArray(segment.words)
+          ? segment.words.map((word) => ({
+            ...word,
+            startMs: Math.round((Math.max(0, Number(word.startMs) || 0) / baseDurationMs) * safeTargetDurationMs),
+            endMs: Math.round((Math.max(0, Number(word.endMs) || 0) / baseDurationMs) * safeTargetDurationMs)
+          }))
+          : []
+      }))
+      : profile.captionSegments,
     totalDurationMs: safeTargetDurationMs
   };
 }
@@ -6277,6 +6291,27 @@ function getAudioClockSyncFrame(text = "", elapsedMs = 0, durationMs = 0, option
   return getLinearSyncFrame(safeText, elapsedMs, safeDurationMs);
 }
 
+function normalizeSpokenCaptionWord(value = "") {
+  const safeValue = String(value || "").trim();
+  const numeric = safeValue.match(/^(\d+)([.,!?;:]*)$/);
+  if (!numeric) return safeValue;
+  const parsed = Number(numeric[1]);
+  const spoken = Number.isSafeInteger(parsed) && parsed >= 0
+    ? convertIntegerToInternationalWords(String(parsed))
+    : numeric[1];
+  return `${toTitleCaseWords(spoken)}${numeric[2] || ""}`;
+}
+
+function normalizeSpokenCaptionText(value = "") {
+  return String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(normalizeSpokenCaptionWord)
+    .join(" ")
+    .replace(/\s+([,.;:!?])/g, "$1");
+}
+
 async function buildExactWhisperSyncProfile(audioBlob, displayText = "", durationMs = 0) {
   const safeText = String(displayText || "");
   if (!audioBlob?.size || !safeText.trim()) return null;
@@ -6297,9 +6332,10 @@ async function buildExactWhisperSyncProfile(audioBlob, displayText = "", duratio
   const timedWords = (Array.isArray(payload?.words) ? payload.words : [])
     .map((word) => ({
       startMs: Math.max(0, Math.round(Number(word.start ?? word.start_s ?? 0) * 1000)),
-      endMs: Math.max(0, Math.round(Number(word.end ?? word.end_s ?? 0) * 1000))
+      endMs: Math.max(0, Math.round(Number(word.end ?? word.end_s ?? 0) * 1000)),
+      word: String(word.word || word.text || "").trim()
     }))
-    .filter((word) => word.endMs >= word.startMs);
+    .filter((word) => word.word && word.endMs >= word.startMs);
   if (!timedWords.length) return null;
 
   const units = analyzeSpeechSyncUnits(safeText);
@@ -6348,7 +6384,21 @@ async function buildExactWhisperSyncProfile(audioBlob, displayText = "", duratio
   const measuredDurationMs = Math.max(1, Math.round(Number(durationMs) || 0));
   const finalDurationMs = Math.max(measuredDurationMs, units.at(-1)?.pauseEndMs || 0);
   if (units.length) units[units.length - 1].pauseEndMs = finalDurationMs;
-  return { units, totalDurationMs: finalDurationMs };
+  const captionSegments = (Array.isArray(payload?.segments) ? payload.segments : [])
+    .map((segment) => {
+      const startMs = Math.max(0, Math.round(Number(segment.start ?? segment.start_s ?? 0) * 1000));
+      const endMs = Math.max(startMs + 20, Math.round(Number(segment.end ?? segment.end_s ?? 0) * 1000));
+      const words = timedWords
+        .filter((word) => word.endMs > startMs && word.startMs < endMs)
+        .map((word) => ({ ...word, word: normalizeSpokenCaptionWord(word.word) }));
+      const text = words.length
+        ? words.map((word) => word.word).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim()
+        : normalizeSpokenCaptionText(segment.text || "");
+      return { startMs, endMs, text, words };
+    })
+    .filter((segment) => segment.text && segment.endMs > segment.startMs);
+
+  return { units, captionSegments, totalDurationMs: finalDurationMs };
 }
 
 function getSpeechSyncFrame(text = "", elapsedMs = 0, targetDurationMs = 0, options = {}) {
@@ -17792,6 +17842,27 @@ function getCurrentLessonSentenceCaption(elapsedMs = getPlaybackElapsedMs(), opt
   if (!units.length) return null;
 
   const clock = clamp(Number(elapsedMs) || 0, 0, Math.max(durationMs, profile.totalDurationMs || 0));
+  const exactCaptionSegments = Array.isArray(profile?.captionSegments) ? profile.captionSegments : [];
+  if (exactCaptionSegments.length) {
+    const segment = exactCaptionSegments.find((item) => (
+      clock >= Math.max(0, Number(item.startMs) || 0)
+      && clock < Math.max(0, Number(item.endMs) || 0)
+    ));
+    if (!segment?.text) return null;
+    const captionWords = Array.isArray(segment.words) ? segment.words : [];
+    let activeWordIndex = captionWords.findIndex((word) => (
+      clock >= Math.max(0, Number(word.startMs) || 0)
+      && clock < Math.max(0, Number(word.endMs) || 0)
+    ));
+    if (activeWordIndex < 0) {
+      activeWordIndex = captionWords.findLastIndex((word) => clock >= Math.max(0, Number(word.startMs) || 0));
+    }
+    return {
+      text: normalizeSpokenCaptionText(segment.text),
+      activeWordIndex: clamp(activeWordIndex < 0 ? 0 : activeWordIndex, 0, Math.max(0, captionWords.length - 1))
+    };
+  }
+
   let activeIndex = units.findIndex(unit => unit.spokenText && clock >= unit.speechStartMs && clock < unit.pauseEndMs);
   if (activeIndex < 0) activeIndex = units.findLastIndex(unit => unit.spokenText && clock >= unit.speechStartMs);
   if (activeIndex < 0) activeIndex = units.findIndex(unit => unit.spokenText);
