@@ -68,14 +68,20 @@ test('lesson export keeps exact Whisper timing attached to the spoken narration 
   assert.match(script, /state\.narration\?\.syncProfile\?\.text === narrationTimelineText/);
 });
 
-test('exact alignment retains Whisper phrase text and word timing for karaoke', () => {
+test('exact alignment builds complete written sentences with Whisper word timing', () => {
   const start = script.indexOf('async function buildExactWhisperSyncProfile');
   const end = script.indexOf('\nfunction getSpeechSyncFrame', start);
   const builder = script.slice(start, end);
   assert.match(builder, /word: String\(word\.word \|\| word\.text/);
-  assert.match(builder, /const captionSegments =/);
-  assert.match(builder, /normalizeSpokenCaptionWord\(word\.word\)/);
+  assert.match(builder, /const captionSegments = buildFullSentenceCaptionSegments\(units, finalDurationMs\);/);
   assert.match(builder, /return \{ units, captionSegments, totalDurationMs: finalDurationMs \}/);
+  const sentenceBuilder = script.slice(
+    script.indexOf('function buildFullSentenceCaptionSegments'),
+    script.indexOf('\nasync function buildExactWhisperSyncProfile')
+  );
+  assert.match(sentenceBuilder, /sentenceUnits\.map\(\(unit\) => unit\?\.displayText/);
+  assert.match(sentenceBuilder, /word: normalizeSpokenCaptionWord\(unit\.displayText \|\| unit\.spokenText\)/);
+  assert.match(sentenceBuilder, /segments\[0\]\.startMs = 0;/);
 });
 
 test('karaoke resolves a whole recognized phrase before its active word', () => {

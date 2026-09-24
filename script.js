@@ -6312,6 +6312,54 @@ function normalizeSpokenCaptionText(value = "") {
     .replace(/\s+([,.;:!?])/g, "$1");
 }
 
+function buildFullSentenceCaptionSegments(units = [], totalDurationMs = 0) {
+  const segments = [];
+  let sentenceUnits = [];
+
+  const flushSentence = () => {
+    if (!sentenceUnits.length) return;
+    const spokenUnits = sentenceUnits.filter((unit) => String(unit?.spokenText || "").trim());
+    const text = normalizeSpokenCaptionText(sentenceUnits.map((unit) => unit?.displayText || "").join(""));
+    sentenceUnits = [];
+    if (!text || !spokenUnits.length) return;
+    const words = spokenUnits.map((unit) => ({
+      startMs: Math.max(0, Number(unit.speechStartMs) || 0),
+      endMs: Math.max(Number(unit.speechStartMs) || 0, Number(unit.speechEndMs) || 0),
+      word: normalizeSpokenCaptionWord(unit.displayText || unit.spokenText)
+    }));
+    segments.push({
+      startMs: words[0].startMs,
+      endMs: Math.max(words.at(-1).endMs, Number(spokenUnits.at(-1)?.pauseEndMs) || 0),
+      text,
+      words
+    });
+  };
+
+  (Array.isArray(units) ? units : []).forEach((unit) => {
+    const displayText = String(unit?.displayText || "");
+    if (/^\r?\n+$/.test(displayText)) {
+      flushSentence();
+      return;
+    }
+    sentenceUnits.push(unit);
+    if (/[.!?](?:[\"'’”)]*)\s*$/.test(displayText.trim())) flushSentence();
+  });
+  flushSentence();
+
+  if (!segments.length) return [];
+  segments[0].startMs = 0;
+  for (let index = 1; index < segments.length; index += 1) {
+    // Keep the previous complete sentence visible through the pause, then swap
+    // atomically when the first word of the next sentence begins.
+    segments[index - 1].endMs = Math.max(segments[index - 1].startMs + 20, segments[index].startMs);
+  }
+  segments.at(-1).endMs = Math.max(
+    segments.at(-1).endMs,
+    Math.max(1, Math.round(Number(totalDurationMs) || 0))
+  );
+  return segments;
+}
+
 async function buildExactWhisperSyncProfile(audioBlob, displayText = "", durationMs = 0) {
   const safeText = String(displayText || "");
   if (!audioBlob?.size || !safeText.trim()) return null;
@@ -6384,19 +6432,11 @@ async function buildExactWhisperSyncProfile(audioBlob, displayText = "", duratio
   const measuredDurationMs = Math.max(1, Math.round(Number(durationMs) || 0));
   const finalDurationMs = Math.max(measuredDurationMs, units.at(-1)?.pauseEndMs || 0);
   if (units.length) units[units.length - 1].pauseEndMs = finalDurationMs;
-  const captionSegments = (Array.isArray(payload?.segments) ? payload.segments : [])
-    .map((segment) => {
-      const startMs = Math.max(0, Math.round(Number(segment.start ?? segment.start_s ?? 0) * 1000));
-      const endMs = Math.max(startMs + 20, Math.round(Number(segment.end ?? segment.end_s ?? 0) * 1000));
-      const words = timedWords
-        .filter((word) => word.endMs > startMs && word.startMs < endMs)
-        .map((word) => ({ ...word, word: normalizeSpokenCaptionWord(word.word) }));
-      const text = words.length
-        ? words.map((word) => word.word).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim()
-        : normalizeSpokenCaptionText(segment.text || "");
-      return { startMs, endMs, text, words };
-    })
-    .filter((segment) => segment.text && segment.endMs > segment.startMs);
+  // Whisper segment boundaries are transcription chunks, not sentence
+  // boundaries; a chunk may contain only one word. Captions must instead use
+  // the complete written sentence immediately, with Whisper supplying only the
+  // timing of the single word highlighted in yellow.
+  const captionSegments = buildFullSentenceCaptionSegments(units, finalDurationMs);
 
   return { units, captionSegments, totalDurationMs: finalDurationMs };
 }
