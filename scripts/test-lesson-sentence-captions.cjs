@@ -34,6 +34,8 @@ test('every captured frame receives karaoke after specialized scene rendering', 
   assert.match(videoFrame, /drawFinalSynchronizedKaraokeOverlay\(\);/);
   assert.match(script, /function drawFinalSynchronizedKaraokeOverlay\(\)/);
   assert.match(script, /if \(isPdfPresentationMode\(\)\)/);
+  assert.match(script, /state\.lastNarrationText \|\| buildNarrationText\(state\.text\)/);
+  assert.match(script, /!state\.speaking && !state\.exportingVideo/);
 });
 
 test('karaoke layer is not skipped by generated picture scenes without page-image metadata', () => {
@@ -41,7 +43,7 @@ test('karaoke layer is not skipped by generated picture scenes without page-imag
   const end = script.indexOf('\nfunction drawSceneVfx', start);
   const renderer = script.slice(start, end);
   assert.doesNotMatch(renderer, /if\s*\([^\n]*getStageHasVisibleImagesForPage/);
-  assert.match(renderer, /const narrationActive = state\.speaking/);
+  assert.match(renderer, /const narrationActive = state\.speaking \|\| state\.exportingVideo/);
   assert.match(renderer, /rgba\(10,18,32,\.86\)/);
 });
 

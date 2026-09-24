@@ -17827,7 +17827,7 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
   // picture scenes are not registered as ordinary page images, so conditioning
   // this on getStageHasVisibleImagesForPage() made their export fall back to
   // tiny one-word fragments.
-  const narrationActive = state.speaking;
+  const narrationActive = state.speaking || state.exportingVideo;
   if (!narrationActive) return false;
   const caption = getCurrentLessonSentenceCaption(options.elapsedMs, options);
   if (!caption?.text) return false;
@@ -17892,7 +17892,7 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
 // but every recorded frame passes through a frame-request helper. Rendering the
 // karaoke layer here prevents subtraction/counting/PDF scenes from bypassing it.
 function drawFinalSynchronizedKaraokeOverlay() {
-  if (!state.speaking || state.titleIntroActive || state.introPlayback?.active || state.introPoster?.active) return false;
+  if ((!state.speaking && !state.exportingVideo) || state.titleIntroActive || state.introPlayback?.active || state.introPoster?.active) return false;
   if (isPdfPresentationMode()) {
     return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
       text: getPdfPresentationText(),
@@ -17901,11 +17901,12 @@ function drawFinalSynchronizedKaraokeOverlay() {
       syncProfileData: state.pdf.narration?.syncProfile || null
     });
   }
+  const narrationText = String(state.lastNarrationText || buildNarrationText(state.text) || state.text || "");
   return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
-    text: state.text,
+    text: narrationText,
     elapsedMs: state.exportingVideo ? state.exportCapture?.elapsedMs : getPlaybackElapsedMs(),
     durationMs: state.narration?.durationMs,
-    syncProfileData: state.narration?.syncProfile || null
+    syncProfileData: state.narration?.syncProfile?.text === narrationText ? state.narration.syncProfile : null
   });
 }
 
