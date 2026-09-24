@@ -14797,6 +14797,16 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
     throw new Error("No narration text was available.");
   }
 
+  // Publish the actual spoken text before entering a voice-specific branch.
+  // Edge TTS returns from its branch below; keeping this assignment only in
+  // the SC3 branch made Edge exports reject their exact Whisper caption track
+  // and fall back to the old progressive, one-word-at-a-time renderer.
+  state.lastNarrationText = narrationText;
+  state.lastNarrationVoice = safeVoice;
+  state.allNarrationTexts = [narrationText];
+  try { localStorage.removeItem("pp_last_narration_text"); } catch(e) {}
+  try { localStorage.setItem("pp_last_narration_voice", safeVoice); } catch(e) {}
+
   if (safeVoice === EDGE_NARRATION_VOICE) {
     if (typeof options.onProgress === "function") {
       options.onProgress({
@@ -14844,15 +14854,6 @@ async function requestNarrationBlobSingle(text, voice = state.preferredNarration
   }
 
   
-  // Keep only the narration created for the current lesson. Persisting and
-  // appending this text caused cleared lessons to return from Local Storage and
-  // duplicated old SC3 generations in Caption Studio.
-  state.lastNarrationText  = narrationText;
-  state.lastNarrationVoice = safeVoice;
-  state.allNarrationTexts = [narrationText];
-  try { localStorage.removeItem("pp_last_narration_text"); } catch(e) {}
-  try { localStorage.setItem("pp_last_narration_voice", safeVoice);    } catch(e) {}
-
 // ── Route Hindi / Telugu through SC3 server (8426) with voice param ────────
   // Hindi and Telugu reuse the already-loaded Chatterbox model in the SC3
   // server. VOICE_MAP in anjali-chatterbox-server.py includes "hindi" and

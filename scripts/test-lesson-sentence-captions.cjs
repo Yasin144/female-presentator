@@ -89,6 +89,16 @@ test('spoken caption numerals are displayed as words', () => {
   assert.match(script, /convertIntegerToInternationalWords\(String\(parsed\)\)/);
 });
 
+test('Edge and SC3 publish the same spoken text before voice-specific returns', () => {
+  const start = script.indexOf('async function requestNarrationBlobSingle');
+  const end = script.indexOf('\nasync function requestNarrationBlob', start);
+  const request = script.slice(start, end);
+  const publishIndex = request.indexOf('state.lastNarrationText = narrationText;');
+  const edgeBranchIndex = request.indexOf('if (safeVoice === EDGE_NARRATION_VOICE)');
+  assert.ok(publishIndex >= 0 && publishIndex < edgeBranchIndex);
+  assert.equal((request.match(/state\.lastNarrationText\s*=\s*narrationText;/g) || []).length, 1);
+});
+
 test('scene renderers do not paint the final karaoke layer twice', () => {
   const directDraws = [...script.matchAll(/drawCurrentLessonSentenceCaption\(/g)];
   // Definition + the two branches inside the single final compositor.
