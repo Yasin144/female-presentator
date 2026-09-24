@@ -17967,12 +17967,27 @@ function drawFinalSynchronizedKaraokeOverlay() {
       syncProfileData: state.pdf.narration?.syncProfile || null
     });
   }
-  const narrationText = String(state.lastNarrationText || buildNarrationText(state.text) || state.text || "");
+  // Export may transform the editor text before it is spoken (for example,
+  // numerals become words and generated lessons add natural narration).  The
+  // exact Whisper profile is therefore the authority for the karaoke text.
+  // Comparing that profile with the raw editor text discarded valid timings
+  // and brought back the old progressive, one-word reveal in saved videos.
+  const exactSyncProfile = state.narration?.syncProfile?.exactWordTimestamps
+    ? state.narration.syncProfile
+    : null;
+  const narrationText = String(
+    exactSyncProfile?.text
+    || state.lastNarrationText
+    || buildNarrationText(state.text)
+    || state.text
+    || ""
+  );
   return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
     text: narrationText,
     elapsedMs: state.exportingVideo ? state.exportCapture?.elapsedMs : getPlaybackElapsedMs(),
     durationMs: state.narration?.durationMs,
-    syncProfileData: state.narration?.syncProfile?.text === narrationText ? state.narration.syncProfile : null
+    syncProfileData: exactSyncProfile
+      || (state.narration?.syncProfile?.text === narrationText ? state.narration.syncProfile : null)
   });
 }
 
@@ -23512,6 +23527,7 @@ async function renderNarrationFromAudioClockForExport(audioElement, options = {}
   const exportSnapshot = options.exportSnapshot || null;
   const captureRate = Math.max(24, Number(options.captureRate) || 30);
   const timelineText = String(exportSnapshot?.text || state.text || "");
+  const narrationTimelineText = String(buildNarrationText(timelineText) || timelineText);
   const timelineHasNumberTable = typeof getNumberTableData === "function" && Boolean(getNumberTableData(timelineText));
   const durationMs = Math.max(
     1000,
@@ -23520,7 +23536,7 @@ async function renderNarrationFromAudioClockForExport(audioElement, options = {}
       : (state.narration.durationMs || getDefaultNarrationDurationMs()))
   );
   const visualLagMs = Math.max(0, Math.round((Number(SPEECH_SYNC_VISUAL_PROGRESS_LAG) || 0) * 1000));
-  const syncProfileData = state.narration?.syncProfile?.text === timelineText
+  const syncProfileData = state.narration?.syncProfile?.text === narrationTimelineText
     ? state.narration.syncProfile
     : null;
   const playbackRate = Math.max(0.1, Number(audioElement.playbackRate) || 1);
@@ -27922,6 +27938,9 @@ async function exportVideo(options = {}) {
         totalDurationMs: exactProfile.totalDurationMs,
         exactWordTimestamps: true
       };
+      // Cached Edge narration can bypass requestNarrationBlobSingle(), so keep
+      // the compositor's narration source explicit for every export.
+      state.lastNarrationText = exactAlignmentText;
     }
     const lessonTimelineDurationMs = allowIntroOnlyExport
       ? 0

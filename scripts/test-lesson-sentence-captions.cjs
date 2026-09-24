@@ -33,7 +33,7 @@ test('every captured frame receives karaoke after specialized scene rendering', 
   assert.match(script, /text: getPdfPresentationText\(\)/);
   assert.match(script, /elapsedMs: state\.pdf\.currentTimeMs/);
   assert.match(script, /syncProfileData: state\.pdf\.narration\?\.syncProfile/);
-  assert.match(script, /state\.lastNarrationText \|\| buildNarrationText\(state\.text\)/);
+  assert.match(script, /exactSyncProfile\?\.text[\s\S]*state\.lastNarrationText[\s\S]*buildNarrationText\(state\.text\)/);
   assert.match(script, /!state\.speaking && !state\.exportingVideo/);
 });
 
@@ -63,6 +63,9 @@ test('lesson export keeps exact Whisper timing attached to the spoken narration 
   assert.match(exporter, /const exactAlignmentText = buildNarrationText\(exportText\);/);
   assert.match(exporter, /buildExactWhisperSyncProfile\(\s*exportNarrationBlob,\s*exactAlignmentText,/);
   assert.match(exporter, /state\.narration\.syncProfile = \{[\s\S]*?text: exactAlignmentText,/);
+  assert.match(exporter, /state\.lastNarrationText = exactAlignmentText;/);
+  assert.match(script, /const narrationTimelineText = String\(buildNarrationText\(timelineText\) \|\| timelineText\);/);
+  assert.match(script, /state\.narration\?\.syncProfile\?\.text === narrationTimelineText/);
 });
 
 test('exact alignment retains Whisper phrase text and word timing for karaoke', () => {
