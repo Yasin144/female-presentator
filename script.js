@@ -17832,9 +17832,12 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
   const caption = getCurrentLessonSentenceCaption(options.elapsedMs, options);
   if (!caption?.text) return false;
 
-  const maxWidth = canvas.width * .82;
-  const fontSize = clamp(Math.round(canvas.height * .045), 30, 52);
-  const lineHeight = Math.round(fontSize * 1.25);
+  // Match the proven synced lesson style: the complete sentence remains
+  // readable in white while only the word being spoken turns yellow.  Keep the
+  // artwork unobstructed (no caption card/background and no "completed" colour).
+  const maxWidth = canvas.width * .88;
+  const fontSize = clamp(Math.round(canvas.height * .034), 26, 42);
+  const lineHeight = Math.round(fontSize * 1.22);
   ctx.save();
   ctx.font = `800 ${fontSize}px "Nunito", sans-serif`;
   const words = caption.text.split(/\s+/).filter(Boolean);
@@ -17848,39 +17851,30 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
   });
   if (line.length) lines.push(line);
 
-  const padX = 34, padY = 20;
-  const boxWidth = Math.min(canvas.width - 72, maxWidth + padX * 2);
-  const boxHeight = lines.length * lineHeight + padY * 2;
-  const boxX = (canvas.width - boxWidth) / 2;
-  const boxY = canvas.height - boxHeight - Math.max(42, canvas.height * .055);
-  ctx.fillStyle = "rgba(10,18,32,.86)";
-  ctx.shadowColor = "rgba(15,23,42,.40)";
-  ctx.shadowBlur = 18;
-  ctx.beginPath(); ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 22); ctx.fill();
-  ctx.shadowColor = "transparent";
+  const captionHeight = lines.length * lineHeight;
+  const captionTop = canvas.height - captionHeight - Math.max(34, canvas.height * .045);
   ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
 
   lines.forEach((items, lineIndex) => {
     const spaceWidth = ctx.measureText(" ").width;
     const widths = items.map(item => ctx.measureText(item.word).width);
     const totalWidth = widths.reduce((sum, width) => sum + width, 0) + spaceWidth * Math.max(0, items.length - 1);
     let x = (canvas.width - totalWidth) / 2;
-    const y = boxY + padY + lineHeight * (lineIndex + .5);
+    const y = captionTop + lineHeight * (lineIndex + .5);
     items.forEach((item, index) => {
       const active = item.wordIndex === caption.activeWordIndex;
-      const completed = item.wordIndex < caption.activeWordIndex;
-      if (active) {
-        ctx.fillStyle = "#fde047";
-        ctx.shadowColor = "rgba(250,204,21,.72)";
-        ctx.shadowBlur = 14;
-        ctx.beginPath();
-        ctx.roundRect(x - 7, y - fontSize * .55, widths[index] + 14, fontSize * 1.12, 9);
-        ctx.fill();
-      }
+      // A light outline/shadow keeps white readable over pale lesson artwork,
+      // while preserving the reference video's clean, background-free look.
+      ctx.strokeStyle = "rgba(38,38,38,.58)";
+      ctx.lineWidth = Math.max(2, Math.round(fontSize * .075));
+      ctx.strokeText(item.word, x, y);
+      ctx.shadowColor = active ? "rgba(250,204,21,.42)" : "rgba(0,0,0,.32)";
+      ctx.shadowBlur = active ? 7 : 4;
+      ctx.fillStyle = active ? "#fde047" : "#ffffff";
+      ctx.fillText(item.word, x, y);
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
-      ctx.fillStyle = active ? "#172554" : (completed ? "#67e8f9" : "#ffffff");
-      ctx.fillText(item.word, x, y);
       x += widths[index] + spaceWidth;
     });
   });
@@ -20980,12 +20974,6 @@ function drawPdfContextScene() {
   }
 
   drawOptionalImages(currentPageIndex, totalPageCount);
-  drawCurrentLessonSentenceCaption(currentPageIndex, {
-    text: getPdfPresentationText(),
-    elapsedMs: state.pdf.currentTimeMs,
-    durationMs: state.pdf.narration?.durationMs || state.pdf.totalDurationMs,
-    syncProfileData: state.pdf.narration?.syncProfile || null
-  });
   requestCanvasExportFrame();
 }
 
@@ -21484,7 +21472,6 @@ function drawScene(mouthOpen = 0.12) {
     state.contentScrollOffset = 0;
     drawMathPlaceValueBoard(contentArea, boardData, currentPageIndex, totalPageCount);
     drawOptionalImages(currentPageIndex, totalPageCount);
-    drawCurrentLessonSentenceCaption(currentPageIndex);
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
@@ -21498,7 +21485,6 @@ function drawScene(mouthOpen = 0.12) {
     state.contentScrollOffset = 0;
     drawNumberTableBoard(contentArea, numberTableData);
     drawOptionalImages(currentPageIndex, totalPageCount);
-    drawCurrentLessonSentenceCaption(currentPageIndex);
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
@@ -21634,7 +21620,6 @@ function drawScene(mouthOpen = 0.12) {
 
   ctx.restore();
   drawOptionalImages(currentPageIndex, totalPageCount);
-  drawCurrentLessonSentenceCaption(currentPageIndex);
   drawProceduralConceptAnimations();
   drawAutoQuizOverlay();
   drawWhiteboardStrokes();
@@ -27830,9 +27815,9 @@ async function exportVideo(options = {}) {
       const measuredVowelsConsonantsStarts = vowelsConsonantsDataForExport
         ? state.narration?.syncProfile?.profile?.chunkStartsMs
         : null;
+      const exactAlignmentText = buildNarrationText(exportText);
       for (let alignmentAttempt = 1; alignmentAttempt <= 2 && !exactProfile?.units?.length; alignmentAttempt += 1) {
         try {
-          const exactAlignmentText = getAlphabetNarrationText(exportText) || exportText;
           exactProfile = await buildExactWhisperSyncProfile(
             exportNarrationBlob,
             exactAlignmentText,
@@ -27857,7 +27842,10 @@ async function exportVideo(options = {}) {
         exactProfile.chunkStartsMs = measuredVowelsConsonantsStarts.slice(0, vowelsConsonantsDataForExport.entries.length);
       }
       state.narration.syncProfile = {
-        text: exportText,
+        // Captions and animations consume the actual spoken narration text.
+        // Storing the editor text here made transformed lessons discard exact
+        // Whisper timings and silently fall back to estimated word positions.
+        text: exactAlignmentText,
         profile: exactProfile,
         totalDurationMs: exactProfile.totalDurationMs,
         exactWordTimestamps: true
