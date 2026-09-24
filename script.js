@@ -4196,6 +4196,7 @@ function createExportCanvasStream(captureRate, options = {}) {
 
 function requestExportVideoFrame() {
   try {
+    drawFinalSynchronizedKaraokeOverlay();
     const videoTrack = state.exportVideoTrack;
     if (state.exportCapture.usesManualFrameRequests && videoTrack && typeof videoTrack.requestFrame === "function") {
       videoTrack.requestFrame();
@@ -17826,9 +17827,7 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
   // picture scenes are not registered as ordinary page images, so conditioning
   // this on getStageHasVisibleImagesForPage() made their export fall back to
   // tiny one-word fragments.
-  const narrationActive = state.speaking
-    || state.exportingVideo
-    || state.exportVideoTrack?.readyState === "live";
+  const narrationActive = state.speaking;
   if (!narrationActive) return false;
   const caption = getCurrentLessonSentenceCaption(options.elapsedMs, options);
   if (!caption?.text) return false;
@@ -17887,6 +17886,27 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
   });
   ctx.restore();
   return true;
+}
+
+// Final canvas compositor. Specialized scenes can return early from drawScene,
+// but every recorded frame passes through a frame-request helper. Rendering the
+// karaoke layer here prevents subtraction/counting/PDF scenes from bypassing it.
+function drawFinalSynchronizedKaraokeOverlay() {
+  if (!state.speaking || state.titleIntroActive || state.introPlayback?.active || state.introPoster?.active) return false;
+  if (isPdfPresentationMode()) {
+    return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
+      text: getPdfPresentationText(),
+      elapsedMs: state.pdf.currentTimeMs,
+      durationMs: state.pdf.narration?.durationMs || state.pdf.totalDurationMs,
+      syncProfileData: state.pdf.narration?.syncProfile || null
+    });
+  }
+  return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
+    text: state.text,
+    elapsedMs: state.exportingVideo ? state.exportCapture?.elapsedMs : getPlaybackElapsedMs(),
+    durationMs: state.narration?.durationMs,
+    syncProfileData: state.narration?.syncProfile || null
+  });
 }
 
 function drawSceneVfx() {
@@ -20788,6 +20808,7 @@ function drawPdfAutoExampleImages(pageIndex = state.previewPageIndex, autoImages
 }
 
 function requestCanvasExportFrame() {
+  drawFinalSynchronizedKaraokeOverlay();
   if (state.exportCapture.usesManualFrameRequests && state.exportVideoTrack?.readyState === "live" && typeof state.exportVideoTrack.requestFrame === "function") {
     try {
       const minFrameIntervalMs = state.exportCapture.minFrameIntervalMs || 0;
