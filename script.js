@@ -17776,12 +17776,16 @@ function drawAnimatedTeachingSegment(segment, x, y, rowText, rowIndex, segmentIn
 
 // Image-led lessons use the lesson text as a real caption track. Keep the
 // complete current sentence visible and highlight only the spoken word.
-function getCurrentLessonSentenceCaption(elapsedMs = getPlaybackElapsedMs()) {
-  const text = String(state.text || "");
+function getCurrentLessonSentenceCaption(elapsedMs = getPlaybackElapsedMs(), options = {}) {
+  const text = String(options.text ?? state.text ?? "");
   if (!text.trim()) return null;
-  const durationMs = Math.max(1, Number(state.narration?.durationMs) || getDefaultNarrationDurationMs());
+  const narrationDurationMs = Number(options.durationMs ?? state.narration?.durationMs);
+  const durationMs = Math.max(1, narrationDurationMs || getDefaultNarrationDurationMs());
+  const suppliedSyncProfile = options.syncProfileData || null;
   const profile = getResolvedSpeechSyncProfile(text, durationMs, {
-    syncProfileData: state.narration?.syncProfile?.text === text ? state.narration.syncProfile : null
+    syncProfileData: suppliedSyncProfile?.text === text
+      ? suppliedSyncProfile
+      : (state.narration?.syncProfile?.text === text ? state.narration.syncProfile : null)
   });
   const units = Array.isArray(profile?.units) ? profile.units : [];
   if (!units.length) return null;
@@ -17817,7 +17821,7 @@ function getCurrentLessonSentenceCaption(elapsedMs = getPlaybackElapsedMs()) {
   return { text: sentence, activeWordIndex };
 }
 
-function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex) {
+function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, options = {}) {
   // Every narrated/exported lesson uses the same karaoke layer. Some generated
   // picture scenes are not registered as ordinary page images, so conditioning
   // this on getStageHasVisibleImagesForPage() made their export fall back to
@@ -17826,7 +17830,7 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex) {
     || state.exportingVideo
     || state.exportVideoTrack?.readyState === "live";
   if (!narrationActive) return false;
-  const caption = getCurrentLessonSentenceCaption();
+  const caption = getCurrentLessonSentenceCaption(options.elapsedMs, options);
   if (!caption?.text) return false;
 
   const maxWidth = canvas.width * .82;
@@ -20954,6 +20958,12 @@ function drawPdfContextScene() {
   }
 
   drawOptionalImages(currentPageIndex, totalPageCount);
+  drawCurrentLessonSentenceCaption(currentPageIndex, {
+    text: getPdfPresentationText(),
+    elapsedMs: state.pdf.currentTimeMs,
+    durationMs: state.pdf.narration?.durationMs || state.pdf.totalDurationMs,
+    syncProfileData: state.pdf.narration?.syncProfile || null
+  });
   requestCanvasExportFrame();
 }
 

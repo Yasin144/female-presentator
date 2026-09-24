@@ -11,6 +11,16 @@ test('image-led lessons render a stable full-sentence caption after their pictur
   assert.match(script, /drawOptionalImages\(currentPageIndex, totalPageCount\);\s*drawCurrentLessonSentenceCaption\(currentPageIndex\);/);
 });
 
+test('PDF contextual lessons use the PDF narration text and clock for karaoke', () => {
+  const start = script.indexOf('function drawPdfContextScene');
+  const end = script.indexOf('\nfunction ensurePdfPageRenderImageLoaded', start);
+  const renderer = script.slice(start, end);
+  assert.match(renderer, /drawCurrentLessonSentenceCaption\(currentPageIndex, \{/);
+  assert.match(renderer, /text: getPdfPresentationText\(\)/);
+  assert.match(renderer, /elapsedMs: state\.pdf\.currentTimeMs/);
+  assert.match(renderer, /syncProfileData: state\.pdf\.narration\?\.syncProfile/);
+});
+
 test('karaoke layer is not skipped by generated picture scenes without page-image metadata', () => {
   const start = script.indexOf('function drawCurrentLessonSentenceCaption');
   const end = script.indexOf('\nfunction drawSceneVfx', start);
