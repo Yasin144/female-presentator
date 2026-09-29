@@ -56,6 +56,14 @@ test('Caption Burner shows the complete group and highlights only the active wor
     assert.equal(visible(lines[4]), captions[0].text, style);
   }
 });
+test('white-yellow karaoke keeps inactive white text readable on pale video', () => {
+  const ass = buildAss(captions, settings, { width: 2560, height: 1440 });
+  assert.match(ass, /Style: Default,Arial,110,[^\n]*,\d+,\d+,1,/);
+  assert.match(ass, /Style: Default,Arial,110,[^\n]*&H00101820/);
+  assert.match(read('src/caption/CaptionBurner.tsx'), /-1px -1px 0 #17212b/);
+  assert.match(read('caption-script.js'), /styleType === 'white-yellow'[\s\S]*?Math\.max\(2, Math\.round\(fontSize \* 0\.09\)\)/);
+  assert.match(read('script.js'), /rgba\(12,18,24,\.96\)/);
+});
 
 test('held sung notes retain their complete recognized duration', () => {
   const ass = buildAss([{start:2,end:6,text:'Hello',words:[{text:'Hello',start:2,end:6}]}], settings, {width:1920,height:1080});

@@ -2592,8 +2592,10 @@ function bootCaptionStudio() {
 
         const globalColor = colorOverride || (colorPicker ? colorPicker.value : '#fde047');
         const strokeScale = strokeSlider ? parseInt(strokeSlider.value) / 100 : 0.8;
-        const baseStrokeWidth = styleType === 'white-yellow' ? 0 : Math.max(0, Math.floor(lineHeight * 0.15 * strokeScale));
-        const shouldStroke = baseStrokeWidth > 0 && styleType !== 'glitch' && styleType !== 'retro' && styleType !== 'white-yellow';
+        const baseStrokeWidth = styleType === 'white-yellow'
+            ? Math.max(2, Math.round(fontSize * 0.09))
+            : Math.max(0, Math.floor(lineHeight * 0.15 * strokeScale));
+        const shouldStroke = baseStrokeWidth > 0 && styleType !== 'glitch' && styleType !== 'retro';
 
         let currentY = -(lines.length * lineHeight) / 2 + lineHeight / 2;
         
@@ -2652,7 +2654,10 @@ function bootCaptionStudio() {
                         }
                     }
                     
-                    if (shouldStroke) ctx.strokeText(wds[w], cx + bw/2, yPos);
+                    if (shouldStroke) {
+                        ctx.strokeStyle = '#101820';
+                        ctx.strokeText(wds[w], cx + bw/2, yPos);
+                    }
                     ctx.fillText(wds[w], cx + bw/2, yPos);
                     
                     if (!isFocus || styleType === 'white-yellow') { ctx.globalAlpha = ogAlpha; ctx.fillStyle = ogFill; }
@@ -2672,7 +2677,7 @@ function bootCaptionStudio() {
             }
             ctx.scale(scale, scale);
             
-            ctx.lineWidth = styleType === 'white-yellow' ? 0 : baseStrokeWidth * 1.5; ctx.lineJoin = 'round';
+        ctx.lineWidth = baseStrokeWidth * 1.5; ctx.lineJoin = 'round';
             ctx.strokeStyle = '#000000'; ctx.fillStyle = (styleType === 'white-yellow') ? '#fde047' : globalColor; 
             
             for(let i = 0; i < lines.length; i++) {
@@ -3071,8 +3076,8 @@ function bootCaptionStudio() {
             shadow = 6;
             backColor = '&HFF000000&';
         } else if (styleType === 'white-yellow') {
-            outline = 0;
-            shadow = 0;
+            outline = Math.max(2, Math.round(fontSize * 0.055));
+            shadow = 1;
             backColor = '&HFF000000&';
         } else {
             outline = Math.max(2, outlineBase);
@@ -3080,10 +3085,14 @@ function bootCaptionStudio() {
             backColor = '&HFF000000&';
         }
 
-        // Keep captions clean and readable: never add the heavy black text edge
-        // that caused words to merge visually in narration exports.
-        outline = 0;
-        shadow = 0;
+        // White/yellow karaoke needs a dark edge to stay legible on bright footage.
+        if (styleType === 'white-yellow') {
+            outline = Math.max(2, Math.round(fontSize * 0.055));
+            shadow = 1;
+        } else {
+            outline = 0;
+            shadow = 0;
+        }
         return { activeColor, inactiveColor, baseTextColor, outlineColor, backColor, borderStyle, outline, shadow };
     }
 

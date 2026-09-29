@@ -17981,8 +17981,10 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
       const active = item.wordIndex === caption.activeWordIndex;
       // A light outline/shadow keeps white readable over pale lesson artwork,
       // while preserving the reference video's clean, background-free look.
-      ctx.strokeStyle = "rgba(38,38,38,.58)";
-      ctx.lineWidth = Math.max(2, Math.round(fontSize * .075));
+      // Keep white text legible over snow, pale illustrations, and white pages
+      // without placing a caption box over the image.
+      ctx.strokeStyle = "rgba(12,18,24,.96)";
+      ctx.lineWidth = Math.max(3, Math.round(fontSize * .12));
       ctx.strokeText(item.word, x, y);
       ctx.shadowColor = active ? "rgba(250,204,21,.42)" : "rgba(0,0,0,.32)";
       ctx.shadowBlur = active ? 7 : 4;

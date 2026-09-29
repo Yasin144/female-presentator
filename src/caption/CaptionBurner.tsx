@@ -1228,7 +1228,7 @@ export default function CaptionBurner({ onClose }: Props) {
                           borderRadius: S.style === 'pill' ? '9999px' : '10px',
                           background: S.style === 'pill' ? sc(S.bgColor) : 'transparent',
                           textShadow: S.style === 'white-yellow'
-                            ? 'none'
+                            ? '0 1px 2px rgba(0,0,0,0.8), -1px -1px 0 #17212b, 1px -1px 0 #17212b, -1px 1px 0 #17212b, 1px 1px 0 #17212b'
                             : S.style === 'outline'
                             ? '0 0 1px #000,-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000'
                             : S.style === 'minimal'
@@ -2140,9 +2140,11 @@ function CaptionLookPreview({
                 color: index === activeIndex ? (settings.style === 'white-yellow' ? '#facc15' : settings.highlightColor) : 'inherit',
                 transform: index === activeIndex ? 'scale(1.08)' : 'scale(1)',
                 transition: 'all 120ms ease',
-                textShadow: index === activeIndex && settings.style !== 'white-yellow'
-                  ? `0 0 14px ${settings.highlightColor}88`
-                  : textShadow,
+                textShadow: settings.style === 'white-yellow'
+                  ? '0 1px 2px rgba(0,0,0,0.8), -1px -1px 0 #17212b, 1px -1px 0 #17212b, -1px 1px 0 #17212b, 1px 1px 0 #17212b'
+                  : index === activeIndex
+                    ? `0 0 14px ${settings.highlightColor}88`
+                    : textShadow,
               }}
             >
               {word}

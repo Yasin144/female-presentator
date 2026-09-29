@@ -242,8 +242,8 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     shadow = 1; // small drop-shadow so text is readable on bright backgrounds
   } else if (s.style === 'white-yellow' || s.style === 'karaoke') {
     borderStyle = 1;
-    outline = 0;
-    shadow = 0;
+    outline = Math.max(2, Math.round(fs * 0.055));
+    shadow = 1;
   } else {
     // 'outline'
     borderStyle = 1;
@@ -264,7 +264,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
   }
 
   // Outline color: solid black for any style that renders an outline, transparent for pill (box style)
-  const outColor = outline > 0 ? '&H00000000' : '&HFF000000';
+  const outColor = outline > 0 ? '&H00101820' : '&HFF000000';
 
   const marginV = CAPTION_BOTTOM_OFFSET_PX;
   const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${playResX}\nPlayResY: ${playResY}\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fontName},${fs},${pri},${sec},${outColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${align},10,10,${marginV},${encoding}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
