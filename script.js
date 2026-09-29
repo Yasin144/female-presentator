@@ -227,6 +227,8 @@ const seekBackwardBtn = document.getElementById("seekBackwardBtn");
 const seekForwardBtn = document.getElementById("seekForwardBtn");
 const playbackSpeedSelect = document.getElementById("playbackSpeedSelect");
 const stagePlaybackSpeedSelect = document.getElementById("stagePlaybackSpeedSelect");
+const stagePreviewWithoutCaptionsBtn = document.getElementById("stagePreviewWithoutCaptionsBtn");
+const stagePreviewWithCaptionsBtn = document.getElementById("stagePreviewWithCaptionsBtn");
 const stageToolbarGroups = Array.from(document.querySelectorAll(".stage-actions .stage-toolbar-group"));
 const statusText = document.getElementById("statusText");
 const imageInput = document.getElementById("imageInput");
@@ -1267,6 +1269,7 @@ const state = {
   speaking: false,
   mouthOpen: 0.12,
   lessonPlaybackRate: DEFAULT_STAGE_PLAYBACK_RATE,
+  previewCaptionsEnabled: false,
   animationFrame: null,
   exportVisualTimerId: 0,
   typingInterval: null,
@@ -17999,6 +18002,9 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
 // karaoke layer here prevents subtraction/counting/PDF scenes from bypassing it.
 function drawFinalSynchronizedKaraokeOverlay() {
   if ((!state.speaking && !state.exportingVideo) || state.titleIntroActive || state.introPlayback?.active || state.introPoster?.active) return false;
+  // The preview starts clean. Export keeps its existing caption behavior; this
+  // switch intentionally controls only what the teacher sees while previewing.
+  if (!state.exportingVideo && !state.previewCaptionsEnabled) return false;
   if (isPdfPresentationMode()) {
     return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
       text: getPdfPresentationText(),
@@ -18029,6 +18035,24 @@ function drawFinalSynchronizedKaraokeOverlay() {
     syncProfileData: exactSyncProfile
       || (state.narration?.syncProfile?.text === narrationText ? state.narration.syncProfile : null)
   });
+}
+
+function setStagePreviewCaptionMode(enabled = false) {
+  state.previewCaptionsEnabled = Boolean(enabled);
+  if (stagePreviewWithoutCaptionsBtn) {
+    stagePreviewWithoutCaptionsBtn.classList.toggle("is-active", !state.previewCaptionsEnabled);
+    stagePreviewWithoutCaptionsBtn.classList.toggle("primary-btn", !state.previewCaptionsEnabled);
+    stagePreviewWithoutCaptionsBtn.classList.toggle("ghost-btn", state.previewCaptionsEnabled);
+    stagePreviewWithoutCaptionsBtn.setAttribute("aria-pressed", String(!state.previewCaptionsEnabled));
+  }
+  if (stagePreviewWithCaptionsBtn) {
+    stagePreviewWithCaptionsBtn.classList.toggle("is-active", state.previewCaptionsEnabled);
+    stagePreviewWithCaptionsBtn.classList.toggle("primary-btn", state.previewCaptionsEnabled);
+    stagePreviewWithCaptionsBtn.classList.toggle("ghost-btn", !state.previewCaptionsEnabled);
+    stagePreviewWithCaptionsBtn.setAttribute("aria-pressed", String(state.previewCaptionsEnabled));
+  }
+  markSceneDirty();
+  if (stagePanel && !stagePanel.classList.contains("hidden")) drawScene(state.mouthOpen);
 }
 
 function drawSceneVfx() {
@@ -32400,6 +32424,13 @@ if (stagePlaybackSpeedSelect) {
     handleStagePlaybackRateChange(event.target.value);
   });
 }
+if (stagePreviewWithoutCaptionsBtn) {
+  stagePreviewWithoutCaptionsBtn.addEventListener("click", () => setStagePreviewCaptionMode(false));
+}
+if (stagePreviewWithCaptionsBtn) {
+  stagePreviewWithCaptionsBtn.addEventListener("click", () => setStagePreviewCaptionMode(true));
+}
+setStagePreviewCaptionMode(false);
 stopStageBtn.addEventListener("click", () => {
   if (isPdfPresentationMode()) invalidatePdfPresentationRequest();
   stopPlayback();

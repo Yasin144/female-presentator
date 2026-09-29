@@ -1248,17 +1248,13 @@ export default function CaptionBurner({ onClose }: Props) {
                                 && (!next || t < next.start);
                             });
                           }
-                          // Reveal only the current phrase as it is narrated.
-                          // Completed words remain highlighted so short words do
-                          // not lose their karaoke state between video frames.
                           if (activeIndex < 0) return null;
                           const safeIndex = activeIndex;
-                          const groupStart = spokenPhraseStart(allWords.map(w => w.text), safeIndex, S.maxWordsPerCaption);
-                          // Match exported captions: reveal the current phrase
-                          // progressively and never preview words from the future.
-                          const wordsToShow = allWords.slice(groupStart, Math.max(groupStart + 1, safeIndex + 1));
+                          // Show the complete caption group immediately. Timing
+                          // changes only the one word highlighted as it is spoken.
+                          const wordsToShow = allWords;
                           return wordsToShow.map((w, i) => {
-                            const lit = S.style === 'white-yellow' && i === safeIndex - groupStart;
+                            const lit = S.style === 'white-yellow' && i === safeIndex;
                             return (
                               <span
                                 key={i}

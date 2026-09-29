@@ -320,12 +320,11 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
           // whole short sentences) appear to have no karaoke highlight at 25fps.
           const visibleUntil = nextWord?.start ?? c.end;
           const lineEnd = Math.max(word.start + 0.08, Math.min(visibleUntil, c.end));
-          // No upcoming words: only the already-spoken prefix is visible.
-          const phraseStart = spokenPhraseStart(validWords.map(w => w.text), activeIndex);
-          const revealedWords = validWords.slice(phraseStart, activeIndex + 1);
-          const posPrefix = posPrefixFor(revealedWords);
-          let tokenCursor = phraseStart;
-          const styledText = wrapWordsForAss(revealedWords).map(line => (
+          // The full caption group is visible from its first spoken word; only
+          // the current word changes to the highlight colour.
+          const posPrefix = posPrefixFor(validWords);
+          let tokenCursor = 0;
+          const styledText = wrapWordsForAss(validWords).map(line => (
             line.map((token) => {
               // Every other word remains white; only the spoken word is yellow.
               const color = tokenCursor === activeIndex ? pri : sec;
@@ -340,17 +339,15 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
         });
       return activeLines;
     }
-    // Standard styles use the same progressive reveal rule. At "I" show I;
-    // at "am" show I am; at "Ali" show I am Ali—never future words.
+    // Standard styles also keep the complete caption group stable.
     return words.flatMap((word, activeIndex) => {
       const nextWord = words[activeIndex + 1];
       const lineEnd = Math.max(word.start + 0.08,
         Math.min(nextWord?.start ?? c.end, c.end));
-      const revealedWords = words.slice(spokenPhraseStart(words.map(w => w.text), activeIndex), activeIndex + 1);
-      const text = wrapWordsForAss(revealedWords)
+      const text = wrapWordsForAss(words)
         .map(line => shapeCaptionText(line.map(token => token.text).join(' '), s))
         .join('\\N');
-      return [`Dialogue: 0,${toAss(word.start)},${toAss(lineEnd)},Default,,0,0,0,,${posPrefixFor(revealedWords)}${text}`];
+      return [`Dialogue: 0,${toAss(word.start)},${toAss(lineEnd)},Default,,0,0,0,,${posPrefixFor(words)}${text}`];
     });
   });
   return [header,...lines].join('\n');

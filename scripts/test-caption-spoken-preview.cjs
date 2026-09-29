@@ -48,13 +48,12 @@ test('local captions default to bottom and export without repeated confirmation'
   assert.match(preview, /if \(!generatedCaptions.length\) return false;/);
 });
 
-test('Caption Burner exported karaoke and plain styles never preload future words', () => {
+test('Caption Burner shows the complete group and highlights only the active word', () => {
   for (const style of ['white-yellow', 'karaoke', 'minimal', 'pill', 'outline']) {
     const lines = dialogues(buildAss(captions, { ...settings, style }, { width: 2560, height: 1440 }));
-    assert.equal(visible(lines[0]), 'I', style);
-    assert.equal(visible(lines[3]), 'I for ice cream', style);
-    assert.doesNotMatch(visible(lines[3]), /jug|\bJ\b/);
-    assert.equal(visible(lines[4]), 'J', 'New alphabet object clears the previous object phrase');
+    assert.equal(visible(lines[0]), captions[0].text, style);
+    assert.equal(visible(lines[3]), captions[0].text, style);
+    assert.equal(visible(lines[4]), captions[0].text, style);
   }
 });
 
@@ -66,7 +65,7 @@ test('Caption Burner does not insert a dominant lesson letter or change recogniz
   const tokens = ['B', 'for', 'ball', 'B', 'for', 'book', 'Info', 'Kits'];
   const ws = tokens.map((text, i) => ({ text, start: i, end: i + .8 }));
   const output = dialogues(buildAss([{ text: tokens.join(' '), start: 0, end: 7.8, words: ws }], settings, { width: 2560, height: 1440 }));
-  assert.equal(visible(output.at(-1)), 'B for book Info Kits');
+  assert.equal(visible(output.at(-1)), 'B for ball B for book Info Kits');
 });
 test('selected output size survives portrait and landscape export without hidden rescaling', () => {
   for (const [width, height] of [[2560, 1440], [1080, 1920], [360, 640]]) {
@@ -75,12 +74,12 @@ test('selected output size survives portrait and landscape export without hidden
     assert.match(ass, new RegExp('pos\\(' + width / 2 + ',' + (height - 80) + '\\)'));
   }
 });
-test('AI Captioning Local preview uses only spoken prefix, including short groups and pauses', () => {
+test('AI Captioning Local preview keeps the complete caption group visible', () => {
   const get = vm.runInNewContext(fn('spokenPhraseStart') + '\n(' + fn('getVisibleCaptionText') + ')', { CAPTION_WORD_LIMIT: 8 });
-  assert.equal(get('I for ice cream J for jug', 0), 'I');
-  assert.equal(get('I for ice cream J for jug', 3), 'I for ice cream');
+  assert.equal(get('I for ice cream J for jug', 0), 'I for ice cream J for jug');
+  assert.equal(get('I for ice cream J for jug', 3), 'I for ice cream J for jug');
   assert.equal(get('I for ice cream', -1), '');
-  assert.equal(get('one two three four five six seven eight nine ten', 8), 'nine');
+  assert.equal(get('one two three four five six seven eight nine ten', 8), 'one two three four five six seven eight');
 });
 function localAss(karaoke) {
   const context = { CAPTION_WORD_LIMIT: 8, CAPTION_BOTTOM_OFFSET_PX: 80,
@@ -94,15 +93,25 @@ function localAss(karaoke) {
   const code = ['spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'].map(fn).join('\n');
   return vm.runInNewContext(code + '\nbuildPreviewMatchedAss()', context);
 }
-test('AI Captioning Local export matches spoken-only preview with karaoke on and off', () => {
+test('AI Captioning Local export keeps the complete group with karaoke on and off', () => {
   for (const karaoke of [true, false]) {
     const ass = localAss(karaoke), lines = dialogues(ass);
     assert.match(ass, /Style: Preview,Arial,110,/);
     assert.match(ass, /\\an5\\pos\(1280,720\)/);
-    assert.equal(visible(lines[0]), 'I');
-    assert.equal(visible(lines[3]), 'I for ice cream');
-    assert.equal(visible(lines[4]), 'J');
+    assert.equal(visible(lines[0]), captions[0].text);
+    assert.equal(visible(lines[3]), captions[0].text);
+    assert.equal(visible(lines[4]), captions[0].text);
   }
+});
+
+test('Voice Presenter preview defaults to no captions and offers both modes', () => {
+  const panel = read('src/components/StagePanel.jsx');
+  const presenter = read('script.js');
+  assert.match(panel, /id="stagePreviewWithoutCaptionsBtn"[\s\S]*aria-pressed="true"/);
+  assert.match(panel, /id="stagePreviewWithCaptionsBtn"[\s\S]*aria-pressed="false"/);
+  assert.match(presenter, /previewCaptionsEnabled: false/);
+  assert.match(presenter, /if \(!state\.exportingVideo && !state\.previewCaptionsEnabled\) return false;/);
+  assert.match(presenter, /setStagePreviewCaptionMode\(false\);/);
 });
 test('normalization preserves transcription instead of auto-fixing names, brands or lesson wording', () => {
   const input = 'I am Oli. Info Kits. The video for a moment.';

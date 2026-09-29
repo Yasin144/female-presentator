@@ -2543,9 +2543,7 @@ function bootCaptionStudio() {
         function getVisibleCaptionText(fullText, activeWordIndex, maxWords = CAPTION_WORD_LIMIT) {
             const words = String(fullText || '').trim().split(/\s+/).filter(Boolean);
             if (!Number.isInteger(activeWordIndex) || activeWordIndex < 0) return '';
-            const safeIndex = Math.min(activeWordIndex, words.length - 1);
-            const groupStart = spokenPhraseStart(words, safeIndex, maxWords);
-            return words.slice(groupStart, safeIndex + 1).join(' ');
+            return words.slice(0, Math.max(1, Math.min(words.length, maxWords))).join(' ');
         }
 
         function getWrappedCaptionLines(ctx, text, maxWidth) {
@@ -2664,7 +2662,7 @@ function bootCaptionStudio() {
             }
         };
 
-        let wordCursor = activeWordIndex >= 0 ? spokenPhraseStart(fullText.trim().split(/\s+/), activeWordIndex, CAPTION_WORD_LIMIT) : 0;
+        let wordCursor = 0;
 
         if (styleType === 'tiktok' || styleType === 'white-yellow') {
             let scale = 1.0;
@@ -3188,7 +3186,8 @@ function bootCaptionStudio() {
                 if (!group.tokens.length) return;
                 const y = assBottomY(group.tokens);
                 const wrappedTokenLines = wrapTokensForAss(group.tokens);
-                // Reveal only words whose narration has started, in every style.
+                // Keep the complete caption group visible and change only the
+                // currently spoken word to the active colour.
                 group.words.forEach((word, activeIndex) => {
                     const nextWord = group.words[activeIndex + 1];
                     const start = Number.isFinite(word?.start) ? word.start : group.start;
@@ -3196,10 +3195,8 @@ function bootCaptionStudio() {
                         Number.isFinite(nextWord?.start) ? nextWord.start : group.end,
                         group.end,
                     ));
-                    const phraseStart = spokenPhraseStart(group.tokens, activeIndex, CAPTION_WORD_LIMIT);
-                    const revealedTokens = group.tokens.slice(phraseStart, activeIndex + 1);
-                    let revealedCursor = phraseStart;
-                    const revealedText = wrapTokensForAss(revealedTokens)
+                    let revealedCursor = 0;
+                    const revealedText = wrapTokensForAss(group.tokens)
                         .map(line => line.map(token => {
                             const color = !isKaraoke ? baseTextColor : revealedCursor === activeIndex ? activeColor : inactiveColor;
                             revealedCursor += 1;

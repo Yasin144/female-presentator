@@ -4870,6 +4870,24 @@ kbd {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+.stage-caption-preview-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.stage-caption-preview-mode .style-label {
+  margin-right: 3px;
+}
+
+.stage-caption-mode-btn {
+  min-height: 32px;
+  padding: 6px 11px;
+  font-size: 0.68rem;
+}
 .pdf-reading-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

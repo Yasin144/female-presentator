@@ -182,6 +182,13 @@ function StagePanel() {
               </label>
               <p className="stage-speed-copy">Changes narration speed while keeping the voice pitch natural.</p>
             </div>
+            <div className="stage-caption-preview-mode" role="group" aria-label="Preview captions">
+              <span className="style-label">Preview captions</span>
+              <button id="stagePreviewWithoutCaptionsBtn" className="primary-btn stage-caption-mode-btn is-active" type="button"
+                aria-pressed="true">Without captions</button>
+              <button id="stagePreviewWithCaptionsBtn" className="ghost-btn stage-caption-mode-btn" type="button"
+                aria-pressed="false">With captions</button>
+            </div>
             <div className="stage-media-tools" aria-label="Stage media tools">
               <button id="stageImageCutoutBtn" className="ghost-btn stage-icon-btn" type="button" disabled
                 aria-label="Remove image background" title="Remove image background"><span
