@@ -163,14 +163,12 @@ test('Local captions run with SC3 active or unreachable and never contact other 
   }
 });
 
-test('low memory reports caption resources without checking or stopping SC3', async () => {
+test('low available memory does not block Local captions or touch SC3', async () => {
   const f = fixture({ freeBytes: GiB, voiceActive: true, progressFails: true });
   const result = await f.run();
-  assert.equal(result.ok, false);
-  assert.equal(result.code, 'CAPTION_RESOURCE_BUSY');
-  assert.match(result.error, /free memory.*Local captions/);
-  assert.doesNotMatch(result.error, /SC3/);
-  assert.equal(whisperRuns(f.calls).length, 0);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.words, recognized.words);
+  assert.equal(whisperRuns(f.calls).length, 1);
   assert.equal(f.calls.fetch.length, 0);
   assert.equal(f.calls.pause.length, 0);
   assert.equal(f.calls.resumes, 0);

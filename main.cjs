@@ -4548,13 +4548,11 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
     }
 
-    // Captioning checks its own resources without querying or pausing SC3.
-    const availableMemory = os.freemem();
-    if (!Number.isFinite(availableMemory) || availableMemory < 3 * 1024 ** 3) {
-      const error = new Error('Not enough free memory for Local captions. Free at least 3 GB of RAM, or select the Groq engine.');
-      error.code = 'CAPTION_RESOURCE_BUSY';
-      throw error;
-    }
+    // Do not pre-emptively reject Local captions based on a free-RAM number.
+    // Windows' available-memory figure is conservative and the Whisper runtime
+    // can still run by using memory it manages itself. More importantly, this
+    // job must stay independent of SC3: let the actual local worker report a
+    // real allocation or transcription failure instead of blocking up front.
     reportTranscriptionProgress(3);
 
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
