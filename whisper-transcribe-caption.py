@@ -178,7 +178,7 @@ def audio_duration_seconds(audio_path: str) -> float:
         return 0.0
 
 
-def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 2.0):
+def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 1.0):
     """Return substantial timeline holes which may contain skipped narration."""
     ordered = sorted(
         (w for w in words if isinstance(w, dict)),
@@ -236,8 +236,8 @@ def caption_segments_from_words(words):
     return segments
 
 
-def filter_recovery_speech(audio_path, words):
-    """Use VAD as a verification mask only; never concatenate or shift audio."""
+def caption_speech_ranges(audio_path):
+    """Locate speech without changing the source audio or its timestamps."""
     if audio_path not in _speech_activity_cache:
         from faster_whisper.audio import decode_audio
         from faster_whisper.vad import get_speech_timestamps, VadOptions
@@ -245,7 +245,19 @@ def filter_recovery_speech(audio_path, words):
         chunks = get_speech_timestamps(audio, VadOptions(threshold=0.35,
             min_speech_duration_ms=60, min_silence_duration_ms=200, speech_pad_ms=100))
         _speech_activity_cache[audio_path] = [(chunk["start"] / 16000, chunk["end"] / 16000) for chunk in chunks]
-    ranges = _speech_activity_cache[audio_path]
+    return _speech_activity_cache[audio_path]
+
+
+def caption_range_has_speech(audio_path, start, end):
+    """Avoid repeatedly decoding plain pauses, including short phrase gaps."""
+    overlap = sum(max(0, min(end, right) - max(start, left))
+                  for left, right in caption_speech_ranges(audio_path))
+    return overlap >= min(0.12, (end - start) * 0.25)
+
+
+def filter_recovery_speech(audio_path, words):
+    """Use VAD as a verification mask only; never concatenate or shift audio."""
+    ranges = caption_speech_ranges(audio_path)
     accepted = []
     for word in words:
         if not valid_caption_word_timeline([word]):
@@ -260,6 +272,187 @@ def filter_recovery_speech(audio_path, words):
         if overlap >= required:
             accepted.append(word)
     return accepted
+
+
+def caption_word_match_key(value):
+    """Match explicitly equivalent spellings without merging different words."""
+    token = re.sub(r"\W+", "", str(value).casefold())
+    # These spellings represent the same spoken English words. Restrict
+    # equivalence to complete tokens; never fuzzy-match names or short words.
+    return {"colour": "color", "colours": "colors", "coloured": "colored",
+            "colouring": "coloring", "colourful": "colorful"}.get(token, token)
+
+
+def caption_word_passes_agree(first, second):
+    """Require complete word-by-word agreement, including repeated words."""
+    return bool(first) and len(first) == len(second) and all(
+        caption_word_match_key(a["word"]) == caption_word_match_key(b["word"])
+        and abs(float(a["start"]) - float(b["start"])) <= 0.25
+        and abs(float(a["end"]) - float(b["end"])) <= 0.25
+        for a, b in zip(first, second))
+
+
+def suspicious_caption_audio_ranges(words, duration):
+    """Find omitted speech concealed by broad or collapsed decoded intervals."""
+    suspicious = set()
+    for index, word in enumerate(words):
+        start, end = float(word["start"]), float(word["end"])
+        if not math.isfinite(start) or not math.isfinite(end):
+            continue  # The final strict timing check will reject unbounded data.
+        token_length = len(re.sub(r"\W+", "", str(word.get("word", ""))))
+        if end - start >= 2.0 or (end - start >= 1.5 and token_length <= 5) or end <= start:
+            suspicious.add(index)
+        if index and start < float(words[index - 1]["end"]):
+            suspicious.update((index - 1, index))
+        if index >= 2:
+            collapsed = words[index - 2:index + 1]
+            if (all(0 < float(w["end"]) - float(w["start"]) <= 0.04 for w in collapsed)
+                    and end - float(collapsed[0]["start"]) <= 0.25):
+                suspicious.update(range(index - 2, index + 1))
+    ranges = []
+    for index in sorted(suspicious):
+        word = words[index]
+        if not math.isfinite(float(word["start"])) or not math.isfinite(float(word["end"])):
+            continue
+        left = max(0.0, min(float(word["start"]), float(word["end"])) - 6.0)
+        right = min(duration, max(float(word["start"]), float(word["end"])) + 4.0)
+        # Keep outside words intact: expand a boundary that intersects a word
+        # instead of clipping its spoken interval or estimating a replacement.
+        while True:
+            previous_bounds = (left, right)
+            for other in words:
+                start, end = float(other["start"]), float(other["end"])
+                if math.isfinite(start) and math.isfinite(end):
+                    if start < left < end:
+                        left = max(0.0, start)
+                    if start < right < end:
+                        right = min(duration, end)
+            if previous_bounds == (left, right):
+                break
+        affected = [i for i, other in enumerate(words)
+                    if float(other["end"]) > left and float(other["start"]) < right]
+        if affected:
+            first, last = affected[0], affected[-1]
+            context_left, context_right = left, right
+            # Give the decoder a whole phrase at each edge. An old word can
+            # be slightly early; cutting at its end could cut actual speech.
+            while first and float(words[first]["start"]) - float(words[first - 1]["end"]) < 0.3:
+                if context_left - float(words[first - 1]["start"]) > 4.0:
+                    break
+                first -= 1
+                left = min(left, float(words[first]["start"]))
+            while last + 1 < len(words) and float(words[last + 1]["start"]) - float(words[last]["end"]) < 0.3:
+                if float(words[last + 1]["end"]) - context_right > 4.0:
+                    break
+                last += 1
+                right = max(right, float(words[last]["end"]))
+            previous_end = float(words[first - 1]["end"]) if first else 0.0
+            next_start = float(words[last + 1]["start"]) if last + 1 < len(words) else duration
+            leading_pad = min(0.75, max(0.0, float(words[first]["start"]) - previous_end) / 2)
+            trailing_pad = min(0.75, max(0.0, next_start - float(words[last]["end"])) / 2)
+            left = max(0.0, min(left, float(words[first]["start"]) - leading_pad))
+            right = min(duration, max(right, float(words[last]["end"]) + trailing_pad))
+        if right > left:
+            if ranges and left <= ranges[-1][1] and right - ranges[-1][0] <= 24.0:
+                ranges[-1] = (ranges[-1][0], max(right, ranges[-1][1]))
+            else:
+                ranges.append((left, right))
+    return ranges
+
+
+def caption_preserves_word_sequence(original, candidate):
+    """Retain every original token in order; repeated tokens require repeats."""
+    tokens = [caption_word_match_key(w["word"]) for w in candidate]
+    cursor = 0
+    for word in original:
+        token = caption_word_match_key(word["word"])
+        if not token:
+            continue
+        while cursor < len(tokens) and tokens[cursor] != token:
+            cursor += 1
+        if cursor >= len(tokens):
+            return False
+        cursor += 1
+    return True
+
+
+def caption_restore_original_orthography(original, candidate):
+    """Keep the selected spelling when a matching audio read uses a variant."""
+    restored = [dict(word) for word in candidate]
+    cursor = 0
+    for word in original:
+        token = caption_word_match_key(word["word"])
+        if not token:
+            continue
+        while cursor < len(restored) and caption_word_match_key(restored[cursor]["word"]) != token:
+            cursor += 1
+        if cursor >= len(restored):
+            raise ValueError("Rechecked narration omitted an original word")
+        original_spelling = re.sub(r"\W+", "", str(word["word"]).casefold())
+        decoded_spelling = re.sub(r"\W+", "", str(restored[cursor]["word"]).casefold())
+        if original_spelling != decoded_spelling:
+            # Only the explicit orthographic equivalences above can reach
+            # this branch. Keep decoded punctuation and physical timestamps.
+            spelling = re.search(r"\w+", str(word["word"])).group(0)
+            restored[cursor]["word"] = re.sub(r"\w+", lambda _: spelling,
+                                                str(restored[cursor]["word"]), count=1)
+        cursor += 1
+    return restored
+
+
+def repair_covered_audio_speech(m, audio_path: str, lang: str, current):
+    """Recheck suspicious narration even when a stretched word hides the gap."""
+    if not auto_recovery or song_mode:
+        return current
+    text, detected, segs, words = current
+    duration = audio_duration_seconds(audio_path)
+    try:
+        ranges = suspicious_caption_audio_ranges(words, duration)
+    except (KeyError, TypeError, ValueError):
+        return current  # Preserve malformed input for the strict final check.
+    merged = list(words)
+    changed = False
+    for start, end in ranges:
+        warning = f"Local narration recheck on audio {start:.2f}–{end:.2f}s"
+        if end - start > 24.0:
+            recovery_warnings.append(warning + " was too broad. Existing captions were retained; review this section.")
+            continue
+        prefix = [w for w in merged if float(w["end"]) <= start and float(w["start"]) < start]
+        suffix = [w for w in merged if float(w["start"]) >= end]
+        original = [w for w in merged if w not in prefix and w not in suffix]
+        try:
+            if not caption_range_has_speech(audio_path, start, end):
+                continue
+            clip = f"{start:.3f},{end:.3f}"
+            first_text, _, _, first = run_whisper_with_model(
+                m, audio_path, lang, lenient=False, clip_timestamps=clip)
+            second_text, _, _, second = run_whisper_with_model(
+                m, audio_path, lang, lenient=True, clip_timestamps=clip)
+            normalize = lambda value: re.sub(r"\W+", "", str(value).casefold())
+            complete = all(normalize(decoded) == normalize(" ".join(w["word"] for w in candidates))
+                           for decoded, candidates in ((first_text, first), (second_text, second)))
+            valid = (complete and valid_caption_word_timeline(first, duration)
+                     and valid_caption_word_timeline(second, duration)
+                     and all(start <= float(w["start"]) < float(w["end"]) <= end for w in second)
+                     and caption_word_passes_agree(first, second)
+                     and caption_preserves_word_sequence(original, second)
+                     and len(filter_recovery_speech(audio_path, second)) == len(second)
+                     and not is_repetition_loop(second_text))
+            replacement = caption_restore_original_orthography(original, second) if valid else second
+            proposal = prefix + replacement + suffix
+            if not valid or not valid_caption_word_timeline(proposal, duration):
+                recovery_warnings.append(warning + " could not confirm complete words and timing. Existing captions were retained; review this section.")
+                continue
+        except Exception:
+            recovery_warnings.append(warning + " failed. Existing captions were retained; review this section.")
+            continue
+        if proposal != merged:
+            print(f"[Whisper] Narration recheck {start:.1f}s-{end:.1f}s: {len(original)} -> {len(second)} words.", flush=True)
+            merged = proposal
+            changed = True
+    if not changed:
+        return current
+    return clean(" ".join(w["word"] for w in merged)), detected, caption_segments_from_words(merged), merged
 
 
 def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current, only_gaps=None):
@@ -282,6 +475,8 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current, only_gap
             flush=True,
         )
         try:
+            if not caption_range_has_speech(audio_path, gap_start, gap_end):
+                continue
             gap_text, _, _, gap_words = run_whisper_with_model(
                 m, audio_path, lang, lenient=False,
                 clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
@@ -290,12 +485,20 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current, only_gap
                 m, audio_path, lang, lenient=True,
                 clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
             )
-            normalize = lambda value: re.sub(r"\W+", "", str(value).lower())
-            gap_words = filter_recovery_speech(audio_path, [word for word in gap_words if any(
-                normalize(word["word"]) == normalize(other["word"])
-                and abs(float(word["start"]) - float(other["start"])) <= 0.25
-                and abs(float(word["end"]) - float(other["end"])) <= 0.25
-                for other in confirmed_words)])
+            # Compare complete phrases within the hole, rather than accepting
+            # whichever individual words happen to match two different reads.
+            inside = lambda candidate: (gap_start <= float(candidate["start"])
+                                        < float(candidate["end"]) <= gap_end)
+            gap_words = [word for word in gap_words if inside(word)]
+            confirmed_words = [word for word in confirmed_words if inside(word)]
+            if not caption_word_passes_agree(gap_words, confirmed_words):
+                if gap_words or confirmed_words:
+                    recovery_warnings.append(f"Local recovery audio checks disagreed on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
+                continue
+            supported = filter_recovery_speech(audio_path, gap_words)
+            if len(supported) != len(gap_words):
+                recovery_warnings.append(f"Local recovery could not confirm all speech on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
+                continue
         except Exception:
             print("[Whisper] Gap recovery failed; retaining existing captions. Review this gap.", flush=True)
             recovery_warnings.append(f"Local recovery failed on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
@@ -590,6 +793,7 @@ try:
             text, lang, segs, words = retry_sparse_with_child_speech_mode(
                 m_small, norm_path, lang_hint, (text, lang, segs, words)
             )
+            text, lang, segs, words = repair_covered_audio_speech(m_small, norm_path, lang_hint, (text, lang, segs, words))
             text, lang, segs, words = verify_opening_speech(m_small, norm_path, lang_hint, (text, lang, segs, words))
             text, lang, segs, words = repair_remaining_audio_gaps(m_small, norm_path, lang_hint, (text, lang, segs, words))
     else:
@@ -602,6 +806,7 @@ try:
         text, lang, segs, words = retry_sparse_with_child_speech_mode(
             primary, norm_path, lang_hint, (text, lang, segs, words)
         )
+        text, lang, segs, words = repair_covered_audio_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
         text, lang, segs, words = verify_opening_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
         text, lang, segs, words = repair_remaining_audio_gaps(primary, norm_path, lang_hint, (text, lang, segs, words))
         

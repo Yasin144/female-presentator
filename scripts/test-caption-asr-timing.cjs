@@ -159,6 +159,20 @@ test('invalid ASR word timing never silently switches to supplied broad segments
   }
 });
 
+test('a partial timed transcript cannot silently discard recognized narration in single or queue generation', () => {
+  const result = { text: 'Hello. A short example sentence.',
+    words: [{ word: 'Hello.', start: 1, end: 1.4 }],
+    segments: [{ text: 'Hello.', start: 1, end: 1.4 }, { text: 'A short example sentence.', start: 2, end: 3 }] };
+  assert.throws(() => timingHarness().buildCaptionChunksFromTranscription(result, 5), error =>
+    error.captionTimingFailure === true && /missing sentences/.test(error.message));
+  assert.throws(() => timingHarness().buildCaptionChunksFromTranscription({ ...result, text: '' }, 5), error =>
+    error.captionTimingFailure === true);
+  const complete = { text: 'InfoKids, listen!', words: [{ word: 'Info', start: 1, end: 1.3 },
+    { word: 'Kids', start: 1.3, end: 1.5 }, { word: 'listen!', start: 1.6, end: 2 }] };
+  assert.equal(timingHarness().buildCaptionChunksFromTranscription(complete, 5).map(cue => cue.text).join(' '), 'Info Kids listen!');
+  assert.match(fn('transcribeActiveCaptionVideo'), /generatedCaptions = buildCaptionChunksFromTranscription\(ipc,/);
+});
+
 function timingDiagnostic() {
   return vm.runInNewContext('(' + fn('explainCaptionTimingFailure') + ')');
 }

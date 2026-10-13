@@ -4914,6 +4914,8 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
   if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
   const repaired = words.map(word => ({ ...word }));
   const textChanges = [];
+  let verificationRequests = 0;
+  const maximumVerificationRequests = 16;
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   const failure = (window, reason) => new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`);
   for (let index = 0; index < windows.length; index += 1) {
@@ -4925,11 +4927,17 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
     const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
       || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
     const expected = expectedIndices.map(wordIndex => words[wordIndex]);
-    let fresh, changedProposal, acceptedTextChange = false, rejectionReason = 'recognition disagreed';
+    const isolatedBroadOpening = expectedIndices.length === 1 && expectedIndices[0] === 0
+      && window.core.length === 1 && (window.wide || []).includes(0)
+      && words[0].start <= 0.05 && (!words[1] || words[1].start - words[0].end >= 0.35);
+    let fresh, changedProposal, broadOpeningProposal, confirmedBroadOpening = false;
+    let acceptedTextChange = false, rejectionReason = 'recognition disagreed';
     // A cropped recognition can disagree transiently. Retry once, retaining
     // every word and timing check rather than exporting unverified captions.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       throwIfCaptionTranscriptionCancelled(signal);
+      if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+      verificationRequests += 1;
       const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
       throwIfCaptionTranscriptionCancelled(signal);
       const decoded = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()).map(word => ({ ...word })) : [];
@@ -4977,6 +4985,17 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       if (String(json?.text || '').trim() && normalized(json.text) !== decodedText) valid = false;
       try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
       if (valid) { fresh = candidate; break; }
+      // An isolated opening label can retain its silent prefix even on two
+      // complete-prefix recognitions. Only unchanged, agreeing broad results
+      // may authorize an additional focused check of the label's tail audio.
+      const broadOpeningValid = isolatedBroadOpening && decodedValid && expectedText === decodedText
+        && candidate.length === 1 && candidate[0].end - candidate[0].start > 1.5
+        && (!String(json?.text || '').trim() || normalized(json.text) === decodedText);
+      if (broadOpeningValid) {
+        if (broadOpeningProposal && Math.abs(candidate[0].start - broadOpeningProposal.start) <= 0.25
+            && Math.abs(candidate[0].end - broadOpeningProposal.end) <= 0.25) confirmedBroadOpening = true;
+        broadOpeningProposal = { ...candidate[0] };
+      } else broadOpeningProposal = undefined;
       // Permit small spelling corrections only with stable surrounding words,
       // the same word count and two agreeing, independently valid audio passes.
       const changedCount = candidate.length === expected.length ? candidate.filter((word, wordIndex) =>
@@ -4997,6 +5016,44 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       rejectionReason = expectedText !== decodedText ? 'the second recognition returned different words'
         : !decodedValid ? 'the second recognition returned missing, overlapping or invalid timestamps'
         : 'word boundaries or wide timestamps remain uncertain';
+    }
+    if (!fresh && confirmedBroadOpening) {
+      const expectedText = normalized(expected[0].word);
+      let firstTail;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        throwIfCaptionTranscriptionCancelled(signal);
+        if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+        const tailStart = Math.max(0, words[0].end - 2 - attempt * 0.25);
+        const tailStartSample = Math.floor(tailStart * sampleRate);
+        const tailOffset = tailStartSample / sampleRate;
+        const tailLength = (endSample - tailStartSample) / sampleRate;
+        if (tailOffset <= offset || tailLength <= 0 || tailLength > length) break;
+        verificationRequests += 1;
+        const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(tailStartSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+        throwIfCaptionTranscriptionCancelled(signal);
+        const decoded = (Array.isArray(json?.words) ? json.words : [])
+          .filter(word => String(word?.word || word?.text || '').trim());
+        const decodedText = decoded.map(word => normalized(word.word || word.text)).join('');
+        let valid = decoded.length > 0 && decodedText === expectedText
+          && (!String(json?.text || '').trim() || normalized(json.text) === expectedText)
+          && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+            && word.start >= 0 && word.end <= tailLength);
+        try { assertGroqCaptionWordTimeline(decoded); } catch (_) { valid = false; }
+        // Leave audio context on both sides. A label whose timing touches the
+        // crop boundary cannot prove that its complete speech was retained.
+        const candidate = decoded.length ? { word: expected[0].word,
+          start: tailOffset + decoded[0].start, end: tailOffset + decoded.at(-1).end } : undefined;
+        valid = valid && candidate.end - candidate.start <= 1.5
+          && decoded[0].start >= 0.1 && decoded.at(-1).end <= tailLength - 0.1;
+        if (!valid) { rejectionReason = 'focused opening audio did not confirm complete words and narrow timing'; break; }
+        if (firstTail && Math.abs(candidate.start - firstTail.start) <= 0.25
+            && Math.abs(candidate.end - firstTail.end) <= 0.25) {
+          fresh = [{ ...candidate, start: candidate.start - offset, end: candidate.end - offset }];
+          break;
+        }
+        if (firstTail) { rejectionReason = 'focused opening audio passes returned different timing'; break; }
+        firstTail = candidate;
+      }
     }
     if (!fresh) throw failure(window, rejectionReason);
     for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {

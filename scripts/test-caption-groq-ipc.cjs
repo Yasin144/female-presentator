@@ -710,6 +710,95 @@ test('opening verification includes genuine early speech instead of imposing an 
   assert.equal(upload.length - 44, 7 * 32000, 'Opening check retains the complete audio prefix');
 });
 
+test('two unchanged broad opening rechecks permit two focused tail passes without changing caption words', async () => {
+  const original = { text: 'InfoKids Time to listen.', words: [
+    { word: 'InfoKids', start: 0, end: 6.26 }, { word: 'Time', start: 8.86, end: 9.16 },
+    { word: 'to', start: 9.16, end: 9.42 }, { word: 'listen.', start: 9.42, end: 10.48 },
+  ] };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  const first = { text: 'Info Kids', words: [
+    { word: 'Info', start: .54, end: 1.04 }, { word: 'Kids', start: 1.04, end: 1.92 },
+  ] };
+  const second = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .80, end: 2.18 }] };
+  const f = fixture({ duration: 61, responses: [original, broad, broad, first, second] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingVerification, 'short-audio');
+  assert.equal(f.calls.fetch.length, 5);
+  assert.equal(result.words[0].word, 'InfoKids');
+  assert.ok(Math.abs(result.words[0].start - 4.81) < .001);
+  assert.ok(Math.abs(result.words[0].end - 6.19) < .001);
+  assert.deepEqual(result.words.slice(1), original.words.slice(1));
+  assert.deepEqual(result.segments.map(segment => segment.text), ['InfoKids', 'Time to listen.']);
+  for (const [index, seconds] of [[1, 8.26], [2, 8.26], [3, 4], [4, 4.25]]) {
+    const upload = Buffer.from(await f.calls.fetch[index].init.body.get('file').arrayBuffer());
+    assert.equal(upload.length - 44, Math.round(seconds * 32000), 'Only the bounded opening audio is uploaded');
+  }
+});
+
+test('focused opening fallback requires agreeing complete-prefix recognition before any additional request', async () => {
+  const original = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 6.26 }] };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  for (const second of [
+    { text: 'Kids', words: [{ word: 'Kids', start: .02, end: 6.18 }] },
+    { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 5.8 }] },
+    { text: 'InfoKids extra', words: broad.words },
+  ]) {
+    const f = fixture({ duration: 10, responses: [original, broad, second] });
+    const result = plain(await f.invoke()); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(f.calls.fetch.length, 3);
+    assert.equal(result.words, undefined);
+  }
+});
+
+test('focused opening passes cannot delete words, accept crop-edge timing or invent a delayed caption', async () => {
+  const original = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 6.26 }] };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  const good = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .54, end: 1.92 }] };
+  for (const [first, second, expectedRequests] of [
+    [{ text: 'Kids', words: [{ word: 'Kids', start: .54, end: 1.92 }] }, good, 4],
+    [{ text: 'InfoKids extra', words: good.words }, good, 4],
+    [{ text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 1.4 }] }, good, 4],
+    [good, { text: 'InfoKids', words: [{ word: 'InfoKids', start: 1.3, end: 2.7 }] }, 5],
+    [good, { text: 'InfoKids', words: [{ word: 'InfoKids', start: .8, end: .8 }] }, 5],
+  ]) {
+    const f = fixture({ duration: 10, responses: [original, broad, broad, first, second] });
+    const result = plain(await f.invoke()); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(f.calls.fetch.length, expectedRequests);
+    assert.equal(result.words, undefined);
+    assert.equal(f.calls.progress.some(item => item.value === 100), false);
+  }
+});
+
+test('cancelling a focused opening check stops the additional request and preserves the shared job guard', async () => {
+  const original = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 6.26 }] };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  const f = fixture({ duration: 10, responses: [original, broad, broad], pendingRequestAt: 4 });
+  const pending = f.invoke(); await f.requested;
+  for (let attempt = 0; attempt < 5 && f.calls.fetch.length < 4; attempt += 1) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.calls.fetch.length, 4);
+  const busy = plain(await f.invoke()); assert.equal(busy.code, 'CAPTION_TRANSCRIPTION_BUSY');
+  await f.cancel(); const result = plain(await pending); f.assertReleased();
+  assert.equal(result.cancelled, true); assert.equal(f.calls.fetch[3].init.signal.aborted, true);
+  assert.equal(f.calls.fetch.length, 4);
+});
+
+test('focused opening retries retain the existing sixteen-request timing verification budget', async () => {
+  const words = [{ word: 'InfoKids', start: 0, end: 6.26 },
+    ...Array.from({ length: 7 }, (_, index) => ({ word: 'label' + index, start: 12 + index * 6, end: 14 + index * 6 }))];
+  const original = { text: words.map(word => word.word).join(' '), words };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  const responses = [original, broad, broad,
+    { text: 'InfoKids', words: [{ word: 'InfoKids', start: .54, end: 1.92 }] },
+    { text: 'InfoKids', words: [{ word: 'InfoKids', start: .79, end: 2.17 }] }];
+  for (let index = 0; index < 7; index += 1) responses.push(
+    { text: 'wrong', words: [{ word: 'wrong', start: .7, end: 1.1 }] },
+    { text: 'label' + index, words: [{ word: 'label' + index, start: .7, end: 1.1 }] });
+  const f = fixture({ duration: 60, responses });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /request limit/);
+  assert.equal(f.calls.fetch.length, 17, 'One initial recognition plus at most sixteen verification requests');
+});
+
 test('an unverified broad zero-start segment cannot return continuous opening captions', async () => {
   const original = { text: 'InfoKids', segments: [{ text: 'InfoKids', start: 0, end: 6.2 }], words: [] };
   const f = fixture({ duration: 8, response: original });

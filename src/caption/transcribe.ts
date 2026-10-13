@@ -103,6 +103,12 @@ function processLocalWhisperResult(result: any, language: Language, maxWords: nu
   const detectedLang = getLanguageName(detectedCode, language === 'Auto-Detect' ? 'Auto-Detect' : language);
   let captions: CaptionItem[] = [];
   if (Array.isArray(result?.words) && result.words.length > 0) {
+    const normalize = (text: string) => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    const recognizedText = normalize(result?.text) || normalize((Array.isArray(result?.segments) ? result.segments : []).map((segment: any) => segment?.text || '').join(' '));
+    const timedText = normalize(result.words.map((word: any) => word.word || word.text || '').join(' '));
+    if (recognizedText && recognizedText !== timedText) {
+      throw new Error('Some recognized narration has no word timestamps. Caption generation stopped to avoid exporting missing sentences.');
+    }
     const chunks = result.words.map((w: any) => ({
       text: normalizeNurseryCaptionText(String(w.word || w.text || '').trim()),
       timestamp: [Number(w.start ?? 0), Number(w.end ?? (Number(w.start ?? 0) + 0.3))] as [number, number],

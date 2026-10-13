@@ -2342,7 +2342,19 @@ function bootCaptionStudio() {
         const segments = Array.isArray(result && result.segments) ? result.segments : [];
         const chunks = [];
         if (words.length > 0) {
-            return buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
+            // A decoder can recognize a complete sentence but omit its word
+            // timestamps. A partial word list must never silently remove that
+            // sentence from the preview or an automatically exported queue.
+            const cues = buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
+            const normalize = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+            const timedText = normalize(cues.map(cue => cue.text).join(' '));
+            const recognizedText = normalize(result?.text) || normalize(segments.map(segment => segment?.text || '').join(' '));
+            if (recognizedText && recognizedText !== timedText) {
+                const error = new Error('Some recognized narration has no word timestamps. Caption generation stopped to avoid exporting missing sentences. Your previous captions are preserved.');
+                error.captionTimingFailure = true;
+                throw error;
+            }
+            return cues;
         } else if (segments.length > 0) {
             return segments.filter(s => s.text && String(s.text).trim()).map(s => ({
                 text: String(s.text).trim(),
@@ -2408,7 +2420,7 @@ function bootCaptionStudio() {
         if (words.length > 0) {
             // Real word timestamps plus pause/sentence-aware grouping prevent
             // future narration from appearing before it is spoken.
-            chunks = buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
+            chunks = buildCaptionChunksFromTranscription(payload, extractedAudio.duration);
         } else if (segments.length > 0) {
             // Fall back to segment-level timestamps
             chunks = segments
@@ -3119,19 +3131,7 @@ function bootCaptionStudio() {
                     }
 
                     // Real speech found
-                    const words    = Array.isArray(ipc.words)    ? ipc.words    : [];
-                    const segments = Array.isArray(ipc.segments) ? ipc.segments : [];
-                    if (words.length > 0) {
-                        generatedCaptions = buildSpeechBoundedCaptionChunks(words, CAPTION_WORD_LIMIT, segments);
-                    } else if (segments.length > 0) {
-                        generatedCaptions = segments.filter(s => s.text && s.text.trim()).map(s => ({
-                            text: s.text.trim(), timestamp: [s.start, s.end],
-                            words: s.text.trim().split(/\s+/).map((w,i,a) => ({ text: w, timestamp: [s.start+(i/a.length)*(s.end-s.start), s.start+((i+1)/a.length)*(s.end-s.start)] }))
-                        }));
-                    } else {
-                        const dur = sourceVideo.duration || 60;
-                        generatedCaptions = buildLinearCaptionChunks(ipc.text, dur, { narrationDurationSec: dur });
-                    }
+                    generatedCaptions = buildCaptionChunksFromTranscription(ipc, sourceVideo.duration || 60);
                     statusText.textContent = `${generatedCaptions.length} captions from video audio (${engineLabel})`;
                     await finaliseCaptions(); return;
                 }

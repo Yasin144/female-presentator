@@ -25,6 +25,18 @@ test('Gemini song selection reaches IPC, preserves repeated lyrics and estimated
   assert.equal(result.warnings[0], 'Review timing');
 });
 
+test('Caption Burner refuses partial word timing instead of dropping an example sentence', () => {
+  const context = { LANG_CODE: { English: 'en' }, CODE_TO_NAME: { en: 'English' } };
+  const processResult = vm.runInNewContext(stripTypeScriptTypes(source) + '\nprocessLocalWhisperResult', context);
+  const partial = { text: 'Hello. A short example sentence.', language: 'en',
+    words: [{ word: 'Hello.', start: 1, end: 1.4 }],
+    segments: [{ text: 'Hello.', start: 1, end: 1.4 }, { text: 'A short example sentence.', start: 2, end: 3 }] };
+  assert.throws(() => processResult(partial, 'English', 8), /missing sentences/);
+  assert.throws(() => processResult({ ...partial, text: '' }, 'English', 8), /missing sentences/);
+  const complete = { language: 'en', text: 'Hello.', words: partial.words, segments: partial.segments.slice(0, 1) };
+  assert.equal(processResult(complete, 'English', 8).captions[0].text, 'Hello.');
+});
+
 test('both legacy song modes select song filtering and the intended engine', () => {
   const helpers = legacy.slice(legacy.indexOf('function getCaptionTranscriptionOptions()'), legacy.indexOf('function spokenPhraseStart('));
   for (const [selected, mode, engine] of [['song-gemini','song','gemini'],['song','song','local'],['speech','speech','local']]) {

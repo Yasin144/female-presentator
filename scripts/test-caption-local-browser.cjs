@@ -1091,6 +1091,34 @@ async function main() {
   assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Opening audio timing needs review/);
   passed.push('Native timing failures retain reviewed captions and never launch a hidden weaker transcription engine');
 
+  await page.evaluate(() => {
+    window.__qaIncompleteNarration = 0;
+    window.electronAPI.transcribeVideo = async () => {
+      window.__qaIncompleteNarration++;
+      return { ok: true, language: 'en', text: 'Hello. A short example sentence.',
+        words: [{ word: 'Hello.', start: .5, end: 1 }],
+        segments: [{ text: 'Hello.', start: .5, end: 1 }, { text: 'A short example sentence.', start: 2, end: 3 }] };
+    };
+  });
+  await page.$eval('#captionActionBtn', element => element.click());
+  await page.waitForFunction(() => window.__qaIncompleteNarration === 1 && !window.captionLocalWorkbenchAPI.getState().disabled);
+  assert.deepEqual((await state()).captions, retained);
+  assert.equal(await page.evaluate(() => window.__qaLocalFallbackCalls), fallbackBefore);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /missing sentences/);
+  assert.equal(await page.evaluate(() => window.__qaExportCalls), 0);
+  passed.push('Partial narration word timing preserves reviewed captions and cannot silently remove an example sentence');
+
+  await page.$eval('#captionResetBtn', element => element.click());
+  await videoInput.uploadFile(fixture);
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().hasVideo && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.$eval('#captionQueueRunBtn', element => element.click());
+  await page.waitForFunction(() => window.__qaIncompleteNarration === 2 && !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionStatusText').textContent.includes('missing sentences'));
+  assert.equal(await page.evaluate(() => window.__qaExportCalls), 0);
+  assert.equal((await state()).captions.length, 0);
+  assert.match(await page.$eval('#captionQueueList', element => element.textContent), /missing sentences/);
+  passed.push('A queue cannot export only the timed fragment of an incomplete narration transcript');
+
   assert.deepEqual(errors, [], 'No page-level JavaScript errors');
   console.log(JSON.stringify({ passed: passed.length, checks: passed, screenshots, assFiles }, null, 2));
 }
