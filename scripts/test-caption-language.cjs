@@ -263,7 +263,7 @@ test('native ASS uses the same Indic font without changing original size scaling
       fontSelect: { value: 'Nunito, sans-serif' }, boldCheck: { checked: true }, heightSlider: { value: 100 }, karaokeCheck: { checked: true }, emojiCheck: { checked: false }, progressCheck: { checked: false },
       document: { createElement: () => ({ getContext: () => null }) }, getCaptionSyncOffsetSeconds: () => 0,
       generatedCaptions: [{ text, timestamp: [1.125, 6.5], words: [] }], getCaptionBottomSafety: () => 80 };
-    const names = ['getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd', 'spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'];
+    const names = ['fitCaptionBlock', 'getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd', 'spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'];
     const ass = vm.runInNewContext(names.map(fn).join('\n') + '\nbuildPreviewMatchedAss()', context);
     const style = ass.split('\n').find(line => line.startsWith('Style: Preview,')).split(',');
     assert.equal(style[1], text.startsWith('Welcome') ? 'Nunito Black' : 'Nirmala UI');

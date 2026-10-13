@@ -228,6 +228,42 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
 }
 
 // Canonical, copy-only boundary between the legacy page and its caption workbench.
+function applyCaptionSpellingCorrections(captions, rulesText) {
+    const normalize = text => String(text).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    const rules = String(rulesText || '').split('\n').map(line => line.split('=')).filter(parts => parts.length === 2)
+        .map(([from, to]) => ({ from: from.trim().split(/\s+/).map(normalize), to: to.trim() }))
+        .filter(rule => rule.from.every(Boolean) && rule.to && !/\s/.test(rule.to));
+    return captions.map(caption => {
+        let text = String(caption.text || '');
+        const sourceTokens = text.match(/\S+/g) || [];
+        const hasTimedWords = Array.isArray(caption.words) && caption.words.length > 0
+            && caption.words.length === sourceTokens.length && caption.words.every((word, index) =>
+                normalize(word?.text || '') === normalize(sourceTokens[index])
+                && Array.isArray(word?.timestamp) && word.timestamp.length === 2
+                && word.timestamp.every(Number.isFinite) && word.timestamp[1] > word.timestamp[0]);
+        let words = hasTimedWords ? caption.words.map(word => ({ ...word, timestamp: [...word.timestamp] })) : null;
+        for (const rule of rules) {
+            const tokens = Array.from(text.matchAll(/\S+/g));
+            for (let index = tokens.length - rule.from.length; index >= 0; index--) {
+                if (!rule.from.every((token, offset) => normalize(tokens[index + offset][0]) === token)) continue;
+                if (words && rule.from.length > 1 && words.slice(index, index + rule.from.length - 1).some((word, offset) =>
+                    words[index + offset + 1].timestamp[0] - word.timestamp[1] >= 0.3)) continue;
+                const first = tokens[index], last = tokens[index + rule.from.length - 1];
+                const prefix = first[0].match(/^[^\p{L}\p{M}\p{N}]+/u)?.[0] || '';
+                const suffix = last[0].match(/[^\p{L}\p{M}\p{N}]+$/u)?.[0] || '';
+                const replacementText = prefix + rule.to + suffix;
+                text = text.slice(0, first.index) + replacementText + text.slice(last.index + last[0].length);
+                if (words) {
+                    const replacement = { ...words[index], text: replacementText,
+                        timestamp: [words[index].timestamp[0], words[index + rule.from.length - 1].timestamp[1]] };
+                    words.splice(index, rule.from.length, replacement);
+                }
+            }
+        }
+        return { ...caption, text, ...(words ? { words } : Array.isArray(caption.words) && text !== caption.text ? { words: [] } : {}) };
+    });
+}
+
 function captionHasSpeechAtTime(caption, time) {
     const words = caption?.words;
     if (!Array.isArray(words) || !words.length) return true;
@@ -240,6 +276,15 @@ function captionHasSpeechAtTime(caption, time) {
         if (start - end >= 0.3 && time >= end && time < start) return false;
     }
     return true;
+}
+
+function fitCaptionBlock(height, fontSize, lineHeight, lineCount, positionY) {
+    const padding = Math.min(8, height * 0.025);
+    const originalHeight = fontSize + Math.max(0, lineCount - 1) * lineHeight;
+    const scale = Math.min(1, Math.max(1, height - padding * 2) / Math.max(1, originalHeight));
+    const halfHeight = originalHeight * scale / 2;
+    const y = Math.max(padding + halfHeight, Math.min(height - padding - halfHeight, height * positionY));
+    return { fontSize: fontSize * scale, lineHeight: lineHeight * scale, y, scale };
 }
 
 function captionLocalCanonicalCue(cue) {
@@ -399,6 +444,11 @@ function bootCaptionStudio() {
     const progressBlock = document.getElementById('captionProgress');
     const queuePanel = document.getElementById('captionQueuePanel');
     const queueList = document.getElementById('captionQueueList');
+    const spellingCorrections = document.getElementById('captionSpellingCorrections');
+    if (spellingCorrections) {
+        try { const saved = localStorage.getItem('caption-spelling-corrections'); if (saved !== null) spellingCorrections.value = saved; } catch (_) {}
+        spellingCorrections.addEventListener('input', () => { try { localStorage.setItem('caption-spelling-corrections', spellingCorrections.value); } catch (_) {} });
+    }
     const queueStatus = document.getElementById('captionQueueStatus');
     const queueRunBtn = document.getElementById('captionQueueRunBtn');
     const queueExportAllBtn = document.getElementById('captionQueueExportAllBtn');
@@ -762,7 +812,7 @@ function bootCaptionStudio() {
         const disabled = captionLocalBusy();
         if (disabled) clearCaptionPreviewLoop();
         const controls = [...Array.from(editorPanel?.querySelectorAll('button, input, select, textarea') || []),
-            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('captionAutoRecover'),
+            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('captionAutoRecover'), spellingCorrections,
             ...[styleSelect, sizeSlider, gapSlider, widthSlider, heightSlider, fontSelect, boldCheck, strokeSlider,
                 colorPicker, syncSlider, positionXControl, positionYControl, positionPresetControl,
                 emojiCheck, karaokeCheck, filterSelect, progressCheck, watermarkCheck,
@@ -1847,7 +1897,7 @@ function bootCaptionStudio() {
                             }
                             activeCaptionTranscription = null;
                             if (isSongCaptionMode() && !transcription.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
-                            const directCaptions = buildCaptionChunksFromTranscription(transcription, sourceVideo.duration || 60);
+                            const directCaptions = applyCaptionSpellingCorrections(buildCaptionChunksFromTranscription(transcription, sourceVideo.duration || 60), spellingCorrections?.value);
                             if (!directCaptions.length) {
                                 throw new Error('No recognizable speech or lyrics. Instrumental music and silent video may have no words to caption. Review the audio or select its spoken language.');
                             }
@@ -2805,6 +2855,7 @@ function bootCaptionStudio() {
         updateSingleProgress(1, 'Preparing captions', (activeFile && activeFile.name) || 'Current video');
 
         async function finaliseCaptions() {
+            generatedCaptions = applyCaptionSpellingCorrections(generatedCaptions, spellingCorrections?.value);
             if (!generatedCaptions.length) {
                 if (notificationRoute !== 'native') notifyFallback(captionTranscriptionCancelRequested ? 'cancelled' : 'failed', 'No speech was detected; no captions were generated.');
                 autoBurnRequested = false;
@@ -3084,11 +3135,10 @@ function bootCaptionStudio() {
                     statusText.textContent = `${generatedCaptions.length} captions from video audio (${engineLabel})`;
                     await finaliseCaptions(); return;
                 }
-                if (transcriptionOptions.engine !== 'local') {
-                    throw new Error(ipc?.error || `${engineLabel} could not generate captions. Check its API key and retry.`);
-                }
-                console.warn('[Caption] IPC failed:', ipc && ipc.error);
-                statusText.innerHTML = '\u26a0\ufe0f IPC failed \u2014 trying HTTP server...';
+                // The native route owns any same-engine recovery. Retrying via
+                // the old browser path can replace reviewed words with a weaker
+                // transcript and bypass timing validation or cancellation.
+                throw new Error(ipc?.error || `${engineLabel} could not generate captions. Review the error and retry.`);
             }
 
             // PATH 2: HTTP transcription server (port 8428)
@@ -3290,7 +3340,8 @@ function bootCaptionStudio() {
 
         function getCaptionWordEnd(words, index, captionEnd) {
             const word = words[index];
-            return Math.min(captionEnd, words[index + 1]?.start ?? captionEnd, word.end + SHORT_CAPTION_GAP_SECONDS);
+            const next = words[index + 1];
+            return Math.min(captionEnd, next && next.start - word.end < 0.3 ? next.start : word.end);
         }
 
         function getCaptionActiveWordIndex(caption, time) {
@@ -3701,9 +3752,10 @@ function bootCaptionStudio() {
             ctx.font = `${boldCheck && !boldCheck.checked ? 400 : 900} ${fontSize}px ${fontFamily}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             const visibleCaptionText = getVisibleCaptionText(currentChunk.text.trim(), activeWordIndex, CAPTION_WORD_LIMIT);
             const wrappedLines = getWrappedCaptionLines(ctx, visibleCaptionText, maxWidth);
-            const anchoredY = captionHeight * captionPosY;
+            const layout = fitCaptionBlock(captionHeight, fontSize, lineHeight, wrappedLines.length, captionPosY);
+            if (layout.scale < 1) ctx.font = `${boldCheck && !boldCheck.checked ? 400 : 900} ${layout.fontSize}px ${fontFamily}`;
             
-            drawWrappedText(ctx, currentChunk.text.trim(), captionWidth * captionPosX, anchoredY, maxWidth, lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, fontSize, currentChunk.colorOverride, isKaraoke);
+            drawWrappedText(ctx, currentChunk.text.trim(), captionWidth * captionPosX, layout.y, maxWidth, layout.lineHeight, adjustedTime - currentChunk.timestamp[0], styleSelect.value, activeWordIndex, targetEmoji, layout.fontSize, currentChunk.colorOverride, isKaraoke);
             ctx.restore();
           } else {
             let useMusic = bgMusicAudio && !bgMusicAudio.paused;
@@ -3955,6 +4007,9 @@ function bootCaptionStudio() {
             const emoji = useEmoji ? getEmojiForText(caption.text) : null;
             captionGroups.forEach(group => {
                 if (!group.tokens.length) return;
+                if (measureCtx) measureCtx.font = `${selectedBold ? 900 : 400} ${fontSize}px ${browserFont}`;
+                const layout = fitCaptionBlock(height, fontSize, lineHeight, wrapTokensForAss(group.tokens).length, captionPosY);
+                if (measureCtx && layout.scale < 1) measureCtx.font = `${selectedBold ? 900 : 400} ${layout.fontSize}px ${browserFont}`;
                 const wrappedTokenLines = wrapTokensForAss(group.tokens);
                 // Keep the complete caption group visible and change only the
                 // currently spoken word to the active colour.
@@ -3972,14 +4027,15 @@ function bootCaptionStudio() {
                             revealedCursor += 1;
                             return `{\\1c${color}${alpha}}${escapeAssCaptionText(token)}`;
                         }).join(' ');
-                        const y = height * captionPosY + (lineIndex - (wrappedTokenLines.length - 1) / 2) * lineHeight + assBaselineOffset;
-                        events.push(`Dialogue: 0,${toAssTimestamp(start)},${toAssTimestamp(end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})}${revealedText}`);
+                        const y = layout.y + (lineIndex - (wrappedTokenLines.length - 1) / 2) * layout.lineHeight + assBaselineOffset * layout.scale;
+                        const sizeOverride = layout.scale < 1 ? `\\fs${assFontSize * layout.scale}\\bord${outline * layout.scale}\\shad${shadow * layout.scale}` : '';
+                        events.push(`Dialogue: 0,${toAssTimestamp(start)},${toAssTimestamp(end)},Preview,,0,0,0,,{\\an${captionAnchor}\\pos(${x},${y})${sizeOverride}}${revealedText}`);
                     });
                     if (emoji) {
                         // Color emoji cannot be preserved as monochrome ASS glyphs.
-                        addCaptionEmojiOverlay(emojiOverlays, emoji, fontSize, {
-                            start, end, x, y: height * captionPosY,
-                            offsetY: -wrappedTokenLines.length * lineHeight / 2 - Math.max(30, fontSize),
+                        addCaptionEmojiOverlay(emojiOverlays, emoji, layout.fontSize, {
+                            start, end, x, y: layout.y,
+                            offsetY: -wrappedTokenLines.length * layout.lineHeight / 2 - Math.max(30, layout.fontSize),
                             bounceStart: Number(caption.timestamp[0]) + syncOffset,
                         });
                     }

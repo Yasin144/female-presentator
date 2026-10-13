@@ -33,6 +33,26 @@ test('export preserves the blank pause between caption groups', () => {
   assert.equal(cues[1].start, 2.3);
 });
 
+test('saved spelling corrections preserve cue bounds, punctuation and merged word timing', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fn('applyCaptionSpellingCorrections'), context);
+  const original = [{ text: 'Rhea likes Info Kids.', timestamp: [1, 3], words: [
+    { text: 'Rhea', timestamp: [1, 1.3] }, { text: 'likes', timestamp: [1.4, 1.7] },
+    { text: 'Info', timestamp: [2, 2.4] }, { text: 'Kids.', timestamp: [2.5, 3] },
+  ] }];
+  const result = plain(context.applyCaptionSpellingCorrections(original, 'Rhea = Ria\nInfo Kids = InfoKids'));
+  assert.equal(result[0].text, 'Ria likes InfoKids.');
+  assert.deepEqual(result[0].timestamp, [1, 3]);
+  assert.deepEqual(result[0].words.map(word => word.timestamp), [[1, 1.3], [1.4, 1.7], [2, 3]]);
+  assert.equal(original[0].text, 'Rhea likes Info Kids.');
+  assert.deepEqual(plain(context.applyCaptionSpellingCorrections(original, '')), original);
+  const paused = [{ text: 'Info Kids', timestamp: [1, 3], words: [
+    { text: 'Info', timestamp: [1, 1.4] }, { text: 'Kids', timestamp: [2, 3] },
+  ] }];
+  assert.deepEqual(plain(context.applyCaptionSpellingCorrections(paused, 'Info Kids = InfoKids')), paused,
+    'Spelling must not merge words across a phrase pause');
+});
+
 test('preview hides a saved group during a phrase pause without hiding short interword gaps', () => {
   const context = vm.createContext({});
   vm.runInContext(fn('captionHasSpeechAtTime'), context);
@@ -41,6 +61,21 @@ test('preview hides a saved group during a phrase pause without hiding short int
   ] };
   for (const time of [1.1, 1.25, 1.4, 2.1]) assert.equal(context.captionHasSpeechAtTime(cue, time), true);
   for (const time of [.9, 1.6, 1.9, 2.4]) assert.equal(context.captionHasSpeechAtTime(cue, time), false);
+});
+
+test('spelling corrections keep untimed and multiline captions visible without fabricating word timing', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fn('applyCaptionSpellingCorrections'), context);
+  const cues = [{ text: '(Rhea) helped.\nInfo Kids.', timestamp: [1, 4], words: [] },
+    { text: 'Keep this\nmanual caption', timestamp: [4, 6] }];
+  const corrected = plain(context.applyCaptionSpellingCorrections(cues, 'Rhea = Ria\nInfo Kids = InfoKids'));
+  assert.equal(corrected[0].text, '(Ria) helped.\nInfoKids.');
+  assert.deepEqual(corrected[0].words, []);
+  assert.deepEqual(corrected[0].timestamp, [1, 4]);
+  assert.deepEqual(corrected[1], cues[1]);
+  assert.deepEqual(plain(context.applyCaptionSpellingCorrections(cues, '')), cues);
+  const malformed = [{ text: 'Rhea spoke', timestamp: [0, 2], words: [{ text: 'Rhea' }, { text: 'spoke' }] }];
+  assert.equal(context.applyCaptionSpellingCorrections(malformed, 'Rhea = Ria')[0].text, 'Ria spoke');
 });
 
 test('both engine word lists leave short phrase pauses blank while retaining grouped words', () => {

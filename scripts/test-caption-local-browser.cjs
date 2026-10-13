@@ -554,17 +554,17 @@ async function main() {
     };
     window.electronAPI.transcribeVideo = async () => {
       window.__qaASRCalls += 1;
-      return { ok: false, code: 'CAPTION_RESOURCE_BUSY', error: 'SC3 is generating narration. Wait for narration to finish.' };
+      return { ok: false, code: 'CAPTION_RESOURCE_BUSY', error: 'Not enough free memory for Local captions. Free at least 3 GB of RAM, or select the Groq engine.' };
     };
     document.getElementById('captionActionBtn').click();
   });
   await page.waitForFunction(() => window.__qaASRCalls === 2 && !window.captionLocalWorkbenchAPI.getState().disabled);
-  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /SC3 is generating narration/);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Not enough free memory for Local captions/);
   assert.equal(await page.evaluate(() => window.__qaLocalFallbackCalls), 0, 'The resource guard must not launch HTTP or browser Whisper');
   assert.equal(await page.$eval('#captionSizeSlider', element => element.disabled), false);
   assert.deepEqual((await state()).captions, beforeResourceRefusal.captions);
   assert.equal(await page.evaluate(() => window.__qaNotifications), 0);
-  passed.push('SC3 resource refusal stops native, HTTP and browser fallback generation and unlocks editing');
+  passed.push('Caption memory refusal stops native, HTTP and browser fallback generation and unlocks editing');
 
   await page.evaluate(() => {
     window.electronAPI.transcribeVideo = async () => {
@@ -1068,6 +1068,28 @@ async function main() {
   'Clearing a video must retain the visible Source eraser and disable it until the next upload.');
   assert.equal(await page.$eval('#lcp-queue-heading', element => element.checkVisibility()), true);
   passed.push('Eraser stays visible while busy, re-enables after transcription/queue cancellation and remains available after clearing the video');
+
+  await videoInput.uploadFile(fixture);
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().hasVideo && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.select('#captionEngine', 'local');
+  await page.select('#captionLanguage', 'en');
+  await page.evaluate(() => {
+    const api = window.captionLocalWorkbenchAPI;
+    api.applyCaptions(api.getState().itemId, [{ start: .5, end: 1.7, text: 'Reviewed caption', words: [] }]);
+    window.__qaNativeFailures = 0;
+    window.electronAPI.transcribeVideo = async () => {
+      window.__qaNativeFailures++;
+      return { ok: false, code: 'CAPTION_TIMING_UNCERTAIN', error: 'Opening audio timing needs review.' };
+    };
+  });
+  const retained = (await state()).captions;
+  const fallbackBefore = await page.evaluate(() => window.__qaLocalFallbackCalls);
+  await page.$eval('#captionActionBtn', element => element.click());
+  await page.waitForFunction(() => window.__qaNativeFailures === 1 && !window.captionLocalWorkbenchAPI.getState().disabled);
+  assert.deepEqual((await state()).captions, retained);
+  assert.equal(await page.evaluate(() => window.__qaLocalFallbackCalls), fallbackBefore);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Opening audio timing needs review/);
+  passed.push('Native timing failures retain reviewed captions and never launch a hidden weaker transcription engine');
 
   assert.deepEqual(errors, [], 'No page-level JavaScript errors');
   console.log(JSON.stringify({ passed: passed.length, checks: passed, screenshots, assFiles }, null, 2));

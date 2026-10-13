@@ -21,14 +21,17 @@ WHISPER = ROOT / "whisper-transcribe-caption.py"
 QUEUE = threading.Semaphore(1)
 
 
-def transcribe(audio: bytes, language: str) -> dict:
+def transcribe(audio: bytes, language: str, *, source_name: str = "", transcription_hints: str = "",
+               auto_recover_missing_speech: bool = True, content_mode: str = "speech") -> dict:
     cache_dir = ROOT / "generated-media" / "transcription-inputs"
     cache_dir.mkdir(parents=True, exist_ok=True)
     source = cache_dir / f"transcribe-{int(time.time() * 1000)}.wav"
     source.write_bytes(audio)
     with QUEUE:
         completed = subprocess.run(
-            [sys.executable, str(WHISPER), str(source), language or "auto"],
+            [sys.executable, str(WHISPER), str(source), language or "auto", str(source_name)[:300],
+             "song" if content_mode == "song" else "speech", str(transcription_hints)[:1000],
+             "recover" if auto_recover_missing_speech else "no-recovery"],
             cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=900,
         )
@@ -83,7 +86,11 @@ class Handler(BaseHTTPRequestHandler):
             raw = base64.b64decode(payload.get("audioBase64", ""), validate=True)
             if not raw:
                 raise ValueError("No audio data received")
-            self.reply(200, transcribe(raw, str(payload.get("language", "auto"))))
+            self.reply(200, transcribe(raw, str(payload.get("language") or "auto"),
+                                      source_name=str(payload.get("sourceName") or ""),
+                                      transcription_hints=str(payload.get("transcriptionHints") or ""),
+                                      auto_recover_missing_speech=payload.get("autoRecoverMissingSpeech") is not False,
+                                      content_mode=str(payload.get("contentMode") or "speech")))
         except subprocess.TimeoutExpired:
             self.reply(504, {"error": "Whisper transcription timed out after 900 seconds"})
         except Exception as error:

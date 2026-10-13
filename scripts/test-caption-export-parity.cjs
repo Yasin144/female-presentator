@@ -14,7 +14,7 @@ const functions = new Map();
 traverse(parser.parse(script), { FunctionDeclaration(p) {
   functions.set(p.node.id.name, script.slice(p.node.start, p.node.end));
 } });
-const names = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+const names = ['fitCaptionBlock', 'captionHasSpeechAtTime', 'getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
   'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'drawWrappedText',
   'getCaptionEmojiBitmap', 'addCaptionEmojiOverlay', 'buildPreviewMatchedExport',
   'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp',
@@ -72,23 +72,34 @@ test('long speech gaps disappear at the same moment in preview and export', () =
     { text: 'Hello', timestamp: [0, .5] }, { text: 'world', timestamp: [3, 5] },
   ] };
   const h = harness({ generatedCaptions: [cap] });
-  assert.equal(h.getCaptionActiveWordIndex(cap, 1), 0);
+  assert.equal(h.getCaptionActiveWordIndex(cap, 1), -1);
   assert.equal(h.getCaptionActiveWordIndex(cap, 1.25), -1);
   assert.equal(h.getCaptionActiveWordIndex(cap, 3), 1);
-  assert.match(lines(h.buildPreviewMatchedAss())[0], /0:00:00\.00,0:00:01\.25/);
+  assert.match(lines(h.buildPreviewMatchedAss())[0], /0:00:00\.00,0:00:00\.50/);
 });
-test('a short final-word hold is identical in preview and export', () => {
+test('the final word disappears at its speech end in preview and export', () => {
   const cap = { text: 'Hello', timestamp: [0, 3], words: [{ text: 'Hello', timestamp: [0, 1] }] };
   const h = harness({ generatedCaptions: [cap] });
-  assert.equal(h.getCaptionActiveWordIndex(cap, 1.5), 0);
+  assert.equal(h.getCaptionActiveWordIndex(cap, 1.5), -1);
   assert.equal(h.getCaptionActiveWordIndex(cap, 1.75), -1);
-  assert.match(lines(h.buildPreviewMatchedAss())[0], /0:00:00\.00,0:00:01\.75/);
+  assert.match(lines(h.buildPreviewMatchedAss())[0], /0:00:00\.00,0:00:01\.00/);
 });
 test('caption-specific edited colors survive export', () => {
   const ass = harness({ styleSelect: { value: 'classic' }, generatedCaptions: [
     { text: 'Hello', timestamp: [0, 1], colorOverride: '#22d3ee' },
   ] }).buildPreviewMatchedAss();
   assert.match(lines(ass)[0], /1c&H00eed322/i);
+});
+
+test('oversized multiline captions fit inside the video without changing the selected slider', () => {
+  const fit = vm.runInNewContext(functions.get('fitCaptionBlock') + '\nfitCaptionBlock');
+  const layout = fit(180, 100, 120, 2, .9);
+  assert.ok(layout.scale < 1);
+  assert.ok(layout.y + (layout.fontSize + layout.lineHeight) / 2 <= 180);
+  assert.ok(layout.y - (layout.fontSize + layout.lineHeight) / 2 >= 0);
+  const unchanged = fit(1080, 50, 60, 2, .9);
+  assert.equal(unchanged.scale, 1);
+  assert.equal(unchanged.y, 972);
 });
 test('4K preview retains the old 50-pixel appearance using 100-pixel source captions', () => {
   const calls = [], scales = [];
@@ -107,7 +118,7 @@ test('4K preview retains the old 50-pixel appearance using 100-pixel source capt
     styleSelect: { value: 'white-yellow' }, sharedWatermarkImage: null, progressCheck: { checked: false },
     drawWrappedText: (...args) => calls.push(args),
   };
-  const code = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+  const code = ['fitCaptionBlock', 'captionHasSpeechAtTime', 'getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
     'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'renderCaptionFrame'].map(name => functions.get(name)).join('\n');
   vm.runInNewContext(code + '\nrenderCaptionFrame', context)(ctx, 1920, 1080, .5);
   assert.deepEqual(scales, [[.5, .5]]);

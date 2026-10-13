@@ -21,6 +21,17 @@ const settings = { fontSize: 110, fontColor: 'White', bgColor: 'Transparent', st
 const dialogues = text => text.split('\n').filter(line => line.startsWith('Dialogue:'));
 const visible = line => line.split(',').slice(9).join(',').replace(/\{[^}]*\}/g, '').replace(/\\N/g, ' ').trim();
 
+test('Caption Burner export leaves a short phrase pause blank for karaoke and standard styles', () => {
+  const cue = { start: 0, end: 2, text: 'First second', words: [
+    { text: 'First', start: 0, end: .5 }, { text: 'second', start: .9, end: 2 },
+  ] };
+  for (const style of ['white-yellow', 'minimal']) {
+    const lines = dialogues(buildAss([cue], { ...settings, style }, { width: 1920, height: 1080 }));
+    assert.match(lines[0], /00:00:00\.00,00:00:00\.50/);
+    assert.match(lines[1], /00:00:00\.90,00:00:02\.00/);
+  }
+});
+
 test('custom positions use a middle anchor and exact source-relative coordinates', () => {
   for (const [width, height] of [[2560, 1440], [1080, 1920]]) {
     for (const [xPos, yPos] of [[50, 50], [25, 30], [75, 85]]) {
@@ -134,7 +145,7 @@ function localAss(karaoke, width = 2560, height = 1440, size = 110) {
     generatedCaptions: [{ text: captions[0].text, timestamp: [0, 6.8], words: words.map(w => ({ text: w.text, timestamp: [w.start, w.end] })) }],
     getCaptionBottomSafety: () => 80,
   };
-  const code = ['getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd', 'spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'].map(fn).join('\n');
+  const code = ['fitCaptionBlock', 'getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd', 'spokenPhraseStart', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions', 'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss'].map(fn).join('\n');
   return vm.runInNewContext(code + '\nbuildPreviewMatchedAss()', context);
 }
 test('AI Captioning Local export keeps the complete group with karaoke on and off', () => {
@@ -198,7 +209,7 @@ test('the actual Local frame renderer carries the selected font through source-t
       styleSelect: { value: 'white-yellow' }, sharedWatermarkImage: null, progressCheck: { checked: false },
       drawWrappedText: (...args) => calls.push(args),
     };
-    const code = ['getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+    const code = ['fitCaptionBlock', 'captionHasSpeechAtTime', 'getCaptionSourceFontSize', 'getCaptionFontFamily', 'getCaptionWordTimeline', 'getCaptionWordEnd',
       'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'renderCaptionFrame'].map(fn).join('\n');
     const previewScale = Math.min(1, 1920 / Math.max(width, height));
     vm.runInNewContext(code + '\nrenderCaptionFrame', context)(ctx, width * previewScale, height * previewScale, .5);

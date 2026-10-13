@@ -44,7 +44,6 @@ const { createWhatsAppDrafts } = require('./whatsapp-drafts.cjs');
 const { originalVideoName, createVideoOutputPath } = require('./video-output-name.cjs');
 const { prepareCaptionEmojiExport } = require('./caption-emoji-export.cjs');
 const { createCaptionEraser } = require('./caption-eraser.cjs');
-const { prepareCaptionVoiceMemory } = require('./caption-resource-policy.cjs');
 const { createWhatsAppSession } = require('./whatsapp-session.cjs');
 const { createWhatsAppJobObserver } = require('./whatsapp-job-events.cjs');
 // Desktop-only PDF OCR: register before the generic mobile IPC bridge wrapper.
@@ -1658,12 +1657,16 @@ function postJsonForBuffer(port, path_, payload, timeoutMs = 120000, signal = nu
   });
 }
 
-async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 120000, retries = 1) {
+async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 120000, retries = 1, signal) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
     try {
-      return await postJsonForBuffer(port, path_, payload, timeoutMs);
+      const result = await postJsonForBuffer(port, path_, payload, timeoutMs, signal);
+      throwIfCaptionTranscriptionCancelled(signal);
+      return result;
     } catch (error) {
+      throwIfCaptionTranscriptionCancelled(signal);
       lastError = error;
       const transient = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET'].includes(String(error?.code || ''))
         || /ECONNRESET|socket hang up|connection reset|fetch failed/i.test(String(error?.message || ''));
@@ -1678,14 +1681,15 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
       // Give a restarting native worker time to reopen its health endpoint.
       let ready = false;
       for (let check = 0; check < 30; check += 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await waitForGroqCaptionRetry(1000, signal);
+        throwIfCaptionTranscriptionCancelled(signal);
         if (await pingPort(port, '/health', 3000)) {
           ready = true;
           break;
         }
       }
       if (!ready) break;
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitForGroqCaptionRetry(1500, signal);
     }
   }
   const friendly = new Error(`The local AI worker reset its connection and automatic recovery did not complete. Please retry once. (${lastError?.code || 'connection reset'})`);
@@ -4457,7 +4461,6 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   }
   if (!['local', 'groq', 'gemini'].includes(engine)) return { ok: false, error: 'Unknown caption transcription engine.' };
   if (engine === 'gemini' && contentMode !== 'song') return { ok: false, error: 'Gemini captioning requires Song / lyrics mode.' };
-  let resumePausedServers = () => {};
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -4545,31 +4548,13 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
     }
 
-    // Reclaim unused image/planner weights first. Keep the SC3 voice model
-    // warm when Whisper has enough memory, rather than reloading it every time.
-    await fetch('http://127.0.0.1:8432/api/unload', { method: 'POST' }).catch(() => {});
-    try {
-      for (const model of [PRESENTATOR_LOCAL_MODEL, PRESENTATOR_FAST_MODEL]) {
-        await fetch(`http://127.0.0.1:${OLLAMA_PORT}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, keep_alive: 0 }),
-        });
-      }
-    } catch (_) {}
-    resumePausedServers = await prepareCaptionVoiceMemory({
-      freeMemoryBytes: () => os.freemem(),
-      getNarrationProgress: async () => {
-        const response = await fetch('http://127.0.0.1:8426/api/narrate/progress', {
-          signal: AbortSignal.timeout(2500),
-        });
-        if (!response.ok) throw new Error('SC3 progress check failed.');
-        return response.json();
-      },
-      pauseVoice: () => pauseManagedServersForImage(['AnjaliAI']),
-      isCancelled: () => activeCaptionTranscribeCancelRequested,
-      onDecision: decision => console.log('[Caption] Voice memory policy:', decision),
-    });
+    // Captioning checks its own resources without querying or pausing SC3.
+    const availableMemory = os.freemem();
+    if (!Number.isFinite(availableMemory) || availableMemory < 3 * 1024 ** 3) {
+      const error = new Error('Not enough free memory for Local captions. Free at least 3 GB of RAM, or select the Groq engine.');
+      error.code = 'CAPTION_RESOURCE_BUSY';
+      throw error;
+    }
     reportTranscriptionProgress(3);
 
     // Step 2: Run Whisper directly via Python (no HTTP server needed)
@@ -4616,7 +4601,9 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
       const timer = setTimeout(() => {
         killProcessTree(proc);
-        reject(new Error('Whisper timeout (12min)'));
+        const error = new Error('Local caption transcription timed out after 12 minutes. Retry with a shorter video or use Groq.');
+        error.code = 'CAPTION_PRIMARY_TIMEOUT';
+        reject(error);
       }, 1200000);
       proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
@@ -4660,27 +4647,49 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     }
     if (err.code === 'CAPTION_RESOURCE_CANCELLED') return { ok: false, cancelled: true, error: err.message };
     if (err.code === 'CAPTION_RESOURCE_BUSY') return { ok: false, code: err.code, error: err.message };
+    if (err.code === 'CAPTION_PRIMARY_TIMEOUT') return { ok: false, code: err.code, error: err.message };
     if (engine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
     if (contentMode === 'song') return { ok: false, error: `${engine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
+    activeCaptionTranscribeProcess = null;
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
+    let fallbackError;
     try {
       const wavBase64 = fs.readFileSync(transcriptionAudioPath).toString('base64');
-      const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', { audioBase64: wavBase64, wordTimestamps: true }, 300000, 3);
+      const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
+        audioBase64: wavBase64, wordTimestamps: true, language: languageHint || 'auto',
+        contentMode: 'speech', sourceName: path.basename(videoPath),
+        transcriptionHints: String(transcriptionHints || '').slice(0, 1000),
+        autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech !== false,
+      }, 300000, 3, activeCaptionSongController?.signal);
+      if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
       if (result && result.statusCode === 200) {
         const p = JSON.parse(result.buffer.toString('utf8'));
+        if (p?.error || p?.ok === false) throw new Error(p?.error || 'Local transcription worker rejected the caption job.');
+        if (!String(p?.text || '').trim() && !(Array.isArray(p?.words) && p.words.length)
+            && !(Array.isArray(p?.segments) && p.segments.length)) throw new Error('Local transcription worker returned no recognizable speech.');
+        reportTranscriptionProgress(100);
         return {
+          ...p,
           ok: true,
           text: p.text || '',
-          segments: p.segments || [],
-          words: p.words || [],
+          segments: Array.isArray(p.segments) ? p.segments : [],
+          words: Array.isArray(p.words) ? p.words : [],
           language: p.language || p.detected_language || p.lang || (languageHint && languageHint !== 'auto' ? languageHint : 'auto'),
+          engine: 'local', contentMode: 'speech',
+          warnings: [...audioWarnings, ...(Array.isArray(p.warnings) ? p.warnings.filter(warning => typeof warning === 'string') : []),
+            'Local captions used the backup transcription worker. Review synchronization before exporting.'],
         };
       }
+      throw new Error(`Local transcription worker returned HTTP ${result?.statusCode || 'no response'}.`);
     } catch(e2) {
+      if (activeCaptionTranscribeCancelRequested || activeCaptionSongController?.signal.aborted) {
+        return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
+      }
+      fallbackError = e2.message;
       console.error('[Caption] HTTP fallback also failed:', e2.message);
     }
-    return { ok: false, error: err.message };
+    return { ok: false, error: `${err.message} Backup transcription also failed: ${fallbackError || 'No usable response.'}` };
   } finally {
     activeCaptionTranscribeProcess = null;
     for (const generatedFile of enhancedAudioFiles) {
@@ -4691,11 +4700,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       }
     }
     console.log('[Caption] Kept transcription WAV:', tmpWav);
-    try { await resumePausedServers(); }
-    finally {
-      activeCaptionSongController = null;
-      activeCaptionTranscribeCancelRequested = false;
-    }
+    activeCaptionSongController = null;
+    activeCaptionTranscribeCancelRequested = false;
   }
 
 });
@@ -4859,10 +4865,11 @@ function groqCaptionTimingWindows(words, duration) {
     const word = words[index], previous = words[index - 1], next = words[index + 1];
     const isolated = (!previous || word.start - previous.end >= 0.35)
       && (!next || next.start - word.end >= 0.35);
-    if (word.end - word.start <= 1.5 || !isolated || String(word.word).trim().split(/\s+/).length !== 1) continue;
+    const suspiciousOpening = index === 0 && word.start <= 0.05 && word.end - word.start > 1.5;
+    if (word.end - word.start <= 1.5 || (!isolated && !suspiciousOpening) || String(word.word).trim().split(/\s+/).length !== 1) continue;
     // Long music/silence before an isolated label can give Whisper an early
     // start. Re-recognize the actual tail audio rather than imposing a delay.
-    candidates.push({ start: Math.max(0, word.end - 2), end: Math.min(duration, word.end + 2),
+    candidates.push({ start: suspiciousOpening ? 0 : Math.max(0, word.end - 2), end: Math.min(duration, word.end + 2),
       core: [index], wide: [index], focused: true });
   }
   for (const window of candidates) {
@@ -4908,6 +4915,7 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
   const windows = groqCaptionTimingWindows(words, duration);
   if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
   const repaired = words.map(word => ({ ...word }));
+  const textChanges = [];
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   const failure = (window, reason) => new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`);
   for (let index = 0; index < windows.length; index += 1) {
@@ -4919,7 +4927,7 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
     const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
       || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
     const expected = expectedIndices.map(wordIndex => words[wordIndex]);
-    let fresh, rejectionReason = 'recognition disagreed';
+    let fresh, changedProposal, acceptedTextChange = false, rejectionReason = 'recognition disagreed';
     // A cropped recognition can disagree transiently. Retry once, retaining
     // every word and timing check rather than exporting unverified captions.
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -4971,6 +4979,23 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       if (String(json?.text || '').trim() && normalized(json.text) !== decodedText) valid = false;
       try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
       if (valid) { fresh = candidate; break; }
+      // Permit small spelling corrections only with stable surrounding words,
+      // the same word count and two agreeing, independently valid audio passes.
+      const changedCount = candidate.length === expected.length ? candidate.filter((word, wordIndex) =>
+        normalized(word.word || word.text) !== normalized(expected[wordIndex].word)).length : Infinity;
+      const correctionValid = decodedValid && candidate.length === expected.length && expected.length >= 3
+        && changedCount > 0 && changedCount <= Math.max(1, Math.floor(expected.length * 0.2))
+        && (!String(json?.text || '').trim() || normalized(json.text) === decodedText)
+        && !candidate.some((word, wordIndex) => (window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5);
+      if (correctionValid) {
+        if (changedProposal && candidate.every((word, wordIndex) =>
+            normalized(word.word || word.text) === normalized(changedProposal[wordIndex].word || changedProposal[wordIndex].text)
+            && Math.abs(word.start - changedProposal[wordIndex].start) <= 0.25
+            && Math.abs(word.end - changedProposal[wordIndex].end) <= 0.25)) {
+          fresh = candidate; acceptedTextChange = true; break;
+        }
+        changedProposal = candidate.map(word => ({ ...word }));
+      } else changedProposal = undefined;
       rejectionReason = expectedText !== decodedText ? 'the second recognition returned different words'
         : !decodedValid ? 'the second recognition returned missing, overlapping or invalid timestamps'
         : 'word boundaries or wide timestamps remain uncertain';
@@ -4981,12 +5006,17 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       // A second broad interval is still uncertain, even if its transcript is
       // correct. Never report an unchanged early label as verified timing.
       if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure(window, 'word timestamp remains too wide');
-      repaired[originalIndex] = { ...words[originalIndex], start: offset + word.start, end: Math.min(duration, offset + word.end) };
+      const replacementText = acceptedTextChange ? String(word.word || word.text).trim() : words[originalIndex].word;
+      if (normalized(replacementText) !== normalized(words[originalIndex].word)) {
+        textChanges.push(`${words[originalIndex].word} → ${replacementText} at ${(offset + word.start).toFixed(2)}s`);
+      }
+      repaired[originalIndex] = { ...words[originalIndex], word: replacementText, start: offset + word.start, end: Math.min(duration, offset + word.end) };
     }
     try { onProgress?.(80 + Math.round((index + 1) / windows.length * 18)); } catch (_) {}
   }
   assertGroqCaptionWordTimeline(repaired);
-  return { words: repaired, verifiedTimingWindows: windows.length };
+  return { words: repaired, verifiedTimingWindows: windows.length,
+    warnings: textChanges.length ? [`Two short audio passes confirmed text corrections: ${textChanges.join('; ')}. Review these words against the recording.`] : [] };
 }
 
 async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints }) {
@@ -5010,7 +5040,7 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
       const offset = Math.max(0, start - .5), clipEnd = Math.min(duration, end + .5);
       const audio = buildWavChunkBuffer(pcm.subarray(Math.floor(offset * sampleRate) * 2, Math.ceil(clipEnd * sampleRate) * 2), sampleRate);
       const read = json => {
-        const candidate = (json?.words || []).filter(word => String(word?.word || word?.text || '').trim()).map(word => ({
+        const candidate = (Array.isArray(json?.words) ? json.words : []).filter(word => String(word?.word || word?.text || '').trim()).map(word => ({
           word: String(word.word || word.text).trim(), start: offset + word.start, end: offset + word.end,
         })).filter(word => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start && word.start >= start && word.end <= end);
         try { assertGroqCaptionWordTimeline(candidate); } catch (_) { return []; }
@@ -5038,6 +5068,34 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
   return { words: repaired, recoveredWords: additions.length, warnings };
 }
 
+async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints }) {
+  const clipEnd = Math.min(duration, segment.end + 0.5);
+  if (clipEnd > 60) throw new Error('Groq returned an uncertain opening caption without word timing. Its audio window is too long to verify automatically.');
+  const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  const expectedText = normalized(segment.text);
+  const audio = buildWavChunkBuffer(pcm.subarray(0, Math.ceil(clipEnd * sampleRate) * 2), sampleRate);
+  let first;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
+    const json = await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints);
+    const decoded = (Array.isArray(json?.words) ? json.words : []).filter(word => String(word?.word || word?.text || '').trim())
+      .map(word => ({ word: String(word.word || word.text).trim(), start: word.start, end: word.end }));
+    let valid = decoded.length > 0 && normalized(decoded.map(word => word.word).join(' ')) === expectedText
+      && (!String(json?.text || '').trim() || normalized(json.text) === expectedText)
+      && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end <= clipEnd)
+      && !(decoded[0]?.start <= 0.05 && decoded[0].end - decoded[0].start > 1.5);
+    try { assertGroqCaptionWordTimeline(decoded); } catch (_) { valid = false; }
+    if (!valid) throw new Error('Groq could not verify the opening caption words and timing. Its segment starts at the beginning of the video without usable word timestamps.');
+    if (first && (first.length !== decoded.length || decoded.some((word, index) => normalized(word.word) !== normalized(first[index].word)
+        || Math.abs(word.start - first[index].start) > 0.25 || Math.abs(word.end - first[index].end) > 0.25))) {
+      throw new Error('Groq opening audio checks disagreed on the words or timing. Generate captions again.');
+    }
+    first = decoded;
+  }
+  throwIfCaptionTranscriptionCancelled(signal);
+  return { segment: { ...segment, start: first[0].start, end: first.at(-1).end }, words: first };
+}
+
 async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false }) {
   throwIfCaptionTranscriptionCancelled(signal);
   if (!apiKey) throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
@@ -5052,6 +5110,7 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   const allSegments = [], allWords = [];
   let detectedLanguage = languageHint !== 'auto' ? languageHint : '';
   let missingWordTiming = false;
+  const sourceWarnings = [];
   const report = value => { try { onProgress?.(value); } catch (_) {} };
   report(3);
   for (let i = 0; i < totalChunks; i += 1) {
@@ -5092,36 +5151,83 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
         previous.end = Math.max(previous.end, word.end);
       } else providedWords.push({ ...word });
     }
-    const chunkWords = providedWords.flatMap(word => {
+    let chunkWords = providedWords.flatMap(word => {
       const interval = accepted(word), text = String(word?.word || word?.text || '').trim();
       return interval && text ? [{ ...interval, word: text }] : [];
     });
     const invalidWordTiming = providedWords.some(word => String(word?.word || word?.text || '').trim() && !validInterval(word));
+    const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    const wordText = normalized((Array.isArray(json?.words) ? json.words : []).map(word => word?.word || word?.text || '').join(' '));
+    const segmentText = normalized((Array.isArray(json?.segments) ? json.segments : []).map(segment => segment?.text || '').join(' '));
+    const sourceText = normalized(json?.text) || segmentText;
+    const incompleteWordText = !!sourceText && sourceText !== wordText;
+    if (incompleteWordText && sourceText !== segmentText) {
+      throw new Error('Groq returned recognized speech without complete caption timestamps. Generate captions again.');
+    }
     // A partial set of word intervals would hide segment-only captions in the
     // renderer. Retain the complete segment timeline and disclose estimation.
-    if (chunkSegments.length && (!chunkWords.length || invalidWordTiming)) missingWordTiming = true;
+    let chunkMissingWordTiming = chunkSegments.length && (!chunkWords.length || invalidWordTiming || incompleteWordText);
+    if (chunkMissingWordTiming && (Array.isArray(json?.segments) ? json.segments : [])
+        .some(segment => String(segment?.text || '').trim() && !validInterval(segment))) {
+      throw new Error('Groq returned incomplete caption segment timestamps. Generate captions again.');
+    }
+    if (contentMode === 'speech' && i === 0 && chunkMissingWordTiming
+        && chunkSegments[0].start <= 0.05 && chunkSegments[0].end - chunkSegments[0].start > 1.5) {
+      const verified = await verifyGroqCaptionOpeningSegment({ segment: chunkSegments[0], pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+      chunkSegments[0] = verified.segment;
+      if (chunkSegments.length === 1) { chunkWords = verified.words; chunkMissingWordTiming = false; }
+      sourceWarnings.push('Two short audio passes verified the opening caption timing. Review synchronization.');
+    }
+    if (chunkMissingWordTiming) missingWordTiming = true;
     if (invalidWordTiming && !chunkSegments.length) throw new Error('Groq returned incomplete caption timestamps. Generate captions again.');
     if (String(json?.text || '').trim() && !chunkSegments.length && !chunkWords.length) {
       throw new Error('Groq returned text without usable caption timestamps. Generate captions again.');
     }
-    allSegments.push(...(chunkSegments.length ? chunkSegments : chunkWords.map(({ start, end, word }) => ({ start, end, text: word }))));
+    if (chunkSegments.length) allSegments.push(...chunkSegments);
+    else {
+      let group = [];
+      const flush = () => {
+        if (!group.length) return;
+        allSegments.push({ start: group[0].start, end: group.at(-1).end, text: group.map(word => word.word).join(' ') });
+        group = [];
+      };
+      for (const word of chunkWords) {
+        const previous = group.at(-1);
+        if (group.length && (group.length >= 8 || word.start - previous.end >= 0.3 || /[.!?]["'’)]?$/.test(previous.word))) flush();
+        group.push(word);
+      }
+      flush();
+    }
     allWords.push(...chunkWords);
     report(Math.round((i + 1) / totalChunks * 80));
   }
   let words = missingWordTiming ? [] : allWords;
   let verifiedTimingWindows = 0;
   let recoveredWords = 0;
-  let recoveryWarnings = [];
+  let recoveryWarnings = [...sourceWarnings];
   if (words.length) {
     if (contentMode === 'song') assertGroqCaptionWordTimeline(words);
     else {
-      const verified = await verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress: report });
-      words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
+      try {
+        const verified = await verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress: report });
+        words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
+        recoveryWarnings.push(...(verified.warnings || []));
+      } catch (error) {
+        throwIfCaptionTranscriptionCancelled(signal);
+        // Optional checks must not discard a complete, non-overlapping result.
+        // Conflicting intervals and a broad zero-start intro remain unusable
+        // until verified; never mark the retained original timing as verified.
+        try { assertGroqCaptionWordTimeline(words); } catch (_) { throw error; }
+        if (words[0].start <= 0.05 && words[0].end - words[0].start > 1.5) throw error;
+        const uncertainWords = words.filter(word => word.end - word.start > 1.5)
+          .map(word => `${word.word} (${word.start.toFixed(2)}–${word.end.toFixed(2)}s)`).join('; ');
+        recoveryWarnings.push(`Groq could not complete an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. ${error.message}`);
+      }
     }
   }
   if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length) {
     const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
-    words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings = recovery.warnings;
+    words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings.push(...recovery.warnings);
   }
   // Original segment boundaries can conflict with corrected word intervals.
   // Keep only real verified word ranges after a repair, with no stale fallback.
@@ -5147,6 +5253,17 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   const text = (words.length ? words.map(word => word.word) : segments.map(segment => segment.text)).join(' ').replace(/\s+/g, ' ').trim();
   if (!text) throw new Error('Groq returned no recognizable words.');
   const timingSource = words.length ? 'word' : 'estimated';
+  if (timingSource === 'estimated') {
+    for (let index = 1; index < segments.length; index += 1) {
+      const previous = segments[index - 1], segment = segments[index];
+      if (segment.start >= previous.end) continue;
+      if (segment.start >= previous.start && previous.end - segment.start <= 0.2) {
+        const boundary = (previous.end + segment.start) / 2;
+        if (boundary > previous.start && boundary < segment.end) { previous.end = boundary; segment.start = boundary; continue; }
+      }
+      throw new Error('Groq returned overlapping caption segment timestamps without usable word timing. Generate captions again.');
+    }
+  }
   const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
   warnings.push(...recoveryWarnings);
   if (recoveredWords) warnings.push(`Automatic recovery added ${recoveredWords} words confirmed by two short audio passes. Review synchronization.`);

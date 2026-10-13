@@ -7,7 +7,7 @@ import {
   QueueItem, CaptionItem, CaptionSettings, WordItem, Language, CAPTION_LANGUAGES,
 } from './types';
 import { transcribeWithHuggingFace, testHFToken } from './transcribe';
-import { burnCaptions, spokenPhraseStart } from './burn';
+import { burnCaptions, captionGroupAtTime } from './burn';
 import './caption-preview-layout.css';
 import CaptionWorkbench from './CaptionWorkbench';
 
@@ -911,18 +911,13 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const activeCap = useMemo(() => {
     if (!activeItem?.captions) return null;
-    const t = curTime - S.offset;
-    return activeItem.captions.find(c => {
-      if (t < c.start || t >= c.end) return false;
-      const words = c.words;
-      if (!words?.length) return true;
-      if (t < words[0].start || t >= words[words.length - 1].end) return false;
-      return !words.some((word, index) => {
-        const next = words[index + 1];
-        return next && next.start - word.end >= 0.3 && t >= word.end && t < next.start;
-      });
-    }) ?? null;
-  }, [activeItem, curTime, S.offset]);
+    for (const caption of activeItem.captions) {
+      if (curTime < caption.start + S.offset || curTime >= caption.end + S.offset) continue;
+      const group = captionGroupAtTime(caption, curTime, S.maxWordsPerCaption, S.offset);
+      if (group) return group;
+    }
+    return null;
+  }, [activeItem, curTime, S.offset, S.maxWordsPerCaption]);
 
   // A style sample belongs beside the controls, never over untranscribed video.
   const previewCap = activeCap;
@@ -1385,7 +1380,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       >
                         {(() => {
                           const allWords = getWords(previewCap);
-                          const t = curTime - S.offset;
+                          const t = curTime;
                           let activeIndex = allWords.findIndex(w => t >= w.start && t < w.end);
                           if (activeIndex < 0) {
                             activeIndex = allWords.findIndex((w, index) => {
@@ -1483,8 +1478,8 @@ export default function CaptionBurner({ onClose }: Props) {
                 <button type="button" disabled={!activeCap && !loopCaption} aria-pressed={!!loopCaption} onClick={() => {
                   if (loopCaption) { setLoopCaption(null); return; }
                   if (!activeCap || !vidRef.current) return;
-                  const start = Math.max(0, activeCap.start + S.offset);
-                  const end = Math.min(duration || Infinity, activeCap.end + S.offset);
+                  const start = Math.max(0, activeCap.start);
+                  const end = Math.min(duration || Infinity, activeCap.end);
                   if (end <= start) return;
                   setLoopCaption({ start, end });
                   vidRef.current.currentTime = start;
@@ -1968,7 +1963,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       const cap = activeCap || activeItem?.captions?.[0];
                       if (vidRef.current && cap) {
                         vidRef.current.pause();
-                        vidRef.current.currentTime = Math.max(0, cap.start + S.offset + 0.01);
+                        vidRef.current.currentTime = Math.max(0, cap.start + (activeCap ? 0 : S.offset) + 0.01);
                         setCurTime(vidRef.current.currentTime);
                         vidRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
                       }

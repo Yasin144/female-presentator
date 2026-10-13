@@ -96,6 +96,10 @@ export default function LocalCaptionPanel() {
               <label className="lcp-field" htmlFor="captionVocabularyHints">Names or vocabulary
                 <textarea id="captionVocabularyHints" maxLength={1000} rows={2} placeholder="Names, spellings or short phrases heard in the recording" className="theme-input" />
               </label>
+              <label className="lcp-field" htmlFor="captionSpellingCorrections">Saved spelling corrections
+                <textarea id="captionSpellingCorrections" maxLength={2000} rows={3} defaultValue={'Rhea = Ria\nInfo Kids = InfoKids\nInfokids = InfoKids'} className="theme-input" />
+              </label>
+              <p className="lcp-help">One correction per line: recognized spelling = correct spelling. Applied to new Local and Groq captions. Edit or remove rules for other recordings.</p>
             </div>
           </details>
           <details className="lcp-disclosure">

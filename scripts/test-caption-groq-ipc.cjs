@@ -13,7 +13,7 @@ const acorn = require('acorn');
 const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8');
 const ast = acorn.parse(source, { ecmaVersion: 'latest', allowReturnOutsideFunction: true });
 const callbacks = new Map(), helperSources = [];
-const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'recoverGroqCaptionGaps', 'transcribeCaptionWavWithGroq']);
+const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'recoverGroqCaptionGaps', 'verifyGroqCaptionOpeningSegment', 'transcribeCaptionWavWithGroq']);
 (function visit(node) {
   if (!node || typeof node !== 'object') return;
   if (node.type === 'FunctionDeclaration' && helperNames.has(node.id?.name)) helperSources.push(source.slice(node.start, node.end));
@@ -59,6 +59,7 @@ function fixture(options = {}) {
   const context = vm.createContext({
     Buffer, path, AbortController, AbortSignal, FormData, Blob,
     ROOT: root, process: { env: { GROQ_API_KEY: options.missingKey ? '' : 'fixture-token' } },
+    os: { freemem: () => 6 * 1024 ** 3 }, SINGING_ENV: {},
     activeCaptionTranscribeProcess: null, activeCaptionSongController: null, activeCaptionTranscribeCancelRequested: false,
     ensureCaptionWorkDir: (...parts) => path.join(root, 'caption-work', ...parts),
     console: { log() {}, warn() {}, error() {} },
@@ -80,7 +81,13 @@ function fixture(options = {}) {
       throw new Error('Unexpected module: ' + name);
     },
     prepareCaptionVoiceMemory: async () => { calls.policy++; throw new Error('Cloud engine must not request local model memory'); },
-    postJsonForBufferWithRecovery: async () => { calls.fallback++; throw new Error('Explicit Groq must not fall back'); },
+    postJsonForBufferWithRecovery: async (...args) => {
+      calls.fallback++;
+      if (!options.localFallback) throw new Error('Explicit Groq must not fall back');
+      calls.fallbackArgs = args;
+      if (options.cancelDuringFallback) await cancel();
+      return { statusCode: 200, buffer: Buffer.from(JSON.stringify(options.localFallback)) };
+    },
     fetch: async (url, init) => {
       assert.equal(url, 'https://api.groq.com/openai/v1/audio/transcriptions', 'Cloud captioning must not unload or contact local models');
       calls.fetch.push({ url, init }); requestStarted();
@@ -97,9 +104,13 @@ function fixture(options = {}) {
       if (!proc.finished) setImmediate(() => { proc.finished = true; proc.emit('exit', 1); });
     },
     spawn: (command, args) => {
-      assert.ok(args.includes('-vn'), 'Explicit Groq must not spawn Python/Whisper');
-      const proc = new EventEmitter(); proc.stderr = new EventEmitter(); proc.pid = 100 + calls.spawn.length; proc.finished = false;
+      assert.ok(args.includes('-vn') || options.localFallback, 'Explicit Groq must not spawn Python/Whisper');
+      const proc = new EventEmitter(); proc.stderr = new EventEmitter(); proc.stdout = new EventEmitter(); proc.pid = 100 + calls.spawn.length; proc.finished = false;
       calls.spawn.push({ command, args: plain(args) });
+      if (!args.includes('-vn')) {
+        setImmediate(() => { proc.stdout.emit('data', Buffer.from('{"error":"Fixture primary worker failed"}\n')); proc.finished = true; proc.emit('exit', 1); });
+        return proc;
+      }
       releaseExtraction = () => {
         if (proc.finished) return;
         files.set(args.at(-1), options.wav || context.buildWavChunkBuffer(Buffer.alloc((options.duration || 5) * 32000)));
@@ -126,7 +137,7 @@ function fixture(options = {}) {
       assert.equal(context.activeCaptionSongController, null);
       assert.equal(context.activeCaptionTranscribeCancelRequested, false);
       assert.equal(timers.size, 0, 'Network timeout/retry timers must be released');
-      assert.equal(calls.policy, 0); assert.equal(calls.fallback, 0);
+      assert.equal(calls.policy, 0); if (!options.localFallback) assert.equal(calls.fallback, 0);
     },
   };
 }
@@ -344,7 +355,7 @@ test('sparse speech repair uses source PCM offsets and keeps original words whil
   ];
   const response = words => ({ words, text: words.map(word => word.word).join(' '), segments: [] });
   const options = { duration: 64, responses: [response(original),
-    response([{ word: 'infokids', start: .76, end: 1.88 }]),
+    response([{ word: 'infokids', start: 5, end: 6.12 }]),
     response([{ word: 'Elephant', start: .62, end: 1 }]),
     response([{ word: 'tiger', start: 2.64, end: 3.06 }, { word: 'fox', start: 6.18, end: 7.24 }]),
     response([{ word: 'rhinoceros', start: 1.26, end: 2.08 }]),
@@ -369,7 +380,7 @@ test('sparse speech repair uses source PCM offsets and keeps original words whil
     assert.ok(first >= 0 && last >= first, 'Every phrase uses repaired word bounds');
     assert.equal(segment.text, result.words.slice(first, last + 1).map(word => word.word).join(' '));
   }
-  const windows = [[4.24, 8.24], [22.12, 26.12], [36, 46], [49.44, 53.44]];
+  const windows = [[0, 8.24], [22.12, 26.12], [36, 46], [49.44, 53.44]];
   for (let index = 0; index < windows.length; index++) {
     const [start, end] = windows[index];
     const upload = Buffer.from(await f.calls.fetch[index + 1].init.body.get('file').arrayBuffer());
@@ -382,7 +393,7 @@ test('sparse speech repair uses source PCM offsets and keeps original words whil
   assert.equal(progress.at(-1), 100);
 });
 
-test('short audio verification retries once then refuses changed, missing, backward or still-wide words', async () => {
+test('failed optional checks retain original non-overlapping timing and identify the uncertain word for review', async () => {
   const original = { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] };
   for (const fresh of [
     { text: 'Zebra', words: [{ word: 'Zebra', start: .7, end: 1.1 }] },
@@ -393,9 +404,11 @@ test('short audio verification retries once then refuses changed, missing, backw
   ]) {
     const f = fixture({ duration: 10, responses: [original, fresh, fresh] });
     const result = plain(await f.invoke()); f.assertReleased();
-    assert.equal(result.ok, false); assert.equal(result.engine, 'groq'); assert.match(result.error, /verify/);
-    assert.equal(f.calls.fetch.length, 3); assert.equal(result.words, undefined);
-    assert.ok(f.calls.progress.every(item => item.value < 100));
+    assert.equal(result.ok, true); assert.equal(result.engine, 'groq');
+    assert.equal(f.calls.fetch.length, 3); assert.deepEqual(result.words, original.words);
+    assert.equal(result.timingVerification, undefined);
+    assert.match(result.warnings.join(' '), /optional.*retained.*Elephant \(2\.00–4\.00s\)/);
+    assert.equal(f.calls.progress.at(-1).value, 100);
   }
 });
 
@@ -502,6 +515,40 @@ test('automatic gap recovery inserts confirmed missing speech while retaining ex
   assert.equal(f.calls.fetch.length, 3);
 });
 
+test('two matching audio passes can correct a spelling with stable surrounding words', async () => {
+  const original = { text: 'She Riya reads', segments: [], words: [
+    { word: 'She', start: 1, end: 1.4 }, { word: 'Riya', start: 1.3, end: 1.8 },
+    { word: 'reads', start: 2, end: 2.3 },
+  ] };
+  const corrected = { text: 'She Ria reads', words: [
+    { word: 'She', start: 1, end: 1.3 }, { word: 'Ria', start: 1.3, end: 1.7 },
+    { word: 'reads', start: 2, end: 2.3 },
+  ] };
+  const f = fixture({ duration: 5, responses: [original, corrected, corrected] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'She Ria reads');
+  assert.equal(f.calls.fetch.length, 3);
+  assert.match(result.warnings.join(' '), /Riya → Ria.*Review/);
+  assert.deepEqual(result.segments.map(segment => segment.text), ['She Ria', 'reads']);
+});
+
+test('changed text with disagreeing audio timings remains rejected', async () => {
+  const original = { text: 'She Riya reads', segments: [], words: [
+    { word: 'She', start: 1, end: 1.4 }, { word: 'Riya', start: 1.3, end: 1.8 },
+    { word: 'reads', start: 2, end: 2.3 },
+  ] };
+  const first = { text: 'She Ria reads', words: [
+    { word: 'She', start: 1, end: 1.3 }, { word: 'Ria', start: 1.3, end: 1.7 },
+    { word: 'reads', start: 2, end: 2.3 },
+  ] };
+  const second = { ...first, words: first.words.map(word => ({ ...word, start: word.start + .4, end: word.end + .4 })) };
+  const f = fixture({ duration: 5, responses: [original, first, second] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /could not verify/);
+});
+
 test('a small audio-end overrun keeps valid word timing instead of continuous segment fallback', async () => {
   const original = { text: 'Hello world', segments: [{ text: 'Hello world', start: 0, end: 5 }],
     words: [{ word: 'Hello', start: 1, end: 1.3 }, { word: 'world', start: 4.8, end: 5.14 }] };
@@ -586,4 +633,127 @@ test('cancelling short-window verification aborts its request and releases the s
   await f.cancel(); const result = plain(await pending); f.assertReleased();
   assert.equal(result.cancelled, true); assert.equal(f.calls.fetch[1].init.signal.aborted, true);
   assert.equal(f.calls.fetch.length, 2); assert.ok(f.calls.progress.every(item => item.value < 100));
+});
+
+test('word-only Groq replies keep phrases grouped and retain natural speech gaps', async () => {
+  const words = [{ word: 'I', start: 1, end: 1.2 }, { word: 'can', start: 1.2, end: 1.5 },
+    { word: 'read.', start: 1.5, end: 1.9 }, { word: 'Next', start: 2.7, end: 3 }];
+  const f = fixture({ response: { text: 'I can read. Next', words } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.deepEqual(result.words, words);
+  assert.deepEqual(result.segments, [{ text: 'I can read.', start: 1, end: 1.9 }, { text: 'Next', start: 2.7, end: 3 }]);
+});
+
+test('a partial word list cannot silently remove speech represented by complete source segments', async () => {
+  const f = fixture({ response: { ...recognized, words: recognized.words.slice(0, 1) } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.text, recognized.text);
+  assert.equal(result.timingSource, 'estimated'); assert.deepEqual(result.words, []);
+  assert.deepEqual(result.segments, recognized.segments); assert.match(result.warnings.join(' '), /estimated/);
+});
+
+test('missing both word and segment coverage rejects incomplete captions rather than dropping recognized speech', async () => {
+  const f = fixture({ response: { ...recognized, segments: recognized.segments.slice(0, 1), words: recognized.words.slice(0, 1) } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /complete caption timestamps/);
+  assert.equal(result.words, undefined); assert.equal(f.calls.fetch.length, 1);
+});
+
+test('an invalid fallback segment cannot silently remove part of recognized speech', async () => {
+  const f = fixture({ response: { ...recognized, words: [], segments: [recognized.segments[0], { ...recognized.segments[1], start: null }] } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /incomplete caption segment timestamps/);
+});
+
+test('segment transcript coverage is checked even when the API omits its top-level text', async () => {
+  const f = fixture({ response: { segments: recognized.segments, words: recognized.words.slice(0, 1) } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.text, recognized.text);
+  assert.deepEqual(result.words, []); assert.equal(result.timingSource, 'estimated');
+});
+
+test('unusable fallback segment overlaps fail instead of covering pauses with conflicting groups', async () => {
+  const f = fixture({ response: { text: 'Hello world', words: [], segments: [
+    { text: 'Hello', start: .2, end: 2.5 }, { text: 'world', start: 1.5, end: 3 },
+  ] } });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /overlapping caption segment timestamps/);
+});
+
+test('broad zero-start segment timing is replaced only after two agreeing opening audio passes', async () => {
+  const original = { text: 'InfoKids', segments: [{ text: 'InfoKids', start: 0, end: 6.2 }], words: [] };
+  const verified = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 4.8, end: 6.05 }] };
+  const f = fixture({ duration: 8, responses: [original, verified, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.timingSource, 'word');
+  assert.deepEqual(result.words, verified.words);
+  assert.deepEqual(result.segments, [{ text: 'InfoKids', start: 4.8, end: 6.05 }]);
+  assert.equal(f.calls.fetch.length, 3); assert.match(result.warnings.join(' '), /Two short audio passes verified the opening/);
+});
+
+test('a broad opening word is checked even when its next word has no pause', async () => {
+  const original = { text: 'InfoKids ten', words: [{ word: 'InfoKids', start: 0, end: 6 }, { word: 'ten', start: 6, end: 6.5 }] };
+  const verified = { text: 'InfoKids ten', words: [{ word: 'InfoKids', start: 4.7, end: 5.8 }, { word: 'ten', start: 6, end: 6.5 }] };
+  const f = fixture({ duration: 10, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.words[0].start, 4.7);
+  assert.equal(result.timingVerification, 'short-audio'); assert.equal(f.calls.fetch.length, 2);
+});
+
+test('opening verification includes genuine early speech instead of imposing an intro delay', async () => {
+  const original = { text: 'Hello', words: [{ word: 'Hello', start: 0, end: 5 }] };
+  const verified = { text: 'Hello', words: [{ word: 'Hello', start: .2, end: .8 }] };
+  const f = fixture({ duration: 8, responses: [original, verified] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.equal(result.words[0].start, .2);
+  const upload = Buffer.from(await f.calls.fetch[1].init.body.get('file').arrayBuffer());
+  assert.equal(upload.length - 44, 7 * 32000, 'Opening check retains the complete audio prefix');
+});
+
+test('an unverified broad zero-start segment cannot return continuous opening captions', async () => {
+  const original = { text: 'InfoKids', segments: [{ text: 'InfoKids', start: 0, end: 6.2 }], words: [] };
+  const f = fixture({ duration: 8, response: original });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, false); assert.match(result.error, /opening.*timing/);
+  assert.equal(result.words, undefined); assert.equal(f.calls.progress.some(item => item.value === 100), false);
+});
+
+test('an optional audio request failure keeps usable original captions with a review warning', async () => {
+  const original = { text: 'Elephant', words: [{ word: 'Elephant', start: 2, end: 4 }] };
+  const f = fixture({ duration: 10, response: original, networkFailsAt: 2 });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true); assert.deepEqual(result.words, original.words);
+  assert.equal(result.timingVerification, undefined); assert.match(result.warnings.join(' '), /optional.*Elephant \(2\.00–4\.00s\).*connect/);
+});
+
+test('Local fallback preserves requested recognition options, warnings and timing metadata', async () => {
+  const fallback = { ...recognized, duration: 5, timingSource: 'word', warnings: ['Review the opening words.'] };
+  const f = fixture({ localFallback: fallback });
+  const result = plain(await f.invoke({ engine: 'local', languageHint: 'hi', transcriptionHints: 'Ria', autoRecoverMissingSpeech: false }));
+  f.assertReleased();
+  const [, , payload, , , signal] = f.calls.fallbackArgs;
+  assert.equal(payload.language, 'hi'); assert.equal(payload.transcriptionHints, 'Ria');
+  assert.equal(payload.autoRecoverMissingSpeech, false); assert.equal(payload.contentMode, 'speech');
+  assert.equal(payload.sourceName, 'song.mp4'); assert.equal(signal.aborted, false);
+  assert.equal(result.ok, true); assert.equal(result.engine, 'local'); assert.equal(result.duration, 5);
+  assert.equal(result.timingSource, 'word'); assert.deepEqual(result.words, recognized.words);
+  assert.match(result.warnings.join(' '), /Review the opening words.*backup transcription worker/);
+  assert.equal(f.calls.progress.at(-1).value, 100);
+});
+
+test('Local fallback cancellation cannot publish a late successful response', async () => {
+  const f = fixture({ localFallback: recognized, cancelDuringFallback: true });
+  const result = plain(await f.invoke({ engine: 'local' })); f.assertReleased();
+  assert.equal(result.ok, false); assert.equal(result.cancelled, true);
+  assert.equal(f.calls.fallbackArgs[5].aborted, true); assert.equal(f.calls.kills.length, 0, 'Completed primary process must not be killed while HTTP is running');
+  assert.equal(f.calls.progress.some(item => item.value === 100), false);
+});
+
+test('Local fallback error or empty payload cannot be reported as successful captions', async () => {
+  for (const fallback of [{ error: 'Fixture backup rejected input' }, { text: '', segments: [], words: [] }]) {
+    const f = fixture({ localFallback: fallback });
+    const result = plain(await f.invoke({ engine: 'local' })); f.assertReleased();
+    assert.equal(result.ok, false); assert.match(result.error, /Backup transcription also failed/);
+    assert.equal(f.calls.progress.some(item => item.value === 100), false);
+  }
 });

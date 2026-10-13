@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'caption-script.js'), 'utf8');
 const functions = new Map();
 traverse(parser.parse(source), { FunctionDeclaration(p) { functions.set(p.node.id.name, source.slice(p.node.start, p.node.end)); } });
-const names = ['getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
+const names = ['fitCaptionBlock', 'getCaptionFontFamily', 'getCaptionSourceFontSize', 'getCaptionWordTimeline', 'getCaptionWordEnd',
   'getCaptionActiveWordIndex', 'getVisibleCaptionText', 'getWrappedCaptionLines', 'drawWrappedText',
   'getCaptionEmojiBitmap', 'addCaptionEmojiOverlay', 'stripIgnoredIntroCaption', 'removeIgnoredIntroCaptions',
   'toAssTimestamp', 'escapeAssCaptionText', 'hexToAss', 'getAssStyleConfig', 'buildPreviewMatchedAss', 'buildPreviewMatchedExport'];
