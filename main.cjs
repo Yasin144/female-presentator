@@ -122,6 +122,28 @@ if (fs.existsSync(groqKeyPath)) {
   }
 }
 
+function resolveConfiguredGroqApiKey(suppliedGroqApiKey = '') {
+  const direct = typeof suppliedGroqApiKey === 'string' ? suppliedGroqApiKey.trim() : '';
+  if (direct) {
+    process.env.GROQ_API_KEY = direct;
+    try { fs.writeFileSync(groqKeyPath, direct, 'utf8'); } catch (_) {}
+    return direct;
+  }
+  if (process.env.GROQ_API_KEY && String(process.env.GROQ_API_KEY).trim()) {
+    return String(process.env.GROQ_API_KEY).trim();
+  }
+  try {
+    if (fs.existsSync(groqKeyPath)) {
+      const diskKey = fs.readFileSync(groqKeyPath, 'utf8').trim();
+      if (diskKey) {
+        process.env.GROQ_API_KEY = diskKey;
+        return diskKey;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
 const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
 const PRESENTATOR_FAST_MODEL = 'qwen3.5:0.8b';
 const OLLAMA_PORT = 11434;
@@ -4449,6 +4471,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   };
   const reportTranscriptionProgress = raw => reportCaptionProgress(transcriptionProgressBase + (100 - transcriptionProgressBase) * Number(raw) / 100);
 
+  let effectiveEngine = engine;
   activeCaptionTranscribeCancelRequested = false;
   activeCaptionSongController = new AbortController();
   try {
@@ -4485,33 +4508,43 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       transcriptionProgressBase = 30;
     }
 
-    if (engine === 'groq') {
+    if (effectiveEngine === 'groq') {
       if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      const result = await transcribeCaptionWavWithGroq({
-        audioBuffer: fs.readFileSync(transcriptionAudioPath),
-        apiKey: (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim(),
-        languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
-        signal: activeCaptionSongController.signal,
-        onProgress: reportTranscriptionProgress,
-      });
-      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      const resolvedGroqKey = resolveConfiguredGroqApiKey(suppliedGroqApiKey);
+      if (resolvedGroqKey) {
+        const result = await transcribeCaptionWavWithGroq({
+          audioBuffer: fs.readFileSync(transcriptionAudioPath),
+          apiKey: resolvedGroqKey,
+          languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
+          signal: activeCaptionSongController.signal,
+          onProgress: reportTranscriptionProgress,
+        });
+        if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+        return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      }
+      console.warn('[Caption] Groq API key is missing — falling back automatically to Local Whisper.');
+      audioWarnings.push('Groq API key is not configured; generated captions with Local Whisper on this computer.');
+      effectiveEngine = 'local';
     }
 
-    if (engine === 'gemini' && contentMode === 'song') {
+    if (effectiveEngine === 'gemini' && contentMode === 'song') {
       if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
       const keyPath = path.join(ROOT, '.gemini_api_key');
       const apiKey = String(process.env.GEMINI_API_KEY || (fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : '')).trim();
-      if (!apiKey) throw new Error('Google Gemini API key is missing. Add it in AI Tools first.');
-      activeCaptionSongController ||= new AbortController();
-      const { transcribeSongAudio } = require('./caption-song-transcribe.cjs');
-      const result = await transcribeSongAudio({
-        audioBuffer: fs.readFileSync(transcriptionAudioPath), apiKey, languageHint, transcriptionHints,
-        signal: activeCaptionSongController.signal,
-        onProgress: progress => reportTranscriptionProgress(progress.pct),
-      });
-      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      if (apiKey) {
+        activeCaptionSongController ||= new AbortController();
+        const { transcribeSongAudio } = require('./caption-song-transcribe.cjs');
+        const result = await transcribeSongAudio({
+          audioBuffer: fs.readFileSync(transcriptionAudioPath), apiKey, languageHint, transcriptionHints,
+          signal: activeCaptionSongController.signal,
+          onProgress: progress => reportTranscriptionProgress(progress.pct),
+        });
+        if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+        return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      }
+      console.warn('[Caption] Gemini API key is missing — falling back automatically to Local Whisper.');
+      audioWarnings.push('Gemini API key is not configured; generated song captions with Local Whisper on this computer.');
+      effectiveEngine = 'local';
     }
 
     // Do not pre-emptively reject Local captions based on a free-RAM number.
@@ -4612,8 +4645,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     if (err.code === 'CAPTION_RESOURCE_CANCELLED') return { ok: false, cancelled: true, error: err.message };
     if (err.code === 'CAPTION_RESOURCE_BUSY') return { ok: false, code: err.code, error: err.message };
     if (err.code === 'CAPTION_PRIMARY_TIMEOUT') return { ok: false, code: err.code, error: err.message };
-    if (engine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
-    if (contentMode === 'song') return { ok: false, error: `${engine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
+    if (effectiveEngine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
+    if (contentMode === 'song') return { ok: false, error: `${effectiveEngine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     activeCaptionTranscribeProcess = null;
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
@@ -5305,7 +5338,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
     return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
   }
-  const apiKey = (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
+  const apiKey = resolveConfiguredGroqApiKey(suppliedGroqApiKey);
   if (!apiKey) return { ok: false, engine: 'groq', error: 'Groq API key is missing. Enter it under Caption engine or configure the saved key.' };
 
   function findFFmpeg() {
@@ -5804,16 +5837,19 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
 });
 
 // Detect previous caption text locally and restore only the masked pixels.
-const erasePreviousCaptions = createCaptionEraser({
-  root: __dirname,
-  getFFmpeg: findFFmpegExecutable,
-  downloadsPath: app.getPath('downloads'),
-  tempPath: app.getPath('temp'),
+let erasePreviousCaptions = null;
+ipcMain.handle('erase-captions', (event, opts) => {
+  erasePreviousCaptions ||= createCaptionEraser({
+    root: __dirname,
+    getFFmpeg: findFFmpegExecutable,
+    downloadsPath: app.getPath('downloads'),
+    tempPath: app.getPath('temp'),
+  });
+  return erasePreviousCaptions(opts, progress => {
+    try { if (!event.sender.isDestroyed?.()) event.sender.send('caption-erase-progress', progress); }
+    catch (_) { /* Closing the preview does not corrupt the original video. */ }
+  });
 });
-ipcMain.handle('erase-captions', (event, opts) => erasePreviousCaptions(opts, progress => {
-  try { if (!event.sender.isDestroyed?.()) event.sender.send('caption-erase-progress', progress); }
-  catch (_) { /* Closing the preview does not corrupt the original video. */ }
-}));
 
 
 

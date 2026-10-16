@@ -193,3 +193,11 @@ test('fixSpellingsWithGroq maintains strictly monotonic word timestamps when tok
     prevEnd = w.end;
   }
 });
+
+test('main.cjs falls back to Local Whisper when Groq engine is selected without an API key', () => {
+  const mainSrc = fs.readFileSync(path.join(root, 'main.cjs'), 'utf8');
+  assert.match(mainSrc, /function resolveConfiguredGroqApiKey\(/);
+  assert.match(mainSrc, /Groq API key is missing — falling back automatically to Local Whisper/);
+  assert.match(mainSrc, /effectiveEngine = 'local'/);
+});
+

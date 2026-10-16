@@ -940,6 +940,17 @@ function bootCaptionStudio() {
 
     const modeSelect = document.getElementById('cap2_captionContentMode');
     const engineSelect = document.getElementById('cap2_captionEngine');
+    const groqKeyInput = document.getElementById('cap2_captionGroqApiKey');
+    if (groqKeyInput) {
+        try {
+            const savedKey = (window.localStorage && window.localStorage.getItem('cb_groq_key')) || (window.electronAPI && typeof window.electronAPI.getGroqApiKey === 'function' ? window.electronAPI.getGroqApiKey() : '') || '';
+            if (savedKey && !groqKeyInput.value) groqKeyInput.value = savedKey;
+            groqKeyInput.addEventListener('change', () => {
+                const trimmed = groqKeyInput.value.trim();
+                if (trimmed && window.localStorage) window.localStorage.setItem('cb_groq_key', trimmed);
+            });
+        } catch (_) {}
+    }
     if (modeSelect) {
         let disclosure = document.getElementById('cap2_captionLocalModeDisclosure');
         if (!disclosure) {
