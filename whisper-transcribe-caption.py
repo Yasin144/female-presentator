@@ -731,6 +731,149 @@ def repair_known_nursery_lyrics(text, lang, segs, words):
     return repaired_text, lang, repaired_segs, repaired_words
 
 
+INDIC_SR_LANG_MAP = {
+    "te": "te-IN",
+    "hi": "hi-IN",
+    "ta": "ta-IN",
+    "kn": "kn-IN",
+    "ml": "ml-IN",
+    "mr": "mr-IN",
+    "bn": "bn-IN",
+    "gu": "gu-IN",
+    "pa": "pa-IN",
+    "ur": "ur-IN",
+}
+
+
+def transcribe_indic_with_vad_speech_recognition(audio_path: str, lang_code: str):
+    """Fast, accurate VAD-bounded speech recognition for Indic languages where small CPU Whisper loops."""
+    import concurrent.futures
+    import speech_recognition as sr
+
+    sr_lang = INDIC_SR_LANG_MAP.get(str(lang_code or "").lower().strip(), "te-IN")
+    duration = audio_duration_seconds(audio_path)
+    if duration <= 0:
+        return "", lang_code, [], []
+
+    try:
+        raw_ranges = caption_speech_ranges(audio_path)
+    except Exception:
+        raw_ranges = []
+
+    if not raw_ranges:
+        step = 10.0
+        raw_ranges = [
+            (round(i * step, 3), round(min(duration, (i + 1) * step), 3))
+            for i in range(max(1, int(math.ceil(duration / step))))
+        ]
+
+    merged_ranges = []
+    for start, end in raw_ranges:
+        start = max(0.0, float(start))
+        end = min(duration, float(end))
+        if end <= start:
+            continue
+        if merged_ranges and (start - merged_ranges[-1][1] < 0.35) and (end - merged_ranges[-1][0] <= 10.0):
+            merged_ranges[-1] = (merged_ranges[-1][0], end)
+        else:
+            merged_ranges.append((start, end))
+
+    windows = []
+    for start, end in merged_ranges:
+        cursor = start
+        while end - cursor > 12.0:
+            windows.append((round(cursor, 3), round(cursor + 10.0, 3)))
+            cursor += 10.0
+        if end > cursor:
+            windows.append((round(cursor, 3), round(end, 3)))
+
+    if not windows:
+        return "", lang_code, [], []
+
+    with wave.open(audio_path, "rb") as wf:
+        rate = wf.getframerate()
+        sampwidth = wf.getsampwidth()
+        total_frames = wf.getnframes()
+        raw_pcm = wf.readframes(total_frames)
+
+    bytes_per_frame = sampwidth
+    window_audio = []
+    for idx, (start, end) in enumerate(windows):
+        f0 = max(0, min(total_frames, int(start * rate)))
+        f1 = max(f0, min(total_frames, int(end * rate)))
+        chunk_bytes = raw_pcm[f0 * bytes_per_frame : f1 * bytes_per_frame]
+        window_audio.append((idx, start, end, chunk_bytes, rate, sampwidth))
+
+    def recognize_window(item):
+        idx, start, end, chunk_bytes, rate, sampwidth = item
+        if not chunk_bytes:
+            return idx, start, end, ""
+        recognizer = sr.Recognizer()
+        audio_data = sr.AudioData(chunk_bytes, rate, sampwidth)
+        for attempt in range(2):
+            try:
+                text = recognizer.recognize_google(audio_data, language=sr_lang)
+                return idx, start, end, clean(str(text or ""))
+            except sr.UnknownValueError:
+                return idx, start, end, ""
+            except Exception:
+                if attempt == 0:
+                    continue
+                return idx, start, end, ""
+        return idx, start, end, ""
+
+    print(f"[Whisper] Running VAD-guided Indic speech recognition ({sr_lang}) across {len(window_audio)} speech windows...", flush=True)
+    decoded_windows = [None] * len(window_audio)
+    completed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(recognize_window, item) for item in window_audio]
+        for fut in concurrent.futures.as_completed(futures):
+            idx, start, end, w_text = fut.result()
+            decoded_windows[idx] = (start, end, w_text)
+            completed += 1
+            pct = min(95, max(12, int((completed / len(window_audio)) * 90)))
+            print(f"PROGRESS:{pct}", flush=True)
+
+    words = []
+    prev_end = 0.0
+    max_dur = round(float(duration), 3)
+    for item in decoded_windows:
+        if not item:
+            continue
+        start, end, w_text = item
+        tokens = [tok.strip() for tok in w_text.split() if tok.strip()]
+        if not tokens:
+            continue
+        win_start = max(prev_end, round(float(start), 3))
+        win_end = min(max_dur, round(float(end), 3))
+        if win_end <= win_start + 0.02 * len(tokens):
+            win_end = min(max_dur, round(win_start + 0.05 * len(tokens), 3))
+        if win_end <= win_start:
+            continue
+        span = win_end - win_start
+        weights = [max(1, len(tok)) for tok in tokens]
+        total_weight = sum(weights)
+        acc = 0
+        for i, (tok, weight) in enumerate(zip(tokens, weights)):
+            w_s = round(win_start + (acc / total_weight) * span, 3)
+            acc += weight
+            w_e = win_end if i == len(tokens) - 1 else round(win_start + (acc / total_weight) * span, 3)
+            if w_s < prev_end:
+                w_s = prev_end
+            if w_e <= w_s:
+                w_e = round(min(win_end, w_s + 0.01), 3)
+            if w_e > w_s:
+                words.append({"word": tok, "start": w_s, "end": w_e})
+                prev_end = w_e
+
+    if not words or not valid_caption_word_timeline(words, duration):
+        return "", lang_code, [], []
+
+    full_text = clean(" ".join(w["word"] for w in words))
+    segs = caption_segments_from_words(words)
+    return full_text, lang_code, segs, words
+
+
 def get_whisper_model(model_size: str):
     """Load Whisper model trying CUDA GPU acceleration first, falling back to CPU."""
     from faster_whisper import WhisperModel
@@ -773,7 +916,20 @@ try:
         # need the small model even for English. Tiny is only a fallback.
         transcribe_model_size = "small"
         
-        if transcribe_model_size == "tiny":
+        if not song_mode and lang_hint in INDIC_SR_LANG_MAP:
+            del m
+            text, lang, segs, words = transcribe_indic_with_vad_speech_recognition(norm_path, lang_hint)
+            if not words or len(text.strip()) < 3:
+                print(f"[Whisper] Indic speech recognition returned empty; falling back to 'small' model in {lang_hint}...", flush=True)
+                m_small = get_whisper_model("small")
+                text, lang, segs, words = run_whisper_with_model(m_small, norm_path, lang_hint)
+                text, lang, segs, words = retry_sparse_with_child_speech_mode(
+                    m_small, norm_path, lang_hint, (text, lang, segs, words)
+                )
+                text, lang, segs, words = repair_covered_audio_speech(m_small, norm_path, lang_hint, (text, lang, segs, words))
+                text, lang, segs, words = verify_opening_speech(m_small, norm_path, lang_hint, (text, lang, segs, words))
+                text, lang, segs, words = repair_remaining_audio_gaps(m_small, norm_path, lang_hint, (text, lang, segs, words))
+        elif transcribe_model_size == "tiny":
             print(f"[Whisper] Keeping fast 'tiny' model for transcription in {lang_hint}...", flush=True)
             text, lang, segs, words = run_whisper_with_model(m, norm_path, lang_hint)
             # Young voices, accented English, and speech over music can be
@@ -800,24 +956,30 @@ try:
         primary_model = "small"
         fallback_model = "tiny"
         
-        # Pass 1: use primary model
-        primary = get_whisper_model(primary_model)
-        text, lang, segs, words = run_whisper_with_model(primary, norm_path, lang_hint)
-        text, lang, segs, words = retry_sparse_with_child_speech_mode(
-            primary, norm_path, lang_hint, (text, lang, segs, words)
-        )
-        text, lang, segs, words = repair_covered_audio_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
-        text, lang, segs, words = verify_opening_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
-        text, lang, segs, words = repair_remaining_audio_gaps(primary, norm_path, lang_hint, (text, lang, segs, words))
-        
-        # Pass 2: if it failed/empty, try fallback model
-        if (not song_mode and is_repetition_loop(text)) or len(text.strip()) < 3:
-            try:
-                text2, lang2, segs2, words2 = run_whisper(fallback_model, norm_path, lang_hint)
-                if not is_repetition_loop(text2) and len(text2.strip()) >= 3:
-                    text, lang, segs, words = text2, lang2, segs2, words2
-            except Exception:
-                pass
+        if not song_mode and lang_hint in INDIC_SR_LANG_MAP:
+            text, lang, segs, words = transcribe_indic_with_vad_speech_recognition(norm_path, lang_hint)
+        else:
+            text, lang, segs, words = "", lang_hint, [], []
+
+        if not words or len(text.strip()) < 3:
+            # Pass 1: use primary model
+            primary = get_whisper_model(primary_model)
+            text, lang, segs, words = run_whisper_with_model(primary, norm_path, lang_hint)
+            text, lang, segs, words = retry_sparse_with_child_speech_mode(
+                primary, norm_path, lang_hint, (text, lang, segs, words)
+            )
+            text, lang, segs, words = repair_covered_audio_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
+            text, lang, segs, words = verify_opening_speech(primary, norm_path, lang_hint, (text, lang, segs, words))
+            text, lang, segs, words = repair_remaining_audio_gaps(primary, norm_path, lang_hint, (text, lang, segs, words))
+            
+            # Pass 2: if it failed/empty, try fallback model
+            if (not song_mode and is_repetition_loop(text)) or len(text.strip()) < 3:
+                try:
+                    text2, lang2, segs2, words2 = run_whisper(fallback_model, norm_path, lang_hint)
+                    if not is_repetition_loop(text2) and len(text2.strip()) >= 3:
+                        text, lang, segs, words = text2, lang2, segs2, words2
+                except Exception:
+                    pass
 
     # Keep only decoded speech. Never reconstruct lyrics from a filename and
     # guessed timing: the recording may use a different version or omit lines.
