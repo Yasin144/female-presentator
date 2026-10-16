@@ -4,6 +4,8 @@ import StagePanel from './components/StagePanel';
 import MyExporter from './components/MyExporter/MyExporter';
 import QuoteStudio from './components/QuoteStudio/QuoteStudio';
 import VideoResizer from './components/VideoResizer/VideoResizer';
+import SrtVoiceStudio from './components/SrtVoiceStudio/SrtVoiceStudio';
+import Captioner2 from './components/Captioner2/Captioner2';
 import StudioIcon from './components/StudioIcon';
 import StudioHome, { HOME_MODULES, HOME_HELPERS } from './components/StudioHome';
 import StudioPreferences from './components/StudioPreferences';
@@ -13,13 +15,15 @@ const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer']);
+const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'srt-voice', 'captioner-2']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'home';
 const STUDIO_MODULES = [
   { id: 'presentator', label: 'Presentator', detail: 'Lessons & PDF presentations' },
+  { id: 'captioner-2', label: 'Captioner 2', detail: 'New AI Video Captioning & Workbench' },
   { id: 'quotes', label: 'Quote Studio', detail: 'Create a story from your words' },
   { id: 'exporter', label: 'My Exporter', detail: 'Edit, caption & export videos' },
   { id: 'resizer', label: 'Video Resizer', detail: 'A perfect fit for every platform' },
+  { id: 'srt-voice', label: 'SRT Voice Studio', detail: 'Timed subtitle voices and video export' },
 ];
 
 class CaptionErrorBoundary extends React.Component {
@@ -480,6 +484,7 @@ function App() {
       `${legacyAssetRoot}logo-data.js${_CB}`,
       `${legacyAssetRoot}script.js${_CB}`,
       `${legacyAssetRoot}caption-script.js${_CB}`,
+      `${legacyAssetRoot}caption-script-v2.js${_CB}`,
     ];
     const optionalScriptSources = [
       `${legacyAssetRoot}vendor/three.min.js`,
@@ -750,6 +755,12 @@ function App() {
           <ModuleErrorBoundary moduleName="Video Ratio Master">
                 <VideoResizer active={!captionOpen && currentModule === 'resizer'} />
           </ModuleErrorBoundary>
+        </div>
+        <div className="studio-module" data-workspace="srt-voice" style={{ display: (!captionOpen && currentModule === 'srt-voice') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="SRT Voice Studio"><SrtVoiceStudio active={!captionOpen && currentModule === 'srt-voice'} /></ModuleErrorBoundary>
+        </div>
+        <div className="studio-module" data-workspace="captioner-2" style={{ display: (!captionOpen && currentModule === 'captioner-2') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="Captioner 2"><Captioner2 onClose={backToHome} /></ModuleErrorBoundary>
         </div>
       </div>
 

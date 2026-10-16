@@ -14,6 +14,8 @@ Ports: 8434
 """
 
 import sys, json, re, os, time, urllib.parse, urllib.request
+from collections import OrderedDict
+from threading import Lock
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -52,15 +54,127 @@ LANG_LABELS = {
     "ar": "العربية",
 }
 
-def normalize_lang(lang):
-    return LANG_CODES.get(str(lang or "en").lower().strip(), "en")
+def normalize_lang(lang, allow_auto=False):
+    if lang is None or lang == "":
+        lang = "auto" if allow_auto else "en"
+    if not isinstance(lang, str):
+        raise ValueError("Language must be a supported language code")
+    code = LANG_CODES.get(lang.lower().strip())
+    if code is None or (code == "auto" and not allow_auto):
+        raise ValueError("Unsupported source language" if allow_auto else "Unsupported target language")
+    return code
+
+
+class TranslationUnavailable(RuntimeError):
+    """No provider returned a complete, valid caption translation."""
+
+
+def validate_texts(texts):
+    if not isinstance(texts, list) or not texts:
+        raise ValueError("texts must be a nonempty array of caption strings")
+    if any(not isinstance(item, str) or not item.strip() for item in texts):
+        raise ValueError("Every caption must be a nonempty string")
+    return [item.strip() for item in texts]
+
+
+def validate_results(results, expected_count):
+    if not isinstance(results, list) or len(results) != expected_count:
+        raise ValueError("Translation must return exactly one result for every caption")
+    if any(not isinstance(item, str) or not item.strip() for item in results):
+        raise ValueError("Every translated caption must be a nonempty string")
+    return [item.strip() for item in results]
+
+
+# Animal noun meanings verified against Cambridge's English-Telugu dictionary:
+# https://dictionary.cambridge.org/dictionary/english-telugu/tiger
+# The fox/jackal family shares the everyday Telugu noun, not the English species.
+# Forms are explicit nominative/accusative/dative/instrumental singular/plural;
+# never replace arbitrary Telugu substrings or guess an unfamiliar inflection.
+TELUGU_ANIMAL_FORMS = {
+    "tiger": ("పులి", "పులులు", "పులిని", "పులికి", "పులితో", "పులులను", "పులులకు", "పులులతో"),
+    "fox_jackal": ("నక్క", "నక్కలు", "నక్కను", "నక్కకు", "నక్కతో", "నక్కలను", "నక్కలకు", "నక్కలతో"),
+    "lion": ("సింహం", "సింహాలు", "సింహాన్ని", "సింహానికి", "సింహంతో", "సింహాలను", "సింహాలకు", "సింహాలతో"),
+    "elephant": ("ఏనుగు", "ఏనుగులు", "ఏనుగును", "ఏనుగుకు", "ఏనుగుతో", "ఏనుగులను", "ఏనుగులకు", "ఏనుగులతో"),
+    "deer": ("జింక", "జింకలు", "జింకను", "జింకకు", "జింకతో", "జింకలను", "జింకలకు", "జింకలతో"),
+    "giraffe": ("జిరాఫీ", "జిరాఫీలు", "జిరాఫీని", "జిరాఫీకి", "జిరాఫీతో", "జిరాఫీలను", "జిరాఫీలకు", "జిరాఫీలతో"),
+}
+ENGLISH_ANIMAL_GROUPS = {
+    "tiger": "tiger", "tigers": "tiger",
+    "fox": "fox_jackal", "foxes": "fox_jackal", "jackal": "fox_jackal", "jackals": "fox_jackal",
+    "lion": "lion", "lions": "lion", "elephant": "elephant", "elephants": "elephant",
+    "deer": "deer", "giraffe": "giraffe", "giraffes": "giraffe",
+}
+_ENGLISH_ANIMAL = re.compile(r"\b(" + "|".join(ENGLISH_ANIMAL_GROUPS) + r")\b", re.IGNORECASE)
+_NON_ANIMAL_USE = re.compile(
+    r"\b(?:tiger\s+(?:woods|shroff|sharks?|moths?|lil(?:y|ies)|snakes?|prawns?|shrimp)|"
+    r"paper\s+tigers?|fox\s+news|lion['’]s\s+share|mountain\s+lions?|sea\s+elephants?|"
+    r"elephant\s+in\s+the\s+room|(?:named|called|brand|movie|film|team)\s+[\"']?"
+    r"(?:tiger|fox|lion|elephant|deer|giraffe))\b", re.IGNORECASE)
+_TELUGU_WORD = re.compile(r"[\u0c00-\u0c7f]+")
+_ANIMAL_FORM = {form: (animal, index) for animal, forms in TELUGU_ANIMAL_FORMS.items()
+                for index, form in enumerate(forms)}
+_ANIMAL_FORM.update({"నక్కకి": ("fox_jackal", 3), "జింకకి": ("deer", 3), "ఏనుగుకి": ("elephant", 3)})
+
+
+def source_animal_terms(text, source="auto"):
+    if source not in ("en", "auto") or _NON_ANIMAL_USE.search(text):
+        return set()
+    if source == "auto" and any(char.isalpha() and not char.isascii() for char in text):
+        return set()
+    return {ENGLISH_ANIMAL_GROUPS[match.group().lower()] for match in _ENGLISH_ANIMAL.finditer(text)}
+
+
+def validate_caption_meaning(texts, results, target, source="auto"):
+    """Conservatively guard one explicit English animal per Telugu caption.
+
+    This verifies terminology, not general translation quality. Context never
+    permits moving an animal into a different cue. An unambiguous wrong noun
+    can be replaced using a known matching case/number; uncertainty rejects the
+    provider so the complete chunk falls back instead of publishing bad text.
+    """
+    results = validate_results(results, len(texts))
+    if target != "te":
+        return results
+    guarded = []
+    for original, translated in zip(texts, results):
+        expected = source_animal_terms(original, source)
+        if len(expected) != 1:
+            guarded.append(translated)
+            continue
+        animal = next(iter(expected))
+        matches = [(match, _ANIMAL_FORM[match.group()]) for match in _TELUGU_WORD.finditer(translated)
+                   if match.group() in _ANIMAL_FORM]
+        found = {term[0] for _, term in matches}
+        if found == {animal}:
+            guarded.append(translated)
+            continue
+        if len(found) != 1 or not matches:
+            raise ValueError("Caption animal terminology is missing or ambiguous")
+        # A single recognized wrong animal is correctable only within this cue.
+        # Do not perform a global fox-to-tiger replacement across the video.
+        for match, (_, form_index) in reversed(matches):
+            translated = (translated[:match.start()] + TELUGU_ANIMAL_FORMS[animal][form_index]
+                          + translated[match.end():])
+        guarded.append(translated)
+    return guarded
+
+
+def log_provider_failure(provider, error):
+    # Provider exceptions may contain request URLs, headers, or credentials.
+    # Log a useful error category without exposing those values or captions.
+    print(f"[Translate] {provider} unavailable ({type(error).__name__})", flush=True)
 
 
 # ── Translation cache (avoids re-translating the same text) ──────────────────
-_cache = {}
+_cache = OrderedDict()
+_cache_lock = Lock()
+CACHE_LIMIT = 256
+MAX_BATCH_ITEMS = 60
+MAX_BATCH_CHARACTERS = 2000
+MAX_REQUEST_BYTES = 1024 * 1024
 
 TELUGU_NARRATION_PROMPT = """You are a professional Telugu children's-story translator and voice-over script editor.
-Translate the supplied English narration into pure, natural, fluent Telugu.
+Detect the source language and translate the supplied narration into pure, natural, fluent Telugu.
 
 Rules:
 - Preserve the complete meaning, events, emotions, suspense, humour, dialogue, and moral.
@@ -73,25 +187,48 @@ Rules:
 - Do not summarize, omit, explain, censor, or invent events.
 - Return exactly one translated string for every input item, in the same order.
 - Caption boundaries may split sentences. Read all items as one continuous story before translating them.
+- Keep each item's meaning in that item's translation; do not move words to another caption.
+- Keep captions concise and use Telugu script so they remain readable within their original display times.
 - Output only a valid JSON array of strings. Do not use Markdown.
+"""
+
+
+def caption_translation_prompt(target, texts=None, source="auto"):
+    target_code = normalize_lang(target)
+    if target_code == "te":
+        constraints = []
+        for index, text in enumerate(texts or []):
+            animals = source_animal_terms(text, source)
+            if len(animals) == 1:
+                animal = next(iter(animals))
+                forms = TELUGU_ANIMAL_FORMS[animal]
+                constraints.append(f"- Cue {index + 1}: {animal.replace('_', '/')} = {forms[0]} (plural {forms[1]}).")
+        if constraints:
+            return (TELUGU_NARRATION_PROMPT + "\nSource-grounded animal terminology for each cue:\n"
+                    + "\n".join(constraints) + "\nPreserve these exact animals in their own cues. "
+                    "Use natural inflections. Tiger is పులి; fox/jackal is నక్క. Never substitute one for the other.\n")
+        return TELUGU_NARRATION_PROMPT
+    target_label = LANG_LABELS[target_code]
+    return f"""You are a professional caption translator.
+Translate every supplied caption into natural, fluent {target_label} ({target_code}).
+Use the target language's normal written script.
+Preserve meaning, names, numbers, punctuation, tone, and caption order.
+Do not summarize, omit, explain, censor, or invent anything.
+Return exactly one translated string for every input item, in the same order.
+Read all items as continuous narration so split sentences remain coherent.
+Keep each item's meaning in its own output item; do not move words across caption boundaries.
+Keep captions concise so they remain readable within their original display times.
+Output only a valid JSON array of strings. Do not use Markdown.
 """
 
 def local_ai_translate_batch(texts, target, source="auto"):
     """Translate a complete caption sequence with shared narrative context."""
     target_code = normalize_lang(target)
-    target_label = LANG_LABELS.get(target_code, target_code)
-
-    cleaned = [str(item or "").strip() for item in texts]
-    if source != "auto" and normalize_lang(source) == target_code:
+    source_code = normalize_lang(source, allow_auto=True)
+    cleaned = validate_texts(texts)
+    if source_code == target_code:
         return cleaned
-    system_prompt = TELUGU_NARRATION_PROMPT if target_code == "te" else f"""You are a professional caption translator.
-Translate every supplied caption into natural, fluent {target_label}.
-Preserve meaning, names, numbers, punctuation, tone, and caption order.
-Do not summarize, omit, explain, censor, or invent anything.
-Return exactly one translated string for every input item, in the same order.
-Read all items as one continuous narration so split sentences remain coherent.
-Output only a valid JSON array of strings. Do not use Markdown.
-"""
+    system_prompt = caption_translation_prompt(target_code, cleaned, source_code)
     request_body = json.dumps({
         "model": OLLAMA_MODEL,
         "stream": False,
@@ -113,24 +250,25 @@ Output only a valid JSON array of strings. Do not use Markdown.
     with urllib.request.urlopen(req, timeout=90) as resp:
         payload = json.loads(resp.read().decode("utf-8", "ignore"))
 
-    content = str(payload.get("message", {}).get("content", "")).strip()
+    if not isinstance(payload, dict) or not isinstance(payload.get("message"), dict):
+        raise ValueError("Local AI returned invalid translation content")
+    if payload.get("done") is False or payload.get("done_reason") == "length":
+        raise ValueError("Local AI did not finish the caption translation")
+    content = payload.get("message", {}).get("content", "")
+    if not isinstance(content, str):
+        raise ValueError("Local AI returned invalid translation content")
     parsed = json.loads(content)
     if isinstance(parsed, dict):
         parsed = parsed.get("translations") or parsed.get("results") or parsed.get("items")
-    if not isinstance(parsed, list) or len(parsed) != len(cleaned):
-        raise ValueError(
-            f"Local AI returned {len(parsed) if isinstance(parsed, list) else 'invalid'} "
-            f"items for {len(cleaned)} captions"
-        )
-    results = [str(item or "").strip() for item in parsed]
-    if any(not item for item in results):
-        raise ValueError("Local AI returned an empty translated caption")
-    return results
+    return validate_caption_meaning(cleaned, parsed, target_code, source_code)
 
 def gemini_translate_batch(texts, target, source="auto"):
-    """Create polished Telugu narration while preserving caption alignment."""
-    if normalize_lang(target) != "te":
-        raise ValueError("Narrative translation is currently enabled for Telugu only")
+    """Translate captions with shared context and preserve their item alignment."""
+    target_code = normalize_lang(target)
+    source_code = normalize_lang(source, allow_auto=True)
+    cleaned = validate_texts(texts)
+    if source_code == target_code:
+        return cleaned
     api_key = str(os.environ.get("GEMINI_API_KEY", "")).strip()
     if not api_key and os.path.exists(GEMINI_KEY_PATH):
         with open(GEMINI_KEY_PATH, "r", encoding="utf-8") as key_file:
@@ -138,8 +276,7 @@ def gemini_translate_batch(texts, target, source="auto"):
     if not api_key:
         raise ValueError("Gemini API key is not configured")
 
-    cleaned = [str(item or "").strip() for item in texts]
-    prompt = TELUGU_NARRATION_PROMPT + "\nINPUT JSON:\n" + json.dumps(cleaned, ensure_ascii=False)
+    prompt = caption_translation_prompt(target_code, cleaned, source_code) + "\nINPUT JSON:\n" + json.dumps(cleaned, ensure_ascii=False)
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -161,15 +298,22 @@ def gemini_translate_batch(texts, target, source="auto"):
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
         payload = json.loads(resp.read().decode("utf-8", "ignore"))
-    parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-    content = "".join(str(part.get("text", "")) for part in parts).strip()
+    if not isinstance(payload, dict):
+        raise ValueError("Gemini returned invalid translation content")
+    candidates = payload.get("candidates", [])
+    if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
+        raise ValueError("Gemini returned no completed caption translation")
+    candidate = candidates[0]
+    if candidate.get("finishReason") not in (None, "STOP"):
+        raise ValueError("Gemini did not finish the caption translation")
+    content_object = candidate.get("content", {})
+    if not isinstance(content_object, dict) or not isinstance(content_object.get("parts", []), list):
+        raise ValueError("Gemini returned invalid translation content")
+    parts = content_object.get("parts", [])
+    content = "".join(part["text"] for part in parts if isinstance(part, dict) and
+                      isinstance(part.get("text"), str) and not part.get("thought"))
     parsed = json.loads(content)
-    if not isinstance(parsed, list) or len(parsed) != len(cleaned):
-        raise ValueError(f"Gemini returned an invalid caption array ({len(parsed) if isinstance(parsed, list) else 'not a list'})")
-    results = [str(item or "").strip() for item in parsed]
-    if any(not item for item in results):
-        raise ValueError("Gemini returned an empty translated caption")
-    return results
+    return validate_caption_meaning(cleaned, parsed, target_code, source_code)
 
 def google_translate_direct(text, target, source="auto"):
     query = urllib.parse.urlencode({
@@ -187,87 +331,83 @@ def google_translate_direct(text, target, source="auto"):
 def deep_translate(text, target, source="auto"):
     from deep_translator import GoogleTranslator
     translator = GoogleTranslator(source=source, target=target)
-    return translator.translate(text) or text
+    return translator.translate(text)
 
 def translate_text(text, target, source="auto"):
-    text = str(text or "").strip()
-    if not text:
-        return ""
+    text = validate_texts([text])[0]
     target = normalize_lang(target)
-    source = normalize_lang(source) if source and source != "auto" else "auto"
-    cache_key = f"{source}→{target}:{text[:120]}"
-    if cache_key in _cache:
-        return _cache[cache_key]
-
-    if target == "te":
-        try:
-            result = gemini_translate_batch([text], target, source)[0]
-            _cache[cache_key] = result
-            print(f"[Translate] Telugu narration via Gemini: {text[:80]!r} -> {result[:120]!r}", flush=True)
-            return result
-        except Exception as e:
-            print(f"[Translate] Gemini Telugu narration unavailable; using local AI: {e}", flush=True)
-
-    try:
-        result = local_ai_translate_batch([text], target, source)[0]
+    source = normalize_lang(source, allow_auto=True)
+    if source == target:
+        return text
+    # The full source string matters: captions with the same first 120
+    # characters can have different endings, names, or instructions.
+    cache_key = (source, target, text)
+    with _cache_lock:
+        if cache_key in _cache:
+            _cache.move_to_end(cache_key)
+            return _cache[cache_key]
+    result = translate_batch([text], target, source)[0]
+    with _cache_lock:
         _cache[cache_key] = result
-        print(f"[Translate] Local AI ({target}): {text[:80]!r} -> {result[:120]!r}", flush=True)
-        return result
-    except Exception as e:
-        print(f"[Translate] Local AI unavailable; using compatibility fallback: {e}", flush=True)
+        _cache.move_to_end(cache_key)
+        while len(_cache) > CACHE_LIMIT:
+            _cache.popitem(last=False)
+    return result
 
-    engines = (
-        (google_translate_direct, deep_translate)
-        if target == "te"
-        else (deep_translate, google_translate_direct)
-    )
 
-    last_error = None
-    for engine in engines:
+def translate_chunk(texts, target, source):
+    for provider, translator in (("Gemini", gemini_translate_batch), ("Local AI", local_ai_translate_batch)):
         try:
-            result = engine(text, target, source) or text
-            _cache[cache_key] = result
-            if target == "te":
-                src_preview = text if len(text) <= 80 else text[:80] + "..."
-                result_preview = result if len(result) <= 120 else result[:120] + "..."
-                print(
-                    f"[Translate] Telugu via {engine.__name__}: "
-                    f"src_len={len(text)} out_len={len(result)} | "
-                    f"{src_preview!r} -> {result_preview!r}",
-                    flush=True
-                )
-            return result
-        except Exception as e:
-            last_error = e
-            print(f"[Translate] {engine.__name__} error: {e}", flush=True)
-
-    print(f"[Translate] All engines failed: {last_error}", flush=True)
-    return text
+            results = validate_caption_meaning(texts, translator(texts, target, source), target, source)
+            print(f"[Translate] {provider}: {len(results)} captions -> {target}", flush=True)
+            return results
+        except Exception as error:
+            log_provider_failure(provider, error)
+    # A failed AI batch must not retry both AI providers once per caption.
+    # Each compatibility provider either translates the whole chunk or fails;
+    # a partial list is never returned as a successful caption translation.
+    engines = (("Google direct", google_translate_direct), ("Google compatibility", deep_translate))
+    if target != "te":
+        engines = tuple(reversed(engines))
+    for provider, translator in engines:
+        try:
+            results = validate_caption_meaning(texts, [translator(text, target, source) for text in texts], target, source)
+            print(f"[Translate] {provider}: {len(results)} captions -> {target}", flush=True)
+            return results
+        except Exception as error:
+            log_provider_failure(provider, error)
+    raise TranslationUnavailable("No translation provider returned a complete caption translation")
 
 
 def translate_batch(texts, target, source="auto"):
-    """Translate captions together so narration retains story-wide context."""
-    if normalize_lang(target) == "te":
-        try:
-            results = gemini_translate_batch(texts, target, source)
-            print(f"[Translate] Telugu narrative batch via Gemini: {len(results)} captions", flush=True)
-            return results
-        except Exception as e:
-            print(f"[Translate] Gemini Telugu narrative batch failed; using local AI: {e}", flush=True)
-    try:
-        results = local_ai_translate_batch(texts, target, source)
-        print(f"[Translate] Local AI batch: {len(results)} captions -> {normalize_lang(target)}", flush=True)
-        return results
-    except Exception as e:
-        print(f"[Translate] Local AI batch failed; using compatibility fallback: {e}", flush=True)
-    return [translate_text(t, target, source) for t in texts]
+    """Return a complete ordered caption list, or fail without partial output."""
+    cleaned = validate_texts(texts)
+    target = normalize_lang(target)
+    source = normalize_lang(source, allow_auto=True)
+    if source == target:
+        return cleaned
+    results, chunk, characters = [], [], 0
+    # Bound context/output size for long videos while keeping adjacent cues
+    # together. Finish every chunk before returning any replacement captions.
+    for text in cleaned:
+        if chunk and (len(chunk) >= MAX_BATCH_ITEMS or characters + len(text) > MAX_BATCH_CHARACTERS):
+            results.extend(translate_chunk(chunk, target, source))
+            chunk, characters = [], 0
+        chunk.append(text)
+        characters += len(text)
+    if chunk:
+        results.extend(translate_chunk(chunk, target, source))
+    return validate_results(results, len(cleaned))
 
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
 class TranslateHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        print(f"[{time.strftime('%H:%M:%S')}] {fmt % args}", flush=True)
+        path = self.path.split("?", 1)[0]
+        if path not in ("/health", "/api/translate", "/api/translate/batch"):
+            path = "unknown endpoint"
+        print(f"[{time.strftime('%H:%M:%S')}] {getattr(self, 'command', 'HTTP')} {path}", flush=True)
 
     def _send_json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -294,43 +434,56 @@ class TranslateHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, 404)
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body   = self.rfile.read(length).decode("utf-8")
         try:
-            payload = json.loads(body)
-        except Exception:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0:
+                raise ValueError("Request body required")
+        except (TypeError, ValueError):
+            self._send_json({"error": "A valid Content-Length is required"}, 400)
+            return
+        if length > MAX_REQUEST_BYTES:
+            self._send_json({"error": "Translation request is too large"}, 413)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
             self._send_json({"error": "Invalid JSON"}, 400)
+            return
+        if not isinstance(payload, dict):
+            self._send_json({"error": "JSON object required"}, 400)
             return
 
         path = self.path.rstrip("/")
 
         if path == "/api/translate":
-            text   = str(payload.get("text", "")).strip()
-            target = str(payload.get("target", "en"))
-            source = str(payload.get("source", "auto"))
-            if not text:
-                self._send_json({"error": "text required"}, 400)
+            try:
+                text = validate_texts([payload.get("text")])[0]
+                target = normalize_lang(payload.get("target", "en"))
+                source = normalize_lang(payload.get("source", "auto"), allow_auto=True)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, 400)
                 return
             try:
-                result = translate_text(text, target, source)
-                self._send_json({"translated": result, "target": normalize_lang(target)})
+                result = validate_results([translate_text(text, target, source)], 1)[0]
+                self._send_json({"translated": result, "target": target})
             except Exception as exc:
-                print(f"[Translate] Request failed safely: {exc}", flush=True)
-                self._send_json({"error": str(exc)}, 502)
+                log_provider_failure("Translation request", exc)
+                self._send_json({"error": "Translation unavailable; no complete caption results were returned"}, 502)
 
         elif path == "/api/translate/batch":
-            texts  = [str(t) for t in payload.get("texts", [])]
-            target = str(payload.get("target", "en"))
-            source = str(payload.get("source", "auto"))
-            if not texts:
-                self._send_json({"error": "texts array required"}, 400)
+            try:
+                texts = validate_texts(payload.get("texts"))
+                target = normalize_lang(payload.get("target", "en"))
+                source = normalize_lang(payload.get("source", "auto"), allow_auto=True)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, 400)
                 return
             try:
-                results = translate_batch(texts, target, source)
-                self._send_json({"results": results, "target": normalize_lang(target)})
+                results = validate_results(translate_batch(texts, target, source), len(texts))
+                self._send_json({"results": results, "target": target})
             except Exception as exc:
-                print(f"[Translate] Batch request failed safely: {exc}", flush=True)
-                self._send_json({"error": str(exc)}, 502)
+                log_provider_failure("Caption batch request", exc)
+                self._send_json({"error": "Translation unavailable; no complete caption results were returned"}, 502)
 
         else:
             self._send_json({"error": "Unknown endpoint"}, 404)
@@ -342,7 +495,7 @@ if __name__ == "__main__":
     print("  Caption Translation Server", flush=True)
     print(f"  Port  : {PORT}", flush=True)
     print("  Langs : English | हिंदी | తెలుగు | தமிழ் | اردو | العربية", flush=True)
-    print("  Engine: Gemini (Telugu) + Local Ollama + Google last fallback", flush=True)
+    print("  Engine: Gemini + Local Ollama + Google last fallback", flush=True)
     print("=" * 55, flush=True)
 
     # Verify installation only. Do not spend provider quota or trigger HTTP 429

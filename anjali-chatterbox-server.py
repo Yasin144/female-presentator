@@ -569,12 +569,15 @@ print(f"[Voice] HF cache → {_HF_CACHE}", flush=True)
 PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
+SC3_REFERENCE = PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"
+if not SC3_REFERENCE.is_file():
+    SC3_REFERENCE = PROJECT_ROOT / "voice-reference-sc3.wav"
 
 VOICE_MAP = {
     # Chapter 9 SC3 recording is the approved natural voice reference for
     # Sing Song. Keep the legacy file as a fallback for existing installs.
-    "sc3":    str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
-    "anjali": str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
+    "sc3":    str(SC3_REFERENCE),
+    "anjali": str(SC3_REFERENCE),
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
     "uploaded": str(PROJECT_ROOT / "voice-reference-uploaded.wav"),
     "rhyme_clean": str(PROJECT_ROOT / "generated-media" / "rhyme-reference-stems" / "htdemucs" / "little-jack-horner-reference-30s" / "vocals.wav"),

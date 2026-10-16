@@ -37,6 +37,7 @@ test('unreadable duration fails instead of inventing lesson timing', async () =>
   const fn = load('measureNarrationBlobDurationMs', {
     URL: { createObjectURL: () => 'blob:test', revokeObjectURL: () => { revoked = true; } },
     createLoadedAudio: async () => ({ duration: Infinity }),
+    disposeRuntimeAudio: () => {},
   });
   await assert.rejects(fn(new Blob(['audio'])), /could not be verified/);
   assert.equal(revoked, true);

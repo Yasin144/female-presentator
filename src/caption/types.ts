@@ -1,9 +1,11 @@
 // Caption Burner — Types (v3 — auto-detect language)
 export interface WordItem { text: string; start: number; end: number; }
-export interface CaptionItem { start: number; end: number; text: string; words?: WordItem[]; }
+export interface CaptionItem { start: number; end: number; text: string; words?: WordItem[]; colorOverride?: string; }
 export type ItemStatus = 'idle'|'transcribing'|'transcribed'|'exporting'|'completed'|'failed'|'cancelled';
 export interface VideoMeta {
   name: string; mimeType: string; file?: File; base64?: string; duration?: number; width?: number; height?: number;
+  sourcePath?: string;
+  sourceUrl?: string;
 }
 export interface QueueItem {
   id: string; video: VideoMeta; status: ItemStatus;
@@ -12,6 +14,8 @@ export interface QueueItem {
   captions?: CaptionItem[]; outputUrl?: string;
   outputPath?: string; outputFileName?: string;
   detectedLang?: string;   // e.g. "Telugu", "Hindi"
+  captionTimingSource?: 'word' | 'estimated';
+  captionWarnings?: string[];
 }
 export type FontColor  = 'White'|'Yellow'|'Cyan'|'Black';
 export type BgColor    = 'Black (70%)'|'White (20%)'|'Black'|'Transparent';
@@ -31,10 +35,12 @@ export const CAPTION_LANGUAGES = [
 
 export type Language = typeof CAPTION_LANGUAGES[number];
 
-export type TranscriptionEngine = 'auto' | 'local' | 'groq';
+export type TranscriptionEngine = 'auto' | 'local' | 'groq' | 'gemini';
 
 export interface CaptionSettings {
   contentMode?: 'speech' | 'song';
+  audioMode?: 'original' | 'vocal-focus';
+  transcriptionHints?: string;
   fontSize: number;
   fontFamily?: string;
   textWidth?: number;

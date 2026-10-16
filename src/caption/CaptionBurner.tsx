@@ -6,9 +6,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   QueueItem, CaptionItem, CaptionSettings, WordItem, Language, CAPTION_LANGUAGES,
 } from './types';
-import { transcribeWithHuggingFace, testHFToken } from './transcribe';
-import { burnCaptions, spokenPhraseStart } from './burn';
+import { transcribeWithHuggingFace, testHFToken, fixSpellingsWithGroq } from './transcribe';
+import { burnCaptions, captionGroupAtTime } from './burn';
 import './caption-preview-layout.css';
+import CaptionWorkbench from './CaptionWorkbench';
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const uid    = () => Math.random().toString(36).slice(2, 10);
@@ -17,6 +18,15 @@ const QUEUE_EXPORT_FONT_SIZE = 50;
 const CAPTION_WORD_LIMIT = 8;
 const CAPTION_BOTTOM_OFFSET_PX = 80;
 const SHORT_CAPTION_GAP_SECONDS = 0.75;
+
+function captionFilePathToUrl(filePath: string): string {
+  const normalized = String(filePath || '').trim().replace(/\\/g, '/');
+  if (!normalized) return '';
+  const encoded = normalized.replace(/^\/+/, '').split('/').map((segment, index) =>
+    index === 0 && /^[a-z]:$/i.test(segment) ? segment : encodeURIComponent(segment)
+  ).join('/');
+  return (normalized.startsWith('//') ? 'file://' : 'file:///') + encoded;
+}
 
 function dlBlob(blob: Blob, name: string) {
   const u = URL.createObjectURL(blob);
@@ -185,6 +195,9 @@ export default function CaptionBurner({ onClose }: Props) {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration]   = useState(0);
+  const [previewSpeed, setPreviewSpeed] = useState(1);
+  const [loopCaption, setLoopCaption] = useState<{ start: number; end: number } | null>(null);
+  const previewLoopRef = useRef<{ start: number; end: number } | null>(null);
   // URL of the burned output video to show on canvas after export completes
   const [burnedVideoUrl, setBurnedVideoUrl] = useState<string | null>(null);
   const [aspectRatio, setAspectRatio] = useState<string>('16/9');
@@ -208,7 +221,7 @@ export default function CaptionBurner({ onClose }: Props) {
     language: 'English',
     offset: 0,
     maxWordsPerCaption: CAPTION_WORD_LIMIT,
-    engine: 'groq',
+    engine: (electronApi()?.getGroqApiKey?.() || '').trim() ? 'groq' : 'local',
   });
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -216,7 +229,17 @@ export default function CaptionBurner({ onClose }: Props) {
   const rafRef  = useRef(0);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const pendingAutoStartIdRef = useRef<string | null>(null);
+  const eraseJobRef = useRef<{ id: string; dispose?: () => void; disposed?: boolean } | null>(null);
+  useEffect(() => { previewLoopRef.current = loopCaption; }, [loopCaption]);
+  useEffect(() => { if (vidRef.current) vidRef.current.playbackRate = previewSpeed; }, [previewSpeed, videoUrl, burnedVideoUrl]);
+  useEffect(() => () => {
+    if (eraseJobRef.current) {
+      eraseJobRef.current.disposed = true;
+      eraseJobRef.current.dispose?.();
+    }
+  }, []);
   const activeItem = useMemo(() => queue.find(i => i.id === activeId), [queue, activeId]);
+  useEffect(() => { setLoopCaption(null); }, [activeId, activeItem?.captions, S.offset]);
   const activeVideoHeight = activeItem?.video.height || 1080;
   const previewFontSize = `calc(${S.fontSize} * 100cqh / ${activeVideoHeight})`;
   const previewBottomOffset = `calc(${CAPTION_BOTTOM_OFFSET_PX}px * 100cqh / ${activeVideoHeight})`;
@@ -228,6 +251,8 @@ export default function CaptionBurner({ onClose }: Props) {
   useEffect(() => {
     const loop = () => {
       if (vidRef.current && !vidRef.current.paused) {
+        const loop = previewLoopRef.current;
+        if (loop && vidRef.current.currentTime >= loop.end) vidRef.current.currentTime = loop.start;
         setCurTime(vidRef.current.currentTime);
       }
       rafRef.current = requestAnimationFrame(loop);
@@ -280,11 +305,16 @@ export default function CaptionBurner({ onClose }: Props) {
     }
     // Use native file path in Electron to avoid blob URL failures on large files
     const api = (window as any).electronAPI;
+    if (item.video.sourcePath) {
+      setVideoUrl(item.video.sourceUrl || captionFilePathToUrl(item.video.sourcePath));
+      setCurTime(0);
+      setIsPlaying(false);
+      return;
+    }
     if (api?.getPathForFile && !api?.isMobileRemote) {
       const filePath = api.getPathForFile(item.video.file);
       if (filePath) {
-        // Convert Windows backslashes to forward slashes for file:// URL
-        const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
+        const fileUrl = captionFilePathToUrl(filePath);
         setVideoUrl(fileUrl);
         return;
       }
@@ -293,10 +323,16 @@ export default function CaptionBurner({ onClose }: Props) {
     const u = URL.createObjectURL(item.video.file);
     setVideoUrl(u);
     return () => { URL.revokeObjectURL(u); };
-  }, [activeId, activeItem?.video.file]);
+  }, [activeId, activeItem?.video.file, activeItem?.video.sourcePath, activeItem?.video.sourceUrl]);
 
-  const upd = useCallback((id: string, p: Partial<QueueItem>) =>
-    setQueue(q => q.map(i => i.id === id ? { ...i, ...p } : i)), []);
+  const upd = useCallback((id: string, p: Partial<QueueItem>) => {
+    const change = p.captions ? {
+      status: 'transcribed' as const, outputUrl: undefined, outputPath: undefined,
+      outputFileName: undefined, ...p,
+    } : p;
+    if (id === activeId && p.captions) setBurnedVideoUrl(null);
+    setQueue(q => q.map(i => i.id === id ? { ...i, ...change } : i));
+  }, [activeId]);
 
   const settingsForItem = useCallback((item: QueueItem): CaptionSettings => ({
     ...S,
@@ -306,6 +342,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }), [S]);
 
   const setItemLanguage = useCallback((id: string, language: Language) => {
+    if (eraseJobRef.current) return;
     upd(id, {
       language,
       status: 'idle',
@@ -321,6 +358,7 @@ export default function CaptionBurner({ onClose }: Props) {
 
   // Remove a video from the queue
   const remove = useCallback((id: string) => {
+    if (eraseJobRef.current) return;
     setQueue(q => {
       const next = q.filter(i => i.id !== id);
       if (activeId === id) {
@@ -335,6 +373,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }, [activeId]);
 
   const clearAll = useCallback(() => {
+    if (eraseJobRef.current) return;
     for (const controller of Object.values(abortControllersRef.current)) controller.abort();
     abortControllersRef.current = {};
     if (typeof window.electronAPI?.cancelTranscribeVideo === 'function') {
@@ -373,6 +412,7 @@ export default function CaptionBurner({ onClose }: Props) {
     e?.name === 'AbortError' || /cancel/i.test(String(e?.message || e || ''));
 
   const cancelVideoItem = useCallback((id: string) => {
+    if (eraseJobRef.current) return;
     if (!id) return;
     const controller = abortControllersRef.current[id];
     if (controller) {
@@ -426,6 +466,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }, []);
 
   const addFiles = async (files: File[], opts: { language?: Language; autoStart?: boolean } = {}) => {
+    if (eraseJobRef.current) return;
     setError(null);
     const language = opts.language || S.language;
     const selectedVideos = files.filter(f => f.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
@@ -461,12 +502,14 @@ export default function CaptionBurner({ onClose }: Props) {
     setError(null);
     notify('Transcribe start', item.video.name);
     try {
-      const { captions, detectedLang } = await transcribeWithHuggingFace(
+      const { captions, detectedLang, timingSource, warnings } = await transcribeWithHuggingFace(
         item.video.file!, item.language || S.language, apiKey, S.maxWordsPerCaption,
         (msg, pct) => upd(item.id, { status: 'transcribing', message: msg, progress: pct }),
         S.engine,
         signal,
         S.contentMode || 'speech',
+        item.video.sourcePath,
+        { audioMode: S.audioMode, transcriptionHints: S.transcriptionHints },
       );
       const resolvedLanguage = item.language === 'Auto-Detect' && CAPTION_LANGUAGES.includes(detectedLang as Language)
         ? detectedLang as Language
@@ -475,6 +518,11 @@ export default function CaptionBurner({ onClose }: Props) {
         ...item,
         status: 'transcribed',
         captions,
+        captionTimingSource: timingSource,
+        captionWarnings: warnings,
+        outputUrl: undefined,
+        outputPath: undefined,
+        outputFileName: undefined,
         message: `Ready · ${detectedLang}`,
         detectedLang,
         language: resolvedLanguage,
@@ -483,6 +531,11 @@ export default function CaptionBurner({ onClose }: Props) {
       upd(item.id, {
         status: 'transcribed',
         captions,
+        captionTimingSource: timingSource,
+        captionWarnings: warnings,
+        outputUrl: undefined,
+        outputPath: undefined,
+        outputFileName: undefined,
         message: `Ready · ${detectedLang}`,
         detectedLang,
         language: resolvedLanguage,
@@ -501,7 +554,7 @@ export default function CaptionBurner({ onClose }: Props) {
       notify('Transcribe failed', `${item.video.name}: ${msg.slice(0, 80)}`);
       return null;
     }
-  }, [S.language, S.maxWordsPerCaption, S.engine, S.contentMode, apiKey, upd, notify]);
+  }, [S.language, S.maxWordsPerCaption, S.engine, S.contentMode, S.audioMode, S.transcriptionHints, apiKey, upd, notify]);
 
   // Burn captions
   const burnItem = useCallback(async (item: QueueItem, opts: { autoDownload?: boolean; phaseName?: string; signal?: AbortSignal; fontSize?: number } = {}) => {
@@ -525,6 +578,7 @@ export default function CaptionBurner({ onClose }: Props) {
           width: item.video.width,
           height: item.video.height,
           duration: item.video.duration,
+          sourcePath: item.video.sourcePath,
         },
       );
       const outputExtension = result.blob?.type?.includes('webm') ? 'webm' : 'mp4';
@@ -540,7 +594,7 @@ export default function CaptionBurner({ onClose }: Props) {
         outputUrl = URL.createObjectURL(result.blob);
       } else {
         saved = { filePath: result.outputPath || '', fileName: result.outputFileName || outputName };
-        outputUrl = `file:///${result.outputPath.replace(/\\/g, '/')}`;
+        outputUrl = captionFilePathToUrl(result.outputPath);
       }
 
       const nextItem: QueueItem = {
@@ -587,6 +641,15 @@ export default function CaptionBurner({ onClose }: Props) {
         if (!transcribed || !transcribed.captions?.length) return;
         itemToBurn = transcribed;
       }
+      if (S.contentMode === 'song') {
+        upd(item.id, {
+          status: 'transcribed',
+          message: 'Song captions ready · Review lyrics and timing before Export Video.',
+          progress: 100,
+        });
+        setAutoBurn(false);
+        return;
+      }
       const reviewLanguages = new Set(['Hindi', 'Telugu', 'Tamil', 'Kannada', 'Malayalam', 'Urdu', 'Arabic']);
       const resolvedDetectedLanguage = String(itemToBurn.detectedLang || itemToBurn.language || '');
       if (reviewLanguages.has(resolvedDetectedLanguage)) {
@@ -613,9 +676,10 @@ export default function CaptionBurner({ onClose }: Props) {
     } catch (e) {
       console.error(`[CaptionBurner] Failed to process ${item.video.name}:`, e);
     }
-  }, [transcribeItem, burnItem, autoBurn, upd, notify]);
+  }, [transcribeItem, burnItem, autoBurn, S.contentMode, upd, notify]);
 
   const runFullProcess = useCallback(async (item: QueueItem) => {
+    if (eraseJobRef.current) return;
     if (!item.video.file) return;
     if (abortControllersRef.current[item.id]) return; // already running
 
@@ -629,6 +693,30 @@ export default function CaptionBurner({ onClose }: Props) {
       setProc(Object.keys(abortControllersRef.current).length > 0);
     }
   }, [processSingleItem]);
+
+  const retranscribeItem = useCallback(async (item: QueueItem) => {
+    if (eraseJobRef.current || processing || !item.video.file) return;
+    if (abortControllersRef.current[item.id]) return;
+    const controller = new AbortController();
+    abortControllersRef.current[item.id] = controller;
+    setProc(true);
+    setEditingCapIndex(null);
+    setBurnedVideoUrl(null);
+    try {
+      // Explicitly decode again, even when this item already has edited captions.
+      // Retranscribe always stops at review, including when Auto Burn is enabled.
+      const transcribed = await transcribeItem(item, controller.signal);
+      if (transcribed?.captions?.length) {
+        upd(item.id, {
+          message: 'Captions regenerated · Review them, then click Export Video.',
+          progress: 100,
+        });
+      }
+    } finally {
+      delete abortControllersRef.current[item.id];
+      setProc(Object.keys(abortControllersRef.current).length > 0);
+    }
+  }, [processing, transcribeItem, upd]);
 
   useEffect(() => {
     const receiveCaptionImport = (event: Event) => {
@@ -666,6 +754,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }, []);
 
   const runAllProcesses = useCallback(async (startId?: string) => {
+    if (eraseJobRef.current) return;
     if (!queue.length) return;
     setProc(true);
     setBatch(true);
@@ -697,6 +786,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }, [queue, processSingleItem, orderQueueFrom]);
 
   const exportAllCaptions = useCallback(async (startId?: string) => {
+    if (eraseJobRef.current) return;
     if (!queue.length) return;
     setProc(true);
     setBatch(true);
@@ -728,6 +818,7 @@ export default function CaptionBurner({ onClose }: Props) {
   }, [queue, burnItem, orderQueueFrom]);
 
   const reburnItem = useCallback(async (item: QueueItem) => {
+    if (eraseJobRef.current) return;
     if (!item.video.file || !item.captions?.length) return;
     if (abortControllersRef.current[item.id]) return; // already running
 
@@ -743,56 +834,90 @@ export default function CaptionBurner({ onClose }: Props) {
   }, [burnItem]);
 
   const handleEraseCaptions = useCallback(async () => {
-    if (!activeItem || !activeItem.video.file || erasing) return;
+    if (!activeItem || !activeItem.video.file || eraseJobRef.current || processing || batchOn) return;
     const api = electronApi();
-    const filePath = api?.getPathForFile ? api.getPathForFile(activeItem.video.file) : null;
+    const filePath = activeItem.video.sourcePath || (api?.getPathForFile ? api.getPathForFile(activeItem.video.file) : null);
     if (!filePath) {
       setError('Could not get video file path. Make sure you are running inside the desktop app.');
       return;
     }
     
+    if (typeof api?.eraseCaptions !== 'function') {
+      setError('Caption erasing requires the local desktop app.');
+      return;
+    }
+    const item = activeItem;
+    const jobId = 'caption-erase-' + uid();
+    const job = { id: jobId, dispose: undefined as (() => void) | undefined, disposed: false };
+    eraseJobRef.current = job;
     setErasing(true);
     setError(null);
-    upd(activeItem.id, { status: 'exporting', message: 'Erasing bottom captions...', progress: 40 });
-    
+    vidRef.current?.pause();
+    upd(item.id, { status: 'exporting', message: 'Detecting previous captions throughout the video...', progress: 0 });
+    const onProgress = (data: any) => {
+      if (job.disposed || data?.jobId && data.jobId !== jobId || data?.filePath && data.filePath !== filePath) return;
+      const progress = Math.max(0, Math.min(99, Number(data?.pct ?? data?.progress) || 0));
+      upd(item.id, { progress, message: String(data?.message || data?.detail || 'Detecting and erasing previous captions...') });
+    };
     try {
-      const res = await api.eraseCaptions({ filePath });
+      if (typeof api.onCaptionEraseProgress === 'function') {
+        const unsubscribe = api.onCaptionEraseProgress(onProgress);
+        job.dispose = typeof unsubscribe === 'function' ? unsubscribe : () => api.offCaptionEraseProgress?.(onProgress);
+      }
+      const res = await api.eraseCaptions({ filePath, jobId });
+      if (job.disposed) return;
       if (!res || !res.ok) {
         throw new Error(res ? res.error : 'Caption erasing failed.');
       }
-      
-      upd(activeItem.id, {
-        status: 'completed',
-        outputPath: res.outputPath,
-        outputFileName: res.fileName,
-        outputUrl: URL.createObjectURL(new Blob([])), // placeholder to satisfy completed state check
-        message: 'Captions erased successfully!',
-        progress: 100
-      });
-      
-      setBurnedVideoUrl('file:///' + res.outputPath.replace(/\\/g, '/'));
-      
-      if (api?.showNotification) {
-        api.showNotification('Captions Erased!', 'Your clean video is ready in Downloads.');
+      if (res.noCaptionsDetected || res.changed === false) {
+        upd(item.id, { ...item, message: 'No previous captions detected. Source video and edited captions are unchanged.' });
+        return;
       }
-      
+      if (res.changed !== true || !res.outputPath) throw new Error('The eraser did not return a completed clean video.');
+      const fileName = res.fileName || res.outputFileName || String(res.outputPath).split(/[\\/]/).pop() || 'clean-video.mp4';
+      const cleanUrl = api.isMobileRemote && res.mobileDownloadUrl ? res.mobileDownloadUrl : captionFilePathToUrl(res.outputPath);
+      if (item.outputUrl?.startsWith('blob:')) URL.revokeObjectURL(item.outputUrl);
+      upd(item.id, {
+        video: { ...item.video, name: fileName, sourcePath: res.outputPath, sourceUrl: api.isMobileRemote ? res.mobileDownloadUrl : undefined },
+        status: 'idle',
+        captions: undefined,
+        detectedLang: undefined,
+        outputPath: undefined,
+        outputFileName: undefined,
+        outputUrl: undefined,
+        message: `Previous captions erased. Clean video loaded: ${fileName}. Generate new captions when ready.`,
+        progress: 0,
+      });
+      setVideoUrl(cleanUrl);
+      setBurnedVideoUrl(null);
+      setCurTime(0);
+      setIsPlaying(false);
+      setEditingCapIndex(null);
+      setEditingCapText('');
+      notify('Caption Eraser', `Clean video loaded: ${fileName}`);
     } catch (err: any) {
+      if (job.disposed) return;
       setError(err.message);
-      upd(activeItem.id, { status: 'failed', message: 'Erasing failed: ' + err.message, progress: 0 });
+      upd(item.id, { ...item, message: 'Erasing failed: ' + err.message + '. Source video and edited captions are unchanged.' });
     } finally {
-      setErasing(false);
+      job.dispose?.();
+      if (eraseJobRef.current === job) eraseJobRef.current = null;
+      if (!job.disposed) setErasing(false);
     }
-  }, [activeItem, erasing, upd]);
+  }, [activeItem, processing, batchOn, upd, notify]);
 
   // Batch runner: process the whole queue with limited concurrency so large
   // videos do not launch too many Whisper/FFmpeg jobs at once.
 
   const activeCap = useMemo(() => {
     if (!activeItem?.captions) return null;
-    const t = curTime - S.offset;
-    // Show caption for the full caption duration — don't hide during inter-word gaps
-    return activeItem.captions.find(c => t >= c.start && t <= c.end) ?? null;
-  }, [activeItem, curTime, S.offset]);
+    for (const caption of activeItem.captions) {
+      if (curTime < caption.start + S.offset || curTime >= caption.end + S.offset) continue;
+      const group = captionGroupAtTime(caption, curTime, S.maxWordsPerCaption, S.offset);
+      if (group) return group;
+    }
+    return null;
+  }, [activeItem, curTime, S.offset, S.maxWordsPerCaption]);
 
   // A style sample belongs beside the controls, never over untranscribed video.
   const previewCap = activeCap;
@@ -839,7 +964,8 @@ export default function CaptionBurner({ onClose }: Props) {
     upd(activeId, {
       captions: updatedCaps,
       status: 'transcribed',
-      message: 'Edit saved with original timing · ready to burn',
+      message: existingWords.length === tokens.length ? 'Edit saved with original timing · ready to burn' : 'Edit saved · Review estimated word timing before export.',
+      captionTimingSource: existingWords.length === tokens.length ? activeItem.captionTimingSource : 'estimated',
       progress: 0,
       outputUrl: undefined,
       outputPath: undefined,
@@ -883,7 +1009,7 @@ export default function CaptionBurner({ onClose }: Props) {
     ? Math.min(100, Math.round(((completedCount + (currentWorkingItem ? currentItemPct / 100 : 0)) / queue.length) * 100))
     : 0;
   const queuePhaseLabel = currentWorkingItem
-    ? currentWorkingItem.status === 'exporting' ? 'Exporting captions' : 'Generating captions'
+    ? erasing ? 'Detecting and erasing captions' : currentWorkingItem.status === 'exporting' ? 'Exporting captions' : 'Generating captions'
     : isAllDone ? 'Queue complete'
     : queue.length ? 'Queue ready'
     : 'No videos loaded';
@@ -904,11 +1030,15 @@ export default function CaptionBurner({ onClose }: Props) {
     return 2;
   }, [queue, activeItem]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (vidRef.current) {
       if (vidRef.current.paused) {
-        vidRef.current.play().catch(() => {});
-        setIsPlaying(true);
+        try {
+          await vidRef.current.play();
+        } catch (error: any) {
+          setIsPlaying(false);
+          setError(`Preview failed: ${error?.message || error}`);
+        }
       } else {
         vidRef.current.pause();
         setIsPlaying(false);
@@ -948,8 +1078,8 @@ export default function CaptionBurner({ onClose }: Props) {
 
   // Active item derived action state
   const isWorking     = activeItem && (activeItem.status === 'transcribing' || activeItem.status === 'exporting');
-  const canStart      = !!activeItem && !!activeItem.video.file && !isWorking;
-  const canBurn       = activeItem && activeItem.captions?.length;
+  const canStart      = !!activeItem && !!activeItem.video.file && !isWorking && !erasing;
+  const canBurn       = !erasing && activeItem && activeItem.captions?.length;
   const canDownload   = activeItem && activeItem.status === 'completed' && activeItem.outputUrl;
   const captionReadyCount = queue.filter(i => i.video.file && i.captions?.length && i.status !== 'cancelled').length;
   const queueRunnableCount = queue.filter(i =>
@@ -985,13 +1115,14 @@ export default function CaptionBurner({ onClose }: Props) {
         accept="video/*"
         multiple
         className="hidden"
+        disabled={erasing}
         onChange={e => {
           addFiles(Array.from(e.target.files ?? []));
           e.currentTarget.value = '';
         }}
       />
 
-      {currentWorkingItem && (
+      {currentWorkingItem && !erasing && (
         <button
           type="button"
           className="cb-global-cancel"
@@ -1047,6 +1178,7 @@ export default function CaptionBurner({ onClose }: Props) {
 
         <button
           onClick={onClose}
+          disabled={erasing}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-white transition-all text-sm font-bold"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
         >
@@ -1176,6 +1308,7 @@ export default function CaptionBurner({ onClose }: Props) {
                     className="w-full h-full object-contain"
                     onTimeUpdate={() => setCurTime(vidRef.current?.currentTime ?? 0)}
                     onLoadedMetadata={e => {
+                      e.currentTarget.playbackRate = previewSpeed;
                       setDuration(e.currentTarget.duration);
                       const w = e.currentTarget.videoWidth;
                       const h = e.currentTarget.videoHeight;
@@ -1195,6 +1328,15 @@ export default function CaptionBurner({ onClose }: Props) {
                     }}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
+                    onEnded={() => {
+                      const loop = previewLoopRef.current;
+                      const video = vidRef.current;
+                      if (loop && video) {
+                        video.currentTime = loop.start;
+                        setCurTime(loop.start);
+                        video.play().catch(() => setIsPlaying(false));
+                      }
+                    }}
                     onClick={togglePlay}
                   />
                   {!burnedVideoUrl && previewCap && (
@@ -1238,8 +1380,8 @@ export default function CaptionBurner({ onClose }: Props) {
                       >
                         {(() => {
                           const allWords = getWords(previewCap);
-                          const t = curTime - S.offset;
-                          let activeIndex = allWords.findIndex(w => t >= w.start && t <= w.end);
+                          const t = curTime;
+                          let activeIndex = allWords.findIndex(w => t >= w.start && t < w.end);
                           if (activeIndex < 0) {
                             activeIndex = allWords.findIndex((w, index) => {
                               const next = allWords[index + 1];
@@ -1329,6 +1471,22 @@ export default function CaptionBurner({ onClose }: Props) {
               </div>
 
               {/* ── Burned-output action bar: shown when a completed video is on canvas ── */}
+              <div className="flex items-center gap-3 text-xs text-slate-300">
+                <label>Review speed <select aria-label="Caption review speed" value={previewSpeed} onChange={e => setPreviewSpeed(Number(e.target.value))} className="bg-slate-900 rounded px-2 py-1">
+                  {[0.5, 0.75, 1, 1.25, 1.5].map(speed => <option key={speed} value={speed}>{speed}×</option>)}
+                </select></label>
+                <button type="button" disabled={!activeCap && !loopCaption} aria-pressed={!!loopCaption} onClick={() => {
+                  if (loopCaption) { setLoopCaption(null); return; }
+                  if (!activeCap || !vidRef.current) return;
+                  const start = Math.max(0, activeCap.start);
+                  const end = Math.min(duration || Infinity, activeCap.end);
+                  if (end <= start) return;
+                  setLoopCaption({ start, end });
+                  vidRef.current.currentTime = start;
+                  vidRef.current.play().catch(() => {});
+                }} className="rounded px-3 py-1 bg-slate-800 disabled:opacity-40">{loopCaption ? 'Stop caption loop' : 'Loop current caption'}</button>
+                <span className="text-[10px] text-slate-500">Review controls do not change the export.</span>
+              </div>
               {burnedVideoUrl && activeItem?.status === 'completed' && (
                 <div
                   className="flex items-center gap-2 w-full"
@@ -1407,11 +1565,11 @@ export default function CaptionBurner({ onClose }: Props) {
               </div>
               <div className="flex items-center gap-1.5">
                 {completedCount > 0 && (
-                  <button onClick={downloadZip} disabled={isZipping} className="px-2 py-1 rounded-lg text-[8px] font-bold text-emerald-400 hover:text-emerald-300 transition-all" style={{ background: 'rgba(16,185,129,0.10)' }}>
+                  <button onClick={downloadZip} disabled={isZipping || erasing} className="px-2 py-1 rounded-lg text-[8px] font-bold text-emerald-400 hover:text-emerald-300 transition-all" style={{ background: 'rgba(16,185,129,0.10)' }}>
                     <IconZip /> {isZipping ? 'Zipping' : 'Zip'}
                   </button>
                 )}
-                <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 rounded-lg text-[9px] font-bold text-white transition-all" style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)' }}>
+                <button onClick={() => fileRef.current?.click()} disabled={erasing} className="px-3 py-1.5 rounded-lg text-[9px] font-bold text-white transition-all" style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)' }}>
                   <IconPlus /> Add
                 </button>
                 {queue.length > 0 && (
@@ -1489,7 +1647,7 @@ export default function CaptionBurner({ onClose }: Props) {
                 <div className="mt-2 rounded-xl" style={{ padding: 9, background: 'rgba(15,23,42,0.58)', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[8px] font-bold text-slate-300 truncate">
-                      {currentWorkingItem.status === 'exporting' ? 'Burning' : 'Transcribing'} · {currentWorkingItem.video.name}
+                      {erasing ? 'Detecting and erasing captions' : currentWorkingItem.status === 'exporting' ? 'Burning' : 'Transcribing'} · {currentWorkingItem.video.name}
                     </span>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-[9px] font-black text-white">
@@ -1497,6 +1655,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       </span>
                       <button
                         onClick={cancelCurrentVideo}
+                        disabled={erasing}
                         className="w-6 h-6 rounded-lg text-[10px] font-black text-rose-300 hover:text-white transition-all"
                         style={{ background: 'rgba(244,63,94,0.14)', border: '1px solid rgba(244,63,94,0.24)' }}
                         title="Cancel current video"
@@ -1527,7 +1686,7 @@ export default function CaptionBurner({ onClose }: Props) {
                   return (
                     <div
                       key={item.id}
-                      onClick={() => setActiveId(item.id)}
+                      onClick={() => { if (!eraseJobRef.current) setActiveId(item.id); }}
                       className="text-left rounded-xl transition-all"
                       style={{ padding: 10, background: isActive ? 'rgba(14,165,233,0.14)' : 'rgba(15,23,42,0.48)', border: `1px solid ${isActive ? 'rgba(14,165,233,0.34)' : 'rgba(255,255,255,0.05)'}` }}
                     >
@@ -1543,6 +1702,7 @@ export default function CaptionBurner({ onClose }: Props) {
                         {(item.status === 'transcribing' || item.status === 'exporting') ? (
                           <button
                             onClick={e => { e.stopPropagation(); cancelVideoItem(item.id); }}
+                            disabled={erasing}
                             className="w-5 h-5 rounded text-[8px] font-black text-rose-300 hover:text-white transition-all"
                             style={{ marginLeft: 'auto', background: 'rgba(244,63,94,0.14)', border: '1px solid rgba(244,63,94,0.24)' }}
                             title="Cancel this video"
@@ -1552,7 +1712,7 @@ export default function CaptionBurner({ onClose }: Props) {
                             {item.captions?.length && (
                               <button
                                 onClick={e => { e.stopPropagation(); setActiveId(item.id); reburnItem(item); }}
-                                disabled={processing}
+                                disabled={processing || erasing}
                                 className="h-5 rounded px-2 text-[8px] font-black text-amber-200 hover:text-white transition-all disabled:opacity-40"
                                 style={{ marginLeft: 'auto', background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.24)' }}
                                 title="Export this video"
@@ -1560,6 +1720,7 @@ export default function CaptionBurner({ onClose }: Props) {
                             )}
                             <button
                               onClick={e => { e.stopPropagation(); remove(item.id); }}
+                              disabled={erasing}
                               className="w-5 h-5 rounded text-[8px] font-black text-slate-400 hover:text-rose-400 transition-all"
                               style={{ marginLeft: item.captions?.length ? 0 : 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
                               title="Remove video from list"
@@ -1569,7 +1730,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       </div>
                       <select
                         value={item.language || S.language}
-                        disabled={item.status === 'transcribing' || item.status === 'exporting' || processing}
+                        disabled={item.status === 'transcribing' || item.status === 'exporting' || processing || erasing}
                         onClick={e => e.stopPropagation()}
                         onChange={e => {
                           e.stopPropagation();
@@ -1603,14 +1764,45 @@ export default function CaptionBurner({ onClose }: Props) {
                 )}
               </div>
               <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0" style={{ padding: 12, overscrollBehavior: 'contain', scrollbarGutter: 'stable' }}>
+                {activeItem && <CaptionWorkbench
+                  key={activeItem.id}
+                  itemId={activeItem.id}
+                  videoName={activeItem.video.name}
+                  captions={activeItem.captions || []}
+                  duration={activeItem.video.duration || duration || undefined}
+                  disabled={processing || batchOn || erasing || !!isWorking}
+                  timingSource={activeItem.captionTimingSource}
+                  warnings={activeItem.captionWarnings}
+                  onChange={(captions, metadata) => {
+                    setBurnedVideoUrl(null);
+                    setEditingCapIndex(null);
+                    upd(activeItem.id, {
+                      captions, status: 'transcribed', progress: 100,
+                      captionTimingSource: metadata ? metadata.timingSource : activeItem.captionTimingSource,
+                      captionWarnings: metadata ? metadata.warnings : activeItem.captionWarnings,
+                      outputUrl: undefined, outputPath: undefined, outputFileName: undefined,
+                      message: 'Captions updated · Review before Export Video.',
+                    });
+                  }}
+                  onSeek={time => {
+                    if (!vidRef.current) return;
+                    vidRef.current.pause();
+                    const target = Math.max(0, Math.min(time + S.offset, vidRef.current.duration || Infinity));
+                    vidRef.current.currentTime = target;
+                    setCurTime(target);
+                    setIsPlaying(false);
+                  }}
+                  onNotice={message => upd(activeItem.id, { message })}
+                />}
+                <fieldset disabled={processing || batchOn || erasing || !!isWorking} style={{ display: 'contents' }}>
                 {activeItem?.captions?.length ? activeItem.captions.map((cap, i) => {
                   const t = Math.max(0, curTime - S.offset);
-                  const active = t >= cap.start && t <= cap.end;
+                  const active = t >= cap.start && t < cap.end;
                   const isEditing = editingCapIndex === i;
                   return (
                     <div key={i} className="rounded-xl" style={{ padding: 10, background: active ? 'rgba(99,102,241,0.16)' : 'rgba(15,23,42,0.48)', border: `1px solid ${active ? 'rgba(129,140,248,0.35)' : 'rgba(255,255,255,0.05)'}` }}>
                       <div className="flex items-center justify-between gap-2">
-                        <button className="text-[8px] font-mono text-indigo-300" onClick={() => { if (vidRef.current) { vidRef.current.currentTime = cap.start; vidRef.current.play().catch(() => {}); setIsPlaying(true); } }}>
+                        <button className="text-[8px] font-mono text-indigo-300" onClick={() => { if (vidRef.current) { vidRef.current.currentTime = Math.max(0, Math.min(cap.start + S.offset, vidRef.current.duration || Infinity)); vidRef.current.play().catch(() => {}); setIsPlaying(true); } }}>
                           {fmt(cap.start)}
                         </button>
                         <div className="flex items-center gap-2">
@@ -1652,8 +1844,11 @@ export default function CaptionBurner({ onClose }: Props) {
                   onClick={() => {
                     if (!activeItem) return;
                     const caps = activeItem.captions || [];
-                    const start = caps.length ? caps[caps.length - 1].end + 0.1 : 0;
-                    const newCap = { start, end: start + 3, text: 'New caption' };
+                    const start = caps.length ? Math.max(...caps.map(c => c.end)) + 0.1 : 0;
+                    const mediaEnd = activeItem.video.duration || duration || Infinity;
+                    const end = Math.min(start + 3, mediaEnd);
+                    if (end <= start) { setError('There is no space after the last caption. Adjust its timing or split an existing caption.'); return; }
+                    const newCap = { start, end, text: 'New caption' };
                     upd(activeItem.id, { captions: [...caps, newCap] });
                     setEditingCapIndex(caps.length);
                     setEditingCapText('New caption');
@@ -1663,6 +1858,8 @@ export default function CaptionBurner({ onClose }: Props) {
                 >
                   + Add Caption
                 </button>
+                </fieldset>
+
               </div>
             </div>
           </aside>
@@ -1704,7 +1901,7 @@ export default function CaptionBurner({ onClose }: Props) {
                   Auto Burn {autoBurn ? 'ON' : 'OFF'}
                 </button>
                 <button
-                  disabled={queue.length === 0 || queueRunnableCount === 0 || processing}
+                  disabled={queue.length === 0 || queueRunnableCount === 0 || processing || erasing}
                   onClick={() => runAllProcesses(activeId || undefined)}
                   className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1.5"
                   style={{ color: batchOn ? '#fcd34d' : '#cbd5e1', background: batchOn ? 'rgba(245,158,11,0.14)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -1719,7 +1916,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       : `Generate Captions (${queueRunnableCount})`}
                 </button>
                 <button
-                  disabled={captionReadyCount === 0 || processing}
+                  disabled={captionReadyCount === 0 || processing || erasing}
                   onClick={() => exportAllCaptions(activeId || undefined)}
                   className="px-3 py-1.5 rounded-lg text-[9px] font-bold transition-all"
                   style={{ color: '#fcd34d', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.24)' }}
@@ -1766,7 +1963,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       const cap = activeCap || activeItem?.captions?.[0];
                       if (vidRef.current && cap) {
                         vidRef.current.pause();
-                        vidRef.current.currentTime = Math.max(0, cap.start + S.offset + 0.01);
+                        vidRef.current.currentTime = Math.max(0, cap.start + (activeCap ? 0 : S.offset) + 0.01);
                         setCurTime(vidRef.current.currentTime);
                         vidRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
                       }
@@ -1795,15 +1992,15 @@ export default function CaptionBurner({ onClose }: Props) {
                 </OptionCard>
 
                 <OptionCard title="AI">
-                  <SelectRow label="Audio content" value={S.contentMode === 'song' ? 'Song / lyrics (local)' : 'Speech'} options={['Speech', 'Song / lyrics (local)']} onChange={v => setS(s => ({ ...s, contentMode: v === 'Speech' ? 'speech' : 'song', engine: v === 'Speech' ? s.engine : 'local' }))} />
+                  <SelectRow label="Audio content" value={S.contentMode === 'song' ? 'Song / lyrics' : 'Speech'} options={['Speech', 'Song / lyrics']} onChange={v => setS(s => ({ ...s, contentMode: v === 'Speech' ? 'speech' : 'song', engine: v === 'Speech' ? (s.engine === 'gemini' ? 'local' : s.engine) : (s.engine === 'gemini' ? 'gemini' : 'local') }))} />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
                     <SelectRow
                       label="Engine"
-                      value={S.engine === 'auto' ? 'Auto (Local → Groq)' : S.engine === 'local' ? 'Local CPU (Slow)' : 'Groq API (Fast)'}
-                      options={['Auto (Local → Groq)', 'Local CPU (Slow)', 'Groq API (Fast)']}
+                      value={S.engine === 'gemini' ? 'Gemini song accuracy' : S.engine === 'auto' ? 'Auto (Local → Groq)' : S.engine === 'local' ? 'Local CPU (Slow)' : 'Groq API (Fast)'}
+                      options={['Auto (Local → Groq)', 'Local CPU (Slow)', 'Groq API (Fast)', 'Gemini song accuracy']}
                       onChange={v => {
-                        const engine = v.includes('Auto') ? 'auto' : v.includes('Local') ? 'local' : 'groq';
-                        setS(s => ({ ...s, engine }));
+                        const engine = v.includes('Gemini') ? 'gemini' : v.includes('Auto') ? 'auto' : v.includes('Local') ? 'local' : 'groq';
+                        setS(s => ({ ...s, engine, contentMode: engine === 'gemini' ? 'song' : s.contentMode }));
                       }}
                     />
                     <SelectRow
@@ -1818,7 +2015,7 @@ export default function CaptionBurner({ onClose }: Props) {
                         }
                       }}
                     />
-                    <div className="flex flex-col gap-1.5" style={{ gridColumn: '1 / -1' }}>
+                    {S.engine !== 'gemini' && <div className="flex flex-col gap-1.5" style={{ gridColumn: '1 / -1' }}>
                       <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">Groq API Key (Optional)</span>
                       <div className="flex gap-2">
                         <input
@@ -1838,8 +2035,20 @@ export default function CaptionBurner({ onClose }: Props) {
                           {testing ? '...' : 'Verify'}
                         </button>
                       </div>
-                    </div>
-                    {testResult && <p className="text-[9px] text-slate-400" style={{ gridColumn: '1 / -1' }}>{testResult}</p>}
+                    </div>}
+                    {S.engine !== 'gemini' && testResult && <p className="text-[9px] text-slate-400" style={{ gridColumn: '1 / -1' }}>{testResult}</p>}
+                    {S.engine === 'gemini' && <p className="text-[9px] text-slate-400" style={{ gridColumn: '1 / -1' }}>Sends audio to Google Gemini. Recovers song lyrics; word timing is estimated, so review synchronization.</p>}
+                    {S.contentMode === 'song' && <label className="text-xs text-slate-300" style={{ gridColumn: '1 / -1' }}>
+                      <input type="checkbox" checked={S.audioMode === 'vocal-focus'} onChange={e => setS(s => ({ ...s, audioMode: e.target.checked ? 'vocal-focus' : 'original' }))} /> Reduce background music before transcription
+                      <span className="block text-[10px] text-slate-400 mt-1">Uses the local vocal separator. This takes longer and can affect overlapping voices; your video audio stays unchanged.</span>
+                    </label>}
+                    {(S.engine === 'local' || S.engine === 'gemini' || S.contentMode === 'song') && <label className="text-xs text-slate-300" style={{ gridColumn: '1 / -1' }}>
+                      Names or vocabulary to recognize
+                      <textarea value={S.transcriptionHints || ''} maxLength={1000} rows={2} onChange={e => setS(s => ({ ...s, transcriptionHints: e.target.value }))} placeholder="Optional names, spellings, or short phrases heard in this recording" className="w-full rounded-lg p-2 mt-1 bg-slate-950 text-slate-200" />
+                      <span className="block text-[10px] text-slate-400">Hints help recognition. Paste complete lyrics in Advanced caption tools to correct the text using existing timing.</span>
+                    </label>}
+                    {!!activeItem?.captions?.length && <p className="text-[9px] text-slate-400" style={{ gridColumn: '1 / -1' }}>Use Retranscribe to apply audio content or engine changes to existing captions.</p>}
+                    {activeItem?.captionTimingSource === 'estimated' && <p className="text-[9px] text-amber-300" style={{ gridColumn: '1 / -1' }}>These captions use estimated word timing. Review synchronization before exporting.</p>}
                   </div>
                 </OptionCard>
               </div>
@@ -1848,7 +2057,7 @@ export default function CaptionBurner({ onClose }: Props) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => activeItem && (canBurn ? reburnItem(activeItem) : runAllProcesses(activeItem.id))}
-                    disabled={(!canStart && !canBurn) || !!isWorking}
+                    disabled={(!canStart && !canBurn) || !!isWorking || erasing}
                     className="flex-1 py-2.5 rounded-xl font-bold text-[11px] flex items-center justify-center gap-2 transition-all disabled:opacity-30"
                     style={{
                       background: canBurn 
@@ -1868,9 +2077,9 @@ export default function CaptionBurner({ onClose }: Props) {
                   </button>
                   {canBurn && (
                     <button
-                      onClick={() => activeItem && runFullProcess(activeItem)}
+                      onClick={() => activeItem && retranscribeItem(activeItem)}
                       disabled={!!isWorking || processing}
-                      title="Retranscribe & Translate with current settings"
+                      title="Generate new captions with current audio content, engine and language"
                       className="py-2.5 px-4 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all hover:bg-slate-800 disabled:opacity-30"
                       style={{ border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}
                     >
@@ -1882,7 +2091,6 @@ export default function CaptionBurner({ onClose }: Props) {
                   <button
                     onClick={async () => {
                       if (!activeItem?.captions || !apiKey) return;
-                      const { fixSpellingsWithGroq } = await import('./transcribe');
                       try {
                         const fixed = await fixSpellingsWithGroq(
                           activeItem.captions, 
@@ -1923,7 +2131,7 @@ export default function CaptionBurner({ onClose }: Props) {
                       color: '#fca5a5'
                     }}
                   >
-                    🧹 {erasing ? 'Erasing...' : 'Caption Eraser (delogo)'}
+                    🧹 {erasing ? 'Detecting / Erasing...' : 'Detect & Erase Previous Captions'}
                   </button>
                 )}
               </div>

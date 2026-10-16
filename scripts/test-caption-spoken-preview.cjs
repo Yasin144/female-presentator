@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { stripTypeScriptTypes } = require('node:module');
+const stripTypeScriptTypes = require('node:module').stripTypeScriptTypes || (code => require('sucrase').transform(code, { transforms: ['typescript'] }).code);
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
 const root = path.join(__dirname, '..');
@@ -61,7 +61,7 @@ test('white-yellow karaoke keeps inactive white text readable on pale video', ()
   assert.match(ass, /Style: Default,Arial,110,[^\n]*,\d+,\d+,1,/);
   assert.match(ass, /Style: Default,Arial,110,[^\n]*&H00101820/);
   assert.match(read('src/caption/CaptionBurner.tsx'), /-1px -1px 0 #17212b/);
-  assert.match(read('caption-script.js'), /styleType === 'white-yellow'[\s\S]*?Math\.max\(2, Math\.round\(fontSize \* 0\.09\)\)/);
+  assert.match(read('caption-script-v2.js').replace(/cap2_/g, ''), /styleType === 'white-yellow'[\s\S]*?Math\.max\(2, Math\.round\(fontSize \* 0\.09\)\)/);
   assert.match(read('script.js'), /rgba\(12,18,24,\.96\)/);
 });
 

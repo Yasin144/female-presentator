@@ -103,6 +103,7 @@ function fixture(options = {}) {
     },
     stopActiveAudio: () => { state.playbackAbortController?.abort(); if (state.activeAudio) state.activeAudio.pause(); state.activeAudio = null; },
     cancelVisualLoop() {}, updateStageViewUi() {}, updateStageTimelineUi() {}, rebuildPdfPresentationSchedule() {},
+    hideNarrationLiveProgress() {},
     formatDurationMs: value => String(value), syncPdfPlaybackPosition: () => state.pdf.currentTimeMs,
     resetTaskProgressUi() {}, syncPdfPreviewPageFromTime() {}, updatePlaybackProgressUi() {},
     createLoadedAudio: async () => {

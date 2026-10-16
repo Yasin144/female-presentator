@@ -56,7 +56,7 @@ test('every inline startup PowerShell command parses without executing the launc
   assert.equal(guards.length, 3);
   assert.ok(guards.every(Boolean));
   assert.equal(new Set(guards).size, 1);
-  assert.equal(probes.length, 3);
+  assert.equal(probes.length, 4);
   const encodedCommands = Buffer.from(JSON.stringify(launchers.flatMap(commands))).toString('base64');
   const result = runPowerShell(`
 $commands = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedCommands}')) | ConvertFrom-Json
@@ -103,5 +103,5 @@ ${probes[0]}
     assert.equal(result.status, expected, `${mode}: ${result.stderr}`);
   }
   const voice = launchers.find(value => value.name === 'Voice-Presentator.cmd').source;
-  for (const port of [8427, 8431, 8434]) assert.match(voice, new RegExp(`Port ${port} is occupied but not ready`));
+  for (const port of [8427, 8428, 8431, 8434]) assert.match(voice, new RegExp(`Port ${port} is occupied but not ready`));
 });

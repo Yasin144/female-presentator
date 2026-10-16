@@ -26,10 +26,11 @@ test("large PDF exact-word alignment remains linear", async () => {
     state: { transcribeServerUrl: "http://local.test" },
     clamp: (value, min, max) => Math.min(max, Math.max(min, value)),
     analyzeSpeechSyncUnits: () => units,
+    buildFullSentenceCaptionSegments: () => [],
     fetch: async () => ({
       ok: true,
       async json() {
-        return { words: Array.from({ length: 20000 }, (_, index) => ({ start: index * 0.01, end: index * 0.01 + 0.008 })) };
+        return { words: Array.from({ length: 20000 }, (_, index) => ({ word: `word${index}`, start: index * 0.01, end: index * 0.01 + 0.008 })) };
       }
     })
   });

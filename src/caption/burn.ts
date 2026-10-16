@@ -8,9 +8,10 @@ interface BurnVideoMeta {
   width?: number;
   height?: number;
   duration?: number;
+  sourcePath?: string;
 }
 
-const SPEECH_GAP_SECONDS = 0.75;
+const SPEECH_GAP_SECONDS = 0.3;
 const CAPTION_WORD_LIMIT = 8;
 const CAPTION_BOTTOM_OFFSET_PX = 80;
 
@@ -40,7 +41,9 @@ function throwIfAborted(signal?: AbortSignal) {
 
 function pad2(n: number) { return String(Math.floor(n)).padStart(2,'0'); }
 function toAss(s: number) {
-  return `${pad2(s/3600)}:${pad2((s%3600)/60)}:${pad2(s%60)}.${String(Math.round((s-Math.floor(s))*100)).padStart(2,'0')}`;
+  const centiseconds = Math.round(Math.max(0, s) * 100);
+  const seconds = Math.floor(centiseconds / 100);
+  return `${pad2(seconds/3600)}:${pad2((seconds%3600)/60)}:${pad2(seconds%60)}.${String(centiseconds%100).padStart(2,'0')}`;
 }
 function hexToAssColor(h: string) {
   const r=h.slice(1,3),g=h.slice(3,5),b=h.slice(5,7);
@@ -79,27 +82,59 @@ function normalizeDisplayedCaptionWords(input: WordItem[]): WordItem[] {
   return input.map(word => ({ ...word, text: String(word.text || '').trim() }));
 }
 
-function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionItem[] {
-  const shifted: CaptionItem[] = [];
-  for (const cap of caps) {
-    const validWords = (cap.words || [])
-      .filter(w => String(w.text || '').trim() && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
-      .sort((a, b) => a.start - b.start);
-
-    if (!validWords.length) {
-      shifted.push({ ...cap, start: cap.start + offset, end: cap.end + offset });
-      continue;
+function validatedCaptionWords(cap: CaptionItem): WordItem[] {
+  if (!cap || typeof cap.text !== 'string' || !cap.text.trim()
+    || !Number.isFinite(cap.start) || !Number.isFinite(cap.end)
+    || cap.start < 0 || cap.end <= cap.start) {
+    throw new Error('Caption timing is invalid. Review its start and end before exporting.');
+  }
+  if (cap.words !== undefined && !Array.isArray(cap.words)) {
+    throw new Error('Caption word timing is invalid. Review synchronization before exporting.');
+  }
+  if (!cap.words?.length) return cap.text.trim().split(/\s+/).map((text, index, all) => ({
+    text,
+    start: cap.start + index / all.length * (cap.end - cap.start),
+    end: cap.start + (index + 1) / all.length * (cap.end - cap.start),
+  }));
+  let previousEnd = cap.start;
+  const words = cap.words.map((word, index) => {
+    if (!word || typeof word.text !== 'string' || !word.text.trim()
+      || !Number.isFinite(word.start) || !Number.isFinite(word.end)
+      || word.start < previousEnd || word.end <= word.start || word.end > cap.end) {
+      throw new Error(`Caption word timing conflicts at word ${index + 1}. Review synchronization before exporting.`);
     }
+    previousEnd = word.end;
+    return { ...word, text: word.text.trim() };
+  });
+  const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
+  if (normalizeText(cap.text) !== normalizeText(words.map(word => word.text).join(' '))) {
+    throw new Error('Caption text no longer matches its timed words. Update word text or clear stale word timings before exporting.');
+  }
+  return words;
+}
+
+function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionItem[] {
+  if (!Number.isFinite(offset)) throw new Error('Caption sync offset is invalid.');
+  const shifted: CaptionItem[] = [];
+  let previousSourceEnd = -Infinity;
+  for (const cap of caps) {
+    const validWords = validatedCaptionWords(cap);
+    if (validWords[0].start < previousSourceEnd) {
+      throw new Error('Caption groups overlap or run backwards. Review synchronization before exporting.');
+    }
+    previousSourceEnd = validWords[validWords.length - 1].end;
 
     let group: WordItem[] = [];
     const flush = () => {
       if (!group.length) return;
-      const words = group.map(w => ({
+      const words = group.filter(w => w.end + offset > 0).map(w => ({
         ...w,
-        start: w.start + offset,
+        start: Math.max(0, w.start + offset),
         end: w.end + offset,
       }));
+      if (!words.length) { group = []; return; }
       shifted.push({
+        ...cap,
         start: words[0].start,
         end: words[words.length - 1].end,
         text: words.map(w => w.text).join(' '),
@@ -110,7 +145,7 @@ function speechBoundCaptionEvents(caps: CaptionItem[], offset: number): CaptionI
 
     for (const word of validWords) {
       const previous = group[group.length - 1];
-      if (previous && word.start - previous.end > SPEECH_GAP_SECONDS) flush();
+      if (previous && word.start - previous.end >= SPEECH_GAP_SECONDS) flush();
       group.push(word);
     }
     flush();
@@ -123,42 +158,11 @@ function normalizeCaptionTimeline(caps: CaptionItem[], offset: number): CaptionI
   // transcript here makes continuous speech export as one long subtitle line.
   const speechEvents = speechBoundCaptionEvents(caps, offset);
 
-  const sorted = speechEvents
-    .filter(c => c && String(c.text || '').trim() && Number.isFinite(c.start) && Number.isFinite(c.end))
-    .map(c => ({
-      ...c,
-      start: Math.max(0, c.start),
-      end: Math.max(Math.max(0, c.start) + 0.05, c.end),
-      words: c.words?.map(w => ({
-        ...w,
-        start: Math.max(0, w.start),
-        end: Math.max(Math.max(0, w.start) + 0.01, w.end),
-      })),
-    }))
-    .sort((a, b) => a.start - b.start || a.end - b.end);
-
   const out: CaptionItem[] = [];
-  for (const current of sorted) {
+  for (const current of speechEvents) {
     const previous = out[out.length - 1];
     if (previous && current.start < previous.end) {
-      current.start = Math.max(previous.end + 0.01, current.start);
-      if (previous.words?.length) {
-        previous.words = previous.words
-          .map(w => ({
-            ...w,
-            start: Math.max(previous.start, w.start),
-            end: Math.max(w.start + 0.01, w.end),
-          }))
-          .filter(w => w.end > w.start);
-      }
-      if (current.words?.length) {
-        current.words = current.words.map(w => ({
-          ...w,
-          start: Math.max(current.start, w.start),
-          end: Math.max(Math.max(current.start, w.start) + 0.01, w.end),
-        }));
-      }
-      current.end = Math.max(current.start + 0.05, current.end);
+      throw new Error('Caption groups overlap or run backwards. Review synchronization before exporting.');
     }
     out.push(current);
   }
@@ -173,8 +177,7 @@ function splitCaptionForExport(cap: CaptionItem, maxWords: number): CaptionItem[
         start: cap.start + (i / all.length) * (cap.end - cap.start),
         end: cap.start + ((i + 1) / all.length) * (cap.end - cap.start),
       })))
-    .filter(w => String(w.text || '').trim() && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
+    .filter(w => String(w.text || '').trim());
 
   const limit = Math.max(1, Math.min(CAPTION_WORD_LIMIT, Math.round(maxWords || CAPTION_WORD_LIMIT)));
   if (words.length <= limit) return [cap];
@@ -183,8 +186,9 @@ function splitCaptionForExport(cap: CaptionItem, maxWords: number): CaptionItem[
   for (let i = 0; i < words.length; i += limit) {
     const slice = words.slice(i, i + limit);
     parts.push({
+      ...cap,
       start: slice[0].start,
-      end: Math.max(slice[0].start + 0.05, slice[slice.length - 1].end),
+      end: slice[slice.length - 1].end,
       text: slice.map(w => w.text).join(' '),
       words: slice,
     });
@@ -192,9 +196,23 @@ function splitCaptionForExport(cap: CaptionItem, maxWords: number): CaptionItem[
   return parts;
 }
 
+/** Preview and export use the same pause boundaries and group word limit. */
+export function captionGroupAtTime(cap: CaptionItem, time: number, maxWords = CAPTION_WORD_LIMIT, offset = 0): CaptionItem | null {
+  if (!Number.isFinite(time)) return null;
+  try {
+    return speechBoundCaptionEvents([cap], offset)
+      .flatMap(group => splitCaptionForExport(group, maxWords))
+      .find(group => time >= group.start && time < group.end) || null;
+  } catch {
+    // An invalid draft must not crash the editor or manufacture a timed preview.
+    // The export action reports the validation error so the user can correct it.
+    return null;
+  }
+}
+
 function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta = {}): string {
   const exportWordLimit = Math.max(1, Math.min(CAPTION_WORD_LIMIT, Math.round(s.maxWordsPerCaption || CAPTION_WORD_LIMIT)));
-  const timelineCaps = normalizeCaptionTimeline(caps, s.offset || 0)
+  const timelineCaps = normalizeCaptionTimeline(caps, s.offset ?? 0)
     .flatMap(cap => splitCaptionForExport(cap, exportWordLimit));
   // Auto-detect font based on actual text content to prevent missing glyphs (tofu boxes)
   // if the user's language dropdown doesn't match the actual script being rendered.
@@ -318,8 +336,8 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
           // Keep the current karaoke state visible until the next spoken word.
           // Ending at Whisper's very short word.end made quick words (and even
           // whole short sentences) appear to have no karaoke highlight at 25fps.
-          const visibleUntil = nextWord?.start ?? c.end;
-          const lineEnd = Math.max(word.start + 0.08, Math.min(visibleUntil, c.end));
+          const visibleUntil = nextWord && nextWord.start - word.end < SPEECH_GAP_SECONDS ? nextWord.start : word.end;
+          const lineEnd = Math.min(visibleUntil, c.end);
           // The full caption group is visible from its first spoken word; only
           // the current word changes to the highlight colour.
           const posPrefix = posPrefixFor(validWords);
@@ -342,8 +360,7 @@ function buildAss(caps: CaptionItem[], s: CaptionSettings, meta: BurnVideoMeta =
     // Standard styles also keep the complete caption group stable.
     return words.flatMap((word, activeIndex) => {
       const nextWord = words[activeIndex + 1];
-      const lineEnd = Math.max(word.start + 0.08,
-        Math.min(nextWord?.start ?? c.end, c.end));
+      const lineEnd = Math.min(nextWord && nextWord.start - word.end < SPEECH_GAP_SECONDS ? nextWord.start : word.end, c.end);
       const text = wrapWordsForAss(words)
         .map(line => shapeCaptionText(line.map(token => token.text).join(' '), s))
         .join('\\N');
@@ -363,8 +380,8 @@ export async function burnCaptions(
   
   // Try the ultra-fast native FFmpeg IPC route first
   const api = (window as any).electronAPI;
-  if (api?.burnCaptions && api?.getPathForFile) {
-    const videoPath = api.getPathForFile(file);
+  if (api?.burnCaptions && (videoMeta.sourcePath || api?.getPathForFile)) {
+    const videoPath = videoMeta.sourcePath || api.getPathForFile(file);
     if (videoPath) {
       onProgress(5);
       let nativeMeta: BurnVideoMeta = videoMeta;
@@ -429,12 +446,15 @@ export async function burnCaptions(
       } catch (err: any) {
         if (ticker) clearInterval(ticker);
         if (api?.offBurnProgress) api.offBurnProgress(onRealProgress);
+        // The original upload is retained only for metadata; it still contains old captions.
+        if (videoMeta.sourcePath) throw err;
         console.warn('[burnCaptions] Native fast-burn failed, falling back to WASM:', err);
       }
     }
   }
 
   // Fallback to WASM FFmpeg
+  if (videoMeta.sourcePath) throw new Error('The cleaned video requires the local Windows caption export service.');
   const assContent = buildAss(caps, settings, videoMeta);
   const engine = await getFFmpeg();
   const onAbort = () => {

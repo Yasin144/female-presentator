@@ -9747,6 +9747,7 @@ function shouldUsePreparedCountingScene(page) {
 }
 
 function shouldRevealPdfCountingObjects(page) {
+  if (getPdfCountingDisplayMode() === "original") return false;
   const activity = page?.countingActivity;
   const preparedScene = getPdfCountingDisplayMode() === "reveal"
     || Boolean(activity?.objectSource === "local-library" && activity?.markersVerified !== true);
