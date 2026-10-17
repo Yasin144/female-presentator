@@ -6,6 +6,7 @@ set "APP_DIR=%APP_DIR:~0,-1%"
 set "PYTHON_VENV=%APP_DIR%\.voiceclone-venv\Scripts\python.exe"
 set "SINGING_PYTHON=%APP_DIR%\.singing-venv\Scripts\python.exe"
 set "ELECTRON=%APP_DIR%\node_modules\electron\dist\electron.exe"
+set "PYTHONUTF8=1"
 
 REM ---- Load private Groq key (never committed to Git) ----
 if exist "%APP_DIR%\.groq_api_key" (
@@ -18,7 +19,7 @@ cd /d "%APP_DIR%"
 REM Reuse this workspace's app without interrupting other Electron programs.
 powershell -NoProfile -Command "$exe=Join-Path $env:APP_DIR 'node_modules\electron\dist\electron.exe'; try { $running=Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.ExecutablePath -eq $exe -and $_.CommandLine -notmatch '(?:^|\s)--type=' }; if($running){exit 0}; exit 1 } catch { exit 2 }" >nul 2>&1
 if errorlevel 2 ( echo Could not check whether Presentator is already running. No processes were changed. & exit /b 1 )
-if not errorlevel 1 ( echo Presentator is already running. Use its existing window. & exit /b 0 )
+if not errorlevel 1 set "PRESENTATOR_RUNNING=1"
 
 REM ---- Install Electron if missing ----
 if not exist "%ELECTRON%" (
@@ -39,6 +40,16 @@ if exist "%PYTHON_VENV%" (
 
 REM Electron owns SC3 startup using .voiceclone-venv, health checks and retries.
 REM A second standalone SC3 process can race the app during model loading.
+
+REM ---- Whisper transcription server (port 8428) ----
+powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8428/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8428 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
+if errorlevel 2 (
+  echo Port 8428 is occupied but not ready. The existing process was left running.
+) else if errorlevel 1 (
+  if exist "%SINGING_PYTHON%" (
+    start "Whisper Transcription Python" cmd /k ""%SINGING_PYTHON%" -u "%APP_DIR%\transcribe-http-server.py""
+  )
+)
 
 REM ---- Edge TTS server (port 8427) ----
 powershell -NoProfile -Command "try{Invoke-RestMethod 'http://127.0.0.1:8427/health' -TimeoutSec 2|Out-Null;exit 0}catch{}; if(Get-NetTCPConnection -LocalPort 8427 -State Listen -ErrorAction SilentlyContinue){exit 2};exit 1" >nul 2>&1
@@ -75,6 +86,7 @@ if errorlevel 2 (
 )
 
 REM ---- Self-healing Electron restart loop ----
+if defined PRESENTATOR_RUNNING ( echo Presentator is already running. Voice services checked; use its existing window. & exit /b 0 )
 REM Electron is launched WITH /wait so we know when it exits.
 REM Exit code 0 = user closed intentionally -> stop loop.
 REM Any other code = crash -> restart automatically.

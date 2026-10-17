@@ -14,7 +14,9 @@ def load_functions(names, **context):
                           'caption_speech_ranges', 'caption_range_has_speech',
                           'caption_word_match_key', 'caption_word_passes_agree', 'suspicious_caption_audio_ranges',
                           'caption_preserves_word_sequence', 'caption_restore_original_orthography',
-                          'repair_covered_audio_speech'}
+                          'repair_covered_audio_speech', 'read_caption_audio_range',
+                          'repair_primary_caption_timing', 'retry_primary_caption_transcript',
+                          'require_valid_caption_result', 'caption_text_match_key'}
     context.setdefault('_speech_activity_cache', {'fixture': [(0, 10000)]})
     context.update(math=math, re=re)
     functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
@@ -252,10 +254,10 @@ class LocalCaptionTimelineTest(unittest.TestCase):
         def decode(*args, **kwargs):
             words = decoded if kwargs['clip_timestamps'].startswith('0,') else [
                 {'word': '10', 'start': 7.3, 'end': 7.9}]
-            return '', 'en', [], words
+            return ' '.join(w['word'] for w in words), 'en', [], words
         context['run_whisper_with_model'] = decode
         later = {'word': 'Lesson', 'start': 8.5, 'end': 9}
-        current = ('Info 10 Lesson', 'en', [], [{'word': 'Info', 'start': 4.1, 'end': 5.5},
+        current = ('InfoKids 10 Lesson', 'en', [], [{'word': 'InfoKids', 'start': 4.1, 'end': 5.5},
                    {'word': '10', 'start': 5.8, 'end': 6.7}, later])
         result = context['verify_opening_speech'](None, 'fixture', 'en', current)
         self.assertEqual(result[0], 'InfoKids 10 Lesson')

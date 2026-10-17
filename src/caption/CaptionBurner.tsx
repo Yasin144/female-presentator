@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   QueueItem, CaptionItem, CaptionSettings, WordItem, Language, CAPTION_LANGUAGES,
 } from './types';
-import { transcribeWithHuggingFace, testHFToken } from './transcribe';
+import { transcribeWithHuggingFace, testHFToken, fixSpellingsWithGroq } from './transcribe';
 import { burnCaptions, captionGroupAtTime } from './burn';
 import './caption-preview-layout.css';
 import CaptionWorkbench from './CaptionWorkbench';
@@ -221,7 +221,7 @@ export default function CaptionBurner({ onClose }: Props) {
     language: 'English',
     offset: 0,
     maxWordsPerCaption: CAPTION_WORD_LIMIT,
-    engine: 'groq',
+    engine: (electronApi()?.getGroqApiKey?.() || '').trim() ? 'groq' : 'local',
   });
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -2091,7 +2091,6 @@ export default function CaptionBurner({ onClose }: Props) {
                   <button
                     onClick={async () => {
                       if (!activeItem?.captions || !apiKey) return;
-                      const { fixSpellingsWithGroq } = await import('./transcribe');
                       try {
                         const fixed = await fixSpellingsWithGroq(
                           activeItem.captions, 

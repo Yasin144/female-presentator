@@ -22,8 +22,8 @@ test('the simple shell has a Home view and an explicit Back to Home control', ()
   assert.match(appSource, /Back to Home/);
 });
 
-test('Home exposes all ten named tools and five helpers without a disclosure menu', () => {
-  for (const id of ['pdf', 'lesson', 'singing', 'local-captions', 'captions', 'quotes', 'exporter', 'resizer', 'translator', 'transcription', 'narration', 'speech', 'media', 'templates', 'services']) {
+test('Home exposes all named tools and five helpers without a disclosure menu', () => {
+  for (const id of ['pdf', 'lesson', 'singing', 'captioner-2', 'quotes', 'exporter', 'resizer', 'translator', 'transcription', 'narration', 'speech', 'media', 'templates', 'services']) {
     assert.equal([...homeSource.matchAll(new RegExp("id: '" + id + "'", 'g'))].length, 1, 'Home destination exists once: ' + id);
   }
   assert.match(homeSource, /data-home-tool=\{tool\.id\}/);

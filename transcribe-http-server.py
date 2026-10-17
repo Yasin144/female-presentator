@@ -25,25 +25,36 @@ def transcribe(audio: bytes, language: str, *, source_name: str = "", transcript
                auto_recover_missing_speech: bool = True, content_mode: str = "speech") -> dict:
     cache_dir = ROOT / "generated-media" / "transcription-inputs"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    source = cache_dir / f"transcribe-{int(time.time() * 1000)}.wav"
-    source.write_bytes(audio)
-    with QUEUE:
-        completed = subprocess.run(
-            [sys.executable, str(WHISPER), str(source), language or "auto", str(source_name)[:300],
-             "song" if content_mode == "song" else "speech", str(transcription_hints)[:1000],
-             "recover" if auto_recover_missing_speech else "no-recovery"],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=900,
-        )
-    if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout or "Whisper failed").strip()[-600:])
-    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-    if not lines:
-        raise RuntimeError("Whisper returned no result")
-    result = json.loads(lines[-1])
-    if result.get("error"):
-        raise RuntimeError(str(result["error"]))
-    return result
+    source = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="transcribe-", suffix=".wav", dir=cache_dir, delete=False) as upload:
+            source = Path(upload.name)
+            upload.write(audio)
+        with QUEUE:
+            completed = subprocess.run(
+                [sys.executable, str(WHISPER), str(source), language or "auto", str(source_name)[:300],
+                 "song" if content_mode == "song" else "speech", str(transcription_hints)[:1000],
+                 "recover" if auto_recover_missing_speech else "no-recovery"],
+                cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=900,
+            )
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or "Whisper failed").strip()[-600:])
+        lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise RuntimeError("Whisper returned no result")
+        try:
+            result = json.loads(lines[-1])
+        except ValueError as error:
+            raise RuntimeError('Whisper returned invalid result JSON') from error
+        if not isinstance(result, dict):
+            raise RuntimeError("Whisper returned an invalid result object")
+        if result.get("error"):
+            raise RuntimeError(str(result["error"]))
+        return result
+    finally:
+        if source is not None:
+            source.unlink(missing_ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -53,11 +64,13 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def reply(self, status: int, data: dict) -> None:
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        body = b"" if status == 204 else json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
@@ -83,6 +96,10 @@ class Handler(BaseHTTPRequestHandler):
             if size <= 0 or size > 250_000_000:
                 raise ValueError("Invalid audio upload size")
             payload = json.loads(self.rfile.read(size).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Audio upload must be a JSON object")
+            if not isinstance(payload.get("audioBase64", ""), str):
+                raise ValueError("Audio data must be a base64 string")
             raw = base64.b64decode(payload.get("audioBase64", ""), validate=True)
             if not raw:
                 raise ValueError("No audio data received")
@@ -93,6 +110,8 @@ class Handler(BaseHTTPRequestHandler):
                                       content_mode=str(payload.get("contentMode") or "speech")))
         except subprocess.TimeoutExpired:
             self.reply(504, {"error": "Whisper transcription timed out after 900 seconds"})
+        except (ValueError, UnicodeError) as error:
+            self.reply(400, {"error": str(error)})
         except Exception as error:
             self.reply(500, {"error": str(error)})
 

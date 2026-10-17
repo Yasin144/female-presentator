@@ -25,6 +25,7 @@ if hasattr(sys.stdout, "reconfigure"):
 PORT = 8434
 OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 OLLAMA_MODEL = "qwen3.5:4b"
+OLLAMA_TIMEOUT = float(os.environ.get("CAPTION_TRANSLATION_OLLAMA_TIMEOUT", "6"))
 GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_KEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gemini_api_key")
 
@@ -247,7 +248,7 @@ def local_ai_translate_batch(texts, target, source="auto"):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=90) as resp:
+    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as resp:
         payload = json.loads(resp.read().decode("utf-8", "ignore"))
 
     if not isinstance(payload, dict) or not isinstance(payload.get("message"), dict):

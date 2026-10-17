@@ -959,37 +959,49 @@ export async function transcribeWithHuggingFace(
     return local;
   }
   const targetCode = getLanguageCode(language);
+  const effectiveToken = (hfToken || (typeof window !== 'undefined' ? (window as any).electronAPI?.getGroqApiKey?.() : '') || '').trim();
+  const hasGroqToken = Boolean(effectiveToken && effectiveToken !== 'HF_TOKEN_LOCAL');
   const preferCloudWhisper =
+    hasGroqToken &&
     engine === 'auto' &&
     (language === 'Auto-Detect' || (targetCode ? INDIC_CAPTION_CODES.has(targetCode) : false));
 
-  // Local tiny/small Whisper is fast for English, but it can hallucinate Indic
-  // narration. Use Groq large-v3 first for Auto-Detect and Indic languages.
-  if (engine === 'local' || (engine === 'auto' && !preferCloudWhisper)) {
+  const runLocalWhisperAndTranslate = async (): Promise<TranscriptionResult | null> => {
+    const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'speech', sourcePath, 'local', options);
+    if (local?.captions?.length) {
+      const targetCode = getLanguageCode(language);
+      const inferredCode = local.detectedCode || inferLangFromScript(local.captions.map(c => c.text).join(' ')) || undefined;
+      const sameLanguage =
+        language === 'Auto-Detect' ||
+        (targetCode && inferredCode && targetCode === inferredCode);
+      const finalCaptions = sameLanguage
+        ? local.captions
+        : await translateCaptionsToLanguage(local.captions, language, onProgress, maxWordsPerCaption, signal);
+      onProgress(`${local.detectedLang || 'Local'} captions ready ✓`, 97);
+      return {
+        ...local, captions: finalCaptions,
+        timingSource: sameLanguage ? local.timingSource : 'estimated',
+        warnings: sameLanguage ? local.warnings : [
+          ...(local.warnings || []),
+          'Translated words use estimated highlight timing. Review synchronization against the recording.',
+        ],
+      };
+    }
+    return null;
+  };
+
+  // Local Whisper is used when engine is 'local', when engine is 'auto' and cloud is not preferred,
+  // or when engine is 'groq' but no Groq API key is configured on this computer.
+  if (engine === 'local' || (engine === 'auto' && !preferCloudWhisper) || (engine === 'groq' && !hasGroqToken)) {
     try {
-      const local = await transcribeWithLocalWhisper(file, language, maxWordsPerCaption, onProgress, signal, 'speech', sourcePath, 'local', options);
-      if (local?.captions?.length) {
-        const targetCode = getLanguageCode(language);
-        const inferredCode = local.detectedCode || inferLangFromScript(local.captions.map(c => c.text).join(' ')) || undefined;
-        const sameLanguage =
-          language === 'Auto-Detect' ||
-          (targetCode && inferredCode && targetCode === inferredCode);
-        const finalCaptions = sameLanguage
-          ? local.captions
-          : await translateCaptionsToLanguage(local.captions, language, onProgress, maxWordsPerCaption, signal);
-        onProgress(`${local.detectedLang || 'Local'} captions ready ✓`, 97);
-        return {
-          ...local, captions: finalCaptions,
-          timingSource: sameLanguage ? local.timingSource : 'estimated',
-          warnings: sameLanguage ? local.warnings : [
-            ...(local.warnings || []),
-            'Translated words use estimated highlight timing. Review synchronization against the recording.',
-          ],
-        };
+      if (engine === 'groq' && !hasGroqToken) {
+        onProgress('No Groq API key configured — using Local Whisper on this computer…', 6);
       }
+      const localResult = await runLocalWhisperAndTranslate();
+      if (localResult) return localResult;
     } catch (err) {
-      if (engine === 'local') {
-        throw new Error(`Local Whisper failed: ${err}`);
+      if (engine === 'local' || !hasGroqToken) {
+        throw new Error(`Local Whisper failed: ${err instanceof Error ? err.message : err}`);
       }
       console.warn('[CB] Local Whisper failed, falling back to Groq:', err);
       onProgress('Local Whisper failed, trying Groq...', 10);
@@ -1000,6 +1012,9 @@ export async function transcribeWithHuggingFace(
 
   if (engine === 'local') {
     throw new Error('Local engine failed and fallback is disabled');
+  }
+  if (!hasGroqToken) {
+    throw new Error('Groq API key is not configured. Enter a Groq API key in Settings or use the Local engine.');
   }
 
   onProgress('Extracting audio…', 5);
@@ -1020,7 +1035,7 @@ export async function transcribeWithHuggingFace(
       const pcmBytes = Math.min(probeDuration, totalPcm - probeStart);
       const chunk = await buildWavChunkFromPcm(audio, probeStart, pcmBytes);
       if (!(await isSilentWavChunk(chunk))) {
-        const result = await callWhisper(chunk, hfToken, undefined, 'segment', 0, signal);
+        const result = await callWhisper(chunk, effectiveToken, undefined, 'segment', 0, signal);
         const sample = (result.chunks ?? []).slice(0, 6).map(c => c.text).join('') + (result.text ?? '');
         const inferred = inferLangFromScript(sample) || normalizeLangCode(result.language);
         if (inferred) {
@@ -1076,7 +1091,7 @@ export async function transcribeWithHuggingFace(
         saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i, spokenLangCode, displayLang });
         continue;
       }
-      const caps = await transcribeChunk(chunk, hfToken, spokenLangCode, timeOffset, maxWordsPerCaption, signal, chunkContextPrompt);
+      const caps = await transcribeChunk(chunk, effectiveToken, spokenLangCode, timeOffset, maxWordsPerCaption, signal, chunkContextPrompt);
       if (caps.length > 0) {
         const cleanCaps = caps.filter(cap => !isGenericWhisperHallucination(cap.text));
         all = mergeWordTimelines(all, cleanCaps, maxWordsPerCaption);
@@ -1092,11 +1107,20 @@ export async function transcribeWithHuggingFace(
       console.error(`[CaptionBurner] Chunk ${i+1} failed:`, lastErr);
       // Save progress so far before possibly throwing
       saveCheckpoint(file, { numChunks, captions: all, completedUpTo: i - 1, spokenLangCode, displayLang });
-      if (lastErr.includes('Invalid API token') || lastErr.includes('Rate limited')) throw new Error(lastErr);
+      if (lastErr.includes('Invalid API token') || lastErr.includes('Rate limited')) {
+        if (preferCloudWhisper) break;
+        throw new Error(lastErr);
+      }
     }
   }
 
   if (all.length === 0) {
+    if (preferCloudWhisper && lastErr) {
+      console.warn('[CB] Cloud Whisper failed in auto mode, falling back to Local Whisper:', lastErr);
+      onProgress('Groq unavailable — switching to Local Whisper…', 12);
+      const fallbackLocal = await runLocalWhisperAndTranslate();
+      if (fallbackLocal) return fallbackLocal;
+    }
     if (lastErr) throw new Error(`Transcription failed: ${lastErr}`);
     all = [{ start: 0, end: 3, text: "Your caption here", words: [{ start: 0, end: 3, text: "Your caption here" }] }];
     displayLang = displayLang || 'Unknown';
@@ -1143,7 +1167,8 @@ export async function fixSpellingsWithGroq(
   signal?: AbortSignal,
 ): Promise<CaptionItem[]> {
   throwIfAborted(signal);
-  if (!apiKey || apiKey === 'HF_TOKEN_LOCAL') {
+  const effectiveKey = (apiKey || (typeof window !== 'undefined' ? (window as any).electronAPI?.getGroqApiKey?.() : '') || '').trim();
+  if (!effectiveKey || effectiveKey === 'HF_TOKEN_LOCAL') {
     throw new Error('Groq API Key required for AI Spelling Check');
   }
 
@@ -1185,7 +1210,7 @@ Example output format:
       resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${effectiveKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1246,23 +1271,29 @@ Example output format:
       const updatedBatch = batch.map((cap, idx) => {
         const match = correctedList.find((item: any) => item.id === i + idx);
         if (match && match.text) {
-          // If we had word-level timestamps from voice detection, we MUST preserve them!
-          // Since the spelling changed, we re-distribute the new words across the original exact time bounds.
+          // Preserve exact word-level timestamps when token count matches;
+          // otherwise subdivide monotonically across the original word span.
           const correctedText = normalizeNurseryCaptionText(match.text);
           let newWords = undefined;
           if (cap.words && cap.words.length > 0) {
-            const newTokens = correctedText.trim().split(/\s+/);
+            const newTokens = correctedText.trim().split(/\s+/).filter(Boolean);
             const origWords = cap.words;
-            newWords = newTokens.map((token: string, tokenIdx: number) => {
-              // Proportionally map the new token index to the original word index
-              const origIdx = Math.floor((tokenIdx / newTokens.length) * origWords.length);
-              const origIdxNext = Math.min(origWords.length - 1, Math.floor(((tokenIdx + 1) / newTokens.length) * origWords.length));
-              
-              // Map the exact voice detection timestamps
-              const start = origWords[origIdx].start;
-              const end = origWords[origIdxNext].end || origWords[origIdx].end;
-              return { text: token, start, end };
-            });
+            if (newTokens.length === origWords.length) {
+              newWords = newTokens.map((token: string, tokenIdx: number) => ({
+                text: token,
+                start: origWords[tokenIdx].start,
+                end: origWords[tokenIdx].end,
+              }));
+            } else if (newTokens.length > 0) {
+              const spanStart = origWords[0].start;
+              const spanEnd = Math.max(spanStart + 0.05 * newTokens.length, origWords[origWords.length - 1].end);
+              const step = (spanEnd - spanStart) / newTokens.length;
+              newWords = newTokens.map((token: string, tokenIdx: number) => ({
+                text: token,
+                start: spanStart + tokenIdx * step,
+                end: tokenIdx === newTokens.length - 1 ? spanEnd : spanStart + (tokenIdx + 1) * step,
+              }));
+            }
           }
           return { ...cap, text: correctedText, words: newWords };
         }

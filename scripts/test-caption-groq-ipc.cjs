@@ -7,13 +7,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
-const { test } = require('node:test');
+const test = require.main === module ? require('node:test').test : () => {};
 const acorn = require('acorn');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8');
 const ast = acorn.parse(source, { ecmaVersion: 'latest', allowReturnOutsideFunction: true });
 const callbacks = new Map(), helperSources = [];
-const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'recoverGroqCaptionGaps', 'verifyGroqCaptionOpeningSegment', 'transcribeCaptionWavWithGroq']);
+const helperNames = new Set(['buildWavChunkBuffer', 'throwIfCaptionTranscriptionCancelled', 'waitForGroqCaptionRetry', 'callGroqWhisperForBuffer', 'groqCaptionRateLimitDetails', 'readGroqCaptionWav', 'assertGroqCaptionWordTimeline', 'groqCaptionTimingWithin', 'groqCaptionTimingWindows', 'verifyGroqCaptionSpeechTimings', 'recoverGroqCaptionGaps', 'verifyGroqCaptionOpeningSegment', 'transcribeCaptionWavWithGroq']);
 (function visit(node) {
   if (!node || typeof node !== 'object') return;
   if (node.type === 'FunctionDeclaration' && helperNames.has(node.id?.name)) helperSources.push(source.slice(node.start, node.end));
@@ -53,17 +53,23 @@ function fixture(options = {}) {
   const root = path.resolve('caption-groq-fixture'), videoPath = path.join(root, 'song.mp4');
   const ffmpegPath = path.join(root, 'ffmpeg.exe');
   const files = new Map([[videoPath, Buffer.from('fixture video')]]);
-  const timers = new Set(), calls = { spawn: [], fetch: [], kills: [], progress: [], policy: 0, fallback: 0 };
+  const timers = new Set(), calls = { spawn: [], fetch: [], kills: [], progress: [], warnings: [], delays: [], policy: 0, fallback: 0,
+    discardedBodies: 0, bodyReads: 0 };
   let cancel, releaseExtraction, requestStarted;
   const requested = new Promise(resolve => { requestStarted = resolve; });
   const context = vm.createContext({
     Buffer, path, AbortController, AbortSignal, FormData, Blob,
+    Date: options.now === undefined ? Date : class extends Date { static now() { return options.now; } },
     ROOT: root, process: { env: { GROQ_API_KEY: options.missingKey ? '' : 'fixture-token' } },
     os: { freemem: () => 6 * 1024 ** 3 }, SINGING_ENV: {},
     activeCaptionTranscribeProcess: null, activeCaptionSongController: null, activeCaptionTranscribeCancelRequested: false,
     ensureCaptionWorkDir: (...parts) => path.join(root, 'caption-work', ...parts),
-    console: { log() {}, warn() {}, error() {} },
-    setTimeout: (fn, ms) => { const timer = setTimeout(fn, ms); timers.add(timer); return timer; },
+    console: { log() {}, warn(...args) { calls.warnings.push(plain(args)); }, error() {} },
+    setTimeout: (fn, ms) => {
+      calls.delays.push(ms);
+      const timer = setTimeout(() => { timers.delete(timer); fn(); }, options.fastRetryTimers && ms !== 180000 ? 0 : ms);
+      timers.add(timer); return timer;
+    },
     clearTimeout: timer => { timers.delete(timer); clearTimeout(timer); },
     fs: {
       existsSync: name => files.has(name) || name === ffmpegPath,
@@ -95,9 +101,19 @@ function fixture(options = {}) {
         init.signal.addEventListener('abort', () => reject(Object.assign(new Error('Fixture abort'), { name: 'AbortError' })), { once: true });
       });
       if (options.networkFails || options.networkFailsAt === calls.fetch.length) throw new Error('Fixture network failure');
-      if (options.status) return { ok: false, status: options.status, headers: { get: () => null }, body: { cancel: async () => {} } };
+      const status = options.statuses?.[calls.fetch.length - 1] || options.status;
+      if (status && status !== 200) return { ok: false, status,
+        headers: { get: name => name === 'retry-after' ? options.retryAfters?.[calls.fetch.length - 1] ?? null : 'fixture-private-org' },
+        body: { cancel: async () => { calls.discardedBodies++; } },
+        text: async () => { calls.bodyReads++; throw new Error('fixture-token fixture-private-org fixture-private-audio'); },
+        json: async () => { calls.bodyReads++; return { apiKey: 'fixture-token', organization: 'fixture-private-org' }; },
+      };
       const json = options.responses?.[calls.fetch.length - 1] || options.response || recognized;
-      return { ok: true, json: async () => { if (options.cancelAtJson) await cancel(); return plain(json); } };
+      return { ok: true, json: async () => {
+        if (options.jsonFailsAt === calls.fetch.length) throw new SyntaxError('Fixture invalid JSON');
+        if (options.cancelAtJson || options.cancelAtJsonRequest === calls.fetch.length) await cancel();
+        return plain(json);
+      } };
     },
     killProcessTree: proc => {
       calls.kills.push(proc.pid);
@@ -216,6 +232,177 @@ test('explicit Groq errors and missing keys never fall back to local or HTTP tra
     assert.equal(f.calls.spawn.length, 1); assert.equal(f.calls.fetch.length, options.missingKey ? 0 : 1);
   }
 });
+
+for (const useLegacy of [false, true]) {
+  const route = useLegacy ? 'legacy' : 'native';
+  test(`${route} Groq IPC preserves the final provider cooldown without leaking account data`, async () => {
+    const now = Date.parse('2026-10-14T08:00:00Z');
+    const f = fixture({ now, statuses: [429, 429, 429, 200], retryAfters: ['0.001', '0.001', '1.125'], fastRetryTimers: true });
+    const result = plain(await f.invoke({}, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.engine, 'groq');
+    assert.equal(result.code, 'CAPTION_GROQ_RATE_LIMIT'); assert.equal(result.providerHttpStatus, 429);
+    assert.equal(result.retryAfterMs, 1125); assert.equal(result.retryAt, now + 1125);
+    assert.equal(result.retryAfterEstimated, false);
+    assert.equal(f.calls.fetch.length, 3); assert.equal(f.calls.discardedBodies, 3); assert.equal(f.calls.bodyReads, 0);
+    assert.deepEqual(f.calls.delays.filter(delay => delay !== 180000), [1, 1]);
+    assert.equal(f.calls.progress.some(item => item.value === 100), false);
+    assert.equal(/fixture-token|fixture-private-org|fixture-private-audio/.test(JSON.stringify({ result, warnings: f.calls.warnings })), false);
+  });
+
+  test(`${route} Groq IPC marks unknown quota cooldown as an estimate`, async () => {
+    const now = Date.parse('2026-10-14T08:00:00Z');
+    const f = fixture({ now, statuses: [429, 429, 429], fastRetryTimers: true });
+    const result = plain(await f.invoke({}, useLegacy)); f.assertReleased();
+    assert.equal(result.code, 'CAPTION_GROQ_RATE_LIMIT');
+    assert.equal(result.retryAfterMs, 32000); assert.equal(result.retryAt, now + 32000);
+    assert.equal(result.retryAfterEstimated, true); assert.match(result.error, /estimated cooldown/);
+  });
+
+  test(`${route} Groq IPC preserves timing rejection metadata without requesting Local`, async () => {
+    const invalid = { text: 'Tiger Fox', words: [{ word: 'Tiger', start: 3, end: 4 }, { word: 'Fox', start: 2.8, end: 4.5 }], segments: [] };
+    const f = fixture({ duration: 15, responses: Array(4).fill(invalid) });
+    const result = plain(await f.invoke({}, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.engine, 'groq');
+    assert.equal(result.code, 'CAPTION_GROQ_TIMING_UNCERTAIN');
+    assert.ok(result.timingIssue.end > result.timingIssue.start);
+    assert.match(result.timingIssue.reason, /timestamp|timing/);
+    assert.equal(result.retryAt, undefined); assert.equal(result.retryAfterMs, undefined);
+    assert.equal(f.calls.fetch.length, 4); assert.equal(f.calls.fallback, 0);
+  });
+
+  for (const phase of ['optional timing verification', 'automatic gap recovery']) {
+    test(`${route} quota exhaustion during ${phase} retains usable captions and a safe cooldown`, async () => {
+      const optional = phase === 'optional timing verification';
+      const original = optional ? { text: 'Elephant', segments: [], words: [{ word: 'Elephant', start: 2, end: 4 }] }
+        : { text: 'Tiger', segments: [], words: [{ word: 'Tiger', start: 1, end: 1.4 }] };
+      const now = Date.parse('2026-10-15T14:00:00Z');
+      const f = fixture({ now, duration: 10, responses: [original], statuses: [200, 429, 429, 429, 200],
+        retryAfters: [null, '0.001', '0.001', '2'], fastRetryTimers: true });
+      const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+      assert.equal(result.ok, true); assert.equal(result.engine, 'groq');
+      assert.equal(result.code, undefined); assert.equal(result.error, undefined);
+      assert.deepEqual(result.words, original.words); assert.equal(result.text, original.text);
+      assert.equal(result.timingVerification, undefined); assert.equal(result.verifiedTimingWindows, undefined);
+      assert.deepEqual(result.rateLimit, { code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+        retryAfterMs: 2000, retryAt: now + 2000, retryAfterEstimated: false });
+      assert.match(result.warnings.join(' '), /quota.*retained/i);
+      assert.match(result.warnings.join(' '), optional ? /optional.*timing.*review/i : /gaps.*unchecked/i);
+      assert.equal(f.calls.fetch.length, 4); assert.equal(f.calls.progress.at(-1).value, 100);
+      assert.equal(f.calls.fallback, 0);
+      assert.equal(f.calls.bodyReads, 0);
+      assert.equal(/fixture-token|fixture-private-org|fixture-private-audio/.test(JSON.stringify(result)), false);
+    });
+  }
+
+  for (const phase of ['overlapping words', 'broad zero-start opening', 'opening segment without word timing']) {
+    test(`${route} quota exhaustion during mandatory repair of ${phase} still fails`, async () => {
+      const original = phase === 'overlapping words'
+        ? { text: 'Tiger Fox', words: [{ word: 'Tiger', start: 2, end: 3 }, { word: 'Fox', start: 2.5, end: 4 }] }
+        : phase === 'broad zero-start opening'
+          ? { text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 4 }] }
+          : { text: 'InfoKids', words: [], segments: [{ text: 'InfoKids', start: 0, end: 4 }] };
+      const f = fixture({ duration: 10, responses: [original], statuses: [200, 429], retryAfters: [null, '90'] });
+      const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+      assert.equal(result.ok, false); assert.equal(result.code, 'CAPTION_GROQ_RATE_LIMIT');
+      assert.equal(result.retryAfterMs, 90000); assert.equal(result.words, undefined);
+      assert.equal(result.rateLimit, undefined); assert.equal(f.calls.fetch.length, 2);
+      assert.equal(f.calls.progress.some(item => item.value === 100), false);
+    });
+  }
+
+  test(`${route} gap quota preserves only additions already confirmed by two complete passes`, async () => {
+    const original = { text: 'Hello world', words: [{ word: 'Hello', start: 1, end: 1.4 }, { word: 'world', start: 8, end: 8.4 }] };
+    const recovered = { text: 'Example', words: [{ word: 'Example', start: 1, end: 1.4 }] };
+    const f = fixture({ duration: 15, responses: [original, recovered, recovered],
+      statuses: [200, 200, 200, 429], retryAfters: [null, null, null, '90'] });
+    const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, true); assert.equal(result.engine, 'groq');
+    assert.equal(result.text, 'Hello Example world'); assert.equal(result.words.length, 3);
+    assert.equal(result.words[0].start, 1); assert.equal(result.words[2].start, 8);
+    assert.equal(result.words[1].start, 1.9); assert.equal(result.words[1].end, 2.3);
+    assert.equal(result.segments.map(item => item.text).join(' '), result.text);
+    assert.match(result.warnings.join(' '), /added 1 words confirmed by two/i);
+    assert.equal(result.rateLimit.retryAfterMs, 90000); assert.equal(f.calls.fetch.length, 4);
+  });
+
+  test(`${route} quota on a gap's confirmation pass does not insert its unconfirmed words`, async () => {
+    const original = { text: 'Hello world', words: [{ word: 'Hello', start: 1, end: 1.4 }, { word: 'world', start: 8, end: 8.4 }] };
+    const recovered = { text: 'Example', words: [{ word: 'Example', start: 1, end: 1.4 }] };
+    const f = fixture({ duration: 15, responses: [original, recovered],
+      statuses: [200, 200, 429], retryAfters: [null, null, '90'] });
+    const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, true); assert.deepEqual(result.words, original.words);
+    assert.equal(result.text, original.text); assert.equal(result.rateLimit.retryAfterMs, 90000);
+    assert.equal(f.calls.fetch.length, 3);
+  });
+
+  for (const phase of ['optional timing verification', 'automatic gap recovery']) {
+    test(`${route} ${phase} retains an explicitly estimated cooldown when Groq omits Retry-After`, async () => {
+      const optional = phase === 'optional timing verification';
+      const original = { text: 'Elephant', words: [{ word: 'Elephant', start: 2, end: optional ? 4 : 2.4 }] };
+      const now = Date.parse('2026-10-15T14:00:00Z');
+      const f = fixture({ now, duration: 10, responses: [original], statuses: [200, 429, 429, 429], fastRetryTimers: true });
+      const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+      assert.equal(result.ok, true); assert.deepEqual(result.words, original.words);
+      assert.deepEqual(result.rateLimit, { code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+        retryAfterMs: 32000, retryAt: now + 32000, retryAfterEstimated: true });
+      assert.equal(f.calls.fetch.length, 4); assert.equal(f.calls.bodyReads, 0);
+    });
+  }
+
+  test(`${route} optional quota retains only whitelisted metadata and never the provider error message`, async () => {
+    const original = { text: 'Elephant', words: [{ word: 'Elephant', start: 2, end: 4 }] };
+    const now = Date.parse('2026-10-15T14:00:00Z');
+    const f = fixture({ now, duration: 10, response: original });
+    f.context.verifyGroqCaptionSpeechTimings = async () => {
+      throw Object.assign(new Error('fixture-token fixture-private-org fixture-private-audio'), {
+        code: 'CAPTION_GROQ_RATE_LIMIT', providerHttpStatus: 429,
+        retryAfterMs: 90000, retryAt: now + 90000, retryAfterEstimated: false,
+        body: { apiKey: 'fixture-token' }, account: 'fixture-private-org', audio: 'fixture-private-audio',
+      });
+    };
+    const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, true); assert.deepEqual(result.words, original.words);
+    assert.deepEqual(result.rateLimit, { code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+      retryAfterMs: 90000, retryAt: now + 90000, retryAfterEstimated: false });
+    assert.equal(/fixture-token|fixture-private-org|fixture-private-audio/.test(JSON.stringify(result)), false);
+    assert.equal(f.calls.fetch.length, 1, 'An optional timing cooldown must skip gap recovery');
+  });
+
+  test(`${route} recovery quota preserves genuine timing verification that completed before the gap check`, async () => {
+    const original = { text: 'Tiger Fox', words: [{ word: 'Tiger', start: 2, end: 3 }, { word: 'Fox', start: 2.5, end: 4 }] };
+    const verified = { text: 'Tiger Fox', words: [{ word: 'Tiger', start: 2, end: 2.8 }, { word: 'Fox', start: 3, end: 4 }] };
+    const f = fixture({ duration: 10, responses: [original, verified], statuses: [200, 200, 429], retryAfters: [null, null, '90'] });
+    const result = plain(await f.invoke({ autoRecoverMissingSpeech: true }, useLegacy)); f.assertReleased();
+    assert.equal(result.ok, true); assert.deepEqual(result.words, verified.words);
+    assert.equal(result.timingVerification, 'short-audio'); assert.equal(result.verifiedTimingWindows, 1);
+    assert.equal(result.rateLimit.retryAfterMs, 90000); assert.equal(f.calls.fetch.length, 3);
+  });
+
+  test(`${route} cancelling after a confirmed gap still discards the in-flight caption checkpoint`, async () => {
+    const original = { text: 'Hello world', words: [{ word: 'Hello', start: 1, end: 1.4 }, { word: 'world', start: 8, end: 8.4 }] };
+    const recovered = { text: 'Example', words: [{ word: 'Example', start: 1, end: 1.4 }] };
+    const f = fixture({ duration: 15, responses: [original, recovered, recovered], pendingRequestAt: 4 });
+    const pending = f.invoke({ autoRecoverMissingSpeech: true }, useLegacy);
+    while (f.calls.fetch.length < 4) await new Promise(resolve => setImmediate(resolve));
+    await f.cancel();
+    const result = plain(await pending); f.assertReleased();
+    assert.equal(result.ok, false); assert.equal(result.cancelled, true);
+    assert.equal(result.words, undefined); assert.equal(result.rateLimit, undefined);
+    assert.equal(f.calls.fetch.length, 4);
+  });
+
+  for (const status of [400, 401, 403, 413, 500, 503]) {
+    test(`${route} Groq HTTP ${status} is not misclassified as retryable quota or timing failure`, async () => {
+      const f = fixture({ status });
+      const result = plain(await f.invoke({}, useLegacy)); f.assertReleased();
+      assert.equal(result.ok, false); assert.equal(result.providerHttpStatus, status);
+      assert.equal(result.code, undefined); assert.equal(result.retryAt, undefined); assert.equal(result.retryAfterMs, undefined);
+      assert.equal(f.calls.fetch.length, 1); assert.equal(f.calls.bodyReads, 0); assert.equal(f.calls.discardedBodies, 1);
+      assert.equal(JSON.stringify(result).includes('fixture-token'), false);
+    });
+  }
+}
 
 test('a transient user-supplied Groq key overrides the configured key without persisting it', async () => {
   for (const useLegacy of [false, true]) {
@@ -415,9 +602,36 @@ test('failed optional checks retain original non-overlapping timing and identify
 test('a repeated conflicting short-window timeline fails instead of sorting or using old segments', async () => {
   const bad = { text: 'Tiger Fox', segments: [{ text: 'Tiger Fox', start: 2, end: 5 }],
     words: [{ word: 'Tiger', start: 3, end: 4 }, { word: 'Fox', start: 2.8, end: 4.5 }] };
-  const f = fixture({ duration: 15, responses: [bad, bad, bad] });
+  const f = fixture({ duration: 15, responses: [bad, bad, bad, bad] });
   const result = plain(await f.invoke()); f.assertReleased();
-  assert.equal(result.ok, false); assert.match(result.error, /verify/); assert.equal(f.calls.fetch.length, 3);
+  assert.equal(result.ok, false); assert.match(result.error, /verify/); assert.equal(f.calls.fetch.length, 4);
+});
+
+test('conflicting timing recovers after two invalid verification replies', async () => {
+  const original = { text: 'Tiger Fox', words: [
+    { word: 'Tiger', start: 2, end: 3 }, { word: 'Fox', start: 2.5, end: 4 },
+  ] };
+  const valid = { text: 'Tiger Fox', words: [
+    { word: 'Tiger', start: 2, end: 2.8 }, { word: 'Fox', start: 3, end: 4 },
+  ] };
+  const f = fixture({ duration: 10, responses: [original, original, original, valid] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(f.calls.fetch.length, 4);
+  assert.deepEqual(result.words, valid.words);
+});
+
+test('opening timing recovers when the additional pass confirms the preceding pass', async () => {
+  const original = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 6.26 }] };
+  const broad = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .02, end: 6.18 }] };
+  const first = { text: 'InfoKids', words: [{ word: 'InfoKids', start: .54, end: 1.92 }] };
+  const stable = { text: 'InfoKids', words: [{ word: 'InfoKids', start: 1.1, end: 2.4 }] };
+  const f = fixture({ duration: 10, responses: [original, broad, broad, first, stable, stable] });
+  const result = plain(await f.invoke()); f.assertReleased();
+  assert.equal(result.ok, true);
+  assert.equal(f.calls.fetch.length, 6);
+  assert.ok(Math.abs(result.words[0].start - 5.11) < .001);
+  assert.ok(Math.abs(result.words[0].end - 6.41) < .001);
 });
 
 test('short-window verification recovers on its single retry using verified source timing', async () => {
@@ -758,7 +972,7 @@ test('focused opening passes cannot delete words, accept crop-edge timing or inv
     [{ text: 'Kids', words: [{ word: 'Kids', start: .54, end: 1.92 }] }, good, 4],
     [{ text: 'InfoKids extra', words: good.words }, good, 4],
     [{ text: 'InfoKids', words: [{ word: 'InfoKids', start: 0, end: 1.4 }] }, good, 4],
-    [good, { text: 'InfoKids', words: [{ word: 'InfoKids', start: 1.3, end: 2.7 }] }, 5],
+    [good, { text: 'InfoKids', words: [{ word: 'InfoKids', start: 1.3, end: 2.7 }] }, 6],
     [good, { text: 'InfoKids', words: [{ word: 'InfoKids', start: .8, end: .8 }] }, 5],
   ]) {
     const f = fixture({ duration: 10, responses: [original, broad, broad, first, second] });
@@ -846,3 +1060,5 @@ test('Local fallback error or empty payload cannot be reported as successful cap
     assert.equal(f.calls.progress.some(item => item.value === 100), false);
   }
 });
+
+module.exports = { fixture, plain };

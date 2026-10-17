@@ -94,3 +94,5 @@ frame_test.jpg
 **/.wwebjs_cache/
 **/whatsapp-session/
 **/whatsapp-session-outbox.json*
+
+/output/

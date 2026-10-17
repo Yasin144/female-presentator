@@ -86,6 +86,7 @@ function getCaptionTranscriptionOptions() {
         engine,
         audioMode: document.getElementById('captionVocalFocus')?.checked ? 'vocal-focus' : 'original',
         transcriptionHints: document.getElementById('captionVocabularyHints')?.value || '',
+        allowLocalRecovery: !!document.getElementById('captionGroqLocalRecovery')?.checked,
         ...(document.getElementById('captionAutoRecover') ? { autoRecoverMissingSpeech: !!document.getElementById('captionAutoRecover').checked } : {}),
         ...(apiKey ? { apiKey } : {}),
     };
@@ -99,8 +100,98 @@ function isSongCaptionMode() {
     return getCaptionTranscriptionOptions().contentMode === 'song';
 }
 
+function captionTranscriptionError(result, fallback = 'Electron transcription failed.') {
+    const error = new Error(result?.error || fallback);
+    for (const key of ['code', 'engine', 'providerHttpStatus', 'retryAfterMs', 'retryAt', 'retryAfterEstimated', 'timingIssue', 'cancelled']) {
+        if (result?.[key] !== undefined) error[key] = result[key];
+    }
+    if (error.code === 'CAPTION_GROQ_TIMING_UNCERTAIN') error.captionTimingFailure = true;
+    return error;
+}
+
+function captionGroqRetryMessage(error, now = Date.now()) {
+    const deadline = Number(error?.retryAt);
+    const seconds = Number.isFinite(deadline) && deadline > now ? Math.ceil((deadline - now) / 1000) : 0;
+    return 'Groq requests are limited. '
+        + (seconds ? `Wait ${seconds} seconds (until ${new Date(deadline).toLocaleTimeString()}) before retrying. ` : 'Check the Groq quota before retrying. ')
+        + 'Choose Local or enable Local recovery to continue. Completed exports and remaining videos are preserved.';
+}
+
+function validateCaptionTranscriptionCues(result, duration, buildChunks) {
+    try {
+        const chunks = buildChunks(result, duration || 60);
+        captionLocalValidateCues(chunks, duration);
+        return chunks;
+    } catch (error) {
+        error.captionTimingFailure = true;
+        throw error;
+    }
+}
+
+function createCaptionTranscriptionCoordinator({ transcribe, getNow = Date.now, isCancelled = () => false, onRequest = () => {}, onPause = () => {}, validate = () => {} }) {
+    let groqCooldown = null;
+    const rememberLimit = error => {
+        if (error?.code !== 'CAPTION_GROQ_RATE_LIMIT') return;
+        const now = getNow();
+        const retryAt = Number(error.retryAt);
+        const retryAfterMs = Number(error.retryAfterMs);
+        error.retryAt = Number.isFinite(retryAt) && retryAt > now ? retryAt
+            : now + (Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 32000);
+        if (!groqCooldown || error.retryAt > groqCooldown.retryAt) groqCooldown = error;
+        onPause(groqCooldown);
+    };
+    const canRecover = (error, options) => options.engine === 'groq' && options.allowLocalRecovery === true
+        && !isCancelled() && !error?.cancelled
+        && (error?.code === 'CAPTION_GROQ_RATE_LIMIT' || error?.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' || error?.captionTimingFailure === true);
+    const rememberResultLimit = (result, options) => {
+        if (options.engine === 'groq' && result.rateLimit?.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rememberLimit(captionTranscriptionError(result.rateLimit, 'Groq requests are limited.'));
+        }
+    };
+    const request = async options => {
+        if (isCancelled()) return { ok: false, cancelled: true };
+        const { allowLocalRecovery, ...nativeOptions } = options;
+        onRequest(nativeOptions);
+        const result = await transcribe(nativeOptions);
+        if (result?.cancelled || isCancelled()) return { ok: false, cancelled: true };
+        if (!result?.ok) throw captionTranscriptionError(result);
+        try { validate(result); }
+        catch (error) {
+            if (isCancelled()) return { ok: false, cancelled: true };
+            rememberResultLimit(result, nativeOptions);
+            error.engine = nativeOptions.engine;
+            throw error;
+        }
+        if (isCancelled()) return { ok: false, cancelled: true };
+        // An optional Groq check may stop after usable captions are ready.
+        // Keep those captions, but honor its quota before the next request.
+        rememberResultLimit(result, nativeOptions);
+        return result;
+    };
+    return {
+        getCooldown: () => groqCooldown && groqCooldown.retryAt > getNow() ? groqCooldown : null,
+        async run(options, onPhase = () => {}) {
+            let error;
+            try {
+                if (options.engine === 'groq' && groqCooldown?.retryAt > getNow()) throw groqCooldown;
+                return await request(options);
+            } catch (failure) { error = failure; }
+            rememberLimit(error);
+            if (!canRecover(error, options)) throw error;
+            onPhase('Local recovery', 'Groq could not verify captions or accept more requests. Transcribing the same audio with Local.');
+            const { apiKey, ...localOptions } = options;
+            const recovered = await request({ ...localOptions, engine: 'local', allowLocalRecovery: false });
+            if (recovered?.cancelled || isCancelled()) return { ok: false, cancelled: true };
+            return { ...recovered, engine: 'local', recoveredFromEngine: 'groq',
+                warnings: [...new Set([...(Array.isArray(recovered.warnings) ? recovered.warnings : []),
+                    'Local recovery produced these captions after Groq could not complete transcription. Review words and synchronization.'])] };
+        },
+    };
+}
+
 async function explainCaptionTimingFailure(error, options, api = window.electronAPI) {
     if (!error?.captionTimingFailure || options?.engine !== 'groq' || options?.contentMode !== 'speech'
+        || (error.engine && error.engine !== 'groq')
         || typeof api?.transcribeVideo !== 'function') return error;
     let capability;
     try {
@@ -307,6 +398,9 @@ function captionLocalLegacyCue(cue) {
 
 function captionLocalValidateCues(captions, duration) {
     if (!Array.isArray(captions) || captions.length > 20000) throw new Error('Provide a valid caption list with at most 20,000 cues.');
+    // Decoded PCM can extend a few milliseconds beyond container metadata.
+    // Keep exact speech intervals; this tolerance applies only to the media end.
+    const mediaEndTolerance = 0.005;
     return captions.map((source, index) => {
         if (!source || typeof source.text !== 'string' || !source.text.trim()) throw new Error(`Caption ${index + 1} needs nonempty text.`);
         const rawTimes = Array.isArray(source.timestamp) ? source.timestamp : [source.start, source.end];
@@ -319,7 +413,7 @@ function captionLocalValidateCues(captions, duration) {
         }
         const cue = captionLocalCanonicalCue(source);
         if (!Number.isFinite(cue.start) || !Number.isFinite(cue.end) || cue.start < 0 || cue.end <= cue.start
-            || (Number.isFinite(duration) && duration > 0 && cue.end > duration)) {
+            || (Number.isFinite(duration) && duration > 0 && cue.end > duration + mediaEndTolerance)) {
             throw new Error(`Caption ${index + 1} needs valid start/end times within the video.`);
         }
         let previousWordEnd = cue.start;
@@ -343,9 +437,60 @@ function captionLocalReconcileText(cue, text) {
     return { cue: captionLocalLegacyCue(next), estimated };
 }
 
-function captionLocalEditedQueueItem(item, captions, metadata) {
+function captionLocalLanguageCode(value) {
+    const text = String(value || '').trim().toLowerCase();
+    if (!text || text === 'auto' || text === 'und') return '';
+    const named = { english: 'en', telugu: 'te', hindi: 'hi', tamil: 'ta', urdu: 'ur', arabic: 'ar' }[text];
+    if (named) return named;
+    if (/^[a-z]{2}(?:[-_][a-z]{2})?$/.test(text)) return text.slice(0, 2);
+    throw new Error('Caption language metadata needs a language name or two-letter code.');
+}
+
+function captionLocalEngineMetadata(metadata, state) {
+    const fields = metadata || {};
+    const explicitEngine = Object.prototype.hasOwnProperty.call(fields, 'engine');
+    const explicitRecovery = Object.prototype.hasOwnProperty.call(fields, 'recoveredFromEngine');
+    if (explicitEngine && !['local', 'groq', 'gemini'].includes(fields.engine)) {
+        throw new Error('Caption engine metadata must be local, groq or gemini.');
+    }
+    const engine = explicitEngine ? fields.engine : state?.engine;
+    if (explicitRecovery && fields.recoveredFromEngine !== undefined
+        && (fields.recoveredFromEngine !== 'groq' || engine !== 'local')) {
+        throw new Error('Caption recovery metadata must identify Groq recovery produced by Local.');
+    }
+    return { ...(explicitEngine ? { engine } : {}),
+        ...(explicitEngine || explicitRecovery ? { recoveredFromEngine: explicitRecovery ? fields.recoveredFromEngine : undefined } : {}) };
+}
+
+function captionLocalEditedQueueItem(item, captions, metadata, preserveLanguage = false) {
+    const engineMetadata = captionLocalEngineMetadata(metadata, item);
+    const nextLanguage = { sourceLanguage: item.sourceLanguage, outputLanguage: item.outputLanguage, captionLanguage: item.captionLanguage };
+    const explicitSource = Object.prototype.hasOwnProperty.call(metadata, 'sourceLanguage') || Object.prototype.hasOwnProperty.call(metadata, 'language');
+    const explicitOutput = Object.prototype.hasOwnProperty.call(metadata, 'outputLanguage');
+    if (explicitSource) {
+        nextLanguage.sourceLanguage = captionLocalLanguageCode(Object.prototype.hasOwnProperty.call(metadata, 'sourceLanguage') ? metadata.sourceLanguage : metadata.language);
+        if (!explicitOutput) nextLanguage.outputLanguage = undefined;
+    }
+    if (explicitOutput) nextLanguage.outputLanguage = captionLocalLanguageCode(metadata.outputLanguage) || undefined;
+    const textChanged = JSON.stringify((item.captions || []).map(cue => cue.text)) !== JSON.stringify(captions.map(cue => cue.text));
+    const nextScript = captionTextScriptLanguage(captions.map(cue => cue.text).join(' '));
+    if (textChanged && !preserveLanguage && !explicitSource && !explicitOutput) {
+        const previousScript = captionTextScriptLanguage((item.captions || []).map(cue => cue.text).join(' '));
+        const knownLanguage = nextLanguage.outputLanguage || nextLanguage.sourceLanguage;
+        const knownScript = ['te', 'hi'].includes(knownLanguage) ? knownLanguage : '';
+        // Ordinary spelling fixes keep a known language; a script switch must
+        // not keep a stale same-language tag that would suppress translation.
+        if (nextScript !== knownScript && (nextScript || previousScript || knownScript)) {
+            nextLanguage.outputLanguage = undefined;
+            nextLanguage.sourceLanguage = nextScript;
+        }
+    }
+    if (!preserveLanguage && nextScript && nextLanguage.outputLanguage && nextScript !== nextLanguage.outputLanguage) {
+        nextLanguage.outputLanguage = undefined;
+    }
+    nextLanguage.captionLanguage = { en: 'English', te: 'Telugu', hi: 'Hindi' }[nextLanguage.outputLanguage];
     return { ...item, captions: captions.map(cue => captionLocalLegacyCue(captionLocalCanonicalCue(cue))),
-        timingSource: metadata.timingSource, warnings: [...(metadata.warnings || [])],
+        ...nextLanguage, ...engineMetadata, timingSource: metadata.timingSource, warnings: [...(metadata.warnings || [])],
         status: 'transcribed', progress: 0, message: 'Captions edited. Review and export again.',
         outputPath: undefined, outputFileName: undefined, outputUrl: undefined };
 }
@@ -371,11 +516,16 @@ function createCaptionLocalWorkbenchBridge(callbacks) {
         applyCaptions(itemId, captions, metadata) {
             const state = requireEditable(itemId);
             const canonical = captionLocalValidateCues(captions, state.duration);
+            const engineMetadata = captionLocalEngineMetadata(metadata, state);
             const timingSource = !metadata || !Object.prototype.hasOwnProperty.call(metadata, 'timingSource') ? state.timingSource
                 : metadata?.timingSource === 'estimated' ? 'estimated' : metadata?.timingSource === 'word' ? 'word' : undefined;
             const warnings = metadata && Object.prototype.hasOwnProperty.call(metadata, 'warnings')
                 ? (Array.isArray(metadata.warnings) ? metadata.warnings.map(String) : []) : state.warnings;
-            callbacks.apply(canonical.map(captionLocalLegacyCue), { timingSource, warnings: [...warnings] });
+            const languageMetadata = {};
+            for (const field of ['sourceLanguage', 'language', 'outputLanguage']) {
+                if (metadata && Object.prototype.hasOwnProperty.call(metadata, field)) languageMetadata[field] = captionLocalLanguageCode(metadata[field]);
+            }
+            callbacks.apply(canonical.map(captionLocalLegacyCue), { timingSource, warnings: [...warnings], ...languageMetadata, ...engineMetadata });
             publish();
             return true;
         },
@@ -508,7 +658,7 @@ function bootCaptionStudio() {
 
     function getCaptionFontFamily(text = '') {
         const selected = fontSelect ? fontSelect.value : 'Nunito, sans-serif';
-        if (/[\u0900-\u097f\u0c00-\u0c7f]/u.test(String(text))) return '"Nirmala UI", "Noto Sans Telugu", "Noto Sans Devanagari", sans-serif';
+        if (/[\u0900-\u0dff]/u.test(String(text))) return '"Nirmala UI", "Noto Sans Telugu", "Noto Sans Devanagari", sans-serif';
         return selected.startsWith('Nunito') ? '"Pattan Caption Nunito", sans-serif' : selected;
     }
 
@@ -789,6 +939,27 @@ function bootCaptionStudio() {
     let captionPreviewSpeed = 1;
     let captionPreviewLoop = null;
     const captionBusyControlStates = new Map();
+    let captionGroqRetryTimer = null;
+    const captionTranscriptionCoordinator = createCaptionTranscriptionCoordinator({
+        transcribe: options => window.electronAPI.transcribeVideo(options),
+        isCancelled: () => captionTranscriptionCancelRequested,
+        onRequest: options => { activeCaptionTranscription = options; },
+        validate: result => validateCaptionTranscriptionCues(result,
+            sourceVideo.readyState >= 1 ? sourceVideo.duration : undefined, buildCaptionChunksFromTranscription),
+        onPause: error => {
+            if (captionGroqRetryTimer) clearTimeout(captionGroqRetryTimer);
+            captionGroqRetryTimer = setTimeout(() => {
+                captionGroqRetryTimer = null;
+                renderCaptionQueue();
+                publishCaptionLocalState();
+            }, Math.min(2147483647, Math.max(1, error.retryAt - Date.now() + 25)));
+        },
+    });
+
+    function captionGroqWaiting() {
+        const options = getCaptionTranscriptionOptions();
+        return options.engine === 'groq' && !options.allowLocalRecovery ? captionTranscriptionCoordinator.getCooldown() : null;
+    }
 
     function captionLocalBusy() {
         return isExtractingText || isRecording || isErasingCaptions || captionQueueRunning || captionQueueExporting || captionTranslationBusy;
@@ -812,7 +983,7 @@ function bootCaptionStudio() {
         const disabled = captionLocalBusy();
         if (disabled) clearCaptionPreviewLoop();
         const controls = [...Array.from(editorPanel?.querySelectorAll('button, input, select, textarea') || []),
-            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('captionAutoRecover'), spellingCorrections,
+            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('captionAutoRecover'), document.getElementById('captionGroqLocalRecovery'), spellingCorrections,
             ...[styleSelect, sizeSlider, gapSlider, widthSlider, heightSlider, fontSelect, boldCheck, strokeSlider,
                 colorPicker, syncSlider, positionXControl, positionYControl, positionPresetControl,
                 emojiCheck, karaokeCheck, filterSelect, progressCheck, watermarkCheck,
@@ -836,21 +1007,17 @@ function bootCaptionStudio() {
         if (!item) return;
         item.timingSource = result?.timingSource === 'estimated' || !result?.words?.length ? 'estimated' : 'word';
         item.warnings = Array.isArray(result?.warnings) ? result.warnings.map(String) : [];
+        item.engine = result?.engine || activeCaptionTranscription?.engine || getCaptionTranscriptionOptions().engine;
+        item.recoveredFromEngine = result?.recoveredFromEngine;
         item.sourceLanguage = normalizeCaptionLanguageCode(result?.language) || inferCaptionLanguageCode(result?.text);
     }
 
     function commitCaptionLocalEdits(metadata, redraw = true, preserveLanguage = false) {
         clearCaptionPreviewLoop();
         const item = captionVideoQueue[captionQueueIndex];
-        if (item && !preserveLanguage && JSON.stringify((item.captions || []).map(cue => cue.text)) !==
-            JSON.stringify(generatedCaptions.map(cue => cue.text))) {
-            item.outputLanguage = undefined;
-            item.captionLanguage = undefined;
-            item.sourceLanguage = '';
-        }
         if (item) captionVideoQueue[captionQueueIndex] = captionLocalEditedQueueItem(item, generatedCaptions, metadata || {
             timingSource: item.timingSource, warnings: item.warnings || [],
-        });
+        }, preserveLanguage);
         setCaptionExportActionsVisible(false);
         if (exportActions) exportActions.replaceChildren();
         if (exportBtn) exportBtn.classList.toggle('hidden', !generatedCaptions.length);
@@ -865,6 +1032,8 @@ function bootCaptionStudio() {
             return { itemId: ensureCaptionLocalItemId(item), videoName: item?.file?.name || activeFile?.name || '',
                 captions: generatedCaptions, duration: sourceVideo.readyState >= 1 && Number.isFinite(sourceVideo.duration) ? sourceVideo.duration : undefined,
                 disabled: captionLocalBusy(), timingSource: item?.timingSource, warnings: item?.warnings || [],
+                engine: item?.engine, recoveredFromEngine: item?.recoveredFromEngine,
+                sourceLanguage: item?.sourceLanguage, outputLanguage: item?.outputLanguage,
                 hasVideo: !!activeFile && !!sourceVideo.src, previewSpeed: captionPreviewSpeed, looping: !!captionPreviewLoop };
         },
         apply: (captions, metadata) => {
@@ -923,6 +1092,8 @@ function bootCaptionStudio() {
         }
         if (actionBtn && !captionLocalBusy()) {
             actionBtn.classList.toggle('hidden', generatedCaptions.length > 0 && captionVideoQueue.length <= 1);
+            actionBtn.disabled = !activeFile || (captionVideoQueue.length > 0 && captionVideoQueue.every(item => item.status === 'exported')) || !!captionGroqWaiting();
+            actionBtn.title = captionGroqWaiting() ? captionGroqRetryMessage(captionGroqWaiting()) : '';
         }
         const translateSelected = document.getElementById('captionTranslateSelectedBtn');
         if (translateSelected) translateSelected.disabled = captionLocalBusy() || !generatedCaptions.length;
@@ -949,6 +1120,7 @@ function bootCaptionStudio() {
         const disclose = () => {
             const options = getCaptionTranscriptionOptions();
             document.getElementById('captionGroqKeyField')?.classList.toggle('hidden', options.engine !== 'groq');
+            document.getElementById('captionGroqRecoveryField')?.classList.toggle('hidden', options.engine !== 'groq');
             disclosure.textContent = options.engine === 'gemini'
                 ? 'Gemini sends this audio to Google. Lyric and word timing is estimated; review synchronization.'
                 : options.engine === 'groq'
@@ -964,6 +1136,12 @@ function bootCaptionStudio() {
         engineSelect?.addEventListener('change', () => {
             if (engineSelect.value === 'gemini') modeSelect.value = 'song';
             disclose();
+            renderCaptionQueue();
+            publishCaptionLocalState();
+        });
+        document.getElementById('captionGroqLocalRecovery')?.addEventListener('change', () => {
+            renderCaptionQueue();
+            publishCaptionLocalState();
         });
         disclose();
     }
@@ -983,7 +1161,7 @@ function bootCaptionStudio() {
                 progress: mappedPct,
                 message: pct >= 100
                     ? 'Transcription complete. Building captions...'
-                    : `${getCaptionEngineLabel()} transcription ${pct}%`,
+                    : `${getCaptionEngineLabel(activeCaptionTranscription || getCaptionTranscriptionOptions())} transcription ${pct}%`,
             });
             setCaptionProgressBar(mappedPct);
         });
@@ -1421,7 +1599,8 @@ function bootCaptionStudio() {
             label.disabled = captionLocalBusy();
             const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` - ${Math.round(item.progress || 0)}%` : '';
             label.textContent = `${index + 1}. ${item.file.name} - ${item.status || 'ready'}${pctLabel}`;
-            if ((item.status === 'failed' || item.status === 'retrying') && item.message) {
+            if (item.recoveredFromEngine === 'groq') label.textContent += ' - Local recovery from Groq';
+            if ((item.status === 'failed' || item.status === 'retrying' || item.status === 'waiting') && item.message) {
                 label.textContent += ` — ${item.message}`;
                 label.title = item.message;
             }
@@ -1455,10 +1634,11 @@ function bootCaptionStudio() {
         if (queueNextBtn) queueNextBtn.disabled = captionLocalBusy() || captionQueueIndex >= captionVideoQueue.length - 1;
         if (queueRunBtn) {
             const remaining = captionVideoQueue.filter(item => item.status !== 'exported').length;
-            queueRunBtn.disabled = captionLocalBusy() || remaining === 0;
+            queueRunBtn.disabled = captionLocalBusy() || remaining === 0 || !!captionGroqWaiting();
+            queueRunBtn.title = captionGroqWaiting() ? captionGroqRetryMessage(captionGroqWaiting()) : '';
             queueRunBtn.textContent = captionQueueRunning || captionQueueExporting
                 ? `Queue Running ${exportedCount}/${captionVideoQueue.length}`
-                : remaining === 0 ? 'Queue Complete' : `Start Queue (${remaining})`;
+                : remaining === 0 ? 'Queue Complete' : captionGroqWaiting() ? `Groq waiting (${remaining})` : `Start Queue (${remaining})`;
         }
         if (queueExportAllBtn) {
             const ready = captionVideoQueue.filter(item => item.status !== 'exported' && item.captions && item.captions.length).length;
@@ -1685,12 +1865,14 @@ function bootCaptionStudio() {
             if (remaining <= 0.4) return;
             shownPct = Math.min(maxPct, shownPct + Math.max(1, remaining * 0.035));
             const pct = Math.round(shownPct);
+            const currentPhase = activeCaptionTranscription?.engine === 'local' && getCaptionTranscriptionOptions().engine === 'groq'
+                ? 'Local recovery' : phaseLabel;
             setCaptionProgressBar(pct);
-            statusText.innerHTML = `Active now: ${phaseLabel.toLowerCase()} ${index + 1}/${captionVideoQueue.length} - ${pct}% complete - ${100 - pct}% remaining`;
+            statusText.innerHTML = `Active now: ${currentPhase.toLowerCase()} ${index + 1}/${captionVideoQueue.length} - ${pct}% complete - ${100 - pct}% remaining`;
             setQueueItemState(index, {
                 status: 'transcribing',
                 progress: pct,
-                message: `${phaseLabel}... ${pct}%`
+                message: `${currentPhase}... ${pct}%`
             });
         }, 700);
     }
@@ -1841,6 +2023,11 @@ function bootCaptionStudio() {
 
     async function transcribeCaptionQueueFrom(startIndex = 0) {
         if (captionLocalBusy() || !captionVideoQueue.length) return;
+        if (captionGroqWaiting()) {
+            statusText.textContent = captionGroqRetryMessage(captionGroqWaiting());
+            renderCaptionQueue();
+            return;
+        }
         const outputLanguage = getCaptionOutputLanguage();
         const notifyQueue = captionVideoQueue.some(item => item.status !== 'exported')
             ? createCaptionWhatsAppJob('AI Captioning · caption queue') : () => {};
@@ -1848,8 +2035,11 @@ function bootCaptionStudio() {
         captionQueueExporting = true;
         captionQueueMode = 'start';
         captionTranscriptionCancelRequested = false;
+        hideSingleCaptionProgress();
+        setCaptionProgressBar(0);
         lockCaptionQueueControls(true);
         renderCaptionQueue();
+        let quotaPause = null;
         try {
             const attempts = new Map();
             const ordered = [];
@@ -1887,13 +2077,16 @@ function bootCaptionStudio() {
                                 cancelBtn.textContent = 'Stop Transcription';
                                 cancelBtn.classList.remove('hidden');
                             }
-                            const transcription = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
+                            const transcription = await captionTranscriptionCoordinator.run(activeCaptionTranscription, (phase, detail) => {
+                                statusText.textContent = detail;
+                                setQueueItemState(index, { status: 'transcribing', progress: 5, message: `${phase}: ${detail}` });
+                            });
                             if (transcription?.cancelled || captionTranscriptionCancelRequested) {
                                 captionTranscriptionCancelRequested = true;
                                 throw new Error('Caption queue transcription cancelled.');
                             }
                             if (!transcription || !transcription.ok) {
-                                throw new Error((transcription && transcription.error) || 'Electron transcription failed.');
+                                throw captionTranscriptionError(transcription);
                             }
                             activeCaptionTranscription = null;
                             if (isSongCaptionMode() && !transcription.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
@@ -1951,6 +2144,11 @@ function bootCaptionStudio() {
                             progress: 0, message: 'Queue stopped. Ready to restart.' });
                         break;
                     }
+                    if (itemError.code === 'CAPTION_GROQ_RATE_LIMIT') {
+                        quotaPause = itemError;
+                        setQueueItemState(index, { status: 'waiting', progress: 0, message: captionGroqRetryMessage(itemError) });
+                        break;
+                    }
                     if (/cancelled after preview/i.test(String(itemError.message || itemError))) {
                         setQueueItemState(index, { status: 'transcribed', progress: 100, message: 'Ready for review. Export cancelled; captions preserved.' });
                         continue;
@@ -1958,7 +2156,7 @@ function bootCaptionStudio() {
                     if (itemError.captionTranslationFailure && previousQueueItem.captions.length) {
                         captionVideoQueue[index] = previousQueueItem;
                         generatedCaptions = JSON.parse(JSON.stringify(previousQueueItem.captions));
-                        setQueueItemState(index, { status: 'transcribed', progress: 100,
+                        setQueueItemState(index, { status: 'failed', progress: 0,
                             message: `${itemError.message} Captions retained; no export started.` });
                         continue;
                     }
@@ -1981,22 +2179,33 @@ function bootCaptionStudio() {
             }
             const exportedCount = captionVideoQueue.filter(item => item.status === 'exported').length;
             const failedCount = captionVideoQueue.filter(item => item.status === 'failed').length;
+            const reviewCount = captionVideoQueue.filter(item => item.status === 'transcribed').length;
+            const pendingCount = captionVideoQueue.length - exportedCount - failedCount - reviewCount;
+            if (quotaPause) {
+                statusText.textContent = `Queue paused. Exported ${exportedCount}/${captionVideoQueue.length}. ${captionGroqRetryMessage(quotaPause)}`;
+                notifyQueue('failed', statusText.textContent);
+                return;
+            }
             if (captionTranscriptionCancelRequested) {
                 statusText.textContent = `Queue stopped. Exported ${exportedCount}/${captionVideoQueue.length} videos. Remaining videos are ready to restart.`;
                 notifyQueue('cancelled', 'Caption queue stopped; remaining videos are ready to restart.');
                 return;
             }
-            notifyQueue(failedCount ? 'failed' : 'completed', failedCount
+            notifyQueue(failedCount || pendingCount ? 'failed' : 'completed', failedCount
                 ? `Exported ${exportedCount}/${captionVideoQueue.length}. ${captionVideoQueue.filter(item => item.status === 'failed').map(item => item.message || 'Caption processing failed.').join(' | ')}`
-                : `Exported ${exportedCount}/${captionVideoQueue.length} captioned videos. ${captionVideoQueue.filter(item => item.status === 'transcribed').length} ready for review.`);
+                : `Exported ${exportedCount}/${captionVideoQueue.length} captioned videos. ${reviewCount} ready for review. ${pendingCount} not processed.`);
             statusText.textContent = failedCount
                 ? `Queue finished. Exported ${exportedCount}/${captionVideoQueue.length} videos · Failed ${failedCount}. `
                     + captionVideoQueue.filter(item => item.status === 'failed')
                         .map(item => `${item.file?.name || 'Video'}: ${item.message || 'Caption processing failed.'}`).join(' | ')
-                : `Queue complete. Exported ${exportedCount}/${captionVideoQueue.length} videos.`;
-            speakCaptionStudio('Caption queue complete');
+                : exportedCount === captionVideoQueue.length ? `Queue complete. Exported ${exportedCount}/${captionVideoQueue.length} videos.`
+                    : `Queue finished. Exported ${exportedCount}/${captionVideoQueue.length} videos. ${reviewCount} captions ready for review.`
+                        + (pendingCount ? ` ${pendingCount} videos still need processing.` : '');
+            const completionTitle = failedCount || pendingCount ? 'Caption queue needs attention'
+                : reviewCount ? 'Caption queue ready for review' : 'Caption queue complete';
+            speakCaptionStudio(completionTitle);
             notifyCaptionStudio(
-                'Caption queue complete',
+                completionTitle,
                 failedCount ? `Exported ${exportedCount}. Failed ${failedCount}.` : `Exported ${exportedCount}. Remaining captions are available for review.`
             );
         } catch (error) {
@@ -2015,6 +2224,7 @@ function bootCaptionStudio() {
             captionQueueRunning = false;
             captionQueueExporting = false;
             captionQueueMode = '';
+            hideSingleCaptionProgress();
             activeCaptionTranscription = null;
             captionTranscriptionCancelRequested = false;
             if (cancelBtn) {
@@ -2031,6 +2241,7 @@ function bootCaptionStudio() {
         if (captionLocalBusy() || !captionVideoQueue[index]) return;
         captionQueueExporting = true;
         captionQueueMode = 'single-export';
+        hideSingleCaptionProgress();
         lockCaptionQueueControls(true);
         try {
             if (captionVideoQueue[index].status === 'exported') {
@@ -2056,6 +2267,7 @@ function bootCaptionStudio() {
         } finally {
             captionQueueExporting = false;
             captionQueueMode = '';
+            hideSingleCaptionProgress();
             lockCaptionQueueControls(false);
             renderCaptionQueue();
         }
@@ -2067,6 +2279,7 @@ function bootCaptionStudio() {
             ? createCaptionWhatsAppJob('AI Captioning · ready export queue') : () => {};
         captionQueueExporting = true;
         captionQueueMode = 'export-ready';
+        hideSingleCaptionProgress();
         lockCaptionQueueControls(true);
         renderCaptionQueue();
         try {
@@ -2111,6 +2324,7 @@ function bootCaptionStudio() {
         } finally {
             captionQueueExporting = false;
             captionQueueMode = '';
+            hideSingleCaptionProgress();
             lockCaptionQueueControls(false);
             renderCaptionQueue();
         }
@@ -2829,6 +3043,11 @@ function bootCaptionStudio() {
 
     async function transcribeActiveCaptionVideo() {
         if (captionLocalBusy()) return;
+        if (captionGroqWaiting()) {
+            statusText.textContent = captionGroqRetryMessage(captionGroqWaiting());
+            publishCaptionLocalState();
+            return;
+        }
         const transcriptionOptions = getCaptionTranscriptionOptions();
         const outputLanguage = getCaptionOutputLanguage();
         const engineLabel = getCaptionEngineLabel(transcriptionOptions);
@@ -2906,6 +3125,9 @@ function bootCaptionStudio() {
             sourceVideo.pause(); sourceVideo.currentTime = 0;
             clearPreviewFrameHandle(); renderPreviewNow(0); updatePlayPauseLabel();
             const sourceName = activeFile && activeFile.name ? activeFile.name : 'video';
+            const completedEngine = item?.recoveredFromEngine === 'groq' ? 'Local recovery from Groq'
+                : item?.engine ? getCaptionEngineLabel({ engine: item.engine }) : engineLabel;
+            statusText.textContent = `${generatedCaptions.length} captions ready (${completedEngine}). Review words and synchronization before export.`;
             updateSingleProgress(100, 'Captions ready', `${generatedCaptions.length} captions generated`);
             speakCaptionStudio(`Captioning complete. ${sourceName}`);
             notifyCaptionStudio('Captioning complete', sourceName);
@@ -3069,14 +3291,19 @@ function bootCaptionStudio() {
                     ipcShownPct = Math.min(95, ipcShownPct + (ipcShownPct < 20 ? 2 : ipcShownPct < 45 ? 4 : ipcShownPct < 75 ? 2 : 0.15));
                     const elapsedMinutes = Math.max(0, (Date.now() - ipcStartedAt) / 60000);
                     if (pBar) pBar.style.width = ipcShownPct + '%';
-                    statusText.textContent = `${engineLabel} is actively transcribing (${elapsedMinutes.toFixed(1)} minutes elapsed). The percentage is estimated; click Cancel Transcription to stop safely.`;
-                    updateSingleProgress(ipcShownPct, ipcShownPct < 20 ? 'Preparing audio' : 'Transcribing captions', `${engineLabel} — ${elapsedMinutes.toFixed(1)} min elapsed (estimated progress)`);
+                    const currentLabel = getCaptionEngineLabel(activeCaptionTranscription || transcriptionOptions);
+                    const recovered = activeCaptionTranscription?.engine === 'local' && transcriptionOptions.engine === 'groq';
+                    statusText.textContent = `${recovered ? 'Local recovery' : currentLabel} is actively transcribing (${elapsedMinutes.toFixed(1)} minutes elapsed). The percentage is estimated; click Cancel Transcription to stop safely.`;
+                    updateSingleProgress(ipcShownPct, recovered ? 'Local recovery' : ipcShownPct < 20 ? 'Preparing audio' : 'Transcribing captions', `${currentLabel} — ${elapsedMinutes.toFixed(1)} min elapsed (estimated progress)`);
                 }, 900);
                 let ipc = null;
                 try {
                     activeCaptionTranscription = { videoPath, languageHint: 'auto', ...transcriptionOptions };
                     notificationRoute = 'native';
-                    ipc = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
+                    ipc = await captionTranscriptionCoordinator.run(activeCaptionTranscription, (phase, detail) => {
+                        statusText.textContent = detail;
+                        updateSingleProgress(8, phase, detail);
+                    });
                 } finally {
                     clearInterval(ipcHeartbeat);
                     activeCaptionTranscription = null;
@@ -3132,13 +3359,13 @@ function bootCaptionStudio() {
 
                     // Real speech found
                     generatedCaptions = buildCaptionChunksFromTranscription(ipc, sourceVideo.duration || 60);
-                    statusText.textContent = `${generatedCaptions.length} captions from video audio (${engineLabel})`;
+                    statusText.textContent = `${generatedCaptions.length} captions from video audio (${ipc.recoveredFromEngine === 'groq' ? 'Local recovery from Groq' : engineLabel})`;
                     await finaliseCaptions(); return;
                 }
                 // The native route owns any same-engine recovery. Retrying via
                 // the old browser path can replace reviewed words with a weaker
                 // transcript and bypass timing validation or cancellation.
-                throw new Error(ipc?.error || `${engineLabel} could not generate captions. Review the error and retry.`);
+                throw captionTranscriptionError(ipc, `${engineLabel} could not generate captions. Review the error and retry.`);
             }
 
             // PATH 2: HTTP transcription server (port 8428)
@@ -3237,14 +3464,19 @@ function bootCaptionStudio() {
 
         } catch (error) {
             error = await explainCaptionTimingFailure(error, transcriptionOptions);
-            statusText.innerHTML = 'Error: ' + (error.message || 'Unknown error');
+            statusText.textContent = error.code === 'CAPTION_GROQ_RATE_LIMIT' ? captionGroqRetryMessage(error) : 'Error: ' + (error.message || 'Unknown error');
             if (notificationRoute !== 'native' && !captionTranscriptionCancelRequested) notifyFallback('failed', error);
             console.error('[Caption]', error);
             if (captionVideoQueue[captionQueueIndex]) {
-                captionVideoQueue[captionQueueIndex].status = 'failed';
+                captionVideoQueue[captionQueueIndex].status = error.code === 'CAPTION_GROQ_RATE_LIMIT' ? 'waiting' : 'failed';
+                captionVideoQueue[captionQueueIndex].message = statusText.textContent;
                 renderCaptionQueue();
             }
         } finally {
+            if (!captionsReplaced) {
+                hideSingleCaptionProgress();
+                if (pBar) pBar.style.width = '0%';
+            }
             if (!captionsReplaced && !previousCaptions) generatedCaptions = [];
             if (!captionsReplaced && previousCaptions && captionQueueIndex === previousIndex) {
                 generatedCaptions = previousCaptions;
@@ -3270,7 +3502,7 @@ function bootCaptionStudio() {
                 cancelBtn.textContent = 'Stop Transcription';
             }
             if (!captionQueueRunning && !captionQueueExporting) {
-                actionBtn.disabled = false;
+                actionBtn.disabled = !!captionGroqWaiting();
                 if (!generatedCaptions.length) {
                     actionBtn.textContent = captionVideoQueue.length > 1 ? 'Generate Queue' : 'Generate Captions';
                     actionBtn.classList.remove('hidden');
@@ -3847,7 +4079,7 @@ function bootCaptionStudio() {
     }
 
     function escapeAssCaptionText(value) {
-        return String(value || '')
+        return String(value || '').normalize('NFC').replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1')
             .replace(/\\/g, '\\\\')
             .replace(/\{/g, '\\{')
             .replace(/\}/g, '\\}')
@@ -3930,7 +4162,7 @@ function bootCaptionStudio() {
         const syncOffset = getCaptionSyncOffsetSeconds();
         const captionText = generatedCaptions.map(cue => cue.text || '').join(' ');
         const browserFont = getCaptionFontFamily(captionText);
-        const requestedFont = /[\u0900-\u097f\u0c00-\u0c7f]/u.test(captionText) ? 'Nirmala UI'
+        const requestedFont = /[\u0900-\u0dff]/u.test(captionText) ? 'Nirmala UI'
             : String(fontSelect ? fontSelect.value : 'Nunito').split(',')[0].replace(/["']/g, '').trim() || 'Nunito';
         const selectedBold = boldCheck && !boldCheck.checked ? 0 : -1;
         const selectedFont = requestedFont === 'Nunito' && selectedBold ? 'Nunito Black' : requestedFont;

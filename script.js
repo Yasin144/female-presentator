@@ -12684,7 +12684,7 @@ function handleAnjaliCloneServerTransition(isReady) {
   }
 
   if (!isReady) {
-    if (state.localServerStartup.active || state.anjaliMonitor.warming) {
+    if (previousReady === null || state.localServerStartup.active || state.anjaliMonitor.warming) {
       setServerControlsStatus("Anjali clone server is starting on port 8426. Warm-up can take a few minutes.");
       return;
     }
@@ -33210,6 +33210,7 @@ if (window.electronAPI?.onServerStatus) {
   window.electronAPI.onServerStatus((data) => {
     if (data?.server !== 'anjali') return;
 
+    if (data.status === 'starting') { state.anjaliMonitor.warming = true; updateServerHealthUi(); return; }
     if (data.status === 'restarting') {
       // Mark as offline immediately — don't wait for the next 15s poll
       state.anjaliCloneServerReady = false;

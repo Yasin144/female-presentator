@@ -3,10 +3,11 @@ import { HelpHint } from './HelpGuide';
 
 const number = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-export default function SceneInspector({ scene, transform = {}, localTime = 0, duration = 0, disabled, onChange, onTrimChange, onAddKeyframe, onDeleteKeyframe, onSeekKeyframe, onHelp }) {
+export default function SceneInspector({ scene, transform = {}, localTime = 0, duration = 0, disabled, audioLocked = false, detachedAudioTrack = null, onChange, onTrimChange, onDetachAudio, onSelectDetachedAudio, onReattachAudio, onAddKeyframe, onDeleteKeyframe, onSeekKeyframe, onHelp }) {
   if (!scene) return <div className="mx-inspector-note">Select a clip on the timeline to edit its picture and sound.</div>;
   const keyframes = scene.keyframes || [];
   const isVideo = scene.kind === 'video';
+  const hasAudio = scene.hasAudio !== false;
   const sourceDuration = Math.max(.1, number(scene.sourceDuration, number(scene.duration, .1)));
   const trimStart = Math.max(0, number(scene.trimStart));
   const clipDuration = Math.max(.1, number(scene.duration, .1));
@@ -24,8 +25,16 @@ export default function SceneInspector({ scene, transform = {}, localTime = 0, d
       <label>Rotation<select aria-label="Clip rotation" value={scene.rotation || 0} disabled={disabled} onChange={event => onChange('rotation', Number(event.target.value))}>{[0, 90, 180, 270].map(value => <option key={value} value={value}>{value}°</option>)}</select></label>
       <div className="mx-inspector-buttons"><button disabled={disabled} className={scene.flipX ? 'active' : ''} onClick={() => onChange('flipX', !scene.flipX)}>Flip horizontal</button><button disabled={disabled} className={scene.flipY ? 'active' : ''} onClick={() => onChange('flipY', !scene.flipY)}>Flip vertical</button></div>
       {isVideo && <div className="mx-clip-volume">
-        <label>Volume · {Math.round(number(scene.volume, 1) * 100)}%<input aria-label="Clip volume" type="range" min="0" max="2" step=".01" value={number(scene.volume, 1)} disabled={disabled || !scene.hasAudio} onChange={event => onChange('volume', Number(event.target.value))} /></label>
-        <label className="mx-check"><input type="checkbox" checked={Boolean(scene.muted)} disabled={disabled || !scene.hasAudio} onChange={event => onChange('muted', event.target.checked)} /> Mute source audio</label>
+        <label>Volume · {Math.round(number(scene.volume, 1) * 100)}%<input aria-label="Clip volume" type="range" min="0" max="2" step=".01" value={number(scene.volume, 1)} disabled={disabled || !hasAudio} onChange={event => onChange('volume', Number(event.target.value))} /></label>
+        <label className="mx-check"><input type="checkbox" checked={Boolean(scene.muted)} disabled={disabled || !hasAudio} onChange={event => onChange('muted', event.target.checked)} /> Mute source audio</label>
+        <div className="mx-filmora-audio-actions">
+          {detachedAudioTrack ? <>
+            <button type="button" className="mx-detach-audio-btn is-detached" disabled={disabled || audioLocked} onClick={() => onSelectDetachedAudio?.(detachedAudioTrack.id)} title="Select the detached audio track on the timeline to trim, split, or adjust fades">♫ Edit Detached Audio</button>
+            {onReattachAudio && <button type="button" className="mx-reattach-audio-btn" disabled={disabled || audioLocked} onClick={() => onReattachAudio(detachedAudioTrack.id)} title="Reattach detached audio back into this video clip">🔗 Reattach</button>}
+          </> : (
+            <button type="button" className="mx-detach-audio-btn" disabled={disabled || audioLocked || !hasAudio} onClick={() => onDetachAudio?.(scene.id)} title="Filmora 15 Detach Audio (Ctrl+Alt+D) — Extract video sound onto a dedicated Audio track and mute source video">♫ Detach Audio (Ctrl+Alt+D)</button>
+          )}
+        </div>
       </div>}
     </div>
     <div className="mx-clip-timing-fields">
@@ -59,8 +68,8 @@ export default function SceneInspector({ scene, transform = {}, localTime = 0, d
       {[['Brightness', 'brightness', -.5, .5, 0], ['Contrast', 'contrast', 0, 2, 1], ['Saturation', 'saturation', 0, 3, 1]].map(([label, field, min, max, fallback]) => <label key={field}>{label} · {number(scene[field], fallback).toFixed(2)}<input aria-label={label} type="range" min={min} max={max} step=".01" value={number(scene[field], fallback)} disabled={disabled} onChange={event => onChange(field, Number(event.target.value))} /></label>)}
     </details>
     {isVideo && <details><summary>Audio cleanup</summary>
-      <label className="mx-check"><input type="checkbox" checked={Boolean(scene.noiseReduction)} disabled={disabled || !scene.hasAudio} onChange={event => onChange('noiseReduction', event.target.checked)} /> Noise cleanup on export</label>
-      <label className="mx-check"><input type="checkbox" checked={Boolean(scene.normalizeAudio)} disabled={disabled || !scene.hasAudio} onChange={event => onChange('normalizeAudio', event.target.checked)} /> Loudness normalization on export</label>
+      <label className="mx-check"><input type="checkbox" checked={Boolean(scene.noiseReduction)} disabled={disabled || !hasAudio} onChange={event => onChange('noiseReduction', event.target.checked)} /> Noise cleanup on export</label>
+      <label className="mx-check"><input type="checkbox" checked={Boolean(scene.normalizeAudio)} disabled={disabled || !hasAudio} onChange={event => onChange('normalizeAudio', event.target.checked)} /> Loudness normalization on export</label>
     </details>}
   </section>;
 }

@@ -958,38 +958,82 @@ export default function MyExporter({ active = true }) {
     catch (error) { setWarning(error.message); }
   };
 
-  const detachSelectedAudio = () => {
-    if (projectBusyRef.current || trackStates.videoLocked || trackStates.audioLocked) return;
-    if (!selected || selected.kind !== 'video' || !selected.hasAudio) {
+  const buildDetachedAudioTrack = targetScene => ({
+    id: uid(),
+    name: `${targetScene.name} — detached audio`,
+    path: targetScene.path,
+    start: sceneTimelineOffset(targetScene.id),
+    trimStart: Number(targetScene.trimStart) || 0,
+    duration: (Number(targetScene.duration) || 0.1) / Math.max(.25, Number(targetScene.speed) || 1),
+    sourceDuration: Number(targetScene.sourceDuration) || Number(targetScene.duration) || 0,
+    speed: Math.max(.25, Number(targetScene.speed) || 1),
+    volume: Number.isFinite(Number(targetScene.volume)) ? Number(targetScene.volume) : 1,
+    muted: false,
+    detachedFromSceneId: targetScene.id,
+    originSceneId: targetScene.id,
+    detachedOffset: 0,
+    timelineOffsetWithinScene: 0,
+    sourceSceneDuration: (Number(targetScene.duration) || 0.1) / Math.max(.25, Number(targetScene.speed) || 1),
+  });
+
+  const detachSelectedAudio = (targetSceneId = '') => {
+    if (projectBusyRef.current || trackStates.videoLocked || trackStates.audioLocked) {
+      if (trackStates.videoLocked || trackStates.audioLocked) setWarning('Unlock the video and audio tracks before using Detach Audio.');
+      return;
+    }
+    const explicitScene = typeof targetSceneId === 'string' && targetSceneId ? scenes.find(scene => scene.id === targetSceneId) : null;
+    const batchTargets = !explicitScene && selectedIds.length > 1
+      ? scenes.filter(scene => selectedIds.includes(scene.id) && scene.kind === 'video' && scene.hasAudio !== false)
+      : [];
+    if (batchTargets.length > 1) {
+      const newlyCreated = [];
+      const detachedSceneIdSet = new Set();
+      for (const scene of batchTargets) {
+        const existing = audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(scene.id));
+        if (!existing) {
+          newlyCreated.push(buildDetachedAudioTrack(scene));
+          detachedSceneIdSet.add(scene.id);
+        }
+      }
+      if (!newlyCreated.length) {
+        const firstExisting = audioTracks.find(track => batchTargets.some(scene => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(scene.id)));
+        if (firstExisting) {
+          setSelectedAudioId(firstExisting.id);
+          setSelectedId('');
+          openInspector('clip');
+          setWarning('Selected video clips already have detached audio tracks.');
+        }
+        return;
+      }
+      const nextTracks = [...audioTracks, ...newlyCreated];
+      const nextScenes = scenes.map(scene => detachedSceneIdSet.has(scene.id) ? { ...scene, muted: true } : scene);
+      setAudioTracks(nextTracks);
+      setScenes(nextScenes);
+      newlyCreated.forEach(track => loadWaveform(track.id, track.path, track));
+      setSelectedAudioId(newlyCreated[newlyCreated.length - 1].id);
+      setSelectedId('');
+      setWarning('');
+      setProgress({ pct: 100, phase: `Detached audio from ${newlyCreated.length} video clips onto synchronized Audio tracks.` });
+      commitTimelineHistory(nextScenes, nextTracks, captions);
+      return;
+    }
+
+    const target = explicitScene || selected || programScene;
+    if (!target || target.kind !== 'video' || target.hasAudio === false) {
       setWarning('Select a video that contains audio before using Detach Audio.');
       return;
     }
-    const existing = audioTracks.find(track => track.detachedFromSceneId === selected.id || track.originSceneId === selected.id || track.reattachedToSceneId === selected.id);
+    const existing = audioTracks.find(track => track.detachedFromSceneId === target.id || track.originSceneId === target.id || track.reattachedToSceneId === target.id);
     if (existing) {
       setSelectedAudioId(existing.id);
       setSelectedId('');
+      openInspector('clip');
       setWarning('This scene audio is already detached. The existing audio clip is selected.');
       return;
     }
-    const track = {
-      id: uid(),
-      name: `${selected.name} — detached audio`,
-      path: selected.path,
-      start: sceneTimelineOffset(selected.id),
-      trimStart: Number(selected.trimStart) || 0,
-      duration: (Number(selected.duration) || 0.1) / Math.max(.25, Number(selected.speed) || 1),
-      sourceDuration: Number(selected.sourceDuration) || Number(selected.duration) || 0,
-      speed: Math.max(.25, Number(selected.speed) || 1),
-      volume: Number.isFinite(Number(selected.volume)) ? Number(selected.volume) : 1,
-      muted: false,
-      detachedFromSceneId: selected.id,
-      originSceneId: selected.id,
-      detachedOffset: 0,
-      timelineOffsetWithinScene: 0,
-      sourceSceneDuration: (Number(selected.duration) || 0.1) / Math.max(.25, Number(selected.speed) || 1),
-    };
+    const track = buildDetachedAudioTrack(target);
     const nextTracks = [...audioTracks, track];
-    const nextScenes = scenes.map(scene => scene.id === selected.id ? { ...scene, muted: true } : scene);
+    const nextScenes = scenes.map(scene => scene.id === target.id ? { ...scene, muted: true } : scene);
     setAudioTracks(nextTracks);
     setScenes(nextScenes);
     loadWaveform(track.id, track.path, track);
@@ -998,6 +1042,59 @@ export default function MyExporter({ active = true }) {
     setWarning('');
     setProgress({ pct: 100, phase: 'Audio detached and placed in sync below the video.' });
     commitTimelineHistory(nextScenes, nextTracks, captions);
+  };
+
+  const detachAllVideoAudio = () => {
+    if (projectBusyRef.current || trackStates.videoLocked || trackStates.audioLocked) {
+      if (trackStates.videoLocked || trackStates.audioLocked) setWarning('Unlock the video and audio tracks before using Detach Audio.');
+      return;
+    }
+    const candidates = scenes.filter(scene => scene.kind === 'video' && scene.hasAudio !== false && !scene.disabled);
+    if (!candidates.length) {
+      setWarning('Add at least one video with audio to the timeline before detaching audio.');
+      return;
+    }
+    const newlyCreated = [];
+    const detachedSceneIds = new Set();
+    for (const scene of candidates) {
+      const existing = audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(scene.id));
+      if (!existing) {
+        newlyCreated.push(buildDetachedAudioTrack(scene));
+        detachedSceneIds.add(scene.id);
+      }
+    }
+    if (!newlyCreated.length) {
+      setProgress({ pct: 100, phase: 'All video clips already have their audio detached to Audio tracks.' });
+      return;
+    }
+    const nextTracks = [...audioTracks, ...newlyCreated];
+    const nextScenes = scenes.map(scene => detachedSceneIds.has(scene.id) ? { ...scene, muted: true } : scene);
+    setAudioTracks(nextTracks);
+    setScenes(nextScenes);
+    newlyCreated.forEach(track => loadWaveform(track.id, track.path, track));
+    setSelectedAudioId(newlyCreated[0].id);
+    setSelectedId('');
+    setWarning('');
+    setProgress({ pct: 100, phase: `Detached audio for ${newlyCreated.length} video clip${newlyCreated.length === 1 ? '' : 's'} onto synchronized Audio tracks.` });
+    commitTimelineHistory(nextScenes, nextTracks, captions);
+  };
+
+  const unlinkAudioTrack = (trackId = '') => {
+    if (projectBusyRef.current || trackStates.audioLocked) return;
+    const targetId = (typeof trackId === 'string' && trackId) || selectedAudio?.id;
+    const target = audioTracks.find(track => track.id === targetId);
+    if (!target) return;
+    const nextTracks = audioTracks.map(track => track.id === target.id ? {
+      ...track,
+      detachedFromSceneId: '',
+      originSceneId: '',
+      reattachedToSceneId: '',
+      timelineOffsetWithinScene: undefined,
+      pastedAudio: true,
+    } : track);
+    setAudioTracks(nextTracks);
+    setProgress({ pct: 100, phase: `${target.name} unlinked from its source video clip for free independent timeline placement.` });
+    commitTimelineHistory(scenes, nextTracks, captions);
   };
 
   const addWatermark = event => {
@@ -1682,13 +1779,17 @@ export default function MyExporter({ active = true }) {
     } catch (error) { setWarning(error.message); }
   };
 
-  const reattachSelectedAudio = () => {
-    if (!selectedAudio || projectBusyRef.current || trackStates.audioLocked) return;
-    const legacyScenes = scenes.filter(scene => scene.path === selectedAudio.path && Number(selectedAudio.start) >= sceneTimelineOffset(scene.id) && Number(selectedAudio.start) + Number(selectedAudio.duration) <= sceneTimelineOffset(scene.id) + sceneOutputDuration(scene));
-    const sceneId = selectedAudio.originSceneId || selectedAudio.detachedFromSceneId || selectedAudio.reattachedToSceneId || (!selectedAudio.pastedAudio && legacyScenes.length === 1 ? legacyScenes[0].id : '');
+  const reattachSelectedAudio = (targetAudioId = '') => {
+    if (projectBusyRef.current || trackStates.audioLocked) return;
+    const targetAudio = (typeof targetAudioId === 'string' && targetAudioId ? audioTracks.find(track => track.id === targetAudioId) : null)
+      || selectedAudio
+      || (selected ? audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(selected.id)) : null);
+    if (!targetAudio) return;
+    const legacyScenes = scenes.filter(scene => scene.path === targetAudio.path && Number(targetAudio.start) >= sceneTimelineOffset(scene.id) && Number(targetAudio.start) + Number(targetAudio.duration) <= sceneTimelineOffset(scene.id) + sceneOutputDuration(scene));
+    const sceneId = targetAudio.originSceneId || targetAudio.detachedFromSceneId || targetAudio.reattachedToSceneId || (!targetAudio.pastedAudio && legacyScenes.length === 1 ? legacyScenes[0].id : '');
     const scene = scenes.find(item => item.id === sceneId);
     if (!scene) { setWarning('The source video for this detached audio could not be found. Keep the audio on its current synchronized track.'); return; }
-    const related = audioTracks.filter(track => (track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId) === sceneId || (track.id === selectedAudio.id && !track.pastedAudio && !(track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId)));
+    const related = audioTracks.filter(track => (track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId) === sceneId || (track.id === targetAudio.id && !track.pastedAudio && !(track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId)));
     const originalStart = sceneTimelineOffset(sceneId);
     const originalDuration = Number(scene.duration || 0) / Math.max(.25, Number(scene.speed || 1));
     const untouched = related.length === 1 && Math.abs(Number(related[0].start) - originalStart) < 1e-9 && Math.abs(Number(related[0].duration) - originalDuration) < 1e-9 && Math.abs(Number(related[0].trimStart) - Number(scene.trimStart || 0)) < 1e-9 && Number(related[0].speed || 1) === Number(scene.speed || 1) && Number(related[0].volume ?? 1) === Number(scene.volume ?? 1) && !related[0].muted && !related[0].fadeIn && !related[0].fadeOut && !related[0].fadeEnvelope;
@@ -2351,8 +2452,11 @@ export default function MyExporter({ active = true }) {
       if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'z') { event.preventDefault(); restoreHistory(-1); return; }
       if ((event.ctrlKey && event.key.toLowerCase() === 'y') || (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z')) { event.preventDefault(); restoreHistory(1); return; }
       
+      // Ctrl + Alt + D: Filmora 15 Detach Audio
+      if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'd') { event.preventDefault(); detachSelectedAudio(); return; }
+
       // Ctrl + D: Duplicate Scene
-      if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicateScene(); return; }
+      if (event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicateScene(); return; }
 
       // Copy / Paste scenes
       if (event.ctrlKey && event.key.toLowerCase() === 'c' && selectedIds.length > 0) {
@@ -2461,6 +2565,10 @@ export default function MyExporter({ active = true }) {
     else if (selected && !trackStates.videoLocked) removeScene(selected.id);
   };
   const selectedEntry = entries.find(entry => entry.scene.id === selected?.id);
+  const selectedSceneDetachedTrack = selected ? audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(selected.id)) : null;
+  const contextMenuScene = contextMenu?.type === 'video' ? (scenes.find(scene => scene.id === contextMenu.id) || selected) : null;
+  const contextMenuDetachedTrack = contextMenu?.type === 'video' ? audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(contextMenu.id)) : null;
+  const contextMenuAudio = contextMenu?.type === 'audio' ? (audioTracks.find(track => track.id === contextMenu.id) || selectedAudio) : null;
   const selectedLocalTime = Math.max(0, Math.min(selectedEntry?.outputDuration || 0, playheadTime - (selectedEntry?.start || 0)));
   const selectedTransform = selected ? sampleSceneTransform(selected, selectedLocalTime) : {};
   const addKeyframe = (patch = {}) => {
@@ -2531,17 +2639,17 @@ export default function MyExporter({ active = true }) {
       <input ref={musicInput} className="mx-hidden" type="file" accept="audio/*" onChange={addMusic} />
       <input ref={watermarkInput} className="mx-hidden" type="file" accept="image/png,image/webp,image/jpeg" onChange={addWatermark} />
       <input ref={projectInput} disabled={exporterBusy} className="mx-hidden" type="file" accept=".pattanproject,application/json" onChange={openProjectFile} />
-      <header className="mx-editor-topbar">
-        <div className="mx-editor-brand"><b>P</b><strong>My Exporter</strong><span>PATTAN</span></div>
+      <header className="mx-editor-topbar" data-format={`${settings.aspectRatio} · ${settings.resolution || '1080p'} · ${settings.fps}fps`}>
+        <div className="mx-editor-brand"><b>F15</b><strong>My Exporter</strong><span>FILMORA 15 STUDIO</span></div>
         <input className="mx-editor-project-name" aria-label="Project name" value={projectName} disabled={exporterBusy} onChange={event => setProjectName(event.target.value)} />
         <div className="mx-editor-project-actions"><button onClick={newProject} disabled={exporterBusy}>New</button><button onClick={() => projectInput.current?.click()} disabled={exporterBusy}>Open</button><button onClick={saveProject} disabled={exporterBusy}>Save</button><button title="Undo (Ctrl+Z)" disabled={exporterBusy || historyIndexRef.current < 1} onClick={() => restoreHistory(-1)}>↶</button><button title="Redo (Ctrl+Y)" disabled={exporterBusy || historyIndexRef.current >= historyRef.current.length - 1} onClick={() => restoreHistory(1)}>↷</button></div>
         <div className="mx-export-dropdown-container"><button className="mx-editor-export" onClick={() => setExportDropdownOpen(value => !value)} disabled={!scenes.length || exporterBusy}>Export ▾</button>{exportDropdownOpen && <div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Export with current captions</button><button onClick={() => { setExportDropdownOpen(false); exportVideo(null, false, true); }}>Export without captions</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate captions & export</button><button onClick={() => { setExportDropdownOpen(false); openInspector('export'); }}>Export settings</button></div>}</div>
       </header>
       <nav className="mx-editor-navigation" aria-label="Editor tools">
-        {visibleAssetTabs.map(tab => <button key={tab} className={openSidePanel === 'library' && assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}
-        <button className={openSidePanel === 'inspector' && inspectorTab === 'captions' ? 'active' : ''} onClick={() => openInspector('captions')}>Captions</button>
-        <details className="mx-editor-menu"><summary>Effects ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>{effectAssetTabs.map(tab => <button key={tab} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}</div></details>
-        <span /><button aria-label="Help & Demos" className="mx-editor-help-button" onClick={() => openHelp('media')}>? Help & Demos</button><button className={openSidePanel === 'inspector' && inspectorTab === 'clip' ? 'active' : ''} onClick={() => openSidePanel === 'inspector' && inspectorTab === 'clip' ? setOpenSidePanel('library') : openInspector('clip')}>Clip settings</button>
+        {visibleAssetTabs.map(tab => <button key={tab} data-nav-tab={tab.toLowerCase()} className={openSidePanel === 'library' && assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}
+        <button data-nav-tab="captions" className={openSidePanel === 'inspector' && inspectorTab === 'captions' ? 'active' : ''} onClick={() => openInspector('captions')}>Captions</button>
+        <details className="mx-editor-menu" data-nav-tab="effects"><summary>Effects ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>{effectAssetTabs.map(tab => <button key={tab} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}</div></details>
+        <span /><button aria-label="Help & Demos" data-nav-tab="help" className="mx-editor-help-button" onClick={() => openHelp('media')}>? Help & Demos</button><button data-nav-tab="inspector" className={openSidePanel === 'inspector' && inspectorTab === 'clip' ? 'active' : ''} onClick={() => openSidePanel === 'inspector' && inspectorTab === 'clip' ? setOpenSidePanel('library') : openInspector('clip')}>Clip settings</button>
       </nav>
       {workspaceTabs.length > 1 && <div className="mx-project-tabs"><strong>Projects</strong>{workspaceTabs.map(tab => <button key={tab.id} className={tab.id === activeWorkspaceId ? 'active' : ''} disabled={exporterBusy} onClick={() => switchWorkspace(tab.id)}>{tab.id === activeWorkspaceId ? projectName : tab.name}</button>)}<button disabled={exporterBusy} onClick={addWorkspace}>+ Project</button><span>{autosaveState} · {settings.aspectRatio} · {settings.fps} fps</span></div>}
 
@@ -2612,13 +2720,31 @@ export default function MyExporter({ active = true }) {
               <button title="Split at playhead (S)" onClick={razorCut} disabled={exporterBusy || (!selected && !selectedAudio && !selectedCaptionId)}>✂ Split</button>
               <button title="Delete selected" onClick={deleteSelectedItem} disabled={exporterBusy || (!selected && !selectedAudio && !selectedCaptionId && !selectedTextId) || (selectedCaptionId && trackStates.captionsLocked) || (selectedAudio && trackStates.audioLocked) || (selected && trackStates.videoLocked)}>Delete</button>
               <button onClick={pickAudioTracks} disabled={exporterBusy}>+ Audio</button>
+              <button
+                className={`mx-detach-toolbar-btn ${selectedSceneDetachedTrack ? 'is-detached' : ''}`}
+                title="Filmora 15 Detach Audio (Ctrl+Alt+D) — Extract audio from selected video clip to Audio track"
+                onClick={() => detachSelectedAudio()}
+                disabled={exporterBusy || trackStates.videoLocked || trackStates.audioLocked || !(selected || programScene) || (selected || programScene)?.kind !== 'video' || (selected || programScene)?.hasAudio === false}
+              >
+                ♫ Detach Audio
+              </button>
+              {(selectedAudio && (selectedAudio.originSceneId || selectedAudio.detachedFromSceneId || selectedAudio.reattachedToSceneId) || selectedSceneDetachedTrack) && (
+                <button
+                  className="mx-reattach-toolbar-btn"
+                  title="Reattach detached audio back to its video clip"
+                  onClick={() => reattachSelectedAudio(selectedAudio?.id || selectedSceneDetachedTrack?.id)}
+                  disabled={exporterBusy || trackStates.videoLocked || trackStates.audioLocked}
+                >
+                  🔗 Reattach
+                </button>
+              )}
               <details className="mx-editor-menu"><summary>More tools ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>
                 <HelpHint label="Timeline editing" topic="timeline" onHelp={openHelp} />
                 <button onClick={() => selectedAudio ? copySelectedAudio() : copyScene()} disabled={exporterBusy || (!selected && !selectedAudio)}>Copy</button>
                 <button onClick={() => audioClipboard ? pasteCopiedAudio() : pasteScene()} disabled={exporterBusy || (!audioClipboard && !sceneClipboard)}>Paste at playhead</button>
                 <button onClick={duplicateScene} disabled={exporterBusy || !selected}>Duplicate clip</button>
                 <button onClick={mergeSelectedWithNext} disabled={exporterBusy || !selected}>Group with next clip</button>
-                <button onClick={detachSelectedAudio} disabled={exporterBusy || !selected || selected.kind !== 'video' || !selected.hasAudio}>Detach audio</button>
+                <button onClick={() => detachSelectedAudio()} disabled={exporterBusy || !(selected || programScene) || (selected || programScene)?.kind !== 'video' || (selected || programScene)?.hasAudio === false}>Detach audio</button>
                 <button onClick={() => selected && removeScene(selected.id, true)} disabled={exporterBusy || !selected}>Ripple delete</button>
                 <button onClick={() => selected && patchScene(selected.id, { rotation: (Number(selected.rotation || 0) + 90) % 360 })} disabled={exporterBusy || !selected}>Rotate 90°</button>
                 <button onClick={() => { setSettings(value => ({ ...value, framing: 'fill' })); setScenes(current => current.map(scene => ({ ...scene, fit: 'fill' }))); }} disabled={exporterBusy}>Fill canvas</button>
@@ -2631,7 +2757,7 @@ export default function MyExporter({ active = true }) {
               <button className={rippleEnabled ? 'active' : ''} title="Ripple editing" aria-pressed={rippleEnabled} onClick={() => setRippleEnabled(value => !value)}>Ripple</button>
               <span /><button title="Fit timeline" onClick={() => setTimelineZoom(1)}>Fit</button><label className="mx-timeline-zoom">Zoom<input aria-label="Timeline zoom" type="range" min="1" max="50" value={timelineZoom} onChange={event => setTimelineZoom(Number(event.target.value))} /></label>
             </div>
-            <div className="mx-timeline-head"><div><span className="mx-panel-title">Timeline</span><small>Drag clips to reorder · S to split</small></div><button onClick={() => setTimelineExpanded(value => !value)}>{timelineExpanded ? 'Restore preview' : 'Expand timeline'}</button></div>
+            <div className="mx-timeline-head"><div><span className="mx-panel-title">Timeline</span><small>Drag clips to reorder · S to split · Ctrl+Alt+D to detach audio</small></div><button onClick={() => setTimelineExpanded(value => !value)}>{timelineExpanded ? 'Restore preview' : 'Expand timeline'}</button></div>
             <div className={`mx-timeline-check ${timelineIssues.length ? 'bad' : 'good'}`}>{timelineIssues.length ? `Check timeline: ${timelineIssues[0]}` : 'Timeline check: video, audio and captions are placed correctly.'}</div>
             <div className="mx-scrubber" onPointerDown={event => { setDraggingPlayhead(true); event.currentTarget.setPointerCapture(event.pointerId); seekTimelineFromPointer(event); }} onPointerMove={event => { if (draggingPlayhead) seekTimelineFromPointer(event); }} onPointerUp={() => setDraggingPlayhead(false)}>
               <div className="mx-scrub-track"><div className="mx-scrub-line" /><div className="mx-scrub-head" style={{ left: `${totalDuration ? (playheadTime / totalDuration) * 100 : 0}%` }}><span>{formatTime(playheadTime)}</span></div></div>
@@ -2642,11 +2768,11 @@ export default function MyExporter({ active = true }) {
               <div className="mx-playhead-area"><div className="mx-vertical-playhead" style={{ left: `${totalDuration ? (playheadTime / totalDuration) * 100 : 0}%` }}><span /><button className="mx-playhead-scissors" title="Drag to position · click to cut selected video or detached audio" onPointerDown={beginScissorDrag} onPointerMove={moveScissorDrag} onPointerUp={endScissorDrag} onClick={cutFromScissor}>✂</button></div></div>
               <div className={`mx-track-row ${expandedTimelineTrack === 'video' ? 'track-expanded' : ''}`}>
                 <div className="mx-track-label"><strong>Video</strong><button className="mx-track-size" title="Enlarge or reduce Video track" onClick={() => setExpandedTimelineTrack(value => value === 'video' ? '' : 'video')}>{expandedTimelineTrack === 'video' ? '▾' : '▴'}</button><button onClick={() => setTrackStates(value => ({ ...value, videoLocked: !value.videoLocked }))}>{trackStates.videoLocked ? '🔒' : '🔓'}</button></div>
-                <div className="mx-position-lane mx-video-lane">{scenes.map((scene, index) => { if (scene.kind === 'image') return null; const sceneDuration = Number(scene.duration || 0) / Number(scene.speed || 1); return <button key={scene.id} draggable={!trackStates.videoLocked} title="Click to select · right-click for editing options" className={`mx-clip ${selectedIds.includes(scene.id) ? 'active' : ''} ${draggingId === scene.id ? 'dragging' : ''} ${scene.mergeGroup ? 'merged' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onDragStart={() => setDraggingId(scene.id)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggingId && !trackStates.videoLocked) moveSceneTo(draggingId, scene.id); setDraggingId(''); playAllSessionRef.current = false; }} onDragEnd={() => setDraggingId('')} onDoubleClick={() => openInspector('clip')} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); playAllSessionRef.current = false; selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 360) }); }} onClick={event => { playAllSessionRef.current = false; selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }}><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
+                <div className="mx-position-lane mx-video-lane">{scenes.map((scene, index) => { if (scene.kind === 'image') return null; const sceneDuration = Number(scene.duration || 0) / Number(scene.speed || 1); const isAudioDetached = audioTracks.some(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(scene.id)); const badgeText = [Number(scene.speed || 1) !== 1 ? `${Number(scene.speed).toFixed(2)}×` : '', scene.transition === 'fade-black' ? 'Fade' : '', isAudioDetached ? '♫ Detached' : '', scene.muted ? 'Muted' : ''].filter(Boolean).join(' · '); return <button key={scene.id} draggable={!trackStates.videoLocked} data-clip-badge={badgeText || undefined} data-color-mark={scene.colorMark || undefined} title="Click to select · right-click for Filmora 15 editing options (Detach Audio, Split, Speed, Crop)" className={`mx-clip ${selectedIds.includes(scene.id) ? 'active' : ''} ${draggingId === scene.id ? 'dragging' : ''} ${scene.mergeGroup ? 'merged' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onDragStart={() => setDraggingId(scene.id)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggingId && !trackStates.videoLocked) moveSceneTo(draggingId, scene.id); setDraggingId(''); playAllSessionRef.current = false; }} onDragEnd={() => setDraggingId('')} onDoubleClick={() => openInspector('clip')} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); playAllSessionRef.current = false; selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 380) }); }} onClick={event => { playAllSessionRef.current = false; selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }}><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
               </div>
               <div className={`mx-track-row mx-image-row ${expandedTimelineTrack === 'images' ? 'track-expanded' : ''}`}>
                 <div className="mx-track-label"><strong>Images</strong><button className="mx-track-size" title="Enlarge or reduce Images track" onClick={() => setExpandedTimelineTrack(value => value === 'images' ? '' : 'images')}>{expandedTimelineTrack === 'images' ? '▾' : '▴'}</button><span>▧</span></div>
-                <div className="mx-position-lane mx-video-lane mx-image-lane">{scenes.map((scene, index) => { if (scene.kind !== 'image') return null; const sceneDuration = Number(scene.duration || 0); return <button key={scene.id} draggable={!trackStates.videoLocked} title="Image scene · click to select · right-click for options" className={`mx-clip mx-image-clip ${selectedIds.includes(scene.id) ? 'active' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onClick={event => { selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 360) }); }}><img src={fileUrl(scene.path)} alt="" /><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
+                <div className="mx-position-lane mx-video-lane mx-image-lane">{scenes.map((scene, index) => { if (scene.kind !== 'image') return null; const sceneDuration = Number(scene.duration || 0); return <button key={scene.id} draggable={!trackStates.videoLocked} title="Image scene · click to select · right-click for options" className={`mx-clip mx-image-clip ${selectedIds.includes(scene.id) ? 'active' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onClick={event => { selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 380) }); }}><img src={fileUrl(scene.path)} alt="" /><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
               </div>
               <div className="mx-track-row mx-audio-group-row"><div className="mx-track-label"><strong>Audio mix</strong><button onClick={() => setTrackStates(value => ({ ...value, audioMuted: !value.audioMuted }))}>{trackStates.audioMuted ? '🔇' : '🔊'}</button><button onClick={() => setTrackStates(value => ({ ...value, audioLocked: !value.audioLocked }))}>{trackStates.audioLocked ? '🔒' : '🔓'}</button></div><div className="mx-position-lane"><small>{audioTracks.length ? 'Each sound has its own lane. Overlapping tracks play together.' : 'Import audio or detach a video’s sound to start mixing.'}</small></div></div>
               {audioTracks.map((track, index) => <div className="mx-track-row mx-audio-row" key={track.id}>
@@ -2655,7 +2781,7 @@ export default function MyExporter({ active = true }) {
                   className={`mx-audio-clip ${selectedAudioId === track.id ? 'active' : ''} ${audioCutSelectionModeId === track.id ? 'cut-selecting' : ''}`}
                   style={{ left: `${totalDuration ? track.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? track.duration / totalDuration * 100 : 0}%` }}
                   onPointerDown={event => beginAudioMove(event, track)} onClick={event => selectAudioAtPointer(event, track)} onDoubleClick={() => openInspector('clip')}
-                  onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ x: Math.min(event.clientX, window.innerWidth - 235), y: Math.min(event.clientY, window.innerHeight - 390), id: track.id, type: 'audio' }); }}>
+                  onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 390), id: track.id, name: track.name, type: 'audio' }); }}>
                   <span className="mx-trim-handle left" title="Drag to trim audio start" onPointerDown={event => beginAudioTrim(event, track, 'left')} />
                   {audioSelection?.trackId === track.id && <span className={`mx-audio-selection ${audioSelection.awaitingEnd ? 'awaiting-end' : ''}`}
                     style={{ left: `${(audioSelection.start - Number(track.start)) / Number(track.duration) * 100}%`, width: `${(audioSelection.end - audioSelection.start) / Number(track.duration) * 100}%` }}
@@ -2696,19 +2822,20 @@ export default function MyExporter({ active = true }) {
           <fieldset className="mx-inspector-controls" disabled={exporterBusy}>
           <section className="mx-inspector-page" data-inspector-page="clip" hidden={inspectorTab !== 'clip'}>
           {selectedAudio && <section className="mx-scene-inspector"><div className="mx-panel-title">Audio · {selectedAudio.name}</div><label>Volume<input aria-label="Audio volume" type="range" min="0" max="1" step=".01" value={selectedAudio.volume ?? 1} onChange={event => patchAudioTrack(selectedAudio.id, { volume: Number(event.target.value) })} /></label><label>Speed<input aria-label="Audio speed" type="number" min=".25" max="4" step=".05" value={selectedAudio.speed || 1} onChange={event => patchAudioTrack(selectedAudio.id, { speed: Math.max(.25, Math.min(4, Number(event.target.value))) })} /></label><label>Fade in (seconds)<input aria-label="Audio fade in" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeIn || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeIn: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label>Fade out (seconds)<input aria-label="Audio fade out" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeOut || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeOut: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label className="mx-check"><input type="checkbox" checked={Boolean(selectedAudio.muted)} onChange={event => patchAudioTrack(selectedAudio.id, { muted: event.target.checked })} /> Mute this track</label></section>}
-          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked} onHelp={openHelp}
+          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked} audioLocked={trackStates.audioLocked} detachedAudioTrack={selectedSceneDetachedTrack} onDetachAudio={detachSelectedAudio} onSelectDetachedAudio={trackId => { setSelectedAudioId(trackId); setSelectedId(''); setSelectedCaptionId(''); openInspector('clip'); }} onReattachAudio={reattachSelectedAudio} onHelp={openHelp}
             onChange={changeSceneProperty} onAddKeyframe={() => addKeyframe()} onDeleteKeyframe={index => patchScene(selected.id, { keyframes: selected.keyframes.filter((_, i) => i !== index) })} onSeekKeyframe={time => seekTimeline(selectedEntry.start + time, true)} onTrimChange={patch => patchScene(selected.id, patch)} />}
           {selectedAudio && <>
             <AudioRangeEditor track={selectedAudio} selection={audioSelection} selecting={audioCutSelectionModeId === selectedAudio.id}
               disabled={exporterBusy || trackStates.audioLocked} previewing={audioRangePreviewing} onChange={changeAudioRange}
               onSelect={() => beginCutPositionSelection(selectedAudio.id)} onEdge={setAudioSelectionEdge}
-              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={reattachSelectedAudio} onHelp={openHelp} />
+              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={() => reattachSelectedAudio(selectedAudio.id)} onHelp={openHelp} />
             <audio ref={audioSelectionPreview} className="mx-cut-preview" src={fileUrl(selectedAudio.path)} preload="metadata" hidden />
             <details className="mx-audio-advanced"><summary>More audio edits</summary>
               <div className="mx-audio-extra-actions">
                 <button onClick={razorCut}>Split at playhead</button>
                 <button onClick={() => trimSelectedAudioToPlayhead('start')}>Trim start to playhead</button>
                 <button onClick={() => trimSelectedAudioToPlayhead('end')}>Trim end to playhead</button>
+                {(selectedAudio.originSceneId || selectedAudio.detachedFromSceneId || selectedAudio.reattachedToSceneId) && <button onClick={() => unlinkAudioTrack(selectedAudio.id)}>Unlink from video clip (free move)</button>}
                 <button className="mx-danger" onClick={() => removeAudioTrack(selectedAudio.id)}>Delete entire audio clip</button>
               </div>
             </details>
@@ -2826,49 +2953,57 @@ export default function MyExporter({ active = true }) {
       </footer>
       {helpTopic && <HelpGuide topicId={helpTopic} onClose={() => setHelpTopic(null)} onLocate={locateHelpControls} />}
       {contextMenu && <div className="mx-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.preventDefault()}>
-        <header><strong>{contextMenu.type === 'video' ? 'Video Scene' : 'Detached Audio'}</strong><span>{contextMenu.name}</span></header>
+        <header><strong>{contextMenu.type === 'video' ? (contextMenuScene?.kind === 'image' ? 'Image Clip' : 'Video Clip · Filmora 15') : 'Audio Clip · Filmora 15'}</strong><span>{contextMenu.name || contextMenuAudio?.name}</span></header>
         {contextMenu.type === 'video' ? <>
-          <button onClick={() => { copyScene(); setContextMenu(null); }}><span>⧉ Copy Scene</span><kbd>Ctrl+C</kbd></button>
-          <button onClick={() => { pasteScene(); setContextMenu(null); }} disabled={!sceneClipboard}><span>▣ Paste Scene</span><kbd>Ctrl+V</kbd></button>
-          <button onClick={() => { duplicateScene(); setContextMenu(null); }}><span>Duplicate Scene</span><kbd>Ctrl+D</kbd></button>
-          <button onClick={() => { razorCut(); setContextMenu(null); }} disabled={trackStates.videoLocked}><span>✂ Cut at Playhead</span><kbd>S</kbd></button>
-          <button onClick={() => { trimSceneToPlayhead('start'); setContextMenu(null); }}><span>Trim Start to Playhead</span></button>
-          <button onClick={() => { trimSceneToPlayhead('end'); setContextMenu(null); }}><span>Trim End to Playhead</span></button>
+          <button className="mx-context-highlight" onClick={() => { detachSelectedAudio(contextMenu.id); setContextMenu(null); }} disabled={contextMenuScene?.kind !== 'video' || contextMenuScene?.hasAudio === false}><span>{contextMenuDetachedTrack ? '♫ Select Detached Audio' : '♫ Detach Audio'}</span><kbd>Ctrl+Alt+D</kbd></button>
+          {contextMenuDetachedTrack && <button className="reattach-menu" onClick={() => { reattachSelectedAudio(contextMenuDetachedTrack.id); setContextMenu(null); }}><span>🔗 Reattach Audio to Video</span></button>}
+          {scenes.filter(s => s.kind === 'video' && s.hasAudio !== false).length > 1 && <button onClick={() => { detachAllVideoAudio(); setContextMenu(null); }}><span>♫ Detach Audio from All Videos</span></button>}
+          <button onClick={() => { patchScene(contextMenu.id, { muted: !contextMenuScene?.muted }); setContextMenu(null); }} disabled={contextMenuScene?.kind !== 'video' || contextMenuScene?.hasAudio === false}><span>{contextMenuScene?.muted ? '🔊 Unmute Clip Audio' : '🔇 Mute Clip Audio'}</span><kbd>Ctrl+Shift+M</kbd></button>
+          <div className="mx-context-separator" />
+          <button onClick={() => { razorCut(); setContextMenu(null); }} disabled={trackStates.videoLocked}><span>✂ Split at Playhead</span><kbd>S</kbd></button>
+          <button onClick={() => { trimSceneToPlayhead('start'); setContextMenu(null); }}><span>⇤ Trim Start to Playhead</span></button>
+          <button onClick={() => { trimSceneToPlayhead('end'); setContextMenu(null); }}><span>⇥ Trim End to Playhead</span></button>
+          <div className="mx-context-separator" />
+          <button onClick={() => { copyScene(); setContextMenu(null); }}><span>⧉ Copy Clip</span><kbd>Ctrl+C</kbd></button>
+          <button onClick={() => { pasteScene(); setContextMenu(null); }} disabled={!sceneClipboard}><span>▣ Paste Clip</span><kbd>Ctrl+V</kbd></button>
+          <button onClick={() => { duplicateScene(); setContextMenu(null); }}><span>Duplicate Clip</span><kbd>Ctrl+D</kbd></button>
           <button onClick={() => { setSettings(value => ({ ...value, framing: 'fill' })); setScenes(current => current.map(scene => ({ ...scene, fit: 'fill' }))); setContextMenu(null); }}><span>Crop and Zoom — Fill</span></button>
           <button onClick={() => { setSettings(value => ({ ...value, framing: 'contain' })); setScenes(current => current.map(scene => ({ ...scene, fit: 'contain' }))); setContextMenu(null); }}><span>Crop to Fit — Full Frame</span></button>
-          <button onClick={() => { patchScene(contextMenu.id, { rotation: (Number(selected?.rotation || 0) + 90) % 360 }); setContextMenu(null); }}><span>Rotate 90° Clockwise</span></button>
-          <button onClick={() => { detachSelectedAudio(); setContextMenu(null); }} disabled={!selected?.hasAudio}><span>♫ Detach Audio</span></button>
-          <button onClick={() => { patchScene(contextMenu.id, { muted: !selected?.muted }); setContextMenu(null); }}><span>{selected?.muted ? '🔊 Unmute Scene' : '🔇 Mute Scene'}</span></button>
-          <button onClick={() => { generateCaptions(); setContextMenu(null); }}><span>Speech to Text</span></button>
-          <button onClick={() => { changeSelectedVideoVoice(); setContextMenu(null); }}><span>AI Translation</span></button>
-          <button onClick={() => { patchScene(contextMenu.id, { speed: Number(selected?.speed || 1) === 1 ? .5 : Number(selected?.speed || 1) === .5 ? 2 : 1 }); setContextMenu(null); }}><span>Speed — {Number(selected?.speed || 1).toFixed(2)}×</span></button>
+          <button onClick={() => { patchScene(contextMenu.id, { rotation: (Number(contextMenuScene?.rotation || 0) + 90) % 360 }); setContextMenu(null); }}><span>Rotate 90° Clockwise</span></button>
+          <button onClick={() => { generateCaptions(); setContextMenu(null); }}><span>Speech to Text (Captions)</span></button>
+          <button onClick={() => { changeSelectedVideoVoice(); setContextMenu(null); }}><span>AI Voice Translation</span></button>
+          <button onClick={() => { patchScene(contextMenu.id, { speed: Number(contextMenuScene?.speed || 1) === 1 ? .5 : Number(contextMenuScene?.speed || 1) === .5 ? 2 : 1 }); setContextMenu(null); }}><span>⚡ Speed — {Number(contextMenuScene?.speed || 1).toFixed(2)}×</span></button>
           <button onClick={() => { applyVisualPreset('cinematic'); setContextMenu(null); }}><span>Effects & Filters</span></button>
           <div className="mx-context-separator" />
           <button onClick={() => { moveScene(contextMenu.id, -1); setContextMenu(null); }}><span>← Move Earlier</span></button>
           <button onClick={() => { moveScene(contextMenu.id, 1); setContextMenu(null); }}><span>Move Later →</span></button>
-          <button onClick={() => { mergeSelectedWithNext(); setContextMenu(null); }}><span>Merge With Next</span></button>
+          <button onClick={() => { mergeSelectedWithNext(); setContextMenu(null); }}><span>Group With Next Clip</span></button>
           <button onClick={() => { renameSelectedScene(); setContextMenu(null); }}><span>Rename Clip</span><kbd>F2</kbd></button>
-          <button onClick={() => { patchScene(contextMenu.id, { disabled: !selected?.disabled }); setContextMenu(null); }}><span>{selected?.disabled ? 'Enable Clip' : 'Disable Clip'}</span></button>
-          <button onClick={() => { setAdvancedMode(true); setContextMenu(null); }}><span>Edit Properties</span></button>
+          <button onClick={() => { patchScene(contextMenu.id, { disabled: !contextMenuScene?.disabled }); setContextMenu(null); }}><span>{contextMenuScene?.disabled ? 'Enable Clip' : 'Disable Clip'}</span></button>
+          <button onClick={() => { openInspector('clip'); setAdvancedMode(true); setContextMenu(null); }}><span>Edit Properties</span></button>
           <button onClick={() => { locateSelectedSource(); setContextMenu(null); }}><span>Locate in Media Library</span></button>
           <button onClick={() => { replaceSelectedScene(); setContextMenu(null); }}><span>Replace Clip</span></button>
-          <button onClick={() => { if (preview.current && selected) { preview.current.currentTime = Number(selected.trimStart || 0); seekTimeline(sceneTimelineOffset(selected.id)); } setContextMenu(null); }}><span>Match First Frame</span></button>
-          <button onClick={() => { patchScene(contextMenu.id, { colorMark: selected?.colorMark === 'gold' ? 'blue' : selected?.colorMark === 'blue' ? 'green' : selected?.colorMark === 'green' ? '' : 'gold' }); setContextMenu(null); }}><span>Change Clip Colour</span></button>
+          <button onClick={() => { if (preview.current && contextMenuScene) { preview.current.currentTime = Number(contextMenuScene.trimStart || 0); seekTimeline(sceneTimelineOffset(contextMenuScene.id)); } setContextMenu(null); }}><span>Match First Frame</span></button>
+          <button onClick={() => { patchScene(contextMenu.id, { colorMark: contextMenuScene?.colorMark === 'gold' ? 'blue' : contextMenuScene?.colorMark === 'blue' ? 'green' : contextMenuScene?.colorMark === 'green' ? '' : 'gold' }); setContextMenu(null); }}><span>Change Clip Colour</span></button>
           <button onClick={() => { setSnapEnabled(value => !value); setContextMenu(null); }}><span>{snapEnabled ? 'Disable' : 'Enable'} Timeline Snapping</span><kbd>N</kbd></button>
           <div className="mx-context-separator" />
           <button className="danger" onClick={() => { removeScene(contextMenu.id, true); setContextMenu(null); }}><span>Ripple Delete Scene</span><kbd>Shift+Del</kbd></button>
           <button className="danger" onClick={() => { removeScene(contextMenu.id); setContextMenu(null); }}><span>🗑 Delete Scene</span><kbd>Del</kbd></button>
         </> : <>
-          <button onClick={() => { copySelectedAudio(); setContextMenu(null); }}><span>⧉ Copy Audio</span><kbd>Ctrl+C</kbd></button>
-          <button onClick={() => { pasteCopiedAudio(); setContextMenu(null); }} disabled={!audioClipboard}><span>▣ Paste at Gold Stick</span><kbd>Ctrl+V</kbd></button>
-          <button onClick={() => { duplicateSelectedAudio(); setContextMenu(null); }}><span>Duplicate After Clip</span></button>
+          <button className="reattach-menu" onClick={() => { reattachSelectedAudio(contextMenu.id); setContextMenu(null); }}><span>🔗 Reattach Audio to Video</span></button>
+          {(contextMenuAudio?.originSceneId || contextMenuAudio?.detachedFromSceneId || contextMenuAudio?.reattachedToSceneId) && <button onClick={() => { unlinkAudioTrack(contextMenu.id); setContextMenu(null); }}><span>🔓 Unlink from Video (Free Move)</span></button>}
+          <button onClick={() => { openInspector('clip'); setContextMenu(null); }}><span>🎛 Adjust Audio (Volume / Fade / Speed)</span></button>
+          <div className="mx-context-separator" />
+          <button onClick={() => { razorCut(); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>✂ Split at Playhead</span><kbd>S</kbd></button>
           <button onClick={() => { beginCutPositionSelection(contextMenu.id); setContextMenu(null); }}><span>✂ Cut Selected Position Audio</span><kbd>2 clicks</kbd></button>
-          <button className="danger" onClick={() => { removeHighlightedAudio(); setContextMenu(null); }} disabled={audioSelection?.trackId !== contextMenu.id || audioSelection?.awaitingEnd}><span>Remove Selected Audio</span></button>
-          <button onClick={() => { razorCut(); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>✂ Cut at Playhead</span><kbd>S</kbd></button>
-          <button onClick={() => { trimSelectedAudioToPlayhead('start'); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>Trim Before Playhead</span></button>
-          <button onClick={() => { trimSelectedAudioToPlayhead('end'); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>Trim After Playhead</span></button>
-          <button onClick={() => { patchAudioTrack(contextMenu.id, { muted: !selectedAudio?.muted }); setContextMenu(null); }}><span>{selectedAudio?.muted ? '🔊 Unmute Audio' : '🔇 Mute Audio'}</span></button>
-          <button className="reattach-menu" onClick={() => { reattachSelectedAudio(); setContextMenu(null); }}><span>🔗 Reattach Audio to Video</span></button>
+          <button className="danger" onClick={() => { removeHighlightedAudio(); setContextMenu(null); }} disabled={audioSelection?.trackId !== contextMenu.id || audioSelection?.awaitingEnd}><span>Remove Selected Audio Range</span></button>
+          <button onClick={() => { trimSelectedAudioToPlayhead('start'); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>⇤ Trim Start to Playhead</span></button>
+          <button onClick={() => { trimSelectedAudioToPlayhead('end'); setContextMenu(null); }} disabled={trackStates.audioLocked}><span>⇥ Trim End to Playhead</span></button>
+          <div className="mx-context-separator" />
+          <button onClick={() => { copySelectedAudio(); setContextMenu(null); }}><span>⧉ Copy Audio</span><kbd>Ctrl+C</kbd></button>
+          <button onClick={() => { pasteCopiedAudio(); setContextMenu(null); }} disabled={!audioClipboard}><span>▣ Paste at Playhead</span><kbd>Ctrl+V</kbd></button>
+          <button onClick={() => { duplicateSelectedAudio(); setContextMenu(null); }}><span>Duplicate After Clip</span></button>
+          <button onClick={() => { patchAudioTrack(contextMenu.id, { muted: !contextMenuAudio?.muted }); setContextMenu(null); }}><span>{contextMenuAudio?.muted ? '🔊 Unmute Audio' : '🔇 Mute Audio'}</span></button>
           <div className="mx-context-separator" />
           <button className="danger" onClick={() => { removeAudioTrack(contextMenu.id, true); setContextMenu(null); }}><span>Ripple Delete Audio</span><kbd>Shift+Del</kbd></button>
           <button className="danger" onClick={() => { removeAudioTrack(contextMenu.id); setContextMenu(null); }}><span>🗑 Delete Audio</span><kbd>Del</kbd></button>

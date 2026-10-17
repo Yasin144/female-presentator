@@ -37,7 +37,7 @@ class SongModeTest(unittest.TestCase):
                     return iter([segment]), SimpleNamespace(duration=10, language='en')
             model = Model()
             _, _, _, words = scope['run_whisper_with_model'](model, 'test.wav', 'en')
-            self.assertEqual(model.options['vad_filter'], not song)
+            self.assertFalse(model.options['vad_filter'])
             self.assertEqual(model.options['chunk_length'], 10 if song else 30)
             self.assertEqual(model.options['no_speech_threshold'], 0.85 if song else 0.6)
             self.assertTrue(model.options['word_timestamps'])

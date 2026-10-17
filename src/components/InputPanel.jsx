@@ -1687,7 +1687,9 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      <LocalCaptionPanel />
+      <div hidden style={{ display: 'none' }} aria-hidden="true">
+        <LocalCaptionPanel />
+      </div>
 
       <details className="section-card classic-prepare-section" id="mediaSection">
         <summary className="section-summary">

@@ -27,6 +27,7 @@ const expectedCaptionIds = [
   'captionProgressBarCheck', 'captionBgMusicCheck', 'bgMusicInput', 'bgMusicAudio', 'captionWatermarkCheck',
   'captionWatermarkInput', 'captionContentMode', 'captionEngine', 'captionLocalModeDisclosure', 'captionGroqKeyField',
   'captionGroqApiKey', 'captionRegenerateBtn', 'captionVocalFocus', 'captionVocabularyHints', 'captionStyleSelect',
+  'captionGroqRecoveryField', 'captionGroqLocalRecovery',
   'captionLanguage', 'captionLanguageDisclosure', 'captionTranslateSelectedBtn', 'captionEraserQuality',
   'captionFilterSelect', 'captionFontSelect', 'captionSizeValue', 'captionSizeSlider', 'captionSizePreviewText',
   'captionSizePreviewBtn', 'captionPositionPreset', 'captionPositionXValue', 'captionPositionX', 'captionPositionYValue',
@@ -49,7 +50,7 @@ async function main() {
   fixture = path.join(fixtureDirectory, 'caption-advanced-qa.mp4');
   const generated = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
     'color=c=0x123456:s=320x180:r=15', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono',
-    '-t', '5', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-pix_fmt', 'yuv420p',
+    '-t', '50', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-movflags', '+faststart', '-y', fixture], { encoding: 'utf8', windowsHide: true });
   if (generated.error || generated.status !== 0) throw new Error(`Could not generate the synthetic QA video: ${generated.error?.message || generated.stderr}`);
   const { build } = await import('vite');
@@ -1089,6 +1090,9 @@ async function main() {
   assert.deepEqual((await state()).captions, retained);
   assert.equal(await page.evaluate(() => window.__qaLocalFallbackCalls), fallbackBefore);
   assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Opening audio timing needs review/);
+  assert.equal(await page.$eval('#captionSingleLiveStatus', element => element.checkVisibility()), false,
+    'A failed single transcription must hide its obsolete Active now spinner.');
+  assert.equal(await page.$eval('#captionProgressBarValue', element => element.style.width), '0%');
   passed.push('Native timing failures retain reviewed captions and never launch a hidden weaker transcription engine');
 
   await page.evaluate(() => {
@@ -1118,6 +1122,280 @@ async function main() {
   assert.equal((await state()).captions.length, 0);
   assert.match(await page.$eval('#captionQueueList', element => element.textContent), /missing sentences/);
   passed.push('A queue cannot export only the timed fragment of an incomplete narration transcript');
+
+  await page.$eval('#captionResetBtn', element => element.click());
+  await videoInput.uploadFile(fixture);
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().hasVideo && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.select('#captionContentMode', 'speech');
+  const translationsBeforeImportedDraft = await page.evaluate(() => window.__qaTranslationRequests.length);
+  await page.evaluate(() => {
+    const api = window.captionLocalWorkbenchAPI;
+    api.applyCaptions(api.getState().itemId, [{ start: .5, end: 1.7, text: 'Reviewed caption', words: [
+      { text: 'Reviewed', start: .5, end: 1 }, { text: 'caption', start: 1, end: 1.7 },
+    ] }], { sourceLanguage: 'English', outputLanguage: 'en', timingSource: 'word', warnings: [] });
+    window.__qaUnexpectedASR = 0;
+    window.electronAPI.transcribeVideo = async () => { window.__qaUnexpectedASR++; throw new Error('Saved draft must not rerun ASR'); };
+    window.__qaTranslationMode = 'error';
+    window.electronAPI.burnCaptions = async request => {
+      window.__qaExportCalls++; window.__qaLastBurnCaptions = request.captions;
+      return { ok: true, fileName: 'qa-captioned.mp4' };
+    };
+    document.getElementById('captionQueueRunBtn').click();
+  });
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionQueueStatus').textContent.includes('Exported 1/1'));
+  assert.equal(await page.evaluate(() => window.__qaUnexpectedASR), 0);
+  assert.equal(await page.evaluate(() => window.__qaTranslationRequests.length), translationsBeforeImportedDraft,
+    'A declared English draft must not depend on the unavailable translation service.');
+  assert.equal((await state()).sourceLanguage, 'en');
+  assert.equal((await state()).outputLanguage, 'en');
+  assert.equal(await page.$eval('#captionSingleLiveStatus', element => element.checkVisibility()), false);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Queue complete.*1\/1/);
+  passed.push('A declared English Local draft exports through the real queue without new ASR, translation requests or a stale single progress spinner');
+
+  await page.$eval('#captionResetBtn', element => element.click());
+  await videoInput.uploadFile(fixture);
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().hasVideo && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.evaluate(() => {
+    const api = window.captionLocalWorkbenchAPI;
+    api.applyCaptions(api.getState().itemId, [{ start: .5, end: 1.7, text: 'नमस्ते बच्चों', words: [] }],
+      { sourceLanguage: 'hi', outputLanguage: 'hi', timingSource: 'estimated', warnings: ['Review wording'] });
+    document.getElementById('captionQueueRunBtn').click();
+  });
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionStatusText').textContent.includes('Failed 1'));
+  assert.equal((await state()).captions[0].text, 'नमस्ते बच्चों');
+  assert.equal((await state()).outputLanguage, 'hi');
+  assert.equal(await page.evaluate(() => window.__qaExportCalls), 1);
+  assert.match(await page.$eval('#captionQueueList', element => element.textContent), /failed.*translation provider unavailable.*no export started/i);
+  assert.doesNotMatch(await page.$eval('#captionStatusText', element => element.textContent), /Queue complete/);
+  passed.push('A saved draft translation failure retains captions and language, reports Failed 1 and cannot silently claim export completion');
+  await page.evaluate(() => { window.__qaTranslationMode = 'success'; document.getElementById('captionQueueRunBtn').click(); });
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionQueueStatus').textContent.includes('Exported 1/1'));
+  assert.equal(await page.evaluate(() => window.__qaUnexpectedASR), 0);
+  assert.equal(await page.evaluate(() => window.__qaExportCalls), 2);
+  assert.equal((await state()).outputLanguage, 'en');
+  passed.push('Retrying a retained draft after translation recovers exports it without discarding the draft or rerunning speech recognition');
+
+  await page.$eval('#captionResetBtn', element => element.click());
+  await videoInput.uploadFile(...Array(8).fill(fixture));
+  await page.waitForFunction(() => document.querySelectorAll('#captionQueueList > div').length === 8
+    && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.select('#captionEngine', 'groq');
+  await page.select('#captionContentMode', 'speech');
+  await page.select('#captionLanguage', 'en');
+  assert.equal(await page.$eval('#captionGroqLocalRecovery', element => element.checked), false);
+  assert.equal(await page.$eval('#captionGroqRecoveryField', element => element.checkVisibility()), true);
+  await page.evaluate(() => {
+    window.__qaRecoveryRequests = [];
+    window.__qaRecoveryExports = [];
+    window.__qaRecoveryValid = { ok: true, engine: 'groq', language: 'en', text: 'Reviewed caption.',
+      words: [{ word: 'Reviewed', start: .5, end: 1 }, { word: 'caption.', start: 1, end: 1.7 }],
+      timingSource: 'word', warnings: [] };
+    window.electronAPI.transcribeVideo = async options => {
+      window.__qaRecoveryRequests.push(options);
+      if (window.__qaRecoveryRequests.length === 3) return { ok: false, engine: 'groq', code: 'CAPTION_GROQ_RATE_LIMIT',
+        providerHttpStatus: 429, retryAfterMs: 3600000, retryAt: Date.now() + 3600000, error: 'Groq quota reached.' };
+      return { ...window.__qaRecoveryValid, engine: options.engine };
+    };
+    window.electronAPI.burnCaptions = async options => {
+      window.__qaRecoveryExports.push(options);
+      return { ok: true, fileName: `qa-recovery-${window.__qaRecoveryExports.length}.mp4` };
+    };
+    document.getElementById('captionQueueRunBtn').click();
+  });
+  await page.waitForFunction(() => window.__qaRecoveryRequests.length === 3 && !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionStatusText').textContent.includes('Queue paused'));
+  const pausedQueue = await page.$eval('#captionQueueList', element => element.textContent);
+  assert.equal((pausedQueue.match(/ - exported/g) || []).length, 2);
+  assert.equal((pausedQueue.match(/ - waiting/g) || []).length, 1);
+  assert.equal((pausedQueue.match(/ - ready/g) || []).length, 5);
+  assert.equal(await page.evaluate(() => window.__qaRecoveryExports.length), 2);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Queue paused\. Exported 2\/8.*Wait.*Local.*preserved/);
+  assert.equal(await page.$eval('#captionQueueLiveStatus', element => element.checkVisibility()), false);
+  assert.equal(await page.$eval('#captionSingleLiveStatus', element => element.checkVisibility()), false);
+  assert.equal(await page.$eval('#captionQueueRunBtn', element => element.disabled), true);
+  await page.$eval('#captionQueueRunBtn', element => element.dispatchEvent(new Event('click')));
+  assert.equal(await page.evaluate(() => window.__qaRecoveryRequests.length), 3, 'Even a programmatic retry must honor the cooldown.');
+  passed.push('Terminal Groq quota pauses an eight-video queue after two exports, preserves five unattempted videos and prevents all early retries without a stale spinner');
+
+  await page.$eval('#captionGroqLocalRecovery', element => { element.checked = true; element.dispatchEvent(new Event('change', { bubbles: true })); });
+  assert.equal(await page.$eval('#captionQueueRunBtn', element => element.disabled), false);
+  await page.$eval('#captionQueueRunBtn', element => element.click());
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionQueueStatus').textContent.includes('Exported 8/8'));
+  assert.equal(await page.evaluate(() => window.__qaRecoveryRequests.length), 9);
+  assert.deepEqual(await page.evaluate(() => window.__qaRecoveryRequests.slice(3).map(request => request.engine)), Array(6).fill('local'));
+  assert.equal(await page.evaluate(() => window.__qaRecoveryExports.length), 8, 'Successful Groq exports must not be repeated.');
+  assert.equal((await page.$eval('#captionQueueList', element => element.textContent)).match(/Local recovery from Groq/g).length, 6);
+  await page.$eval('#captionQueueList > div:first-child > button', element => element.click());
+  assert.equal((await state()).engine, 'groq', 'The two existing successful Groq results keep their true provenance.');
+  passed.push('Opting into Local recovery finishes all six remaining videos during Groq cooldown, labels every recovered row and preserves the two successful Groq exports');
+
+  await page.$eval('#captionResetBtn', element => element.click());
+  await videoInput.uploadFile(fixture);
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().hasVideo && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.evaluate(() => {
+    window.__qaSingleRecoveryRequests = [];
+    window.electronAPI.transcribeVideo = async options => {
+      window.__qaSingleRecoveryRequests.push(options);
+      return options.engine === 'groq' ? { ok: false, code: 'CAPTION_GROQ_TIMING_UNCERTAIN', error: 'Word boundaries uncertain.' }
+        : { ...window.__qaRecoveryValid, engine: 'local' };
+    };
+    document.getElementById('captionActionBtn').click();
+  });
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled && window.captionLocalWorkbenchAPI.getState().captions.length > 0);
+  assert.equal((await state()).engine, 'local');
+  assert.equal((await state()).recoveredFromEngine, 'groq');
+  assert.match((await state()).warnings.join(' '), /Local recovery.*Groq.*Review/);
+  assert.match(await page.$eval('#captionStatusText', element => element.textContent), /Local recovery from Groq/);
+  const beforeRecoveryCancel = await state();
+  await page.evaluate(() => {
+    window.electronAPI.transcribeVideo = options => {
+      window.__qaSingleRecoveryRequests.push(options);
+      return new Promise(resolve => { window.__qaResolveTranscription = resolve; });
+    };
+    window.electronAPI.cancelTranscribeVideo = async options => {
+      window.__qaRecoveryCancelEngine = options.engine;
+      window.__qaResolveTranscription?.({ ok: false, cancelled: true });
+      return { ok: true, cancelled: true };
+    };
+    document.getElementById('captionRegenerateBtn').click();
+  });
+  await page.waitForFunction(() => window.captionLocalWorkbenchAPI.getState().disabled && document.getElementById('captionSingleLiveStatus').textContent.includes('Local recovery'))
+    .catch(async error => {
+      console.error(await page.evaluate(() => ({ disabled: window.captionLocalWorkbenchAPI.getState().disabled,
+        requests: window.__qaSingleRecoveryRequests, engine: document.getElementById('captionEngine').value,
+        recovery: document.getElementById('captionGroqLocalRecovery').checked,
+        regenerateDisabled: document.getElementById('captionRegenerateBtn').disabled,
+        status: document.getElementById('captionStatusText').textContent,
+        phase: document.getElementById('captionSingleLiveStatus').textContent })));
+      throw error;
+    });
+  await page.$eval('#captionCancelBtn', element => element.click());
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled);
+  assert.deepEqual((await state()).captions, beforeRecoveryCancel.captions);
+  assert.equal((await state()).engine, 'local');
+  assert.equal((await state()).recoveredFromEngine, 'groq');
+  assert.equal(await page.evaluate(() => window.__qaRecoveryCancelEngine), 'local');
+  assert.equal(await page.$eval('#captionSingleLiveStatus', element => element.checkVisibility()), false);
+  passed.push('Single-video generation uses the same explicit Local recovery with visible provenance; cancelling regeneration preserves captions and removes the recovery spinner');
+
+  const retainedBeforeMalformedRecovery = await state();
+  const exportedBeforeMalformedRecovery = await page.evaluate(() => window.__qaRecoveryExports.length);
+  await page.evaluate(() => {
+    window.__qaMalformedRecoveryRequests = [];
+    window.electronAPI.transcribeVideo = async options => {
+      window.__qaMalformedRecoveryRequests.push(options);
+      const duration = document.getElementById('captionSourceVideo').duration;
+      return { ok: true, engine: 'local', language: 'en', text: 'Hello.',
+        words: [{ word: 'Hello.', start: duration - 1, end: duration + 1 }], timingSource: 'word' };
+    };
+    document.getElementById('captionRegenerateBtn').click();
+  });
+  await page.waitForFunction(() => window.__qaMalformedRecoveryRequests.length > 0 && !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionStatusText').textContent.includes('within the video'));
+  assert.equal(await page.evaluate(() => window.__qaMalformedRecoveryRequests.length), 1, 'A Local validation failure must not run another engine or a Groq restart probe.');
+  assert.equal(await page.evaluate(() => window.__qaMalformedRecoveryRequests[0].engine), 'local');
+  assert.deepEqual((await state()).captions, retainedBeforeMalformedRecovery.captions);
+  assert.deepEqual((await state()).warnings, retainedBeforeMalformedRecovery.warnings);
+  assert.equal((await state()).engine, 'local');
+  assert.equal(await page.evaluate(() => window.__qaRecoveryExports.length), exportedBeforeMalformedRecovery);
+  assert.equal(await page.$eval('#captionSingleLiveStatus', element => element.checkVisibility()), false);
+  assert.doesNotMatch(await page.$eval('#captionStatusText', element => element.textContent), /Close and reopen/);
+  passed.push('Out-of-video Local recovery timestamps cannot replace reviewed captions, trigger export or show an unrelated Groq restart suggestion');
+
+  const provenanceProof = await page.evaluate(() => {
+    const api = window.captionLocalWorkbenchAPI;
+    const current = api.getState();
+    api.applyCaptions(current.itemId, current.captions, { engine: 'groq', sourceLanguage: 'en', outputLanguage: 'en',
+      timingSource: 'word', warnings: ['Verified saved Groq draft'] });
+    const imported = api.getState();
+    api.applyCaptions(imported.itemId, imported.captions);
+    const manuallyEdited = api.getState();
+    let rejected = false;
+    try { api.applyCaptions(imported.itemId, imported.captions, { engine: 'groq', recoveredFromEngine: 'groq' }); }
+    catch (_) { rejected = true; }
+    return { imported: { engine: imported.engine, recovery: imported.recoveredFromEngine, warnings: imported.warnings },
+      manuallyEdited: { engine: manuallyEdited.engine, recovery: manuallyEdited.recoveredFromEngine },
+      rejected, unchanged: JSON.stringify(api.getState()) === JSON.stringify(manuallyEdited),
+      requests: window.__qaMalformedRecoveryRequests.length };
+  });
+  assert.equal(provenanceProof.imported.engine, 'groq');
+  assert.equal(provenanceProof.imported.recovery, undefined);
+  assert.deepEqual(provenanceProof.imported.warnings, ['Verified saved Groq draft']);
+  assert.equal(provenanceProof.manuallyEdited.engine, 'groq');
+  assert.equal(provenanceProof.manuallyEdited.recovery, undefined);
+  assert.equal(provenanceProof.rejected, true);
+  assert.equal(provenanceProof.unchanged, true);
+  assert.equal(provenanceProof.requests, 1, 'Importing verified caption drafts must not call ASR.');
+  assert.doesNotMatch(await page.$eval('#captionQueueList', element => element.textContent), /Local recovery from Groq/);
+  passed.push('Verified saved Groq captions retain explicit Groq provenance in getState and manual edits, clear old Local recovery labels and reject inconsistent metadata without ASR');
+
+  // A fresh isolated page avoids inheriting the intentional terminal-quota
+  // cooldown exercised above. No desktop app or provider requests are involved.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#captionVideoInput');
+  await page.addScriptTag({ url: origin + '/caption-script.js' });
+  await page.waitForFunction(() => !!window.captionLocalWorkbenchAPI);
+  await (await page.$('#captionVideoInput')).uploadFile(...Array(8).fill(fixture));
+  await page.waitForFunction(() => document.querySelectorAll('#captionQueueList > div').length === 8
+    && document.getElementById('captionSourceVideo').readyState >= 2);
+  await page.select('#captionEngine', 'groq');
+  await page.select('#captionContentMode', 'speech');
+  await page.select('#captionLanguage', 'en');
+  await page.$eval('#captionGroqLocalRecovery', element => { element.checked = false; element.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.evaluate(() => {
+    window.__qaOptionalRequests = [];
+    window.__qaOptionalExports = [];
+    window.electronAPI.transcribeVideo = async options => {
+      window.__qaOptionalRequests.push(options);
+      return { ok: true, engine: options.engine, language: 'en', text: 'Usable Groq caption.',
+        words: [{ word: 'Usable', start: .5, end: .8 }, { word: 'Groq', start: .8, end: 1.2 }, { word: 'caption.', start: 1.2, end: 1.7 }],
+        timingSource: 'word', warnings: window.__qaOptionalRequests.length === 2
+          ? ['Optional recognition check was limited. Review words and synchronization.'] : [],
+        ...(window.__qaOptionalRequests.length === 2 ? { rateLimit: {
+          code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+          retryAfterMs: 3600000, retryAt: Date.now() + 3600000, retryAfterEstimated: false,
+        } } : {}) };
+    };
+    window.electronAPI.burnCaptions = async options => {
+      window.__qaOptionalExports.push(options);
+      return { ok: true, fileName: `qa-optional-quota-${window.__qaOptionalExports.length}.mp4` };
+    };
+    document.getElementById('captionQueueRunBtn').click();
+  });
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionStatusText').textContent.includes('Queue paused'));
+  assert.equal(await page.evaluate(() => window.__qaOptionalRequests.length), 2, 'The next clip must not make a Groq request after optional-check quota.');
+  assert.equal(await page.evaluate(() => window.__qaOptionalExports.length), 2, 'The current usable Groq result must export before pausing later clips.');
+  const optionalPausedQueue = await page.$eval('#captionQueueList', element => element.textContent);
+  assert.equal((optionalPausedQueue.match(/ - exported/g) || []).length, 2);
+  assert.equal((optionalPausedQueue.match(/ - waiting/g) || []).length, 1);
+  assert.equal((optionalPausedQueue.match(/ - ready/g) || []).length, 5);
+  assert.doesNotMatch(optionalPausedQueue, /Local recovery from Groq/);
+  assert.equal(await page.$eval('#captionQueueRunBtn', element => element.disabled), true);
+  await page.$eval('#captionQueueList > div:nth-child(2) > button', element => element.click());
+  assert.equal((await state()).engine, 'groq');
+  assert.equal((await state()).recoveredFromEngine, undefined);
+  assert.equal((await state()).timingSource, 'word');
+  assert.match((await state()).warnings.join(' '), /Optional recognition check was limited.*Review/);
+  await page.$eval('#captionQueueRunBtn', element => element.dispatchEvent(new Event('click')));
+  assert.equal(await page.evaluate(() => window.__qaOptionalRequests.length), 2);
+  passed.push('A successful Groq result with optional-check quota exports as Groq, retains the review warning, then pauses remaining clips without another provider request');
+
+  await page.$eval('#captionGroqLocalRecovery', element => { element.checked = true; element.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.$eval('#captionQueueRunBtn', element => element.click());
+  await page.waitForFunction(() => !window.captionLocalWorkbenchAPI.getState().disabled
+    && document.getElementById('captionQueueStatus').textContent.includes('Exported 8/8'));
+  assert.deepEqual(await page.evaluate(() => window.__qaOptionalRequests.map(request => request.engine)), ['groq', 'groq', ...Array(6).fill('local')]);
+  assert.equal(await page.evaluate(() => window.__qaOptionalExports.length), 8);
+  assert.equal((await page.$eval('#captionQueueList', element => element.textContent)).match(/Local recovery from Groq/g).length, 6);
+  await page.$eval('#captionQueueList > div:nth-child(2) > button', element => element.click());
+  assert.equal((await state()).engine, 'groq');
+  assert.match((await state()).warnings.join(' '), /Optional recognition check was limited/);
+  passed.push('After optional-check quota, explicit Local recovery applies only to later clips and never redoes or relabels the two completed Groq exports');
 
   assert.deepEqual(errors, [], 'No page-level JavaScript errors');
   console.log(JSON.stringify({ passed: passed.length, checks: passed, screenshots, assFiles }, null, 2));

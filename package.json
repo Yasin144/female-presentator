@@ -14,7 +14,9 @@
         "android:sync": "npm run build:react && npx cap sync android",
         "android:open": "npx cap open android",
         "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "test:caption-local": "node scripts/test-caption-local-all.cjs",
+        "test:captions": "node scripts/test-caption-local-all.cjs --browser"
     },
     "author": "Anjali",
     "license": "ISC",

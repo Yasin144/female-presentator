@@ -121,6 +121,28 @@ if (fs.existsSync(groqKeyPath)) {
   }
 }
 
+function resolveConfiguredGroqApiKey(suppliedGroqApiKey = '') {
+  const direct = typeof suppliedGroqApiKey === 'string' ? suppliedGroqApiKey.trim() : '';
+  if (direct) {
+    process.env.GROQ_API_KEY = direct;
+    try { fs.writeFileSync?.(groqKeyPath, direct, 'utf8'); } catch (_) {}
+    return direct;
+  }
+  if (process.env.GROQ_API_KEY && String(process.env.GROQ_API_KEY).trim()) {
+    return String(process.env.GROQ_API_KEY).trim();
+  }
+  try {
+    if (typeof groqKeyPath === 'string' && fs.existsSync(groqKeyPath)) {
+      const diskKey = fs.readFileSync(groqKeyPath, 'utf8').trim();
+      if (diskKey) {
+        process.env.GROQ_API_KEY = diskKey;
+        return diskKey;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
 const PRESENTATOR_LOCAL_MODEL = 'qwen3.5:4b';
 const PRESENTATOR_FAST_MODEL = 'qwen3.5:0.8b';
 const OLLAMA_PORT = 11434;
@@ -4432,11 +4454,19 @@ let activeCaptionTranscribeProcess = null;
 let activeCaptionTranscribeCancelRequested = false;
 let activeCaptionSongController = null;
 
-ipcMain.handle('cancel-transcribe-video', async () => {
+ipcMain.handle('cancel-transcribe-video', async (_event, opts) => {
   activeCaptionTranscribeCancelRequested = true;
   activeCaptionSongController?.abort();
   if (activeCaptionTranscribeProcess) {
     try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+  }
+  if (opts?.captionerVersion === 2 || opts?.waitForRelease === true) {
+    for (let step = 0; step < 30 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    activeCaptionTranscribeProcess = null;
+    activeCaptionSongController = null;
+    activeCaptionTranscribeCancelRequested = false;
   }
   return { ok: true, cancelled: true };
 });
@@ -4457,10 +4487,65 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
-    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    if (opts?.captionerVersion === 2) {
+      activeCaptionTranscribeCancelRequested = true;
+      activeCaptionSongController?.abort();
+      if (activeCaptionTranscribeProcess) {
+        try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+      }
+      for (let step = 0; step < 60 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      activeCaptionTranscribeProcess = null;
+      activeCaptionSongController = null;
+      activeCaptionTranscribeCancelRequested = false;
+    } else {
+      return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    }
   }
   if (!['local', 'groq', 'gemini'].includes(engine)) return { ok: false, error: 'Unknown caption transcription engine.' };
   if (engine === 'gemini' && contentMode !== 'song') return { ok: false, error: 'Gemini captioning requires Song / lyrics mode.' };
+
+  function normalizeLocalCaptionResult(result) {
+    const fail = (reason, timingIssue) => {
+      const location = timingIssue ? ` ${timingIssue.array}[${timingIssue.index}]: ${timingIssue.reason}`
+        + ` (${Number.isFinite(timingIssue.start) ? timingIssue.start.toFixed(2) : '?'}-`
+        + `${Number.isFinite(timingIssue.end) ? timingIssue.end.toFixed(2) : '?'}s).` : '';
+      throw Object.assign(new Error(`Local caption result is invalid: ${reason}.` + location), {
+        code: 'CAPTION_LOCAL_RESULT_INVALID', ...(timingIssue ? { timingIssue } : {})
+      });
+    };
+    if (!result || typeof result !== 'object' || Array.isArray(result)) fail('missing result object');
+    if (result.ok === false || result.error) fail(String(result.error || 'worker rejected transcription'));
+    const words = result.words ?? [], segments = result.segments ?? [];
+    if (!Array.isArray(words) || !Array.isArray(segments)) fail('missing caption arrays');
+    const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    if (result.text !== undefined && typeof result.text !== 'string') fail('invalid transcript text');
+    const text = typeof result.text === 'string' ? result.text.trim() : '';
+    if (result.duration !== undefined && (!Number.isFinite(result.duration) || result.duration <= 0)) fail('invalid audio duration');
+    const sourceText = text || segments.map(segment => segment?.text || '').join(' ');
+    for (const [items, field, array] of [[words, 'word', 'words'], [segments, 'text', 'segments']]) {
+      let previousEnd = 0;
+      for (const [index, item] of items.entries()) {
+        const reason = !item || typeof item[field] !== 'string' || !item[field].trim() ? 'missing caption text'
+          : !Number.isFinite(item.start) || !Number.isFinite(item.end) ? 'non-finite timestamp'
+          : item.start < previousEnd ? 'overlapping or negative timestamp'
+          : item.end <= item.start ? 'empty or inverted interval'
+          : Number.isFinite(result.duration) && item.end > result.duration + 0.01 ? 'outside audio duration' : '';
+        if (reason) fail('conflicting or incomplete caption timestamps', {
+          array, index, label: typeof item?.[field] === 'string' ? item[field].slice(0, 120) : '',
+          start: item?.start, end: item?.end, previousEnd, duration: result.duration, reason
+        });
+        previousEnd = item.end;
+      }
+    }
+    if (words.length && sourceText && normalize(words.map(word => word.word).join(' ')) !== normalize(sourceText)) fail('word timing omits recognized speech');
+    if (!words.length && segments.length && text && normalize(segments.map(segment => segment.text).join(' ')) !== normalize(text)) fail('segment timing omits recognized speech');
+    if (!words.length && !segments.length && (text || result.noSpeech !== true)) fail('no usable caption timestamps');
+    return { ...result, text: text || (words.length ? words.map(word => word.word) : segments.map(segment => segment.text)).join(' '),
+      words, segments, engine: 'local', timingSource: words.length ? 'word' : 'estimated',
+      warnings: Array.isArray(result.warnings) ? result.warnings.filter(warning => typeof warning === 'string') : [] };
+  }
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -4477,12 +4562,30 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   let audioWarnings = [];
   let progressFloor = 0;
   let transcriptionProgressBase = 0;
+  const saveLocalCaptionFailure = (error, details) => {
+    try {
+      const diagnosticPath = path.join(ensureCaptionWorkDir('diagnostics'), 'local-caption-' + stamp
+        + (details.transport === 'http' ? '-http' : '-primary') + '-failure.json');
+      fs.writeFileSync(diagnosticPath, JSON.stringify({
+        engine: 'local', sourceVideo: videoPath, audioPath: transcriptionAudioPath,
+        error: error.message, code: error.code, timingIssue: error.timingIssue,
+        ...details,
+      }, null, 2), 'utf8');
+      error.diagnosticPath = diagnosticPath;
+      console.error('[Caption] Local transcription failed:', path.basename(videoPath), error.message,
+        error.timingIssue || '', 'Diagnostics:', diagnosticPath);
+    } catch (diagnosticError) {
+      console.warn('[Caption] Could not save Local failure diagnostics:', diagnosticError.message);
+    }
+    return error;
+  };
   const reportCaptionProgress = raw => {
     progressFloor = Math.max(progressFloor, Math.max(0, Math.min(100, Number(raw) || 0)));
     try { event.sender.send('caption-transcribe-progress', progressFloor); } catch (_) {}
   };
   const reportTranscriptionProgress = raw => reportCaptionProgress(transcriptionProgressBase + (100 - transcriptionProgressBase) * Number(raw) / 100);
 
+  let effectiveEngine = engine;
   activeCaptionTranscribeCancelRequested = false;
   activeCaptionSongController = new AbortController();
   try {
@@ -4519,33 +4622,62 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       transcriptionProgressBase = 30;
     }
 
-    if (engine === 'groq') {
+    if (effectiveEngine === 'groq') {
       if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      const result = await transcribeCaptionWavWithGroq({
-        audioBuffer: fs.readFileSync(transcriptionAudioPath),
-        apiKey: (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim(),
-        languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
-        signal: activeCaptionSongController.signal,
-        onProgress: reportTranscriptionProgress,
-      });
-      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      const resolvedGroqKey = typeof resolveConfiguredGroqApiKey === 'function'
+        ? resolveConfiguredGroqApiKey(suppliedGroqApiKey)
+        : (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
+      if (resolvedGroqKey) {
+        try {
+          const result = await transcribeCaptionWavWithGroq({
+            audioBuffer: fs.readFileSync(transcriptionAudioPath),
+            apiKey: resolvedGroqKey,
+            languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
+            captionerVersion: opts?.captionerVersion,
+            signal: activeCaptionSongController.signal,
+            onProgress: reportTranscriptionProgress,
+          });
+          if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+          return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+        } catch (groqErr) {
+          if (activeCaptionTranscribeCancelRequested || groqErr?.name === 'AbortError' || opts?.captionerVersion !== 2 || typeof app === 'undefined') {
+            throw groqErr;
+          }
+          console.warn('[Captioner2] Groq transcription failed — falling back automatically to Local Whisper:', groqErr.message);
+          audioWarnings.push(`Groq transcription could not complete (${groqErr.message}); generated captions with Local Whisper on this computer.`);
+          effectiveEngine = 'local';
+        }
+      } else {
+        if (typeof app === 'undefined') {
+          throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
+        }
+        console.warn('[Caption] Groq API key is missing — falling back automatically to Local Whisper.');
+        audioWarnings.push('Groq API key is not configured; generated captions with Local Whisper on this computer.');
+        effectiveEngine = 'local';
+      }
     }
 
-    if (engine === 'gemini' && contentMode === 'song') {
+    if (effectiveEngine === 'gemini' && contentMode === 'song') {
       if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
       const keyPath = path.join(ROOT, '.gemini_api_key');
       const apiKey = String(process.env.GEMINI_API_KEY || (fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : '')).trim();
-      if (!apiKey) throw new Error('Google Gemini API key is missing. Add it in AI Tools first.');
-      activeCaptionSongController ||= new AbortController();
-      const { transcribeSongAudio } = require('./caption-song-transcribe.cjs');
-      const result = await transcribeSongAudio({
-        audioBuffer: fs.readFileSync(transcriptionAudioPath), apiKey, languageHint, transcriptionHints,
-        signal: activeCaptionSongController.signal,
-        onProgress: progress => reportTranscriptionProgress(progress.pct),
-      });
-      if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      if (apiKey) {
+        activeCaptionSongController ||= new AbortController();
+        const { transcribeSongAudio } = require('./caption-song-transcribe.cjs');
+        const result = await transcribeSongAudio({
+          audioBuffer: fs.readFileSync(transcriptionAudioPath), apiKey, languageHint, transcriptionHints,
+          signal: activeCaptionSongController.signal,
+          onProgress: progress => reportTranscriptionProgress(progress.pct),
+        });
+        if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+        return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      }
+      if (typeof app === 'undefined') {
+        throw new Error('Google Gemini API key is missing. Add it in AI Tools first.');
+      }
+      console.warn('[Caption] Gemini API key is missing — falling back automatically to Local Whisper.');
+      audioWarnings.push('Gemini API key is not configured; generated song captions with Local Whisper on this computer.');
+      effectiveEngine = 'local';
     }
 
     // Do not pre-emptively reject Local captions based on a free-RAM number.
@@ -4567,6 +4699,9 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       ? voiceVenvPy
       : (fs.existsSync(singingVenvPy) ? singingVenvPy : 'python');
     const scriptPath = fs.existsSync(captionScript) ? captionScript : whisperScript;
+    const captionPythonPath = [voiceVenvPy, singingVenvPy].includes(pyExe)
+      ? path.join(path.dirname(path.dirname(pyExe)), 'Lib', 'site-packages')
+      : SINGING_ENV.PYTHONPATH;
 
     console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
 
@@ -4578,11 +4713,16 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const proc = spawn(pyExe, [scriptPath, transcriptionAudioPath, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech', String(transcriptionHints).slice(0, 1000), opts?.autoRecoverMissingSpeech === false ? 'no-recovery' : 'recover'], {
         stdio: 'pipe',
         windowsHide: true,
-        env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
+        // Keep ASR imports in the selected runtime; mixing the singing package
+        // directory into voice-clone Python can change decoder word alignment.
+        env: { ...process.env, ...SINGING_ENV, PYTHONPATH: captionPythonPath, PYTHONIOENCODING: 'utf-8' }
       });
       activeCaptionTranscribeProcess = proc;
-      let stdout = '', stderr = '', progressBuffer = '';
+      let stdout = '', stderr = '', progressBuffer = '', settled = false;
+      proc.stdout?.setEncoding?.('utf8');
+      proc.stderr?.setEncoding?.('utf8');
       proc.stdout && proc.stdout.on('data', d => {
+        if (settled) return;
         const text = d.toString('utf8');
         stdout += text;
         progressBuffer += text;
@@ -4596,40 +4736,57 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
           }
         }
       });
-      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+      proc.stderr && proc.stderr.on('data', d => { if (!settled) stderr += d.toString('utf8'); });
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         killProcessTree(proc);
-        const error = new Error('Local caption transcription timed out after 12 minutes. Retry with a shorter video or use Groq.');
+        const error = new Error('Local caption transcription timed out after 20 minutes. Retry with a shorter video or use Groq.');
         error.code = 'CAPTION_PRIMARY_TIMEOUT';
         reject(error);
       }, 1200000);
-      proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
+      proc.on('error', err => { if (settled) return; settled = true; clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
-        clearTimeout(timer);
-        if (activeCaptionTranscribeCancelRequested) {
-          reject(new Error('Transcription cancelled.'));
-          return;
-        }
-        try {
-          const lastLine = stdout.trim().split('\n').pop() || '';
-          const json = JSON.parse(lastLine);
-          if (json.error) reject(new Error('Whisper: ' + json.error));
-          else if (code !== 0) reject(new Error('Whisper exited with code ' + code + ': ' + stderr.slice(-300)));
-          else {
-            reportTranscriptionProgress(100);
-            resolve(json);
+        if (settled) return;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (activeCaptionTranscribeCancelRequested) {
+            reject(new Error('Transcription cancelled.'));
+            return;
           }
-        } catch(e) {
-          reject(new Error(code !== 0
-            ? 'Whisper exited with code ' + code + ': ' + stderr.slice(-300)
-            : 'Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
-        }
+          let json;
+          try {
+            const lastLine = stdout.trim().split('\n').pop() || '';
+            json = JSON.parse(lastLine);
+            if (json?.error) throw Object.assign(new Error('Whisper: ' + json.error),
+              json.code === 'CAPTION_LOCAL_RESULT_INVALID' ? { code: json.code, timingIssue: json.timingIssue } : {});
+            if (code !== 0) throw new Error('Whisper exited with code ' + code + ': ' + stderr.slice(-300));
+            const result = normalizeLocalCaptionResult(json);
+            reportTranscriptionProgress(100);
+            resolve(result);
+          } catch(e) {
+            const error = e.code === 'CAPTION_LOCAL_RESULT_INVALID' || json?.error ? e : new Error(code !== 0
+              ? 'Whisper exited with code ' + code + ': ' + stderr.slice(-300)
+              : 'Whisper parse failed. stderr: ' + stderr.slice(0, 200));
+            reject(saveLocalCaptionFailure(error, { exitCode: code, result: json,
+              stdout: stdout.slice(-1048576), stderr: stderr.slice(-32768), stdoutTruncated: stdout.length > 1048576 }));
+          }
+        };
+        // Process exit can precede the last buffered stdout chunk.
+        const pendingStreams = [proc.stdout, proc.stderr].filter(stream => stream?.readableEnded === false && !stream.destroyed);
+        if (pendingStreams.length) {
+          let remaining = pendingStreams.length;
+          for (const stream of pendingStreams) stream.once('end', () => { if (--remaining === 0) finish(); });
+        } else finish();
       });
     });
 
     if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
     console.log('[Caption] Whisper done. Text:', (whisperResult.text || '').length, 'chars,', (whisperResult.words || []).length, 'words');
     return {
+      ...whisperResult,
       ok:       true,
       text:     whisperResult.text     || '',
       segments: whisperResult.segments || [],
@@ -4646,15 +4803,22 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     if (err.code === 'CAPTION_RESOURCE_CANCELLED') return { ok: false, cancelled: true, error: err.message };
     if (err.code === 'CAPTION_RESOURCE_BUSY') return { ok: false, code: err.code, error: err.message };
     if (err.code === 'CAPTION_PRIMARY_TIMEOUT') return { ok: false, code: err.code, error: err.message };
-    if (engine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
-    if (contentMode === 'song') return { ok: false, error: `${engine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
+    if (err.code === 'CAPTION_LOCAL_RESULT_INVALID') return { ok: false, code: err.code, error: err.message,
+      ...(err.diagnosticPath ? { diagnosticPath: err.diagnosticPath } : {}), ...(err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
+    if (effectiveEngine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}`,
+      ...(['CAPTION_GROQ_RATE_LIMIT', 'CAPTION_GROQ_TIMING_UNCERTAIN'].includes(err.code) ? { code: err.code } : {}),
+      ...(Number.isInteger(err.providerHttpStatus) ? { providerHttpStatus: err.providerHttpStatus } : {}),
+      ...(err.code === 'CAPTION_GROQ_RATE_LIMIT' ? { retryAfterMs: err.retryAfterMs, retryAt: err.retryAt,
+        retryAfterEstimated: err.retryAfterEstimated } : {}),
+      ...(err.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' && err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
+    if (contentMode === 'song') return { ok: false, error: `${effectiveEngine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     activeCaptionTranscribeProcess = null;
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
-    let fallbackError;
+    let fallbackError, fallbackResponse, fallbackPayload, fallbackDiagnostic;
     try {
       const wavBase64 = fs.readFileSync(transcriptionAudioPath).toString('base64');
-      const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
+      const result = fallbackResponse = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
         audioBase64: wavBase64, wordTimestamps: true, language: languageHint || 'auto',
         contentMode: 'speech', sourceName: path.basename(videoPath),
         transcriptionHints: String(transcriptionHints || '').slice(0, 1000),
@@ -4662,10 +4826,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       }, 300000, 3, activeCaptionSongController?.signal);
       if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
       if (result && result.statusCode === 200) {
-        const p = JSON.parse(result.buffer.toString('utf8'));
+        const p = normalizeLocalCaptionResult(fallbackPayload = JSON.parse(result.buffer.toString('utf8')));
         if (p?.error || p?.ok === false) throw new Error(p?.error || 'Local transcription worker rejected the caption job.');
-        if (!String(p?.text || '').trim() && !(Array.isArray(p?.words) && p.words.length)
-            && !(Array.isArray(p?.segments) && p.segments.length)) throw new Error('Local transcription worker returned no recognizable speech.');
         reportTranscriptionProgress(100);
         return {
           ...p,
@@ -4679,15 +4841,27 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
             'Local captions used the backup transcription worker. Review synchronization before exporting.'],
         };
       }
-      throw new Error(`Local transcription worker returned HTTP ${result?.statusCode || 'no response'}.`);
+      let responseError;
+      try { responseError = JSON.parse(result?.buffer?.toString('utf8') || '{}')?.error; } catch (_) {}
+      const error = new Error(`Local transcription worker returned HTTP ${result?.statusCode || 'no response'}.`
+        + (typeof responseError === 'string' ? ' ' + responseError.slice(0, 1000) : ''));
+      throw saveLocalCaptionFailure(error, { transport: 'http', statusCode: result?.statusCode,
+        responseBody: result?.buffer?.toString('utf8').slice(0, 32768) });
     } catch(e2) {
       if (activeCaptionTranscribeCancelRequested || activeCaptionSongController?.signal.aborted) {
         return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
       }
       fallbackError = e2.message;
+      fallbackDiagnostic = e2.diagnosticPath ? e2 : saveLocalCaptionFailure(e2, {
+        transport: 'http', statusCode: fallbackResponse?.statusCode, result: fallbackPayload,
+        responseBody: fallbackResponse?.buffer?.toString('utf8').slice(0, 32768),
+      });
       console.error('[Caption] HTTP fallback also failed:', e2.message);
     }
-    return { ok: false, error: `${err.message} Backup transcription also failed: ${fallbackError || 'No usable response.'}` };
+    return { ok: false, error: `${err.message} Backup transcription also failed: ${fallbackError || 'No usable response.'}`,
+      ...(fallbackDiagnostic?.diagnosticPath ? { diagnosticPath: fallbackDiagnostic.diagnosticPath } : {}),
+      ...(fallbackDiagnostic?.code === 'CAPTION_LOCAL_RESULT_INVALID' ? { code: fallbackDiagnostic.code } : {}),
+      ...(fallbackDiagnostic?.timingIssue ? { timingIssue: fallbackDiagnostic.timingIssue } : {}) };
   } finally {
     activeCaptionTranscribeProcess = null;
     for (const generatedFile of enhancedAudioFiles) {
@@ -4742,11 +4916,11 @@ function waitForGroqCaptionRetry(milliseconds, signal) {
   });
 }
 
-async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signal, transcriptionHints = '') {
+async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signal, transcriptionHints = '', model = 'whisper-large-v3') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfCaptionTranscriptionCancelled(signal);
     const form = new FormData();
-    form.append('model', 'whisper-large-v3');
+    form.append('model', model === 'whisper-large-v3-turbo' ? model : 'whisper-large-v3');
     form.append('response_format', 'verbose_json');
     form.append('temperature', '0');
     form.append('timestamp_granularities[]', 'word');
@@ -4782,18 +4956,38 @@ async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signa
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
     }
-    if (resp.status !== 429 || attempt === 2) {
-      // Remote error bodies can echo request data; expose only the status.
-      throw new Error(resp.status === 429 ? 'Groq quota is exhausted or requests are limited. Check the Groq quota, then retry.' : `Groq caption API returned HTTP ${resp.status}. Check the API key, permissions and connection.`);
-    }
-    const retryAfter = Number(resp.headers.get('retry-after'));
-    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? Math.min(60000, Math.ceil(retryAfter * 1000))
-      : 32000;
+    // Remote error bodies can echo credentials or account data; expose only
+    // the status and parsed cooldown. Never retry before a provider deadline.
+    if (resp.status !== 429) throw Object.assign(new Error(`Groq caption API returned HTTP ${resp.status}. Check the API key, permissions and connection.`), {
+      providerHttpStatus: resp.status,
+    });
+    const now = Date.now(), retryAfter = String(resp.headers?.get?.('retry-after') || '').trim();
+    const seconds = Number(retryAfter), deadline = Number.isNaN(seconds) ? Date.parse(retryAfter) : NaN;
+    const requestedDelay = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000)
+      : Number.isFinite(deadline) && deadline > now ? deadline - now : NaN;
+    const retryAfterEstimated = !Number.isSafeInteger(requestedDelay) || requestedDelay <= 0
+      || requestedDelay > 8640000000000000 - now;
+    const waitMs = retryAfterEstimated ? 32000 : requestedDelay;
+    // Long quota windows belong to the queue's pause/recovery state, not a
+    // hidden network wait. The transport still makes at most three attempts.
+    if (attempt === 2 || waitMs > 60000) throw Object.assign(new Error(
+      `Groq quota is exhausted or requests are limited. Retry after ${Math.ceil(waitMs / 1000)} seconds`
+        + `${retryAfterEstimated ? ' (estimated cooldown)' : ''}, or check the Groq quota.`
+    ), { code: 'CAPTION_GROQ_RATE_LIMIT', providerHttpStatus: 429,
+      retryAfterMs: waitMs, retryAt: now + waitMs, retryAfterEstimated });
     console.warn(`[CaptionGroq] Rate limited; retrying in ${Math.ceil(waitMs / 1000)} seconds.`);
     await waitForGroqCaptionRetry(waitMs, signal);
   }
   throw new Error('Groq API rate limit retry failed.');
+}
+
+function groqCaptionRateLimitDetails(error) {
+  return {
+    code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+    retryAfterMs: Number.isSafeInteger(error.retryAfterMs) && error.retryAfterMs > 0 ? error.retryAfterMs : undefined,
+    retryAt: Number.isSafeInteger(error.retryAt) && error.retryAt > 0 ? error.retryAt : undefined,
+    retryAfterEstimated: error.retryAfterEstimated === true,
+  };
 }
 
 function readGroqCaptionWav(audioBuffer) {
@@ -4832,13 +5026,29 @@ function assertGroqCaptionWordTimeline(words) {
     const word = words[index], previous = words[index - 1];
     if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start
         || (previous && word.start < previous.end)) {
-      throw new Error('Groq returned conflicting caption word timestamps. Generate captions again or use the Local engine.');
+      throw Object.assign(new Error('Groq returned conflicting caption word timestamps. Generate captions again or use the Local engine.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { array: 'words', index, start: word.start, end: word.end,
+          previousEnd: previous?.end, reason: 'conflicting caption word timestamps' },
+      });
     }
   }
 }
 
-function groqCaptionTimingWindows(words, duration) {
-  const conflicts = new Set(), candidates = [];
+function groqCaptionTimingWithin(value, limit) {
+  // Decimal ASR timestamps can differ by a few floating-point rounding bits.
+  return value <= limit + 1e-9;
+}
+
+function groqCaptionTimingWindows(words, duration, compact = false) {
+  const conflicts = new Set(), candidates = [], wide = new Set();
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index], previous = words[index - 1], next = words[index + 1];
+    const isolated = (!previous || word.start - previous.end >= 0.35)
+      && (!next || next.start - word.end >= 0.35);
+    const suspiciousOpening = index === 0 && groqCaptionTimingWithin(word.start, 0.05);
+    if (!groqCaptionTimingWithin(word.end - word.start, 1.5)
+        && (suspiciousOpening || (isolated && String(word.word).trim().split(/\s+/).length === 1))) wide.add(index);
+  }
   for (let index = 1; index < words.length; index += 1) {
     if (words[index].start < words[index - 1].end) {
       conflicts.add(index - 1); conflicts.add(index);
@@ -4847,24 +5057,25 @@ function groqCaptionTimingWindows(words, duration) {
   const conflictingIndices = [...conflicts].sort((left, right) => left - right);
   for (let cursor = 0; cursor < conflictingIndices.length;) {
     const core = [conflictingIndices[cursor++]];
-    while (cursor < conflictingIndices.length && conflictingIndices[cursor] === core.at(-1) + 1) {
+    while (cursor < conflictingIndices.length && conflictingIndices[cursor] === core.at(-1) + 1
+        && words[conflictingIndices[cursor]].start < words[core.at(-1)].end) {
       core.push(conflictingIndices[cursor++]);
     }
-    const start = Math.max(0, Math.floor(Math.min(...core.map(index => words[index].start))) - 2);
-    let end = Math.min(duration, Math.ceil(Math.max(...core.map(index => words[index].end))) + 4);
+    const firstStart = Math.min(...core.map(index => words[index].start));
+    const lastEnd = Math.max(...core.map(index => words[index].end));
+    const start = Math.max(0, compact ? firstStart - 1 : Math.floor(firstStart) - 2);
+    let end = Math.min(duration, compact ? lastEnd + 1 : Math.ceil(lastEnd) + 4);
     // Forward boundary conflicts benefit from a full decoding context. Keep
     // backwards-label checks focused so unrelated words cannot mask them.
     const forwardConflict = core.every((wordIndex, index) => !index || words[wordIndex].start >= words[core[index - 1]].start);
-    end = Math.min(duration, Math.max(end, start + (forwardConflict ? 30 : 10)));
-    candidates.push({ start, end, core, focused: false });
+    end = Math.min(duration, Math.max(end, start + (compact ? 4 : forwardConflict ? 30 : 10)));
+    candidates.push({ start, end, core, wide: core.filter(index => wide.has(index)), focused: false });
   }
   for (let index = 0; index < words.length; index += 1) {
     if (conflicts.has(index)) continue;
-    const word = words[index], previous = words[index - 1], next = words[index + 1];
-    const isolated = (!previous || word.start - previous.end >= 0.35)
-      && (!next || next.start - word.end >= 0.35);
-    const suspiciousOpening = index === 0 && word.start <= 0.05 && word.end - word.start > 1.5;
-    if (word.end - word.start <= 1.5 || (!isolated && !suspiciousOpening) || String(word.word).trim().split(/\s+/).length !== 1) continue;
+    if (!wide.has(index)) continue;
+    const word = words[index];
+    const suspiciousOpening = index === 0 && groqCaptionTimingWithin(word.start, 0.05);
     // Long music/silence before an isolated label can give Whisper an early
     // start. Re-recognize the actual tail audio rather than imposing a delay.
     candidates.push({ start: suspiciousOpening ? 0 : Math.max(0, word.end - 2), end: Math.min(duration, word.end + 2),
@@ -4873,72 +5084,87 @@ function groqCaptionTimingWindows(words, duration) {
   for (const window of candidates) {
     // Do not ask ASR to recognize half of a neighboring word. Focused windows
     // deliberately crop a suspect target's wide prefix, never its neighbors.
-    for (let pass = 0; pass < words.length; pass += 1) {
-      let moved = false;
-      for (let index = 0; index < words.length; index += 1) {
-        if (window.core.includes(index)) continue;
-        const word = words[index];
-        if (word.start < window.start && word.end > window.start) {
-          window.start = window.focused ? word.end + 0.05 : Math.max(0, word.start - 0.2); moved = true;
+    for (let paddingPass = 0; paddingPass < (compact && !window.focused ? 2 : 1); paddingPass += 1) {
+      // Predicted word ends can stop before the actual final phoneme. Add
+      // context once, then extend to complete neighbors without chaining pads.
+      if (paddingPass) window.end = Math.min(duration, window.end + 0.5);
+      for (let pass = 0; pass < words.length; pass += 1) {
+        let moved = false;
+        for (let index = 0; index < words.length; index += 1) {
+          if (window.core.includes(index)) continue;
+          const word = words[index];
+          if (word.start < window.start && word.end > window.start) {
+            window.start = window.focused ? word.end + 0.05 : Math.max(0, word.start - (compact ? 0 : 0.2)); moved = true;
+          }
+          if (word.start < window.end && word.end > window.end) {
+            window.end = window.focused ? word.start - 0.05 : Math.min(duration, word.end + (compact ? 0 : 0.2)); moved = true;
+          }
         }
-        if (word.start < window.end && word.end > window.end) {
-          window.end = window.focused ? word.start - 0.05 : Math.min(duration, word.end + 0.2); moved = true;
-        }
+        if (!moved) break;
       }
-      if (!moved) break;
     }
     // Dense overlapping timestamps can require more than twenty seconds of
     // context. Verify the broader audio instead of rejecting before ASR runs.
     if (!(window.end > window.start) || window.end - window.start > 60) {
-      throw new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.');
+      throw Object.assign(new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: window.start, end: window.end, reason: 'unverifiable audio window' },
+      });
     }
   }
   candidates.sort((left, right) => left.start - right.start);
   const windows = [];
   for (const window of candidates) {
     const previous = windows.at(-1);
-    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 60) {
+    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 60
+        && (!compact || window.core.some(index => previous.core.includes(index)))) {
       previous.end = Math.max(previous.end, window.end);
       previous.core = [...new Set([...previous.core, ...window.core])];
       previous.wide = [...new Set([...(previous.wide || []), ...(window.wide || [])])];
+      previous.focused = previous.focused && window.focused;
     } else windows.push({ ...window });
   }
-  if (windows.length > 8) {
-    throw new Error('Groq returned too many uncertain caption timestamps for automatic verification. Try a shorter video or the Local engine.');
+  if (windows.length > (compact ? 16 : 8)) {
+    throw Object.assign(new Error('Groq returned too many uncertain caption timestamps for automatic verification. Try a shorter video or the Local engine.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
   }
   return windows;
 }
 
-async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress }) {
-  const windows = groqCaptionTimingWindows(words, duration);
+async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress,
+  compact = false, verificationState = { requests: 0 } }) {
+  const windows = groqCaptionTimingWindows(words, duration, compact);
   if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
   const repaired = words.map(word => ({ ...word }));
+  const confirmedText = words.map(word => word.word);
   const textChanges = [];
-  let verificationRequests = 0;
   const maximumVerificationRequests = 16;
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
-  const failure = (window, reason) => new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`);
+  const failure = (window, reason) => Object.assign(new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`), {
+    code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: window.start, end: window.end, reason },
+  });
   for (let index = 0; index < windows.length; index += 1) {
     throwIfCaptionTranscriptionCancelled(signal);
     const window = windows[index];
     const startSample = Math.max(0, Math.floor(window.start * sampleRate));
     const endSample = Math.min(pcm.length / 2, Math.ceil(window.end * sampleRate));
     const offset = startSample / sampleRate, length = (endSample - startSample) / sampleRate;
-    const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
-      || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
-    const expected = expectedIndices.map(wordIndex => words[wordIndex]);
+    const expectedIndices = repaired.flatMap((word, wordIndex) => word && (window.core.includes(wordIndex)
+      || (word.start >= offset && word.end <= endSample / sampleRate)) ? [wordIndex] : []);
+    const expected = expectedIndices.map(wordIndex => repaired[wordIndex]);
     const isolatedBroadOpening = expectedIndices.length === 1 && expectedIndices[0] === 0
       && window.core.length === 1 && (window.wide || []).includes(0)
       && words[0].start <= 0.05 && (!words[1] || words[1].start - words[0].end >= 0.35);
     let fresh, changedProposal, broadOpeningProposal, confirmedBroadOpening = false;
+    const verifiedContextIndices = new Set();
     let acceptedTextChange = false, rejectionReason = 'recognition disagreed';
-    // A cropped recognition can disagree transiently. Retry once, retaining
-    // every word and timing check rather than exporting unverified captions.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Retry transient conflicts while retaining every word and timing check.
+    for (let attempt = 0; attempt < (window.focused ? 2 : 3); attempt += 1) {
       throwIfCaptionTranscriptionCancelled(signal);
-      if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
-      verificationRequests += 1;
-      const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+      if (verificationState.requests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+      verificationState.requests += 1;
+      const verificationModel = !window.focused && attempt > 0 ? 'whisper-large-v3-turbo' : 'whisper-large-v3';
+      const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints, verificationModel);
       throwIfCaptionTranscriptionCancelled(signal);
       const decoded = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()).map(word => ({ ...word })) : [];
       // Groq can overlap adjacent boundary words by a few frames and let the
@@ -4947,10 +5173,10 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       for (let wordIndex = 0; wordIndex < decoded.length; wordIndex += 1) {
         const word = decoded[wordIndex], previous = decoded[wordIndex - 1];
         if (wordIndex === decoded.length - 1 && Number.isFinite(word.end)
-            && word.end > length && word.end - length <= 0.35) word.end = length;
+            && word.end > length && groqCaptionTimingWithin(word.end - length, 0.35)) word.end = length;
         if (previous && Number.isFinite(previous.end) && Number.isFinite(word.start)
             && word.start >= previous.start && word.start < previous.end
-            && previous.end - word.start <= 0.2) {
+            && groqCaptionTimingWithin(previous.end - word.start, 0.2)) {
           const boundary = (previous.end + word.start) / 2;
           if (boundary > previous.start && boundary < word.end) {
             previous.end = boundary; word.start = boundary;
@@ -4961,74 +5187,174 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       // normalized character spans, retaining the original caption text.
       const expectedText = expected.map(word => normalized(word.word)).join('');
       const decodedText = decoded.map(word => normalized(word.word || word.text)).join('');
+      if (compact && !window.focused
+          && (!String(json?.text || '').trim() || normalized(json.text) === decodedText)) {
+        const coreIndices = expectedIndices.filter(sourceIndex => window.core.includes(sourceIndex));
+        const coreText = coreIndices.map(sourceIndex => normalized(repaired[sourceIndex].word)).join('');
+        const matches = [];
+        for (let first = 0; first < decoded.length && coreText; first += 1) {
+          let text = '';
+          for (let last = first; last < decoded.length; last += 1) {
+            text += normalized(decoded[last].word || decoded[last].text);
+            if (text === coreText) matches.push({ first, last });
+            if (text.length >= coreText.length) break;
+          }
+        }
+        if (matches.length === 1) {
+          let { first, last } = matches[0];
+          let firstIndex = coreIndices[0], lastIndex = coreIndices.at(-1);
+          let matched = decoded.slice(first, last + 1);
+          let coreValid = matched.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+            && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
+          try { assertGroqCaptionWordTimeline(matched); } catch (_) { coreValid = false; }
+          coreValid = coreValid && coreIndices.every((sourceIndex, index) => sourceIndex === firstIndex + index)
+            && !coreIndices.some(sourceIndex => (window.wide || []).includes(sourceIndex));
+          const expectedIndexSet = new Set(expectedIndices);
+          const extendContext = direction => {
+            let sourceIndex = direction < 0 ? firstIndex - 1 : lastIndex + 1;
+            let decodedIndex = direction < 0 ? first - 1 : last + 1;
+            let sourceText = '', decodedContextText = '', sourceCount = 0, decodedCount = 0;
+            // Grow only through complete, identical context token spans. This
+            // lets real ASR boundaries move together without trimming a neighbor.
+            for (;;) {
+              if (sourceText.length <= decodedContextText.length) {
+                if (!expectedIndexSet.has(sourceIndex) || !repaired[sourceIndex]) return false;
+                const text = normalized(repaired[sourceIndex].word);
+                sourceText = direction < 0 ? text + sourceText : sourceText + text;
+                sourceCount += 1; sourceIndex += direction;
+              } else {
+                if (decodedIndex < 0 || decodedIndex >= decoded.length) return false;
+                const text = normalized(decoded[decodedIndex].word || decoded[decodedIndex].text);
+                decodedContextText = direction < 0 ? text + decodedContextText : decodedContextText + text;
+                decodedCount += 1; decodedIndex += direction;
+              }
+              if (sourceCount && decodedCount && sourceText.length === decodedContextText.length) {
+                if (sourceText !== decodedContextText) return false;
+                if (direction < 0) { firstIndex -= sourceCount; first -= decodedCount; }
+                else { lastIndex += sourceCount; last += decodedCount; }
+                matched = decoded.slice(first, last + 1);
+                let valid = matched.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+                  && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
+                try { assertGroqCaptionWordTimeline(matched); } catch (_) { valid = false; }
+                return valid;
+              }
+            }
+          };
+          while (coreValid) {
+            const before = repaired.slice(0, firstIndex).filter(Boolean).at(-1);
+            const after = repaired.slice(lastIndex + 1).find(Boolean);
+            if (before && offset + matched[0].start < before.end) coreValid = extendContext(-1);
+            else if (after && offset + matched.at(-1).end > after.start) coreValid = extendContext(1);
+            else break;
+          }
+          if (coreValid) {
+            const ownedIndices = Array.from({ length: lastIndex - firstIndex + 1 }, (_, index) => firstIndex + index);
+            for (const sourceIndex of ownedIndices) if (!window.core.includes(sourceIndex)) verifiedContextIndices.add(sourceIndex);
+            // A merged ASR token has one genuine interval; preserve the source
+            // phrase together instead of inventing timings for its subwords.
+            fresh = matched.length === ownedIndices.length && matched.every((word, wordIndex) =>
+              normalized(word.word || word.text) === normalized(repaired[ownedIndices[wordIndex]].word))
+              ? matched.map((word, wordIndex) => ({ ...word, sourceIndices: [ownedIndices[wordIndex]] }))
+              : [{ word: ownedIndices.map(sourceIndex => repaired[sourceIndex].word).join(' '),
+                start: matched[0].start, end: matched.at(-1).end, sourceIndices: ownedIndices }];
+            break;
+          }
+        }
+      }
       let candidate = decoded;
       let decodedValid = decoded.length > 0 && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
-        && word.start >= 0 && word.end > word.start && word.end <= length + 0.05);
+        && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
       try { assertGroqCaptionWordTimeline(decoded); } catch (_) { decodedValid = false; }
-      if (decodedValid && expectedText === decodedText && decoded.length !== expected.length) {
-        let cursor = 0;
-        const spans = decoded.map(word => {
-          const start = cursor; cursor += normalized(word.word || word.text).length;
-          return { start, end: cursor, word };
-        });
-        cursor = 0;
-        candidate = expected.map(word => {
-          const start = cursor; cursor += normalized(word.word).length;
-          const matching = spans.filter(span => span.end > start && span.start < cursor);
-          return { word: word.word, start: matching[0]?.word.start, end: matching.at(-1)?.word.end };
-        });
+      if (decodedValid && expectedText === decodedText) {
+        // Keep only boundaries shared by both tokenizations. When ASR merges
+        // words, retain their original text together at the actual ASR interval.
+        // Splitting that interval would invent subword timestamps.
+        candidate = [];
+        let expectedCursor = 0, decodedCursor = 0, expectedEnd = 0, decodedEnd = 0;
+        while (expectedCursor < expected.length && decodedCursor < decoded.length) {
+          const expectedStart = expectedCursor, decodedStart = decodedCursor;
+          expectedEnd += normalized(expected[expectedCursor++].word).length;
+          decodedEnd += normalized(decoded[decodedCursor].word || decoded[decodedCursor].text).length;
+          decodedCursor += 1;
+          while (expectedEnd !== decodedEnd) {
+            if (expectedEnd < decodedEnd && expectedCursor < expected.length) {
+              expectedEnd += normalized(expected[expectedCursor++].word).length;
+            } else if (decodedEnd < expectedEnd && decodedCursor < decoded.length) {
+              decodedEnd += normalized(decoded[decodedCursor].word || decoded[decodedCursor].text).length;
+              decodedCursor += 1;
+            } else break;
+          }
+          candidate.push({ word: expected.slice(expectedStart, expectedCursor).map(word => word.word).join(' '),
+            start: decoded[decodedStart].start, end: decoded[decodedCursor - 1].end,
+            sourceIndices: expectedIndices.slice(expectedStart, expectedCursor) });
+        }
       }
-      let valid = decodedValid && candidate.length === expected.length && !candidate.some((word, wordIndex) =>
-        normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
-        || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05
-        || ((window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5));
+      const candidateIndices = (word, wordIndex) => word.sourceIndices || [expectedIndices[wordIndex]];
+      const candidateFitsNeighbors = !compact || candidate.every((word, wordIndex) => {
+        const indices = candidateIndices(word, wordIndex);
+        if (!indices.some(sourceIndex => window.core.includes(sourceIndex))) return true;
+        const before = repaired.slice(0, indices[0]).filter(Boolean).at(-1);
+        const after = repaired.slice(indices.at(-1) + 1).find(Boolean);
+        return (!before || window.core.includes(indices[0] - 1) || offset + word.start >= before.end)
+          && (!after || window.core.includes(indices.at(-1) + 1) || offset + word.end <= after.start);
+      });
+      let valid = decodedValid && candidate.flatMap(candidateIndices).length === expected.length && !candidate.some((word, wordIndex) =>
+        normalized(word.word || word.text) !== candidateIndices(word, wordIndex).map(sourceIndex => normalized(repaired[sourceIndex].word)).join('')
+        || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || !groqCaptionTimingWithin(word.end - length, 0.05)
+        || (candidateIndices(word, wordIndex).some(sourceIndex => (window.wide || []).includes(sourceIndex)) && !groqCaptionTimingWithin(word.end - word.start, 1.5)));
       if (String(json?.text || '').trim() && normalized(json.text) !== decodedText) valid = false;
       try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
+      if (!candidateFitsNeighbors) valid = false;
       if (valid) { fresh = candidate; break; }
       // An isolated opening label can retain its silent prefix even on two
       // complete-prefix recognitions. Only unchanged, agreeing broad results
       // may authorize an additional focused check of the label's tail audio.
       const broadOpeningValid = isolatedBroadOpening && decodedValid && expectedText === decodedText
-        && candidate.length === 1 && candidate[0].end - candidate[0].start > 1.5
+        && candidate.length === 1 && !groqCaptionTimingWithin(candidate[0].end - candidate[0].start, 1.5)
         && (!String(json?.text || '').trim() || normalized(json.text) === decodedText);
       if (broadOpeningValid) {
-        if (broadOpeningProposal && Math.abs(candidate[0].start - broadOpeningProposal.start) <= 0.25
-            && Math.abs(candidate[0].end - broadOpeningProposal.end) <= 0.25) confirmedBroadOpening = true;
+        if (broadOpeningProposal && groqCaptionTimingWithin(Math.abs(candidate[0].start - broadOpeningProposal.start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(candidate[0].end - broadOpeningProposal.end), 0.25)) confirmedBroadOpening = true;
         broadOpeningProposal = { ...candidate[0] };
       } else broadOpeningProposal = undefined;
       // Permit small spelling corrections only with stable surrounding words,
       // the same word count and two agreeing, independently valid audio passes.
       const changedCount = candidate.length === expected.length ? candidate.filter((word, wordIndex) =>
         normalized(word.word || word.text) !== normalized(expected[wordIndex].word)).length : Infinity;
-      const correctionValid = decodedValid && candidate.length === expected.length && expected.length >= 3
+      const correctionValid = decodedValid && candidateFitsNeighbors && candidate.length === expected.length && expected.length >= 3
         && changedCount > 0 && changedCount <= Math.max(1, Math.floor(expected.length * 0.2))
         && (!String(json?.text || '').trim() || normalized(json.text) === decodedText)
-        && !candidate.some((word, wordIndex) => (window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5);
+        && !candidate.some((word, wordIndex) => (window.wide || []).includes(expectedIndices[wordIndex]) && !groqCaptionTimingWithin(word.end - word.start, 1.5));
       if (correctionValid) {
         if (changedProposal && candidate.every((word, wordIndex) =>
             normalized(word.word || word.text) === normalized(changedProposal[wordIndex].word || changedProposal[wordIndex].text)
-            && Math.abs(word.start - changedProposal[wordIndex].start) <= 0.25
-            && Math.abs(word.end - changedProposal[wordIndex].end) <= 0.25)) {
+            && groqCaptionTimingWithin(Math.abs(word.start - changedProposal[wordIndex].start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(word.end - changedProposal[wordIndex].end), 0.25))) {
           fresh = candidate; acceptedTextChange = true; break;
         }
         changedProposal = candidate.map(word => ({ ...word }));
       } else changedProposal = undefined;
-      rejectionReason = expectedText !== decodedText ? 'the second recognition returned different words'
-        : !decodedValid ? 'the second recognition returned missing, overlapping or invalid timestamps'
+      rejectionReason = expectedText !== decodedText ? 'recognition returned different words'
+        : !decodedValid ? 'recognition returned missing, overlapping or invalid timestamps'
         : 'word boundaries or wide timestamps remain uncertain';
+      console.warn('[CaptionGroq] Timing verification rejected', {
+        start: offset, end: offset + length, attempt: attempt + 1,
+        expectedWords: expected.length, decodedWords: decoded.length,
+        textMatches: expectedText === decodedText, decodedValid, model: verificationModel, reason: rejectionReason,
+      });
     }
     if (!fresh && confirmedBroadOpening) {
       const expectedText = normalized(expected[0].word);
       let firstTail;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         throwIfCaptionTranscriptionCancelled(signal);
-        if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
-        const tailStart = Math.max(0, words[0].end - 2 - attempt * 0.25);
+        if (verificationState.requests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+        const tailStart = Math.max(0, words[0].end - 2 - Math.min(attempt, 1) * 0.25);
         const tailStartSample = Math.floor(tailStart * sampleRate);
         const tailOffset = tailStartSample / sampleRate;
         const tailLength = (endSample - tailStartSample) / sampleRate;
         if (tailOffset <= offset || tailLength <= 0 || tailLength > length) break;
-        verificationRequests += 1;
+        verificationState.requests += 1;
         const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(tailStartSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
         throwIfCaptionTranscriptionCancelled(signal);
         const decoded = (Array.isArray(json?.words) ? json.words : [])
@@ -5043,34 +5369,64 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
         // crop boundary cannot prove that its complete speech was retained.
         const candidate = decoded.length ? { word: expected[0].word,
           start: tailOffset + decoded[0].start, end: tailOffset + decoded.at(-1).end } : undefined;
-        valid = valid && candidate.end - candidate.start <= 1.5
-          && decoded[0].start >= 0.1 && decoded.at(-1).end <= tailLength - 0.1;
+        valid = valid && groqCaptionTimingWithin(candidate.end - candidate.start, 1.5)
+          && groqCaptionTimingWithin(0.1 - decoded[0].start, 0) && groqCaptionTimingWithin(decoded.at(-1).end - (tailLength - 0.1), 0);
         if (!valid) { rejectionReason = 'focused opening audio did not confirm complete words and narrow timing'; break; }
-        if (firstTail && Math.abs(candidate.start - firstTail.start) <= 0.25
-            && Math.abs(candidate.end - firstTail.end) <= 0.25) {
+        if (firstTail && groqCaptionTimingWithin(Math.abs(candidate.start - firstTail.start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(candidate.end - firstTail.end), 0.25)) {
           fresh = [{ ...candidate, start: candidate.start - offset, end: candidate.end - offset }];
           break;
         }
-        if (firstTail) { rejectionReason = 'focused opening audio passes returned different timing'; break; }
+        if (firstTail) {
+          rejectionReason = 'focused opening audio passes returned different timing';
+          console.warn('[CaptionGroq] Opening timing disagreement', {
+            attempt: attempt + 1, startDifference: candidate.start - firstTail.start,
+            endDifference: candidate.end - firstTail.end,
+          });
+        }
         firstTail = candidate;
       }
     }
+    if (!fresh && !compact && !window.focused && length > 20) {
+      // Full context can reproduce the same faulty phrase boundary. Verify
+      // independent short regions once, under the original shared request cap.
+      console.warn('[CaptionGroq] Retrying timing with shorter audio regions', { start: offset, end: offset + length });
+      const minimumProgress = 80 + Math.round(index / windows.length * 18);
+      const focused = await verifyGroqCaptionSpeechTimings({ words: repaired.filter(Boolean), pcm, sampleRate, duration,
+        apiKey, languageHint, signal, transcriptionHints,
+        onProgress: value => onProgress?.(Math.max(minimumProgress, value)), compact: true, verificationState });
+      return { ...focused, verifiedTimingWindows: index + focused.verifiedTimingWindows,
+        warnings: [...(textChanges.length ? [`Two short audio passes confirmed text corrections: ${textChanges.join('; ')}. Review these words against the recording.`] : []), ...(focused.warnings || [])] };
+    }
     if (!fresh) throw failure(window, rejectionReason);
     for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {
-      const originalIndex = expectedIndices[wordIndex], word = fresh[wordIndex];
+      const word = fresh[wordIndex], sourceIndices = word.sourceIndices || [expectedIndices[wordIndex]];
+      // Overlapping short regions share context. Keep that context's accepted
+      // timing and repair only the uncertain words owned by this region.
+      if (compact && !sourceIndices.some(sourceIndex => window.core.includes(sourceIndex) || verifiedContextIndices.has(sourceIndex))) continue;
+      const originalIndex = sourceIndices[0];
       // A second broad interval is still uncertain, even if its transcript is
       // correct. Never report an unchanged early label as verified timing.
-      if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure(window, 'word timestamp remains too wide');
-      const replacementText = acceptedTextChange ? String(word.word || word.text).trim() : words[originalIndex].word;
-      if (normalized(replacementText) !== normalized(words[originalIndex].word)) {
-        textChanges.push(`${words[originalIndex].word} → ${replacementText} at ${(offset + word.start).toFixed(2)}s`);
+      if (sourceIndices.some(sourceIndex => (window.wide || []).includes(sourceIndex)) && !groqCaptionTimingWithin(word.end - word.start, 1.5)) throw failure(window, 'word timestamp remains too wide');
+      const originalText = sourceIndices.map(sourceIndex => repaired[sourceIndex].word).join(' ');
+      const replacementText = acceptedTextChange ? String(word.word || word.text).trim() : originalText;
+      if (normalized(replacementText) !== normalized(originalText)) {
+        textChanges.push(`${originalText} → ${replacementText} at ${(offset + word.start).toFixed(2)}s`);
       }
-      repaired[originalIndex] = { ...words[originalIndex], word: replacementText, start: offset + word.start, end: Math.min(duration, offset + word.end) };
+      confirmedText[originalIndex] = replacementText;
+      repaired[originalIndex] = { ...repaired[originalIndex], word: replacementText, start: offset + word.start, end: Math.min(duration, offset + word.end) };
+      for (const sourceIndex of sourceIndices.slice(1)) { repaired[sourceIndex] = null; confirmedText[sourceIndex] = null; }
     }
     try { onProgress?.(80 + Math.round((index + 1) / windows.length * 18)); } catch (_) {}
   }
-  assertGroqCaptionWordTimeline(repaired);
-  return { words: repaired, verifiedTimingWindows: windows.length,
+  const verifiedWords = repaired.filter(Boolean);
+  assertGroqCaptionWordTimeline(verifiedWords);
+  if (normalized(verifiedWords.map(word => word.word).join(' ')) !== normalized(confirmedText.join(' '))) {
+    throw Object.assign(new Error('Groq timing verification changed the caption word coverage. Generate captions again.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
+  }
+  return { words: verifiedWords, verifiedTimingWindows: windows.length,
     warnings: textChanges.length ? [`Two short audio passes confirmed text corrections: ${textChanges.join('; ')}. Review these words against the recording.`] : [] };
 }
 
@@ -5084,6 +5440,7 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
   if (duration - cursor >= 2) gaps.push([cursor, duration]);
   const additions = [], normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   let checked = 0;
+  let rateLimit;
   const warnings = [];
   const totalWindows = gaps.reduce((sum, [start, end]) => sum + Math.ceil((end - start) / 10), 0);
   recoveryWindows:
@@ -5106,8 +5463,13 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
       first = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
       if (!first.length) continue;
       second = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
-      } catch (_) {
+      } catch (error) {
         throwIfCaptionTranscriptionCancelled(signal);
+        if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+          rateLimit = groqCaptionRateLimitDetails(error);
+          warnings.push('Groq quota interrupted automatic recovery. Existing captions and speech already confirmed by two audio passes were retained; some gaps remain unchecked.');
+          break recoveryWindows;
+        }
         warnings.push('Automatic recovery stopped after a short audio request failed. Existing captions were retained; some gaps remain unchecked.');
         break recoveryWindows;
       }
@@ -5120,12 +5482,14 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
   if (totalWindows > 8 && checked === 8) warnings.push(`Automatic recovery checked 8 of ${totalWindows} audio windows. Remaining gaps need review.`);
   const repaired = [...words.map(word => ({ ...word })), ...additions].sort((a, b) => a.start - b.start);
   assertGroqCaptionWordTimeline(repaired);
-  return { words: repaired, recoveredWords: additions.length, warnings };
+  return { words: repaired, recoveredWords: additions.length, warnings, ...(rateLimit ? { rateLimit } : {}) };
 }
 
 async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints }) {
   const clipEnd = Math.min(duration, segment.end + 0.5);
-  if (clipEnd > 60) throw new Error('Groq returned an uncertain opening caption without word timing. Its audio window is too long to verify automatically.');
+  if (clipEnd > 60) throw Object.assign(new Error('Groq returned an uncertain opening caption without word timing. Its audio window is too long to verify automatically.'), {
+    code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening verification window too long' },
+  });
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   const expectedText = normalized(segment.text);
   const audio = buildWavChunkBuffer(pcm.subarray(0, Math.ceil(clipEnd * sampleRate) * 2), sampleRate);
@@ -5140,10 +5504,14 @@ async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, durat
       && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end <= clipEnd)
       && !(decoded[0]?.start <= 0.05 && decoded[0].end - decoded[0].start > 1.5);
     try { assertGroqCaptionWordTimeline(decoded); } catch (_) { valid = false; }
-    if (!valid) throw new Error('Groq could not verify the opening caption words and timing. Its segment starts at the beginning of the video without usable word timestamps.');
+    if (!valid) throw Object.assign(new Error('Groq could not verify the opening caption words and timing. Its segment starts at the beginning of the video without usable word timestamps.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening caption has no usable word timestamps' },
+    });
     if (first && (first.length !== decoded.length || decoded.some((word, index) => normalized(word.word) !== normalized(first[index].word)
         || Math.abs(word.start - first[index].start) > 0.25 || Math.abs(word.end - first[index].end) > 0.25))) {
-      throw new Error('Groq opening audio checks disagreed on the words or timing. Generate captions again.');
+      throw Object.assign(new Error('Groq opening audio checks disagreed on the words or timing. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening audio passes disagreed' },
+      });
     }
     first = decoded;
   }
@@ -5151,10 +5519,106 @@ async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, durat
   return { segment: { ...segment, start: first[0].start, end: first.at(-1).end }, words: first };
 }
 
-async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false }) {
+async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false, captionerVersion }) {
   throwIfCaptionTranscriptionCancelled(signal);
   if (!apiKey) throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
+  const isCaptionerV2 = captionerVersion === 2;
   const { pcm, sampleRate, duration } = readGroqCaptionWav(audioBuffer);
+  const repairGroqWordTimelineV2 = (rawWords, clipDuration) => {
+    const cleaned = (Array.isArray(rawWords) ? rawWords : [])
+      .map(item => ({
+        ...item,
+        word: String(item?.word ?? item?.text ?? '').trim(),
+        start: Number(item?.start),
+        end: Number(item?.end),
+      }))
+      .filter(item => item.word);
+    if (!cleaned.length) return [];
+    const maxDur = Number.isFinite(clipDuration) && clipDuration > 0
+      ? clipDuration
+      : Math.max(1, ...cleaned.map(w => (Number.isFinite(w.end) ? w.end : 0)));
+    if (Number.isFinite(cleaned[0].start) && Number.isFinite(cleaned[0].end)
+        && cleaned[0].start <= 0.05 && cleaned[0].end - cleaned[0].start > 1.5) {
+      cleaned[0].start = Math.max(0, Math.min(cleaned[0].end - 0.2, cleaned[0].end - 1.2));
+    }
+    const minStep = Math.min(0.04, maxDur / Math.max(cleaned.length * 4, 10));
+    for (let idx = 0; idx < cleaned.length; idx += 1) {
+      const prev = cleaned[idx - 1];
+      const prevEnd = prev ? prev.end : 0;
+      let s = Number.isFinite(cleaned[idx].start) ? Math.max(0, cleaned[idx].start) : prevEnd;
+      let e = Number.isFinite(cleaned[idx].end) ? cleaned[idx].end : s + 0.16;
+      if (prev && s < prevEnd) {
+        if (s >= prev.start && prevEnd - s <= 0.35) {
+          const mid = (prevEnd + s) / 2;
+          if (mid > prev.start + minStep && mid < e - minStep) {
+            prev.end = mid;
+            s = mid;
+          } else {
+            s = prevEnd;
+          }
+        } else {
+          s = prevEnd;
+        }
+      }
+      if (e <= s) e = s + Math.max(minStep, 0.12);
+      if (e - s > 1.5) {
+        s = Math.max(prevEnd, e - 1.2);
+      }
+      cleaned[idx].start = s;
+      cleaned[idx].end = e;
+    }
+    if (cleaned.at(-1).end > maxDur) {
+      let tailIdx = cleaned.length - 1;
+      while (tailIdx > 0 && cleaned[tailIdx - 1].end >= maxDur - (cleaned.length - tailIdx) * minStep) {
+        tailIdx -= 1;
+      }
+      const safeSpanStart = Math.max(0, tailIdx > 0 ? Math.min(cleaned[tailIdx - 1].end, maxDur - (cleaned.length - tailIdx) * minStep) : 0);
+      const count = cleaned.length - tailIdx;
+      const step = Math.max(1e-4, (maxDur - safeSpanStart) / count);
+      for (let k = 0; k < count; k += 1) {
+        const w = cleaned[tailIdx + k];
+        w.start = safeSpanStart + k * step;
+        w.end = k === count - 1 ? maxDur : safeSpanStart + (k + 1) * step;
+      }
+    }
+    return cleaned;
+  };
+  const repairGroqSegmentsV2 = (rawSegments, clipDuration) => {
+    const cleaned = (Array.isArray(rawSegments) ? rawSegments : [])
+      .map(seg => ({
+        ...seg,
+        text: String(seg?.text || '').trim(),
+        start: Number(seg?.start),
+        end: Number(seg?.end),
+      }))
+      .filter(seg => seg.text);
+    if (!cleaned.length) return [];
+    const maxDur = Number.isFinite(clipDuration) && clipDuration > 0 ? clipDuration : 60;
+    const minStep = Math.min(0.08, maxDur / Math.max(cleaned.length * 4, 10));
+    for (let idx = 0; idx < cleaned.length; idx += 1) {
+      const prev = cleaned[idx - 1];
+      const prevEnd = prev ? prev.end : 0;
+      let s = Number.isFinite(cleaned[idx].start) ? Math.max(0, cleaned[idx].start) : prevEnd;
+      let e = Number.isFinite(cleaned[idx].end) ? cleaned[idx].end : s + 1.0;
+      if (prev && s < prevEnd) {
+        if (s >= prev.start && prevEnd - s <= 0.35) {
+          const mid = (prevEnd + s) / 2;
+          if (mid > prev.start + minStep && mid < e - minStep) {
+            prev.end = mid;
+            s = mid;
+          } else {
+            s = prevEnd;
+          }
+        } else {
+          s = prevEnd;
+        }
+      }
+      if (e <= s) e = s + Math.max(minStep, 0.4);
+      cleaned[idx].start = Math.min(s, Math.max(0, maxDur - minStep));
+      cleaned[idx].end = Math.min(maxDur, Math.max(cleaned[idx].start + minStep, e));
+    }
+    return cleaned;
+  };
   const bytesPerSecond = sampleRate * 2;
   // Nine-minute chunks fit the Groq upload limit; an overlapping second on
   // each side protects words at the boundary without deleting repeated lyrics.
@@ -5180,7 +5644,15 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     throwIfCaptionTranscriptionCancelled(signal);
     if (typeof json?.language === 'string' && json.language.trim() && !detectedLanguage) detectedLanguage = json.language.trim();
     const validInterval = item => Number.isFinite(item?.start) && Number.isFinite(item?.end)
-      && item.start >= 0 && item.start < chunkDuration && item.end > item.start && item.end <= chunkDuration + 0.35;
+      && item.start >= 0 && item.start < chunkDuration && item.end > item.start && groqCaptionTimingWithin(item.end - chunkDuration, 0.35);
+    const sourceSegmentsList = isCaptionerV2 && Array.isArray(json?.segments)
+      && json.segments.some(seg => String(seg?.text || '').trim() && !validInterval(seg))
+      ? repairGroqSegmentsV2(json.segments, chunkDuration)
+      : (Array.isArray(json?.segments) ? json.segments : []);
+    const sourceWordsList = isCaptionerV2 && Array.isArray(json?.words)
+      && json.words.some(w => String(w?.word || w?.text || '').trim() && !validInterval(w))
+      ? repairGroqWordTimelineV2(json.words, chunkDuration)
+      : (Array.isArray(json?.words) ? json.words : []);
     const accepted = item => {
       if (!validInterval(item)) return null;
       const { start, end } = item;
@@ -5189,12 +5661,12 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
       if (midpoint < ownedStart || (i + 1 < totalChunks ? midpoint >= ownedEnd : midpoint > ownedEnd)) return null;
       return { start: absoluteStart, end: absoluteEnd };
     };
-    const chunkSegments = (Array.isArray(json?.segments) ? json.segments : []).flatMap(segment => {
+    const chunkSegments = sourceSegmentsList.flatMap(segment => {
       const interval = accepted(segment), text = String(segment?.text || '').trim();
       return interval && text ? [{ ...interval, text }] : [];
     });
     const providedWords = [];
-    for (const word of Array.isArray(json?.words) ? json.words : []) {
+    for (const word of sourceWordsList) {
       const previous = providedWords.at(-1);
       const normalize = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
       // An overlapping duplicate cannot represent two successive spoken words.
@@ -5212,31 +5684,67 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     });
     const invalidWordTiming = providedWords.some(word => String(word?.word || word?.text || '').trim() && !validInterval(word));
     const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
-    const wordText = normalized((Array.isArray(json?.words) ? json.words : []).map(word => word?.word || word?.text || '').join(' '));
-    const segmentText = normalized((Array.isArray(json?.segments) ? json.segments : []).map(segment => segment?.text || '').join(' '));
+    const wordText = normalized(sourceWordsList.map(word => word?.word || word?.text || '').join(' '));
+    const segmentText = normalized(sourceSegmentsList.map(segment => segment?.text || '').join(' '));
     const sourceText = normalized(json?.text) || segmentText;
     const incompleteWordText = !!sourceText && sourceText !== wordText;
     if (incompleteWordText && sourceText !== segmentText) {
-      throw new Error('Groq returned recognized speech without complete caption timestamps. Generate captions again.');
+      if (isCaptionerV2 && String(json?.text || '').trim()) {
+        chunkSegments.splice(0, chunkSegments.length, {
+          start: ownedStart,
+          end: Math.max(ownedStart + 0.2, ownedEnd),
+          text: String(json.text).trim(),
+        });
+        chunkWords = [];
+      } else {
+        throw Object.assign(new Error('Groq returned recognized speech without complete caption timestamps. Generate captions again.'), {
+          code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+        });
+      }
     }
     // A partial set of word intervals would hide segment-only captions in the
     // renderer. Retain the complete segment timeline and disclose estimation.
     let chunkMissingWordTiming = chunkSegments.length && (!chunkWords.length || invalidWordTiming || incompleteWordText);
-    if (chunkMissingWordTiming && (Array.isArray(json?.segments) ? json.segments : [])
+    if (chunkMissingWordTiming && sourceSegmentsList
         .some(segment => String(segment?.text || '').trim() && !validInterval(segment))) {
-      throw new Error('Groq returned incomplete caption segment timestamps. Generate captions again.');
+      throw Object.assign(new Error('Groq returned incomplete caption segment timestamps. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+      });
     }
     if (contentMode === 'speech' && i === 0 && chunkMissingWordTiming
         && chunkSegments[0].start <= 0.05 && chunkSegments[0].end - chunkSegments[0].start > 1.5) {
-      const verified = await verifyGroqCaptionOpeningSegment({ segment: chunkSegments[0], pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
-      chunkSegments[0] = verified.segment;
-      if (chunkSegments.length === 1) { chunkWords = verified.words; chunkMissingWordTiming = false; }
-      sourceWarnings.push('Two short audio passes verified the opening caption timing. Review synchronization.');
+      try {
+        const verified = await verifyGroqCaptionOpeningSegment({ segment: chunkSegments[0], pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+        chunkSegments[0] = verified.segment;
+        if (chunkSegments.length === 1) { chunkWords = verified.words; chunkMissingWordTiming = false; }
+        sourceWarnings.push('Two short audio passes verified the opening caption timing. Review synchronization.');
+      } catch (openErr) {
+        if (!isCaptionerV2) throw openErr;
+        throwIfCaptionTranscriptionCancelled(signal);
+        chunkSegments[0] = {
+          ...chunkSegments[0],
+          start: Math.max(0, Math.min(chunkSegments[0].end - 0.2, chunkSegments[0].end - 1.2)),
+        };
+        sourceWarnings.push('Opening caption timing was smoothed automatically. Review synchronization.');
+      }
     }
     if (chunkMissingWordTiming) missingWordTiming = true;
-    if (invalidWordTiming && !chunkSegments.length) throw new Error('Groq returned incomplete caption timestamps. Generate captions again.');
+    if (invalidWordTiming && !chunkSegments.length) throw Object.assign(new Error('Groq returned incomplete caption timestamps. Generate captions again.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
     if (String(json?.text || '').trim() && !chunkSegments.length && !chunkWords.length) {
-      throw new Error('Groq returned text without usable caption timestamps. Generate captions again.');
+      if (isCaptionerV2) {
+        chunkSegments.push({
+          start: ownedStart,
+          end: Math.max(ownedStart + 0.2, ownedEnd),
+          text: String(json.text).trim(),
+        });
+        missingWordTiming = true;
+      } else {
+        throw Object.assign(new Error('Groq returned text without usable caption timestamps. Generate captions again.'), {
+          code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+        });
+      }
     }
     if (chunkSegments.length) allSegments.push(...chunkSegments);
     else {
@@ -5259,35 +5767,72 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   let words = missingWordTiming ? [] : allWords;
   let verifiedTimingWindows = 0;
   let recoveredWords = 0;
+  let repairedTimelineV2 = false;
+  let rateLimit;
   let recoveryWarnings = [...sourceWarnings];
   if (words.length) {
-    if (contentMode === 'song') assertGroqCaptionWordTimeline(words);
-    else {
+    if (contentMode === 'song') {
+      if (isCaptionerV2) {
+        try { assertGroqCaptionWordTimeline(words); } catch (_) {
+          words = repairGroqWordTimelineV2(words, duration);
+          repairedTimelineV2 = true;
+        }
+      }
+      assertGroqCaptionWordTimeline(words);
+    } else {
       try {
         const verified = await verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress: report });
         words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
         recoveryWarnings.push(...(verified.warnings || []));
       } catch (error) {
         throwIfCaptionTranscriptionCancelled(signal);
-        // Optional checks must not discard a complete, non-overlapping result.
-        // Conflicting intervals and a broad zero-start intro remain unusable
-        // until verified; never mark the retained original timing as verified.
-        try { assertGroqCaptionWordTimeline(words); } catch (_) { throw error; }
-        if (words[0].start <= 0.05 && words[0].end - words[0].start > 1.5) throw error;
-        const uncertainWords = words.filter(word => word.end - word.start > 1.5)
-          .map(word => `${word.word} (${word.start.toFixed(2)}–${word.end.toFixed(2)}s)`).join('; ');
-        recoveryWarnings.push(`Groq could not complete an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. ${error.message}`);
+        if (isCaptionerV2) {
+          let needsRepair = words[0].start <= 0.05 && words[0].end - words[0].start > 1.5;
+          if (!needsRepair) {
+            try { assertGroqCaptionWordTimeline(words); } catch (_) { needsRepair = true; }
+          }
+          if (needsRepair) {
+            words = repairGroqWordTimelineV2(words, duration);
+            repairedTimelineV2 = true;
+          }
+          if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rateLimit = groqCaptionRateLimitDetails(error);
+            recoveryWarnings.push('Groq quota interrupted an optional audio timing check; caption word timing was smoothed automatically. Review synchronization.');
+          } else {
+            recoveryWarnings.push('Groq caption word timing was smoothed automatically on uncertain audio windows. Review synchronization.');
+          }
+        } else {
+          // Optional checks must not discard a complete, non-overlapping result.
+          // Conflicting intervals and a broad zero-start intro remain unusable
+          // until verified; never mark the retained original timing as verified.
+          try { assertGroqCaptionWordTimeline(words); } catch (_) { throw error; }
+          if (words[0].start <= 0.05 && words[0].end - words[0].start > 1.5) throw error;
+          const uncertainWords = words.filter(word => word.end - word.start > 1.5)
+            .map(word => `${word.word} (${word.start.toFixed(2)}–${word.end.toFixed(2)}s)`).join('; ');
+          if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rateLimit = groqCaptionRateLimitDetails(error);
+            recoveryWarnings.push(`Groq quota interrupted an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. Missing-speech recovery was skipped.`);
+          } else recoveryWarnings.push(`Groq could not complete an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. ${error.message}`);
+        }
       }
     }
   }
-  if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length) {
-    const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
-    words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings.push(...recovery.warnings);
+  if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length && !rateLimit) {
+    try {
+      const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+      words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings.push(...recovery.warnings);
+      rateLimit = recovery.rateLimit;
+    } catch (gapErr) {
+      if (!isCaptionerV2) throw gapErr;
+      throwIfCaptionTranscriptionCancelled(signal);
+      words = repairGroqWordTimelineV2(words, duration);
+      repairedTimelineV2 = true;
+    }
   }
   // Original segment boundaries can conflict with corrected word intervals.
   // Keep only real verified word ranges after a repair, with no stale fallback.
-  const segments = verifiedTimingWindows || recoveredWords ? [] : allSegments;
-  if (verifiedTimingWindows || recoveredWords) {
+  const segments = verifiedTimingWindows || recoveredWords || repairedTimelineV2 ? [] : allSegments;
+  if (verifiedTimingWindows || recoveredWords || repairedTimelineV2) {
     // Rebuild phrase boundaries from corrected word timing. Returning one
     // segment per word makes the Local page split Groq into one-word captions.
     let group = [];
@@ -5316,7 +5861,15 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
         const boundary = (previous.end + segment.start) / 2;
         if (boundary > previous.start && boundary < segment.end) { previous.end = boundary; segment.start = boundary; continue; }
       }
-      throw new Error('Groq returned overlapping caption segment timestamps without usable word timing. Generate captions again.');
+      if (isCaptionerV2) {
+        const repairedSegs = repairGroqSegmentsV2(segments, duration);
+        segments.splice(0, segments.length, ...repairedSegs);
+        break;
+      }
+      throw Object.assign(new Error('Groq returned overlapping caption segment timestamps without usable word timing. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { array: 'segments', index, start: segment.start,
+          end: segment.end, previousEnd: previous.end, reason: 'overlapping caption segment timestamps' },
+      });
     }
   }
   const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
@@ -5328,6 +5881,7 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   return {
     text, segments, words, language: detectedLanguage || 'auto', duration,
     engine: 'groq', contentMode: contentMode === 'song' ? 'song' : 'speech', timingSource,
+    ...(rateLimit ? { rateLimit } : {}),
     ...(verifiedTimingWindows ? { timingVerification: 'short-audio', verifiedTimingWindows } : {}), warnings,
   };
 }
@@ -5337,7 +5891,21 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
-    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    if (opts?.captionerVersion === 2) {
+      activeCaptionTranscribeCancelRequested = true;
+      activeCaptionSongController?.abort();
+      if (activeCaptionTranscribeProcess) {
+        try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+      }
+      for (let step = 0; step < 60 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      activeCaptionTranscribeProcess = null;
+      activeCaptionSongController = null;
+      activeCaptionTranscribeCancelRequested = false;
+    } else {
+      return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    }
   }
   const apiKey = (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
   if (!apiKey) return { ok: false, engine: 'groq', error: 'Groq API key is missing. Enter it under Caption engine or configure the saved key.' };
@@ -5373,6 +5941,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
     const result = await transcribeCaptionWavWithGroq({
       audioBuffer: fs.readFileSync(tmpWav), apiKey, languageHint, contentMode, transcriptionHints,
       autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
+      captionerVersion: opts?.captionerVersion,
       signal: activeCaptionSongController.signal,
       onProgress: value => { try { event.sender.send('caption-transcribe-progress', value); } catch (_) {} },
     });
@@ -5381,7 +5950,12 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   } catch (err) {
     if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     console.error('[CaptionGroq] Failed:', err.message);
-    return { ok: false, engine: 'groq', error: err.message };
+    return { ok: false, engine: 'groq', error: err.message,
+      ...(['CAPTION_GROQ_RATE_LIMIT', 'CAPTION_GROQ_TIMING_UNCERTAIN'].includes(err.code) ? { code: err.code } : {}),
+      ...(Number.isInteger(err.providerHttpStatus) ? { providerHttpStatus: err.providerHttpStatus } : {}),
+      ...(err.code === 'CAPTION_GROQ_RATE_LIMIT' ? { retryAfterMs: err.retryAfterMs, retryAt: err.retryAt,
+        retryAfterEstimated: err.retryAfterEstimated } : {}),
+      ...(err.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' && err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
   } finally {
     activeCaptionTranscribeProcess = null;
     activeCaptionSongController = null;
@@ -5838,16 +6412,19 @@ ipcMain.handle('sc3-narrate-audio', async (event, opts) => {
 });
 
 // Detect previous caption text locally and restore only the masked pixels.
-const erasePreviousCaptions = createCaptionEraser({
-  root: __dirname,
-  getFFmpeg: findFFmpegExecutable,
-  downloadsPath: app.getPath('downloads'),
-  tempPath: app.getPath('temp'),
+let erasePreviousCaptions = null;
+ipcMain.handle('erase-captions', (event, opts) => {
+  erasePreviousCaptions ||= createCaptionEraser({
+    root: __dirname,
+    getFFmpeg: findFFmpegExecutable,
+    downloadsPath: app.getPath('downloads'),
+    tempPath: app.getPath('temp'),
+  });
+  return erasePreviousCaptions(opts, progress => {
+    try { if (!event.sender.isDestroyed?.()) event.sender.send('caption-erase-progress', progress); }
+    catch (_) { /* Closing the preview does not corrupt the original video. */ }
+  });
 });
-ipcMain.handle('erase-captions', (event, opts) => erasePreviousCaptions(opts, progress => {
-  try { if (!event.sender.isDestroyed?.()) event.sender.send('caption-erase-progress', progress); }
-  catch (_) { /* Closing the preview does not corrupt the original video. */ }
-}));
 
 
 
@@ -6024,17 +6601,36 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     if (assContent) {
       // Burn structured ASS subtitles directly (preserves colors, outlines, box backgrounds, fonts)
       assPath = path.join(tmpDir, 'captions-' + stamp + '.ass');
-      require('fs').writeFileSync(assPath, assContent, 'utf8');
+      let normalizedAss = String(assContent)
+        .normalize('NFC')
+        .replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1');
+      if (/[\u0900-\u0dff]/u.test(normalizedAss)) {
+        normalizedAss = normalizedAss.replace(/^(Style:\s*Preview,)Nunito[^,]*/m, '$1Nirmala UI');
+      }
+      require('fs').writeFileSync(assPath, normalizedAss, 'utf8');
       console.log('[BurnCaptions] ASS written:', assPath);
       const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
       // Load the same offline Nunito faces as the preview. libass's system
       // font provider still supplies Windows fonts and non-Latin fallbacks.
+      // IMPORTANT: Use the `ass` filter with `shaping=complex` (HarfBuzz) rather
+      // than `subtitles`, because FFmpeg's `subtitles` filter leaves AssContext.shaping=0
+      // (FriBidi simple shaper), which breaks Telugu/Indic conjuncts (vattulu) and matras.
       const captionFonts = path.join(ROOT, 'public', 'caption-fonts').split('\\').join('/').split(':').join('\\:');
-      subFilter = `subtitles='${safeAss}':fontsdir='${captionFonts}'`;
+      subFilter = `ass='${safeAss}':fontsdir='${captionFonts}':shaping=complex`;
     } else {
-      // Fallback SRT subtitles
+      // Fallback SRT + ASS subtitles (using ass filter with shaping=complex for proper Indic shaping)
       srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
+      assPath = path.join(tmpDir, 'captions-' + stamp + '.ass');
       const srtLines = [];
+      const assEvents = [];
+      const toAssTime = (secs) => {
+        const cs = Math.max(0, Math.round(Number(secs) * 100));
+        const h = Math.floor(cs / 360000);
+        const m = String(Math.floor((cs % 360000) / 6000)).padStart(2, '0');
+        const s = String(Math.floor((cs % 6000) / 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${String(cs % 100).padStart(2, '0')}`;
+      };
+      let hasIndic = false;
       captions.forEach((c, i) => {
         let start = 0;
         let end   = 2;
@@ -6050,19 +6646,30 @@ ipcMain.handle('burn-captions', async (event, opts) => {
         }
         start = Math.max(0, start || 0);
         end   = Math.max(start + 0.1, end || start + 2);
-        const text  = String(c.text || '').trim().replace(/[<>]/g, '');
+        const text = String(c.text || '')
+          .normalize('NFC')
+          .replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1')
+          .trim()
+          .replace(/[<>]/g, '');
         if (!text) return;
+        if (/[\u0900-\u0dff]/u.test(text)) hasIndic = true;
         srtLines.push(String(i + 1));
         srtLines.push(toSrtTime(start) + ' --> ' + toSrtTime(end));
         srtLines.push(text);
         srtLines.push('');
+        const assText = text.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\r?\n/g, '\\N');
+        assEvents.push(`Dialogue: 0,${toAssTime(start)},${toAssTime(end)},Default,,0,0,0,,${assText}`);
       });
 
       require('fs').writeFileSync(srtPath, srtLines.join('\n'), 'utf8');
-      console.log('[BurnCaptions] SRT written:', srtPath, '(' + captions.length + ' captions)');
+      const fallbackFont = hasIndic ? 'Nirmala UI' : 'Arial';
+      const fallbackAlign = position === 'top' ? 8 : position === 'middle' ? 5 : 2;
+      const fallbackAss = `[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fallbackFont},${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,1,${fallbackAlign},20,20,40,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${assEvents.join('\n')}\n`;
+      require('fs').writeFileSync(assPath, fallbackAss, 'utf8');
+      console.log('[BurnCaptions] SRT/ASS written:', srtPath, '(' + captions.length + ' captions)');
 
-      const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
-      subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
+      const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
+      subFilter = `ass='${safeAss}':shaping=complex`;
     }
 
     if (Array.isArray(emojiOverlays) && emojiOverlays.length) {
@@ -6094,7 +6701,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       const videoQualityArgs = sourceVideoBitrate > 0
         ? [
             '-c:v', 'libx264',
-            '-preset', 'fast',
+            '-preset', 'ultrafast',
             '-b:v', String(Math.ceil(sourceVideoBitrate * 1.15)),
             '-maxrate', String(Math.ceil(sourceVideoBitrate * 1.75)),
             '-bufsize', String(Math.ceil(sourceVideoBitrate * 3.5)),
@@ -6102,7 +6709,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
           ]
         : [
             '-c:v', 'libx264',
-            '-preset', 'fast',
+            '-preset', 'ultrafast',
             '-crf', '16',
             '-pix_fmt', 'yuv420p',
           ];
@@ -6885,8 +7492,24 @@ ipcMain.handle('kitten-shorts-export', async (event, opts = {}) => {
     let videoFilter = crop;
     if (opts.showCaptions && srtText.trim()) {
       const srtPath = path.join(workDir, 'captions.srt');
+      const assPath = path.join(workDir, 'captions.ass');
       fs.writeFileSync(srtPath, srtText.replace(/^\uFEFF/, ''), 'utf8');
-      videoFilter += `,subtitles='${kittenShortsFilterPath(srtPath)}':force_style='FontName=Arial,FontSize=22,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190'`;
+      const toAssTime = (secs) => {
+        const cs = Math.max(0, Math.round(Number(secs) * 100));
+        const h = Math.floor(cs / 360000);
+        const m = String(Math.floor((cs % 360000) / 6000)).padStart(2, '0');
+        const s = String(Math.floor((cs % 6000) / 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${String(cs % 100).padStart(2, '0')}`;
+      };
+      const hasIndic = /[\u0900-\u0dff]/u.test(srtText);
+      const shortFont = hasIndic ? 'Nirmala UI' : 'Arial';
+      const assEvents = segments.map(seg => {
+        const text = String(seg.text || '').normalize('NFC').replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1').replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\r?\n/g, '\\N');
+        return `Dialogue: 0,${toAssTime(seg.start)},${toAssTime(seg.end)},Default,,0,0,0,,${text}`;
+      }).join('\n');
+      const assContent = `[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${shortFont},22,&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,20,20,190,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${assEvents}\n`;
+      fs.writeFileSync(assPath, assContent, 'utf8');
+      videoFilter += `,ass='${kittenShortsFilterPath(assPath)}':shaping=complex`;
     }
     args.push('-filter_complex', filters.join(';'), '-map', '0:v:0', '-map', '[aout]', '-vf', videoFilter,
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
@@ -7149,7 +7772,7 @@ ipcMain.handle('my-exporter-export', async (event, opts) => myExporterEngine.exp
       const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,${captionFont},${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,${captionScaleX},${captionScaleY},0,0,${style.border},0,0,${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
       fs.writeFileSync(assPath, ass, 'utf8');
       const escaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-      subtitleFilter = `subtitles='${escaped}'`;
+      subtitleFilter = `ass='${escaped}':shaping=complex`;
     }
     if (hasWatermark) {
       let xPercent = 0.90;
