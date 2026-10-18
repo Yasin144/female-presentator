@@ -13,8 +13,9 @@ function prepareCaptionEmojiExport(subFilter, overlays, workDir) {
   }
   if (overlays.length > 64) throw new Error('Too many caption emoji images.');
   const inputArgs = [];
-  const filters = [`[0:v:0]${subFilter},format=rgba[caption-base]`];
+  const filters = [`[0:v:0]${subFilter}[caption-base]`];
   let previous = 'caption-base';
+  const fps = 60;
   for (const [index, sprite] of overlays.entries()) {
     const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(sprite.pngDataUrl || ''));
     if (!match || match[1].length > 8 * 1024 * 1024) throw new Error('Invalid caption emoji PNG.');
@@ -37,6 +38,20 @@ function prepareCaptionEmojiExport(subFilter, overlays, workDir) {
       if (event.start < 0 || event.end <= event.start) throw new Error('Invalid caption emoji timing.');
       return event;
     });
+    const sortedEvents = [...events].sort((a, b) => a.start - b.start);
+    let cursorN = sortedEvents[0].start > 0 ? 1 : 0;
+    const ptsSegments = sortedEvents.map(event => {
+      const startN = cursorN;
+      const activeEnd = Math.min(event.end, Math.max(event.start, event.bounceStart + 0.2) + 0.05);
+      const frameCount = Math.max(2, Math.ceil((activeEnd - event.start) * fps) + 1);
+      cursorN += frameCount;
+      return { startN, endN: cursorN - 1, startSec: event.start };
+    });
+    const ptsExpr = ptsSegments.reduceRight(
+      (expr, seg) => `if(lte(N,${seg.endN}),(${number(seg.startSec)}+(N-${seg.startN})/${fps})/TB,${expr})`,
+      '1000000/TB'
+    );
+    const fullPtsExpr = sortedEvents[0].start > 0 ? `if(eq(N,0),0,${ptsExpr})` : ptsExpr;
     const choose = (value, fallback) => events.reduceRight((expression, event) =>
       `if(${interval(event)},${value(event)},${expression})`, fallback);
     const scale = choose(bounce, '1.2');
@@ -45,10 +60,10 @@ function prepareCaptionEmojiExport(subFilter, overlays, workDir) {
     const enable = events.map(interval).join('+');
     const imagePath = path.join(workDir, `emoji-${index}.png`);
     fs.writeFileSync(imagePath, png, { flag: 'wx' });
-    inputArgs.push('-loop', '1', '-framerate', '60', '-i', imagePath);
-    filters.push(`[${index + 1}:v]format=rgba,scale=w='round(iw*(${scale}))':h='round(ih*(${scale}))':eval=frame[emoji-${index}]`);
+    inputArgs.push('-loop', '0', '-framerate', String(fps), '-i', imagePath);
+    filters.push(`[${index + 1}:v]format=rgba,loop=-1:size=1:start=0,setpts='${fullPtsExpr}',scale=w='round(iw*(${scale}))':h='round(ih*(${scale}))':eval=frame:flags=fast_bilinear[emoji-${index}]`);
     const next = `caption-emoji-${index}`;
-    filters.push(`[${previous}][emoji-${index}]overlay=x='(${x})-overlay_w/2':y='(${y})-overlay_h/2':enable='${enable}':format=rgb:alpha=straight:shortest=1[${next}]`);
+    filters.push(`[${previous}][emoji-${index}]overlay=x='(${x})-overlay_w/2':y='(${y})-overlay_h/2':enable='${enable}':alpha=straight:shortest=1[${next}]`);
     previous = next;
   }
   filters.push(`[${previous}]null[captioned-video]`);

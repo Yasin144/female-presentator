@@ -90,6 +90,8 @@ const applyNumberTableBtn = document.getElementById("applyNumberTableBtn");
 const showNumberTableBtn = document.getElementById("showNumberTableBtn");
 const readNumberTableBtn = document.getElementById("readNumberTableBtn");
 const numberTableToolStatus = document.getElementById("numberTableToolStatus");
+const numberTableDisplaySelect = document.getElementById("numberTableDisplaySelect");
+const numberTableStepSelect = document.getElementById("numberTableStepSelect");
 const numberTableThemeSelect = document.getElementById("numberTableThemeSelect");
 const numberTableIntroEnabled = document.getElementById("numberTableIntroEnabled");
 const numberTableIntroStatus = document.getElementById("numberTableIntroStatus");
@@ -3068,6 +3070,9 @@ function applyPreviewZoom() {
 
 function updateStageViewUi() {
   const pdfMode = isPdfPresentationMode();
+  const numberTableMode = !pdfMode && Boolean(getNumberTableData(state.text));
+  document.getElementById("stagePanel")?.classList.toggle("number-table-stage", numberTableMode);
+  document.body.classList.toggle("number-table-preview", numberTableMode);
   const lockViewControls = state.speaking || state.exportingVideo;
 
   if (zoomValue) {
@@ -4615,12 +4620,16 @@ function getNumberTableData(textValue = "") {
   const count = end - start + 1;
   if (count < 2 || count > 300) return null;
 
+  const stepMatch = safeText.match(/\bcount(?:ing)?\s+by\s+(10|5|2|1)\b/i);
+  const step = Number(stepMatch?.[1] || 1);
+  const spokenValues = Array.from({ length: count }, (_, index) => start + index)
+    .filter(value => step === 1 || (value !== 0 && value % step === 0));
   const preferredRows = count % 10 === 0 ? 10 : Math.min(10, Math.ceil(Math.sqrt(count)));
   const rows = Math.max(1, preferredRows);
   const cols = Math.ceil(count / rows);
   const cells = Array.from({ length: rows }, (_, row) => (
     Array.from({ length: cols }, (_, col) => {
-      const value = start + row + (col * rows);
+      const value = step > 1 ? start + row * cols + col : start + row + (col * rows);
       return value <= end ? value : null;
     })
   ));
@@ -4628,20 +4637,20 @@ function getNumberTableData(textValue = "") {
   return {
     start,
     end,
+    step,
+    displayMode: /\bdisplay number names\b/i.test(safeText) ? "names" : "grid",
+    spokenValues,
     rows,
     cols,
     cells,
-    title: `${start} to ${end}`
+    title: step > 1 ? `Counting by ${step}: ${start} to ${end}` : `${start} to ${end}`
   };
 }
 
 function getNumberTableNarrationText(textValue = "") {
   const table = getNumberTableData(textValue);
   if (!table) return "";
-  const values = [];
-  for (let value = table.start; value <= table.end; value += 1) {
-    values.push(String(value));
-  }
+  const values = table.spokenValues.map(String);
   // Use period separator: each number becomes its own TTS sentence chunk.
   // The TTS engine measures the exact audio duration of each chunk independently,
   // so speechStartMs for every number = exact cumulative time → 100% grid sync.
@@ -4652,20 +4661,8 @@ function getNumberTableNarrationChunkEntries(text = "") {
   const table = getNumberTableData(text);
   if (!table) return null;
   const entries = [];
-  const titleText = typeof getPresentationTitleText === "function" ? getPresentationTitleText() : "";
-  const titleNarration = titleText ? buildNarrationLine(titleText) : "";
-  if (titleNarration) {
-    entries.push({
-      text: titleNarration,
-      gapAfterMs: 500
-    });
-  }
-  for (let value = table.start; value <= table.end; value += 1) {
-    entries.push({
-      text: String(value) + ".",
-      // 1.5 second gap after each number: teacher says it clearly, grid cell lights up, pause, next
-      gapAfterMs: value < table.end ? 1500 : 0
-    });
+  for (const [index, value] of table.spokenValues.entries()) {
+    entries.push({ text: String(value) + ".", gapAfterMs: index < table.spokenValues.length - 1 ? 1500 : 0 });
   }
   return entries.length ? entries : null;
 }
@@ -4812,10 +4809,29 @@ function getVisibleAlphabetCount(alphabetData) {
   return clamp(Math.floor((elapsedMs / durationMs) * alphabetData.items.length) + (elapsedMs > 0 ? 1 : 0), 0, alphabetData.items.length);
 }
 
+function getMeasuredNumberTableExportProfile(text, profile, durationMs) {
+  const table = getNumberTableData(text);
+  const starts = profile?.numberTableStartsMs;
+  if (!table || !profile?.units?.length || !Array.isArray(starts)
+      || starts.length !== table.spokenValues.length) return null;
+  if (!starts.every((start, index) => Number.isFinite(start) && start >= 0
+      && start < durationMs && (index === 0 || start > starts[index - 1]))) return null;
+  return { ...profile, numberTableStartsMs: starts.slice(), totalDurationMs: durationMs };
+}
+
+function isNumberTableNarrationCurrent(text) {
+  const table = getNumberTableData(text);
+  if (!table) return true;
+  const durationMs = Number(state.narration?.durationMs || 0);
+  return Boolean(getMeasuredNumberTableExportProfile(text, state.narration?.syncProfile?.profile, durationMs)
+    && durationMs >= Math.max(300, (table.spokenValues.length - 1) * 1500));
+}
+
 function getVisibleNumberTableCount(tableData) {
   if (!tableData) return 0;
   if (!state.speaking && !state.exportingVideo) return 0;
-  const numberCount = Math.max(0, tableData.end - tableData.start + 1);
+  const spokenValues = tableData.spokenValues || Array.from({ length: tableData.end - tableData.start + 1 }, (_, index) => tableData.start + index);
+  const numberCount = spokenValues.length;
   if (numberCount <= 0) return 0;
 
   // During export, renderNarrationTimelineForExport drives time via state.exportCapture.elapsedMs
@@ -4829,20 +4845,24 @@ function getVisibleNumberTableCount(tableData) {
   const narrationDurationMs = Math.max(0, Math.round(Number(state.narration?.durationMs || 0)));
   const audioDurationMs = activeDurationMs || narrationDurationMs;
   const syncProfile = state.narration?.syncProfile?.profile;
+  const measuredStarts = syncProfile?.numberTableStartsMs;
+  if (Array.isArray(measuredStarts) && measuredStarts.length === numberCount) {
+    return measuredStarts.filter(start => Number.isFinite(start) && elapsedMs >= start).length;
+  }
   const digitUnitMap = new Map();
   if (syncProfile?.units?.length) {
     for (const item of syncProfile.units) {
       const disp = String(item?.displayText || "").trim();
       const spoken = String(item?.spokenText || "").trim();
-      const digitText = /^\d+$/.test(disp)
-        ? disp
-        : (/^\d+$/.test(spoken.replace(/[^\d]/g, "")) ? spoken.replace(/[^\d]/g, "") : "");
+      const digitText = /^-?\d+[.]?$/.test(disp)
+        ? disp.replace(/[.]$/, "")
+        : (/^-?\d+[.]?$/.test(spoken) ? spoken.replace(/[.]$/, "") : "");
       if (digitText && !digitUnitMap.has(digitText)) {
         digitUnitMap.set(digitText, item);
       }
     }
   }
-  const firstNumberUnit = digitUnitMap.get(String(tableData.start));
+  const firstNumberUnit = digitUnitMap.get(String(spokenValues[0]));
   const firstNumberStartMs = Math.max(0, Math.round(Number(firstNumberUnit?.speechStartMs) || 0));
 
   // Audio-clock fallback: divide total duration evenly across all numbers.
@@ -4861,7 +4881,7 @@ function getVisibleNumberTableCount(tableData) {
   // real measured duration. speechStartMs for each token = exact cumulative audio time.
   if (firstNumberUnit && digitUnitMap.size && elapsedMs >= 0) {
       let profileVisibleCount = 0;
-      for (let value = tableData.start; value <= tableData.end; value += 1) {
+      for (const value of spokenValues) {
         const unit = digitUnitMap.get(String(value));
         if (!unit) break;
         // speechStartMs is now the exact real audio position (period-chunk timing).
@@ -6373,11 +6393,11 @@ async function buildExactWhisperSyncProfile(audioBlob, displayText = "", duratio
   for (let offset = 0; offset < audioBytes.length; offset += blockSize) {
     binary += String.fromCharCode(...audioBytes.subarray(offset, offset + blockSize));
   }
-  const response = await fetch(`${state.transcribeServerUrl}/api/transcribe`, {
+  const response = await fetchWithTimeout(`${state.transcribeServerUrl}/api/transcribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ audioBase64: btoa(binary), wordTimestamps: true })
-  });
+  }, 180000);
   if (!response.ok) throw new Error(`Word alignment server returned ${response.status}.`);
   const payload = await response.json();
   const timedWords = (Array.isArray(payload?.words) ? payload.words : [])
@@ -9747,7 +9767,6 @@ function shouldUsePreparedCountingScene(page) {
 }
 
 function shouldRevealPdfCountingObjects(page) {
-  if (getPdfCountingDisplayMode() === "original") return false;
   const activity = page?.countingActivity;
   const preparedScene = getPdfCountingDisplayMode() === "reveal"
     || Boolean(activity?.objectSource === "local-library" && activity?.markersVerified !== true);
@@ -12037,6 +12056,7 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
   syncExportVoiceSelection();
   const exportVoice = getSelectedEdgeExportVoice();
   const exportText = String(options.textSource || commitLatestLessonText()).trim();
+  const numberTableNarrationIsCurrent = isNumberTableNarrationCurrent(exportText);
   const alphabetData = getAlphabetSayAloudData(exportText);
   const alphabetStarts = state.narration?.syncProfile?.profile?.alphabetSlideStartsMs;
   const minimumAlphabetDurationMs = alphabetData
@@ -12053,6 +12073,7 @@ async function ensureAnjaliNarrationReadyForExport(options = {}) {
     && state.narration.voice === exportVoice
     && state.narration.textSource === exportText
     && alphabetNarrationIsCurrent
+    && numberTableNarrationIsCurrent
   );
 
   if (hasMatchingNarration) {
@@ -15125,7 +15146,7 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     ? null
     : getGlossaryNarrationChunkEntries(text);
   // Number table: each number is its own chunk with a 1.5s gap — exact sync + clear teacher pacing
-  const numberTableNarrationChunks = options.rawNarrationText === true || voice === EDGE_NARRATION_VOICE
+  const numberTableNarrationChunks = options.rawNarrationText === true
     ? null
     : getNumberTableNarrationChunkEntries(text);
   // Use one independently measured audio chunk per letter for every voice.
@@ -15137,7 +15158,9 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
   const alphabetNarrationChunks = options.rawNarrationText === true
     ? null
     : getAlphabetNarrationChunkEntries(text);
-  const chunkEntries = glossaryNarrationChunks?.length
+  const chunkEntries = numberTableNarrationChunks?.length
+    ? numberTableNarrationChunks
+    : glossaryNarrationChunks?.length
     ? glossaryNarrationChunks
     : vowelsConsonantsNarrationChunks?.length
       ? vowelsConsonantsNarrationChunks
@@ -15173,6 +15196,9 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       const blob = await combineNarrationBlobs(singleChunkResult.blobs, singleChunkEntries);
       const totalDurationMs = singleChunkResult.durations.reduce((sum, value) => sum + value, 0);
       const syncProfile = buildSpeechSyncProfileFromChunkDurations(narrationText, singleChunkEntries, singleChunkResult.durations);
+      if (syncProfile && numberTableNarrationChunks?.length === 1) {
+        syncProfile.numberTableStartsMs = [syncProfile.chunkStartsMs?.[0] || 0];
+      }
       if (typeof options.onSyncProfile === "function" && syncProfile) {
         options.onSyncProfile(syncProfile);
       }
@@ -15248,7 +15274,8 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
     }
 
     const alphabetSlideStartsMs = alphabetNarrationChunks?.length === chunkEntries.length ? [] : null;
-    const measureVowelsConsonantsCues = vowelsConsonantsNarrationChunks?.length === chunkEntries.length;
+    const measureNumberTableCues = numberTableNarrationChunks?.length === chunkEntries.length;
+    const measureVowelsConsonantsCues = vowelsConsonantsNarrationChunks?.length === chunkEntries.length || measureNumberTableCues;
     const vowelsConsonantsOnsetsMs = [];
     let alphabetAudioCursorMs = 0;
     parallelResults.forEach((chunkResult, index) => {
@@ -15324,6 +15351,11 @@ async function requestNarrationBlob(text, voice = state.preferredNarrationVoice 
       : null;
     if (syncProfile && audibleVowelsConsonantsStarts) {
       syncProfile.chunkStartsMs = audibleVowelsConsonantsStarts;
+    }
+    if (syncProfile && measureNumberTableCues) {
+      const table = getNumberTableData(text);
+      const count = table.spokenValues.length;
+      syncProfile.numberTableStartsMs = (audibleVowelsConsonantsStarts || syncProfile.chunkStartsMs).slice(-count);
     }
     if (syncProfile && Array.isArray(alphabetSlideStartsMs) && Array.isArray(alphabetNarrationChunks)
         && alphabetSlideStartsMs.length === alphabetNarrationChunks.length) {
@@ -18005,9 +18037,8 @@ function drawCurrentLessonSentenceCaption(pageIndex = state.previewPageIndex, op
 // karaoke layer here prevents subtraction/counting/PDF scenes from bypassing it.
 function drawFinalSynchronizedKaraokeOverlay() {
   if ((!state.speaking && !state.exportingVideo) || state.titleIntroActive || state.introPlayback?.active || state.introPoster?.active) return false;
-  // The preview starts clean. Export keeps its existing caption behavior; this
-  // switch intentionally controls only what the teacher sees while previewing.
-  if (!state.exportingVideo && !state.previewCaptionsEnabled) return false;
+  // Captions are opt-in for both live playback and saved videos.
+  if (!state.previewCaptionsEnabled) return false;
   if (isPdfPresentationMode()) {
     return drawCurrentLessonSentenceCaption(state.previewPageIndex, {
       text: getPdfPresentationText(),
@@ -18042,6 +18073,7 @@ function drawFinalSynchronizedKaraokeOverlay() {
 
 function setStagePreviewCaptionMode(enabled = false) {
   state.previewCaptionsEnabled = Boolean(enabled);
+  if (proCaptionsEnabled) proCaptionsEnabled.checked = state.previewCaptionsEnabled;
   if (stagePreviewWithoutCaptionsBtn) {
     stagePreviewWithoutCaptionsBtn.classList.toggle("is-active", !state.previewCaptionsEnabled);
     stagePreviewWithoutCaptionsBtn.classList.toggle("primary-btn", !state.previewCaptionsEnabled);
@@ -18632,7 +18664,7 @@ function sanitizeNumberTableInput(value) {
   return String(value || "").replace(/[^\d-]/g, "").replace(/(?!^)-/g, "").slice(0, 7);
 }
 
-function buildNumberTableLessonText(fromValue, toValue) {
+function buildNumberTableLessonText(fromValue, toValue, stepValue = 1, displayMode = "grid") {
   const start = Number.parseInt(String(fromValue || "").trim(), 10);
   const end = Number.parseInt(String(toValue || "").trim(), 10);
   if (!Number.isFinite(start) || !Number.isFinite(end)) {
@@ -18643,7 +18675,9 @@ function buildNumberTableLessonText(fromValue, toValue) {
   if (high - low + 1 < 2 || high - low + 1 > 300) {
     return "";
   }
-  return `# ${low} to ${high}\nNumber table from ${low} to ${high}`;
+  const step = [1, 2, 5, 10].includes(Number(stepValue)) ? Number(stepValue) : 1;
+  if (step > 1 && !Array.from({ length: high - low + 1 }, (_, index) => low + index).some(value => value !== 0 && value % step === 0)) return "";
+  return `# ${step > 1 ? `Counting by ${step}: ` : ""}${low} to ${high}\nNumber table from ${low} to ${high}${step > 1 ? `\nCount by ${step}` : ""}${displayMode === "names" ? "\nDisplay number names" : ""}`;
 }
 
 async function applyNumberTableBuilder(options = {}) {
@@ -18652,9 +18686,9 @@ async function applyNumberTableBuilder(options = {}) {
   if (numberTableFromInput) numberTableFromInput.value = fromValue;
   if (numberTableToInput) numberTableToInput.value = toValue;
 
-  const lessonText = buildNumberTableLessonText(fromValue, toValue);
+  const lessonText = buildNumberTableLessonText(fromValue, toValue, numberTableStepSelect?.value || 1, numberTableDisplaySelect?.value || "grid");
   if (!lessonText) {
-    setNumberTableToolStatus("Enter a valid range. Example: From 101, To 200. Maximum 300 numbers.");
+    setNumberTableToolStatus("Enter a valid range. Example: From 101, To 200. Maximum 300 numbers; include at least one multiple of your Count by selection.");
     if (numberTableFromInput && !fromValue) numberTableFromInput.focus();
     else if (numberTableToInput) numberTableToInput.focus();
     return;
@@ -18978,35 +19012,103 @@ function getNumberTableTheme() {
   return THEMES[t] || THEMES.normal;
 }
 
+function formatNumberName(value) {
+  const words = convertIntegerToInternationalWords(value).replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety) (one|two|three|four|five|six|seven|eight|nine)\b/g, "$1-$2");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function getNumberNamesPageIndex(tableData) {
+  const pageCount = Math.ceil((tableData.end - tableData.start + 1) / 30);
+  if (state.speaking || state.exportingVideo) {
+    const visible = getVisibleNumberTableCount(tableData);
+    const active = tableData.spokenValues[Math.max(0, visible - 1)] ?? tableData.start;
+    return Math.min(pageCount - 1, Math.floor((active - tableData.start) / 30));
+  }
+  return Math.max(0, Math.min(pageCount - 1, state.previewPageIndex || 0));
+}
+
+function drawNumberNamesBoard(area, table) {
+  const page = getNumberNamesPageIndex(table);
+  const first = table.start + page * 30;
+  const progressive = state.speaking || state.exportingVideo;
+  const visible = progressive ? getVisibleNumberTableCount(table) : table.spokenValues.length;
+  const active = progressive && visible > 0 ? table.spokenValues[visible - 1] : null;
+  const x = area.x + 18, y = area.y + 12, w = area.width - 36, h = area.height - 24;
+  const columns = Math.min(3, Math.ceil((Math.min(table.end, first + 29) - first + 1) / 10));
+  const columnWidth = (w - 36 * (columns - 1)) / columns;
+  const rowHeight = (h - 90) / 10;
+  ctx.save();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, w, h);
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#172033"; ctx.font = '900 32px "Nunito", sans-serif';
+  ctx.fillText(`Number names${table.step > 1 ? ` · Count by ${table.step}` : ""}`, x + 12, y + 26, w - 24);
+  for (let col = 0; col < columns; col++) {
+    const colStart = first + col * 10;
+    if (colStart > table.end) break;
+    const colX = x + col * (columnWidth + 36);
+    ctx.fillStyle = "#f3aaa8";
+    ctx.beginPath(); ctx.roundRect(colX + 8, y + 49, Math.min(columnWidth - 16, 220), 34, 9); ctx.fill();
+    ctx.textAlign = "left"; ctx.fillStyle = "#172033"; ctx.font = '800 22px "Nunito", sans-serif';
+    ctx.fillText(`From ${colStart} to ${Math.min(table.end, colStart + 9)}`, colX + 12, y + 66, columnWidth - 24);
+    for (let row = 0; row < 10; row++) {
+      const value = colStart + row;
+      if (value > table.end) break;
+      const rowY = y + 90 + row * rowHeight;
+      const index = table.spokenValues.indexOf(value);
+      const spoken = index >= 0 && index < visible;
+      ctx.fillStyle = value === active ? "#ffe58a" : spoken && table.step > 1 ? "#fff4cb" : "#fbeceb";
+      ctx.beginPath(); ctx.roundRect(colX + 4, rowY + 5, columnWidth - 8, rowHeight - 10, 12); ctx.fill();
+      ctx.strokeStyle = value === active ? "#dc5268" : "#efb4bc";
+      ctx.lineWidth = value === active ? 3 : 1;
+      if (value === active) ctx.stroke();
+      const circleRadius = Math.min(21, rowHeight * .37);
+      const circleX = colX + 10 + circleRadius;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(circleX, rowY + rowHeight / 2, circleRadius, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#ed6375"; ctx.lineWidth = 1.2;
+      ctx.setLineDash([2, 2]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "#172033"; ctx.textAlign = "center";
+      ctx.font = `800 ${Math.min(24, rowHeight * .5)}px "Nunito", sans-serif`;
+      ctx.fillText(String(value), circleX, rowY + rowHeight / 2, columnWidth * .22);
+      ctx.textAlign = "left"; ctx.font = `700 ${Math.min(24, rowHeight * .5)}px "Nunito", sans-serif`;
+      ctx.fillText(formatNumberName(value), colX + 20 + circleRadius * 2, rowY + rowHeight / 2, columnWidth - 30 - circleRadius * 2);
+    }
+  }
+  ctx.restore();
+}
+
 function drawNumberTableBoard(contentArea, tableData) {
   if (!tableData?.cells?.length) return;
+  if (tableData.displayMode === "names") { drawNumberNamesBoard(contentArea, tableData); return; }
 
   const theme = getNumberTableTheme();
   const panelX = contentArea.x + 10;
   const panelY = contentArea.y + 10;
   const panelWidth = contentArea.width - 20;
   const panelHeight = contentArea.height - 20;
-  const titleText = getPresentationTitleText() || tableData.title;
+  const titleText = tableData.step > 1 ? tableData.title : (getPresentationTitleText() || tableData.title);
   const showTitle = Boolean(titleText);
   const titleHeight = showTitle ? 58 : 0;
   const gridGapTop = showTitle ? 10 : 0;
   const gridAvailableHeight = panelHeight - titleHeight - gridGapTop;
-  const maxGridWidth = Math.min(panelWidth, gridAvailableHeight * (tableData.cols / Math.max(1, tableData.rows)) * 1.18);
-  const cellWidth = Math.floor(maxGridWidth / tableData.cols);
-  const cellHeight = Math.floor(gridAvailableHeight / tableData.rows);
-  const cellSize = Math.max(34, Math.min(cellWidth, cellHeight, 86));
-  const gridWidth = cellSize * tableData.cols;
-  const gridHeight = cellSize * tableData.rows;
-  const gridX = panelX + Math.round((panelWidth - gridWidth) / 2);
-  const gridY = panelY + titleHeight + gridGapTop + Math.round((gridAvailableHeight - gridHeight) / 2);
-  const fontSize = clamp(Math.round(cellSize * 0.36), 16, 34);
+  // Fill the board in both dimensions; square cells leave most widescreen
+  // presentations empty and make the numbers unnecessarily small.
+  const cellWidth = panelWidth / tableData.cols;
+  const cellHeight = gridAvailableHeight / tableData.rows;
+  const gridWidth = panelWidth;
+  const gridHeight = gridAvailableHeight;
+  const gridX = panelX;
+  const gridY = panelY + titleHeight + gridGapTop;
+  const maxDigits = Math.max(String(tableData.start).length, String(tableData.end).length);
+  const fontSize = Math.max(1, Math.min(Math.floor(cellHeight * 0.62), Math.floor((cellWidth - 8) / (maxDigits * 0.65))));
   const isProgressive = Boolean(state.speaking || state.exportingVideo);
   const visibleNumberCount = isProgressive
     ? getVisibleNumberTableCount(tableData)
-    : (tableData.end - tableData.start + 1); // show all when not playing
+    : tableData.spokenValues.length; // show all when not playing
   // activeValue = the number currently being spoken (last revealed cell)
   const activeValue = isProgressive && visibleNumberCount > 0
-    ? tableData.start + visibleNumberCount - 1
+    ? tableData.spokenValues[visibleNumberCount - 1]
     : null;
 
   ctx.save();
@@ -19028,7 +19130,7 @@ function drawNumberTableBoard(contentArea, tableData) {
   ctx.lineWidth = 2;
 
   for (let row = 0; row <= tableData.rows; row += 1) {
-    const y = gridY + row * cellSize;
+    const y = gridY + row * cellHeight;
     ctx.beginPath();
     ctx.moveTo(gridX, y);
     ctx.lineTo(gridX + gridWidth, y);
@@ -19036,7 +19138,7 @@ function drawNumberTableBoard(contentArea, tableData) {
   }
 
   for (let col = 0; col <= tableData.cols; col += 1) {
-    const x = gridX + col * cellSize;
+    const x = gridX + col * cellWidth;
     ctx.beginPath();
     ctx.moveTo(x, gridY);
     ctx.lineTo(x, gridY + gridHeight);
@@ -19050,20 +19152,27 @@ function drawNumberTableBoard(contentArea, tableData) {
   tableData.cells.forEach((rowValues, row) => {
     rowValues.forEach((value, col) => {
       if (value === null || value === undefined) return;
-      const numberIndex = value - tableData.start;
-      if (numberIndex < 0 || numberIndex >= visibleNumberCount) return;
-      const cellX = gridX + col * cellSize;
-      const cellY = gridY + row * cellSize;
+      const numberIndex = tableData.spokenValues.indexOf(value);
+      const skipCounting = tableData.step > 1;
+      if (!skipCounting && (numberIndex < 0 || numberIndex >= visibleNumberCount)) return;
+      const cellX = gridX + col * cellWidth;
+      const cellY = gridY + row * cellHeight;
+      if (skipCounting && numberIndex >= 0 && numberIndex < visibleNumberCount && value !== activeValue) {
+        ctx.save();
+        ctx.fillStyle = "#fff2b2";
+        ctx.fillRect(cellX + 2, cellY + 2, cellWidth - 4, cellHeight - 4);
+        ctx.restore();
+      }
       if (value === activeValue) {
         ctx.save();
         ctx.fillStyle = theme.activeHighlight;
-        ctx.fillRect(cellX + 2, cellY + 2, cellSize - 4, cellSize - 4);
+        ctx.fillRect(cellX + 2, cellY + 2, cellWidth - 4, cellHeight - 4);
         ctx.strokeStyle = theme.activeBorder;
         ctx.lineWidth = 4;
-        ctx.strokeRect(cellX + 3, cellY + 3, cellSize - 6, cellSize - 6);
+        ctx.strokeRect(cellX + 3, cellY + 3, cellWidth - 6, cellHeight - 6);
         ctx.restore();
       }
-      ctx.fillText(String(value), gridX + col * cellSize + cellSize / 2, gridY + row * cellSize + cellSize / 2 + 1);
+      ctx.fillText(String(value), gridX + col * cellWidth + cellWidth / 2, gridY + row * cellHeight + cellHeight / 2 + 1);
     });
   });
 
@@ -21521,13 +21630,13 @@ function drawScene(mouthOpen = 0.12) {
       width: canvas.width - 84,
       height: canvas.height - 88
     };
-    const totalPageCount = Math.max(1, state.images.length ? getImagePageCount() : 1);
-    const currentPageIndex = clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
+    const totalPageCount = numberTableData.displayMode === "names" ? Math.ceil((numberTableData.end - numberTableData.start + 1) / 30) : Math.max(1, state.images.length ? getImagePageCount() : 1);
+    const currentPageIndex = numberTableData.displayMode === "names" ? getNumberNamesPageIndex(numberTableData) : clamp(state.previewPageIndex, 0, Math.max(0, totalPageCount - 1));
     state.previewPageIndex = currentPageIndex;
     state.renderedPageCount = totalPageCount;
     state.contentScrollOffset = 0;
     updateStagePageUi(currentPageIndex, totalPageCount);
-    drawInfoKidsLogo();
+    drawInfoKidsLogo({ skipAnimatedHeader: true });
     drawContentHighlightPanel(contentArea, {
       insetX: 24,
       insetY: 20,
@@ -21538,7 +21647,8 @@ function drawScene(mouthOpen = 0.12) {
     drawProceduralConceptAnimations();
     drawAutoQuizOverlay();
     drawWhiteboardStrokes();
-    drawInfoKidsLogo({ skipAnimatedHeader: true });
+    // Paint the animated heading last so the board cannot cover it.
+    drawInfoKidsLogo();
     drawRuntimeDisplayErrorOverlay();
     requestCanvasExportFrame();
     return;
@@ -26271,6 +26381,7 @@ function playSpeechFallback() {
 function hasFreshGeneratedAnjaliNarration(currentText = "") {
   const safeText = String(currentText || "").trim();
   const expectedVoice = normalizeNarrationVoiceId(state.preferredNarrationVoice);
+  const numberTableNarrationIsCurrent = isNumberTableNarrationCurrent(safeText);
   const alphabetData = getAlphabetSayAloudData(safeText);
   const alphabetStarts = state.narration?.syncProfile?.profile?.alphabetSlideStartsMs;
   const alphabetNarrationIsCurrent = !alphabetData || Boolean(
@@ -26285,6 +26396,7 @@ function hasFreshGeneratedAnjaliNarration(currentText = "") {
     && state.narration.voice === expectedVoice
     && state.narration.textSource === safeText
     && alphabetNarrationIsCurrent
+    && numberTableNarrationIsCurrent
     && !isNarrationDurationTooShortForText(buildNarrationText(safeText), state.narration.durationMs, expectedVoice)
     && /generated .*narration/i.test(state.narration.source || "")
   );
@@ -26472,6 +26584,9 @@ async function ensureNarrationReadyForSlide(options = {}) {
         }
       }
     });
+    if (getNumberTableData(currentText) && !await isAudioBlobAudible(blob)) {
+      throw new Error("The number narration was silent. Please retry narration after the voice server is ready.");
+    }
     // Publishing new audio intentionally stops the old playback signal. Check
     // user cancellation before that internal stop, not after successful loading.
     let notifyPreparation = true;
@@ -27970,7 +28085,11 @@ async function exportVideo(options = {}) {
       const measuredVowelsConsonantsStarts = vowelsConsonantsDataForExport
         ? state.narration?.syncProfile?.profile?.chunkStartsMs
         : null;
+      const measuredNumberTableStarts = state.narration?.syncProfile?.profile?.numberTableStartsMs;
       const exactAlignmentText = buildNarrationText(exportText);
+      exactProfile = getMeasuredNumberTableExportProfile(
+        exportText, state.narration?.syncProfile?.profile, exportNarrationDurationMs
+      );
       for (let alignmentAttempt = 1; alignmentAttempt <= 2 && !exactProfile?.units?.length; alignmentAttempt += 1) {
         try {
           exactProfile = await buildExactWhisperSyncProfile(
@@ -27995,6 +28114,9 @@ async function exportVideo(options = {}) {
       if (Array.isArray(measuredVowelsConsonantsStarts)
           && measuredVowelsConsonantsStarts.length >= vowelsConsonantsDataForExport.entries.length) {
         exactProfile.chunkStartsMs = measuredVowelsConsonantsStarts.slice(0, vowelsConsonantsDataForExport.entries.length);
+      }
+      if (Array.isArray(measuredNumberTableStarts)) {
+        exactProfile.numberTableStartsMs = measuredNumberTableStarts.slice();
       }
       state.narration.syncProfile = {
         // Captions and animations consume the actual spoken narration text.
@@ -32426,6 +32548,9 @@ if (stagePlaybackSpeedSelect) {
   stagePlaybackSpeedSelect.addEventListener("input", (event) => {
     handleStagePlaybackRateChange(event.target.value);
   });
+}
+if (proCaptionsEnabled) {
+  proCaptionsEnabled.addEventListener("change", () => setStagePreviewCaptionMode(proCaptionsEnabled.checked));
 }
 if (stagePreviewWithoutCaptionsBtn) {
   stagePreviewWithoutCaptionsBtn.addEventListener("click", () => setStagePreviewCaptionMode(false));

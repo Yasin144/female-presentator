@@ -3,6 +3,7 @@ import './index.css'
 import App from './App.jsx'
 import AppWarnings from './components/AppWarnings.jsx'
 import AndroidLauncher, { isPackagedAndroidLauncher } from './components/AndroidLauncher.jsx'
+import OtSalary from './components/OtSalary/OtSalary.jsx'
 import './classic-presentator.css'
 import './classic-modules.css'
 import './classic-studio.css'
@@ -145,9 +146,76 @@ if (!window.electronAPI) {
     myExporterExport: async () => ({ ok: true }),
     shutdownComputer: async () => ({ ok: true }),
 
+    // OT & Salary Mobile Sync Bridge (works offline via localStorage + syncs with PC via /api/ot-salary-sync)
+    loadOtSalaryData: async () => {
+      const customBase = (localStorage.getItem('pattan.ot.syncServerUrl') || '').replace(/\/+$/, '');
+      const endpoints = customBase ? [`${customBase}/api/ot-salary-sync`, '/api/ot-salary-sync'] : ['/api/ot-salary-sync'];
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, { cache: 'no-store' });
+          if (res.ok) {
+            const payload = await res.json();
+            if (payload && payload.ok) return payload;
+          }
+        } catch (_) {}
+      }
+      try {
+        const raw = localStorage.getItem('pp_ot_salary_tracker_v1');
+        if (raw) return { ok: true, data: JSON.parse(raw), offline: true };
+      } catch (_) {}
+      return { ok: true, data: null, offline: true };
+    },
+    saveOtSalaryData: async (payload) => {
+      try {
+        localStorage.setItem('pp_ot_salary_tracker_v1', JSON.stringify(payload));
+      } catch (_) {}
+      const customBase = (localStorage.getItem('pattan.ot.syncServerUrl') || '').replace(/\/+$/, '');
+      const endpoints = customBase ? [`${customBase}/api/ot-salary-sync`, '/api/ot-salary-sync'] : ['/api/ot-salary-sync'];
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && json.ok) return json;
+          }
+        } catch (_) {}
+      }
+      return { ok: true, offline: true, savedAt: new Date().toISOString() };
+    },
+    onOtSalaryUpdated: dummyHandler,
+
     onPresentatorAgentProgress: dummyHandler,
     offPresentatorAgentProgress: () => {},
   };
 }
 
-createRoot(document.getElementById('root')).render(isPackagedAndroidLauncher() ? <AndroidLauncher /> : <><App /><AppWarnings /></>)
+function isStandaloneOtMobileMode() {
+  if (typeof window === 'undefined') return false;
+  if (window.__PATTAN_STANDALONE_OT_APP__ === true) return true;
+  const pathname = (window.location.pathname || '').toLowerCase();
+  if (pathname === '/ot' || pathname === '/ot/' || pathname.endsWith('/ot-mobile') || pathname.endsWith('/ot-mobile.html')) {
+    return true;
+  }
+  const params = new URLSearchParams(window.location.search || '');
+  const appParam = (params.get('app') || params.get('module') || '').toLowerCase();
+  return appParam === 'ot' || appParam === 'ot-salary';
+}
+
+if (isStandaloneOtMobileMode() && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/ot-sw.js').catch(() => {});
+  });
+}
+
+createRoot(document.getElementById('root')).render(
+  isStandaloneOtMobileMode()
+    ? <OtSalary standaloneMobile={true} />
+    : isPackagedAndroidLauncher()
+      ? <AndroidLauncher />
+      : <><App /><AppWarnings /></>
+)
+

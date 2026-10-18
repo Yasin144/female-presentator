@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import OtSalary from './OtSalary/OtSalary.jsx';
 
 const LINK_KEY = 'pattan.android.serverUrl';
+const ANDROID_LAUNCH_MODE_KEY = 'pattan.android.launchMode';
 
 function normalizeServerUrl(value) {
   const raw = String(value || '').trim();
@@ -22,12 +24,37 @@ export function isPackagedAndroidLauncher() {
 
 export default function AndroidLauncher() {
   const staleLink = useMemo(() => new URLSearchParams(window.location.search).get('staleMobileLink') === '1', []);
+  const [activeApp, setActiveApp] = useState(() => {
+    try {
+      return localStorage.getItem(ANDROID_LAUNCH_MODE_KEY) === 'ot-salary' ? 'ot-salary' : 'launcher';
+    } catch (_) {
+      return 'launcher';
+    }
+  });
   const [serverUrl, setServerUrl] = useState(() => staleLink ? '' : (localStorage.getItem(LINK_KEY) || ''));
   const [status, setStatus] = useState(() => staleLink
     ? 'The previous Mobile Link expired. Generate a new link on your computer and paste it here.'
-    : 'Paste the secure Mobile Link shown by Pattan Workspace on your computer.');
+    : 'Paste the secure Mobile Link shown by Pattan Workspace on your computer, or open the standalone OT & Salary Mobile App below.');
   const [connecting, setConnecting] = useState(false);
   const validUrl = useMemo(() => normalizeServerUrl(serverUrl), [serverUrl]);
+
+  const openOtMobileApp = () => {
+    try {
+      localStorage.setItem(ANDROID_LAUNCH_MODE_KEY, 'ot-salary');
+      if (validUrl) {
+        const parsed = new URL(validUrl);
+        localStorage.setItem('pattan.ot.syncServerUrl', `${parsed.protocol}//${parsed.host}`);
+      }
+    } catch (_) {}
+    setActiveApp('ot-salary');
+  };
+
+  const backToAndroidLauncher = () => {
+    try {
+      localStorage.setItem(ANDROID_LAUNCH_MODE_KEY, 'launcher');
+    } catch (_) {}
+    setActiveApp('launcher');
+  };
 
   const connect = async (urlValue = validUrl) => {
     const destination = normalizeServerUrl(urlValue);
@@ -42,6 +69,7 @@ export default function AndroidLauncher() {
   };
 
   useEffect(() => {
+    if (activeApp === 'ot-salary') return undefined;
     if (staleLink) {
       localStorage.removeItem(LINK_KEY);
       window.history.replaceState({}, '', '/');
@@ -50,7 +78,11 @@ export default function AndroidLauncher() {
     if (!validUrl) return undefined;
     const timer = setTimeout(() => connect(validUrl), 900);
     return () => clearTimeout(timer);
-  }, []); // Reconnect only while the remembered tunnel remains reachable.
+  }, [activeApp]); // Reconnect only while the remembered tunnel remains reachable.
+
+  if (activeApp === 'ot-salary') {
+    return <OtSalary standaloneMobile={true} onClose={backToAndroidLauncher} />;
+  }
 
   return (
     <main className="android-launcher">
@@ -60,12 +92,27 @@ export default function AndroidLauncher() {
       <section className="android-card">
         <div className="android-logo">P</div>
         <h1>Pattan Workspace</h1>
-        <p>Native Android companion for your full-quality Windows AI studio.</p>
+        <p>Native Android companion for your full-quality Windows AI studio &amp; offline OT Salary Tracker.</p>
+
+        <button
+          type="button"
+          onClick={openOtMobileApp}
+          style={{
+            marginBottom: 18,
+            background: 'linear-gradient(135deg, #10b981, #0284c7)',
+            color: '#fff',
+            boxShadow: '0 12px 28px rgba(16, 185, 129, 0.32)',
+            cursor: 'pointer',
+          }}
+        >
+          ⏱️ Open OT &amp; Salary Tracker Mobile App (Works 100% Offline)
+        </button>
+
         <label htmlFor="pattan-server">Secure computer link</label>
         <input id="pattan-server" value={serverUrl} onChange={event => setServerUrl(event.target.value)} placeholder="https://…trycloudflare.com/?mobileToken=…" autoCapitalize="none" autoCorrect="off" inputMode="url" />
         <button type="button" disabled={!validUrl || connecting} onClick={() => connect()}>{connecting ? 'Connecting…' : 'Connect to Pattan Workspace'}</button>
         <div className="android-status" role="status">{status}</div>
-        <div className="android-points"><span>Maximum-quality processing stays on your computer</span><span>Uploads, live progress, stop/resume and downloads on mobile</span><span>The latest link is remembered for the next launch</span></div>
+        <div className="android-points"><span>OT &amp; Salary Tracker runs 100% offline on phone + syncs with PC</span><span>Maximum-quality processing stays on your computer</span><span>Uploads, live progress, stop/resume and downloads on mobile</span></div>
       </section>
     </main>
   );

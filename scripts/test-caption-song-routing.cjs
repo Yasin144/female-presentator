@@ -1,11 +1,11 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const stripTypeScriptTypes = require('node:module').stripTypeScriptTypes || (code => require('sucrase').transform(code, { transforms: ['typescript'] }).code);
+const { stripTypeScriptTypes } = require('node:module');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../src/caption/transcribe.ts'), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
-const legacy = fs.readFileSync(require('node:path').join(__dirname, '../caption-script-v2.js'), 'utf8').replace(/cap2_/g, '');
+const legacy = fs.readFileSync(require('node:path').join(__dirname, '../caption-script.js'), 'utf8');
 
 test('Gemini song selection reaches IPC, preserves repeated lyrics and estimated timing metadata', async () => {
   let request;

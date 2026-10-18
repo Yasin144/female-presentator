@@ -53,6 +53,9 @@ export default function LocalCaptionPanel() {
               <div id="captionIntelligenceStatus" className="lcp-help" role="status" aria-live="polite">Automatic review checks language, word timing and possible missing speech after generation.</div>
               <CaptionToggle id="captionAutoRecover" defaultChecked>Automatically recover missed speech</CaptionToggle>
               <p className="lcp-help">Checks uncaptioned audio gaps. Groq makes additional short audio requests; Local checks on this computer. Recovery cannot detect every omission.</p>
+              <div id="captionGroqRecoveryField" className="hidden" style={{ gridColumn: '1 / -1' }}>
+                <CaptionToggle id="captionGroqLocalRecovery">Use Local if Groq cannot verify captions or reaches its quota</CaptionToggle>
+              </div>
               <div id="captionGroqKeyField" className="lcp-field hidden">
                 <label htmlFor="captionGroqApiKey">Groq API key (optional)</label>
                 <input id="captionGroqApiKey" type="password" maxLength={256} autoComplete="off" placeholder="Leave blank to use the configured key" className="theme-input" />

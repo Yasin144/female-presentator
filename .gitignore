@@ -1,4 +1,5 @@
 .voiceclone-venv/
+.caption-eraser-venv/
 .edge-tts-venv/
 .singing-venv/
 .indicf5-venv/
@@ -77,6 +78,7 @@ frame_test.jpg
 /.imagegen-venv/
 /temp/
 /tts-cache/
+/generated-media/
 /tools/
 /OllamaSetup.exe
 /*.wfp
@@ -92,3 +94,5 @@ frame_test.jpg
 **/.wwebjs_cache/
 **/whatsapp-session/
 **/whatsapp-session-outbox.json*
+
+/output/

@@ -237,6 +237,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  pickKittenShortsSrt: () => ipcRenderer.invoke('kitten-shorts-pick-srt'),
+  exportKittenShort: (payload) => ipcRenderer.invoke('kitten-shorts-export', payload),
+  onKittenShortsProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('kitten-shorts-progress', handler);
+    return () => ipcRenderer.removeListener('kitten-shorts-progress', handler);
+  },
+
   narrateSc3Text: (payload) =>
     ipcRenderer.invoke('narrate-sc3-text', payload),
 
@@ -367,6 +375,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   burnCaptions: (opts) =>
     ipcRenderer.invoke('burn-captions', opts),
 
+  stageCaptionSource: (opts) =>
+    ipcRenderer.invoke('stage-caption-source', opts),
+
+  loadOtSalaryData: () =>
+    ipcRenderer.invoke('load-ot-salary-data'),
+
+  saveOtSalaryData: (payload) =>
+    ipcRenderer.invoke('save-ot-salary-data', payload),
+
+  onOtSalaryUpdated: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('ot-salary-updated', handler);
+    return () => ipcRenderer.removeListener('ot-salary-updated', handler);
+  },
+
   // Probe video dimensions/duration natively so caption export can match the
   // exact preview position and font scale without loading large videos in JS.
   probeVideoMeta: (opts) =>
@@ -399,8 +422,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   myExporterExport: (opts) =>
     ipcRenderer.invoke('my-exporter-export', opts),
 
-  myExporterCancel: () =>
-    ipcRenderer.invoke('my-exporter-cancel'),
+  myExporterCancel: (opts) =>
+    ipcRenderer.invoke('my-exporter-cancel', opts),
 
   myExporterDeleteProject: (filePath) =>
     ipcRenderer.invoke('my-exporter-delete-project', { filePath }),

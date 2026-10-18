@@ -29,6 +29,30 @@ function callback(file, name, context = {}) {
   return vm.runInNewContext(`(${code(file, variable(file, name).init)})`, context);
 }
 
+test('exporter selection settles when empty, cleared, or already selected', () => {
+  const effect = find(exporter, n => n.type === 'CallExpression' && n.callee.name === 'useEffect' &&
+    n.arguments[1]?.elements?.some(element => element?.name === 'selectedIds') &&
+    code(exporter, n.arguments[0]).includes('setSelectedIds'));
+  for (const fixture of [
+    { selectedId: '', selectedIds: [], expected: [], updates: 0 },
+    { selectedId: '', selectedIds: ['clip-a'], expected: [], updates: 1 },
+    { selectedId: 'clip-a', selectedIds: [], expected: ['clip-a'], updates: 1 },
+    { selectedId: 'clip-a', selectedIds: ['clip-a', 'clip-b'], expected: ['clip-a', 'clip-b'], updates: 0 },
+  ]) {
+    let updates = 0;
+    const context = vm.createContext({
+      selectedId: fixture.selectedId,
+      selectedIds: fixture.selectedIds,
+      setSelectedIds(value) { updates++; context.selectedIds = value; },
+    });
+    const runEffect = vm.runInContext(`(${code(exporter, effect.arguments[0])})`, context);
+    runEffect();
+    runEffect();
+    assert.deepEqual(Array.from(context.selectedIds), fixture.expected);
+    assert.equal(updates, fixture.updates, 'Selection must converge without triggering another render');
+  }
+});
+
 test('mobile-link refresh shares the component callback with polling and IPC events', () => {
   let bindings = [];
   traverse(app.ast, { ReferencedIdentifier(p) {

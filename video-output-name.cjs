@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const allocatedOutputPaths = new Set();
 
 function originalVideoName(source, extension = 'mp4') {
   const leaf = String(source || '').split(/[\\/]/).pop();
@@ -11,11 +12,19 @@ function originalVideoName(source, extension = 'mp4') {
 }
 
 function createVideoOutputPath(downloads, source, extension = 'mp4') {
-  // Unique directories protect source files and concurrent exports without
-  // changing the user's filename. No writes ever target the source directory.
-  const root = path.join(downloads, 'Pattan Exports');
-  fs.mkdirSync(root, { recursive: true });
-  const directory = fs.mkdtempSync(path.join(root, 'export-'));
-  return path.join(directory, originalVideoName(source, extension));
+  fs.mkdirSync(downloads, { recursive: true });
+  const fileName = originalVideoName(source, extension);
+  const parsed = path.parse(fileName);
+  let counter = 0;
+  for (;;) {
+    const candidate = path.join(downloads, counter ? `${parsed.name} (${counter})${parsed.ext}` : fileName);
+    const key = process.platform === 'win32' ? path.resolve(candidate).toLowerCase() : path.resolve(candidate);
+    // Include jobs still encoding, before their output files exist on disk.
+    if (!fs.existsSync(candidate) && !allocatedOutputPaths.has(key)) {
+      allocatedOutputPaths.add(key);
+      return candidate;
+    }
+    counter++;
+  }
 }
 module.exports = { originalVideoName, createVideoOutputPath };

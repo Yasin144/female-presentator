@@ -569,15 +569,12 @@ print(f"[Voice] HF cache → {_HF_CACHE}", flush=True)
 PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
-SC3_REFERENCE = PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"
-if not SC3_REFERENCE.is_file():
-    SC3_REFERENCE = PROJECT_ROOT / "voice-reference-sc3.wav"
 
 VOICE_MAP = {
     # Chapter 9 SC3 recording is the approved natural voice reference for
     # Sing Song. Keep the legacy file as a fallback for existing installs.
-    "sc3":    str(SC3_REFERENCE),
-    "anjali": str(SC3_REFERENCE),
+    "sc3":    str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
+    "anjali": str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
     "uploaded": str(PROJECT_ROOT / "voice-reference-uploaded.wav"),
     "rhyme_clean": str(PROJECT_ROOT / "generated-media" / "rhyme-reference-stems" / "htdemucs" / "little-jack-horner-reference-30s" / "vocals.wav"),
@@ -1180,6 +1177,17 @@ _progress = {
 _progress_lock = threading.Lock()
 _current_synth_text = ""
 
+def _get_voice_progress_snapshot():
+    with _progress_lock:
+        snapshot = dict(_progress)
+    # A completed progress label can precede the actual lock release. Voice
+    # conversion also uses the model without updating narration progress.
+    if _synth_lock.locked() or _CONVERTER_LOCK.locked():
+        if not snapshot.get("active"):
+            snapshot["stage"] = "SC3 voice model is working"
+        snapshot["active"] = True
+    return snapshot
+
 STAGES = [
     ("Cleaning text…",               5),
     ("Preparing voice embeddings…",  15),
@@ -1649,9 +1657,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
+            self._json(_get_voice_progress_snapshot())
             return
         self._json({"error": "Route not found."}, 404)
 
@@ -1700,9 +1706,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/narrate/progress"):
-            with _progress_lock:
-                snap = dict(_progress)
-            self._json(snap)
+            self._json(_get_voice_progress_snapshot())
             return
 
         if not self.path.startswith("/api/narrate"):

@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
-const input = read('src/components/InputPanel.jsx');
+const input = read('src/components/InputPanel.jsx') + '\n' + read('src/components/LocalCaptionPanel.jsx');
 const stage = read('src/components/StagePanel.jsx');
 const appSource = read('src/App.jsx');
 const homeSource = read('src/components/StudioHome.jsx');
@@ -22,8 +22,8 @@ test('the simple shell has a Home view and an explicit Back to Home control', ()
   assert.match(appSource, /Back to Home/);
 });
 
-test('Home exposes all ten named tools and five helpers without a disclosure menu', () => {
-  for (const id of ['pdf', 'lesson', 'singing', 'local-captions', 'captions', 'quotes', 'exporter', 'resizer', 'translator', 'transcription', 'narration', 'speech', 'media', 'templates', 'services']) {
+test('Home exposes all named tools and five helpers without a disclosure menu', () => {
+  for (const id of ['pdf', 'lesson', 'singing', 'captioner-2', 'quotes', 'exporter', 'resizer', 'translator', 'transcription', 'narration', 'speech', 'media', 'templates', 'services']) {
     assert.equal([...homeSource.matchAll(new RegExp("id: '" + id + "'", 'g'))].length, 1, 'Home destination exists once: ' + id);
   }
   assert.match(homeSource, /data-home-tool=\{tool\.id\}/);

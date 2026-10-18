@@ -1,5 +1,6 @@
 import React from "react";
 import { useStore } from "../store/useStore";
+import LocalCaptionPanel from "./LocalCaptionPanel";
 
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
@@ -660,6 +661,25 @@ plz open ur books!"></textarea>
                   maxLength="7" placeholder="200" />
               </label>
             </div>
+
+            <label className="style-field" htmlFor="numberTableDisplaySelect" style={{marginTop:'8px'}}>
+              <span className="style-label">Display type</span>
+              <select id="numberTableDisplaySelect" className="theme-select text-style-select" defaultValue="grid">
+                <option value="grid">Number grid</option>
+                <option value="names">Number names — 71 · Seventy-one</option>
+              </select>
+              <span className="upload-copy">Number names use textbook-style columns of ten. Up to 30 numbers fit on one screen.</span>
+            </label>
+            <label className="style-field" htmlFor="numberTableStepSelect" style={{marginTop:'8px'}}>
+              <span className="style-label">Count by</span>
+              <select id="numberTableStepSelect" className="theme-select text-style-select" defaultValue="1">
+                <option value="1">1 — Every number</option>
+                <option value="2">2 — 2, 4, 6, 8…</option>
+                <option value="5">5 — 5, 10, 15, 20…</option>
+                <option value="10">10 — 10, 20, 30, 40…</option>
+              </select>
+              <span className="upload-copy">Only multiples of your selection are narrated and highlighted.</span>
+            </label>
 
             {/* ── Number Table Theme Selector ── */}
             <div className="display-style-grid" style={{marginTop:'8px'}}>
@@ -1667,288 +1687,9 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
         </div>
       </details>
 
-      {/* ═══ AI Caption Action Buttons — always visible ═══ */}
-      <div style={{display:'flex',gap:'10px',flexWrap:'wrap',alignItems:'center',
-        padding:'14px 16px',background:'linear-gradient(135deg,rgba(20,20,40,0.98),rgba(10,10,30,0.98))',
-        borderRadius:'14px',marginBottom:'8px',border:'2px solid rgba(255,255,255,0.18)',
-        boxShadow:'0 4px 24px rgba(0,0,0,0.5)'}}>
-        <span style={{fontSize:'11px',fontWeight:'800',color:'rgba(255,255,255,0.45)',
-          textTransform:'uppercase',letterSpacing:'0.1em',marginRight:'4px'}}>AI Caption:</span>
-        <button id="aiCapSttBtn" type="button"
-          style={{display:'inline-flex',alignItems:'center',gap:'9px',padding:'12px 22px',
-            borderRadius:'10px',border:'none',cursor:'pointer',
-            background:'linear-gradient(135deg,#e53935,#b71c1c)',color:'#fff',
-            fontSize:'14px',fontWeight:'800',boxShadow:'0 3px 14px rgba(229,57,53,0.55)'}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
-          </svg>
-          🎥 Transcribe Video Audio → Captions
-        </button>
-        <button id="aiCapTtsBtn" type="button"
-          style={{display:'inline-flex',alignItems:'center',gap:'9px',padding:'12px 22px',
-            borderRadius:'10px',border:'none',cursor:'pointer',
-            background:'linear-gradient(135deg,#1565c0,#0d47a1)',color:'#fff',
-            fontSize:'14px',fontWeight:'800',boxShadow:'0 3px 14px rgba(21,101,192,0.55)'}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-          </svg>
-          🔊 Read Lesson (Pattan TTS)
-        </button>
-        <span id="aiCapVoiceStatus" style={{fontSize:'12px',color:'rgba(255,200,100,0.95)',
-          fontWeight:'700',alignSelf:'center'}}></span>
+      <div hidden style={{ display: 'none' }} aria-hidden="true">
+        <LocalCaptionPanel />
       </div>
-
-      <details className="section-card caption-burner-card" id="aiCaptionSection" open>
-        <summary className="section-summary">
-          <span className="summary-head">
-            <span className="section-icon">CAP</span>
-            <span className="summary-copy">
-              <span className="section-title">AI Video Captioning (Local)</span>
-              <span className="section-meta">Automatically generate and burn animated captions onto a video directly in your
-                browser.</span>
-            </span>
-          </span>
-        </summary>
-        <div className="section-content caption-burner-body">
-          <div className="upload-block">
-            <label className="field-label" htmlFor="captionVideoInput">Source Video</label>
-            <p className="upload-copy">Upload an `mp4` or `webm`. The AI will extract the audio and generate TikTok-style
-              dynamic captions completely offline.</p>
-            <input id="captionVideoInput" className="image-input" type="file" accept="video/*" multiple />
-
-            <div id="captionQueuePanel" className="hidden" style={{"marginTop": "10px", "padding": "10px", "borderRadius": "8px", "background": "rgba(255,255,255,0.05)", "border": "1px solid rgba(255,255,255,0.1)"}}>
-              <div style={{"display": "flex", "alignItems": "center", "justifyContent": "space-between", "gap": "10px"}}>
-                <span id="captionQueueStatus" className="upload-copy" style={{"margin": "0", "fontWeight": "700"}}>Queue ready.</span>
-                <div style={{"display": "flex", "gap": "8px"}}>
-                  <button id="captionQueueRunBtn" className="ghost-btn" type="button">Start Queue</button>
-                  <button id="captionQueueExportAllBtn" className="ghost-btn" type="button">Export All</button>
-                  <button id="captionQueuePrevBtn" className="ghost-btn" type="button">Previous</button>
-                  <button id="captionQueueNextBtn" className="ghost-btn" type="button">Next Video</button>
-                </div>
-              </div>
-              <div id="captionQueueList" style={{"display": "grid", "gap": "6px", "marginTop": "8px"}}></div>
-            </div>
-
-            <div className="toolbar toolbar-compact">
-              <button id="captionActionBtn" className="primary-btn" type="button" disabled>Generate Captions (Upload Source First)</button>
-              <button id="captionCancelBtn" className="caption-cancel-btn hidden" type="button">Stop Transcription</button>
-              <button id="captionEraseBtn" className="accent-btn hidden" type="button" style={{"background": "linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.15))", "border": "1px solid rgba(239, 68, 68, 0.4)", "color": "#fca5a5"}}>🧹 Erase Captions</button>
-              <button id="captionPreviewBtn" className="ghost-btn hidden" type="button">Preview 5s</button>
-              <button id="captionExportBtn" className="accent-btn hidden" type="button">Export Result</button>
-              <button id="captionViralShortBtn" className="primary-btn hidden" type="button" style={{"background": "#f90"}}>✂️
-                Export 15s Viral Short</button>
-              <button id="captionResetBtn" className="ghost-btn hidden" type="button">Clear Video</button>
-            </div>
-
-
-            <div className="display-style-card caption-options-scroll"
-              style={{"marginTop": "1rem", "padding": "12px", "borderRadius": "8px", "background": "rgba(0,0,0,0.1)"}}>
-              <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"}}>
-                <label className="field-label" style={{"margin": "0"}}>Advanced Caption Engine Theme</label>
-              </div>
-
-              <div
-                style={{"marginBottom": "12px", "background": "rgba(255,255,255,0.05)", "padding": "8px", "borderRadius": "4px", "display": "flex", "flexDirection": "column", "gap": "8px"}}>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionTranslateCheck" style={{"width": "18px", "height": "18px"}} />
-                  <label htmlFor="captionTranslateCheck"
-                    style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>🌍 Auto-Translate Audio To
-                    English</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Checks Before Generation)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionEmojiCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
-                  <label htmlFor="captionEmojiCheck"
-                    style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>🪄 Inject Smart
-                    Pop-Emojis</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Dynamic Reaction SVGs)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionKaraokeCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
-                  <label htmlFor="captionKaraokeCheck"
-                    style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>🎤 TikTok Karaoke
-                    Highlight</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Auto-Sync Word Colors)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionBrollCheck" style={{"width": "18px", "height": "18px"}} />
-                  <label htmlFor="captionBrollCheck"
-                    style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>🎬 Auto B-Roll
-                    Interstitials</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Flash Stock Photos on matched words)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionSfxCheck" style={{"width": "18px", "height": "18px"}} />
-                  <label htmlFor="captionSfxCheck" style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>🔊
-                    Reactive Sound Effects</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Triggers Whoosh/Pop SFX randomly on focus)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px"}}>
-                  <input type="checkbox" id="captionProgressBarCheck" style={{"width": "18px", "height": "18px"}} />
-                  <label htmlFor="captionProgressBarCheck"
-                    style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer", "flexGrow": "1"}}>⏱️ Viewer Retention Progress
-                    Bar</label>
-                  <p className="upload-copy" style={{"margin": "0"}}>(Draws playhead filling screen bottom)</p>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px", "marginTop": "4px"}}>
-                  <input type="checkbox" id="captionBgMusicCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
-                  <label htmlFor="bgMusicInput" style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer"}}>🎵 Smart Audio
-                    Ducking Track:</label>
-                  <input type="file" id="bgMusicInput" accept="audio/*" style={{"fontSize": "0.8rem", "color": "#ccc"}} />
-                  <audio id="bgMusicAudio" loop crossOrigin="anonymous"></audio>
-                </div>
-                <div style={{"display": "flex", "alignItems": "center", "gap": "8px", "marginTop": "4px"}}>
-                  <input type="checkbox" id="captionWatermarkCheck" style={{"width": "18px", "height": "18px"}} defaultChecked />
-                  <label htmlFor="captionWatermarkInput" style={{"fontWeight": "bold", "color": "#fff", "cursor": "pointer"}}>🛡️ Brand
-                    Watermark Overlay (PNG):</label>
-                  <input type="file" id="captionWatermarkInput" accept="image/png, image/jpeg"
-                    style={{"fontSize": "0.8rem", "color": "#ccc"}} />
-                </div>
-              </div>
-
-              <div style={{"display": "flex", "gap": "10px", "marginBottom": "12px"}}>
-                <div style={{"flex": "1"}}>
-                  <span className="style-label" style={{"color": "#aaa"}}>Visual Master Theme</span>
-                  <label htmlFor="captionContentMode">Audio content</label>
-                  <select id="captionContentMode" className="theme-select" defaultValue="speech"><option value="speech">Speech</option><option value="song">Song / lyrics — local word timing</option></select>
-                  <select id="captionStyleSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="white-yellow">
-                    <option value="white-yellow">White + Yellow (Bold & Outline)</option>
-                    <option value="tiktok">Viral Pop (Bold & Shadow)</option>
-                    <option value="classic">Classic TV (White & Black Box)</option>
-                    <option value="cinematic">Cinematic Fade (Clean White)</option>
-                    <option value="neon">Cyberpunk Neon (Intense Glow)</option>
-                    <option value="glitch">Digital Glitch (RGB Tremor)</option>
-                    <option value="typewriter">Typewriter (Sequential Reveal)</option>
-                    <option value="vaporwave">Vaporwave (Trailing Pink/Blue)</option>
-                    <option value="retro">Arcade Retro (Blocky & Snappy)</option>
-                  </select>
-                </div>
-                <div style={{"flex": "1"}}>
-                  <span className="style-label" style={{"color": "#aaa"}}>Background Video Filter</span>
-                  <select id="captionFilterSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="none">
-                    <option value="none">None (Raw Input)</option>
-                    <option value="darken">Darken 50% (Makes Text Pop)</option>
-                    <option value="blur">Heavy Depth Blur</option>
-                    <option value="grayscale">Black & White Grayscale</option>
-                    <option value="sepia">Vintage Sepia Tone</option>
-                    <option value="invert">Inverted Nightmare Mode</option>
-                  </select>
-                </div>
-                <div style={{"flex": "1"}}>
-                  <span className="style-label" style={{"color": "#aaa"}}>Font Typography</span>
-                  <select id="captionFontSelect" className="theme-select text-style-select" style={{"marginTop": "4px"}} defaultValue="Nunito, sans-serif">
-                    <option value="Nunito, sans-serif">Modern (Nunito)</option>
-                    <option value="Impact, sans-serif">Bold Heavy (Impact)</option>
-                    <option value="'Courier New', monospace">Mechanical (Courier)</option>
-                    <option value="'Comic Sans MS', cursive">Playful (Comic)</option>
-                    <option value="Georgia, serif">Elegant (Georgia)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="display-style-grid"
-                style={{"gap": "8px", "marginBottom": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr"}}>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
-                    <span className="style-label">Caption Font Size</span>
-                    <span id="captionSizeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>43% · 50px</span>
-                  </div>
-                  <input type="range" id="captionSizeSlider" min="20" max="140" defaultValue="50" />
-                  <span style={{ display: 'block', marginTop: 8, color: '#cbd5e1', fontSize: 12 }}>Caption size preview · output pixels at 50% viewing scale (sample only)</span>
-                  <span style={{ display: 'block', maxHeight: 220, overflow: 'auto', marginTop: 6, padding: 12, background: '#15232d', border: '1px solid #526571', borderRadius: 8, zoom: 0.5 }}><span id="captionSizePreviewText" style={{ fontSize: 50, fontWeight: 900, lineHeight: 1.2, color: '#fff', overflowWrap: 'anywhere' }}>Caption size sample</span></span>
-                </label>
-                <div style={{ gridColumn: '1 / -1' }}><button id="captionSizePreviewBtn" className="ghost-btn" type="button" disabled>Preview caption on video</button><p style={{ fontSize: 12 }}>Generate captions first. Then check their size on the original video before exporting. Existing burned-in text cannot be changed by this preview.</p></div>
-                <label>Caption position<select id="captionPositionPreset" defaultValue="bottom"><option value="middle">Middle</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="custom">Custom</option></select></label>
-                <label>Horizontal position <output id="captionPositionXValue">50%</output><input id="captionPositionX" type="range" min="5" max="95" defaultValue="50" /></label>
-                <label>Vertical position <output id="captionPositionYValue">90%</output><input id="captionPositionY" type="range" min="5" max="95" defaultValue="90" /></label>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
-                    <span className="style-label">Line Spacing Gap</span>
-                    <span id="captionGapValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>33% · 120</span>
-                  </div>
-                  <input type="range" id="captionGapSlider" min="80" max="200" defaultValue="120" />
-                </label>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
-                    <span className="style-label">Max Width Bound</span>
-                    <span id="captionWidthValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>85%</span>
-                  </div>
-                  <input type="range" id="captionWidthSlider" min="30" max="95" defaultValue="85" />
-                </label>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>
-                    <span className="style-label" style={{"color": "#ffcc00", "fontWeight": "bold"}}>Sync Offset</span>
-                    <span id="captionSyncNum"
-                      style={{"color": "#ffcc00", "fontSize": "0.8rem", "fontFamily": "monospace"}}>50% · 0.0s</span>
-                  </div>
-                  <input type="range" id="captionSyncSlider" min="-15000" max="15000" step="100" defaultValue="0"
-                     />
-                </label>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
-                    <span className="style-label">Stroke Thickness</span>
-                    <span id="captionStrokeValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>0%</span>
-                  </div>
-                  <input type="range" id="captionStrokeSlider" min="0" max="100" defaultValue="0" />
-                </label>
-                <label className="style-field">
-                  <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8px"}}>
-                    <span className="style-label">Font Height</span>
-                    <span id="captionHeightValue" className="style-label" style={{"color": "#facc15", "fontWeight": "900"}}>100%</span>
-                  </div>
-                  <input type="range" id="captionHeightSlider" min="70" max="140" defaultValue="100" />
-                </label>
-                <label className="style-field" style={{"display": "flex", "alignItems": "center", "justifyContent": "space-between", "gap": "10px"}}>
-                  <span className="style-label">Bold captions</span>
-                  <input type="checkbox" id="captionBoldCheck" defaultChecked style={{"width": "18px", "height": "18px"}} />
-                </label>
-              </div>
-
-              <div style={{"display": "flex", "gap": "10px", "alignItems": "center"}}>
-                <span className="style-label" style={{"color": "#aaa"}}>Extracted Text Color:</span>
-                <input type="color" id="captionColorPicker" defaultValue="#fde047"
-                  style={{"border": "none", "cursor": "pointer", "background": "none", "height": "30px", "width": "40px"}} />
-                <p className="upload-copy" style={{"margin": "0", "marginLeft": "auto"}}><strong>Position:</strong> Click & drag
-                  video to move captions!</p>
-              </div>
-            </div>
-
-            <div id="captionProgress" className="progress-indicator hidden" role="status" style={{"marginTop": "1rem", "width": "100%"}}>
-              <p id="captionStatusText" className="upload-copy" style={{"marginBottom": "8px"}}>Ready.</p>
-              <div style={{"height": "8px", "width": "100%", "background": "var(--surface-soft)", "borderRadius": "4px", "overflow": "hidden"}}>
-                  <div id="captionProgressBarValue" style={{"height": "100%", "width": "0%", "background": "var(--accent-a)", "transition": "width 0.3s ease"}}></div>
-              </div>
-            </div>
-            <div id="captionExportActions" className="hidden" style={{"marginTop": "10px", "display": "flex", "gap": "8px", "flexWrap": "wrap"}}></div>
-
-            <div id="captionVideoContainer" className="hidden"
-              style={{"marginTop": "1.5rem", "borderRadius": "8px", "overflow": "hidden", "background": "#000", "position": "relative"}}>
-              <canvas id="captionRenderCanvas" style={{"width": "100%", "height": "auto", "display": "block"}}></canvas>
-
-              <div className="toolbar toolbar-compact" id="captionVideoControls"
-                style={{"background": "rgba(0,0,0,0.6)", "padding": "8px", "display": "flex", "alignItems": "center", "justifyContent": "space-between"}}>
-                <button id="captionPlayPauseBtn" className="ghost-btn" type="button"
-                  style={{"color": "white", "borderColor": "rgba(255,255,255,0.2)"}}>⏸️ Pause</button>
-                <input type="range" id="captionSeekSlider" style={{"flexGrow": "1", "margin": "0 1rem"}} min="0" max="100"
-                  defaultValue="0" />
-                <span id="captionTimeDisplay" style={{"color": "#ddd", "fontFamily": "monospace", "fontSize": "0.9rem"}}>00:00 /
-                  00:00</span>
-              </div>
-              <video id="captionSourceVideo" hidden playsInline crossOrigin="anonymous"></video>
-            </div>
-
-            <div id="captionEditorPanel" className="tool-card hidden" style={{"marginTop": "1rem"}}>
-              <div className="tool-card-head">
-                <span className="module-icon">EDT</span>
-                <p className="tool-card-title">Edit Auto-Captions</p>
-              </div>
-              <p className="upload-copy">If the AI missed a word, correct it below and it will instantly update on the video.
-              </p>
-              <div id="captionList" style={{"maxHeight": "250px", "overflowY": "auto", "paddingRight": "8px"}}></div>
-            </div>
-          </div>
-        </div>
-      </details>
 
       <details className="section-card classic-prepare-section" id="mediaSection">
         <summary className="section-summary">
@@ -1966,7 +1707,7 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
             <p className="upload-copy">Enable or disable the advanced dynamic rendering features applied to your exported
               videos.</p>
             <label className="toggle-check" htmlFor="proCaptionsEnabled">
-              <input id="proCaptionsEnabled" type="checkbox" defaultChecked />
+              <input id="proCaptionsEnabled" type="checkbox" />
               <span>Enable TikTok-Style Animated Captions</span>
             </label>
             <label className="toggle-check" htmlFor="proAnimationsEnabled">

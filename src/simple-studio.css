@@ -73,3 +73,42 @@ body:has(.simple-studio) #translateDubModule .tdub-wrap { max-width: 1250px; }
   .simple-studio #inputPanel .hero-stage-actions .theme-select { min-width: 100px; width: 120px !important; }
   body:has(.simple-studio) #translateDubModule { top: 68px; }
 }
+
+/* Fit the complete number board below the app header, including its title. */
+.simple-studio #stagePanel.number-table-stage .stage-frame {
+  position: sticky;
+  top: calc(var(--studio-topbar) + 8px);
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+}
+.simple-studio #stagePanel.number-table-stage #previewCanvas {
+  width: min(calc(100vw - 96px), calc((100dvh - var(--studio-topbar) - 160px) * 16 / 9)) !important;
+  max-width: 100% !important;
+  max-height: calc(100dvh - var(--studio-topbar) - 160px);
+  height: auto;
+  object-fit: contain;
+}
+/* Keep export status in the header instead of covering table cells. */
+body.number-table-preview .simple-studio .app-task-percent-indicator {
+  top: 6px !important;
+  right: 220px !important;
+  width: min(340px, calc(100vw - 540px));
+  padding: 5px 10px;
+  z-index: 26000 !important;
+  gap: 1px;
+}
+body.number-table-preview .app-task-percent-indicator .task-progress-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+@media (max-width: 700px) {
+  body.number-table-preview .simple-studio .app-task-percent-indicator {
+    top: auto !important;
+    bottom: 8px;
+    right: 8px !important;
+    width: min(300px, calc(100vw - 16px));
+  }
+}

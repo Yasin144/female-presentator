@@ -22,7 +22,8 @@ function fixture(fromPreview = true, state = {}) {
 }
 
 test('all retained tool destinations exist once, with Sing Song and local captions prominently listed', () => {
-  const input = fs.readFileSync(path.join(__dirname, '../src/components/InputPanel.jsx'), 'utf8');
+  const input = ['InputPanel.jsx', 'LocalCaptionPanel.jsx'].map(file =>
+    fs.readFileSync(path.join(__dirname, '../src/components', file), 'utf8')).join('\n');
   assert.equal(new Set(tools.PREPARATION_TOOLS.map(tool => tool.id)).size, 10);
   assert.deepEqual(tools.PREPARATION_TOOLS.filter(tool => tool.primary).map(tool => tool.id), ['singSongSection', 'aiCaptionSection']);
   for (const tool of tools.PREPARATION_TOOLS) assert.equal(input.split(`id="${tool.id}"`).length - 1, 1, tool.id);

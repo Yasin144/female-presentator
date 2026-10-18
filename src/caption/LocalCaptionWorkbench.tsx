@@ -11,12 +11,15 @@ interface LocalCaptionState {
   disabled: boolean;
   timingSource?: 'word' | 'estimated';
   warnings?: string[];
+  engine?: 'local' | 'groq' | 'gemini';
+  recoveredFromEngine?: 'groq';
   hasVideo: boolean;
   previewSpeed: number;
   looping: boolean;
 }
 
-type CaptionMetadata = { timingSource?: 'word' | 'estimated'; warnings?: string[] };
+type CaptionMetadata = { timingSource?: 'word' | 'estimated'; warnings?: string[];
+  engine?: 'local' | 'groq' | 'gemini'; recoveredFromEngine?: 'groq' };
 interface LocalCaptionAPI {
   getState: () => LocalCaptionState;
   applyCaptions: (itemId: string, captions: CaptionItem[], metadata?: CaptionMetadata) => unknown;

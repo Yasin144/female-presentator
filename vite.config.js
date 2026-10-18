@@ -24,12 +24,14 @@ const MIME_TYPES = {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
+  optimizeDeps: {
+    entries: ['index.html'],
+  },
   server: {
     allowedHosts: true,
     watch: {
       ignored: [
-        '**/.voiceclone-venv/**',
-        '**/.singing-venv/**',
+        '**/.*-venv/**',
         '**/.venv/**',
         '**/AI_Models/**',
         '**/generated-media/**',
@@ -61,6 +63,61 @@ export default defineConfig({
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify(data));
             return;
+          }
+          if (req.url && req.url.split('?')[0] === '/api/ot-salary-sync') {
+            const otSalaryFilePath = path.join(__dirname, 'ot-salary-data.json');
+            const corsHeaders = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-Presentator-Mobile-Token',
+              'Cache-Control': 'no-store',
+            };
+            if (req.method === 'OPTIONS') {
+              res.writeHead(204, corsHeaders);
+              res.end();
+              return;
+            }
+            if (req.method === 'GET') {
+              let data = null;
+              try {
+                if (fs.existsSync(otSalaryFilePath)) data = JSON.parse(fs.readFileSync(otSalaryFilePath, 'utf8'));
+              } catch (_) {}
+              res.writeHead(200, corsHeaders);
+              res.end(JSON.stringify({ ok: true, data, filePath: otSalaryFilePath }));
+              return;
+            }
+            if (req.method === 'POST') {
+              let body = '';
+              req.on('data', chunk => { body += chunk; });
+              req.on('end', () => {
+                try {
+                  const incoming = JSON.parse(body || '{}');
+                  let existing = {};
+                  try {
+                    if (fs.existsSync(otSalaryFilePath)) existing = JSON.parse(fs.readFileSync(otSalaryFilePath, 'utf8'));
+                  } catch (_) {}
+                  const mergedDays = incoming.replaceAll === true
+                    ? { ...(incoming.days || {}) }
+                    : { ...(existing.days || {}), ...(incoming.days || {}) };
+                  const merged = {
+                    settings: { ...(existing.settings || {}), ...(incoming.settings || {}) },
+                    days: mergedDays,
+                    updatedAt: new Date().toISOString(),
+                  };
+                  fs.writeFileSync(otSalaryFilePath, JSON.stringify(merged, null, 2), 'utf8');
+                  res.writeHead(200, corsHeaders);
+                  res.end(JSON.stringify({ ok: true, data: merged, filePath: otSalaryFilePath, savedAt: merged.updatedAt }));
+                } catch (err) {
+                  res.writeHead(500, corsHeaders);
+                  res.end(JSON.stringify({ ok: false, error: err.message }));
+                }
+              });
+              return;
+            }
+          }
+          if (req.url && ['/ot', '/ot/', '/ot-mobile'].includes(req.url.split('?')[0].toLowerCase())) {
+            req.url = '/?app=ot';
           }
           if (req.url === '/api/generate-rhyme-song' && req.method === 'POST') {
             let body = '';

@@ -10,6 +10,7 @@ const JOB_CHANNELS = Object.freeze({
   'sc3-replace-video-audio': 'Sing Song · video voice conversion',
   'sc3-narrate-audio': 'Sing Song · audio narration',
   'quote-export-finish': 'Quote Studio · video export',
+  'kitten-shorts-export': 'Kitten Shorts · video export',
   'video-resizer-export': 'Video Resizer · video export',
   'my-exporter-export': 'My Exporter · video export',
   'my-exporter-crop-save': 'My Exporter · cropped video',

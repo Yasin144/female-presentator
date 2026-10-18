@@ -1,0 +1,19 @@
+{
+  "name": "OT & Salary Tracker Mobile",
+  "short_name": "OT & Salary",
+  "description": "Automatic Enter/Exit Time, Daily Salary & Extra OT Calculator (₹25K/mo, 10:00 AM–6:30 PM)",
+  "start_url": "/ot?app=ot",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#070b16",
+  "theme_color": "#070b16",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

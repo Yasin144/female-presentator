@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
 const root = path.resolve(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'caption-script-v2.js'), 'utf8').replace(/cap2_/g, '');
+const source = fs.readFileSync(path.join(root, 'caption-script.js'), 'utf8');
 const functions = new Map();
 traverse(parser.parse(source), { FunctionDeclaration(p) { functions.set(p.node.id.name, source.slice(p.node.start, p.node.end)); } });
 const fn = name => { assert.ok(functions.has(name), name); return functions.get(name); };
@@ -208,6 +208,127 @@ test('timeout releases translation busy state and preserves the previous caption
   assert.match(h.context.statusText.textContent, /timed out/);
 });
 
+function queueHarness(items, options = {}) {
+  const context = pure(options.fetchImpl);
+  Object.assign(context, {
+    captionVideoQueue: plain(items), captionQueueIndex: 0, generatedCaptions: [],
+    captionQueueRunning: false, captionQueueExporting: false, captionQueueMode: '',
+    captionTranslationBusy: false, captionTranslationController: null, captionTranscriptionCancelRequested: false,
+    activeCaptionTranscription: null, sourceVideo: { duration: 10 }, spellingCorrections: null,
+    statusText: { textContent: '', innerHTML: '' }, cancelBtn: { disabled: false, classList: { add() {}, remove() {} } },
+    notifications: [], exports: [], hiddenProgress: 0, progress: [],
+    getCaptionOutputLanguage: () => options.target || 'en', getCaptionTranscriptionOptions: () => ({ engine: 'local', contentMode: 'speech' }),
+    captionLocalBusy: () => context.captionQueueRunning || context.captionQueueExporting || context.captionTranslationBusy,
+    createCaptionWhatsAppJob: () => (status, message) => context.notifications.push({ status, message }),
+    hideSingleCaptionProgress: () => { context.hiddenProgress++; }, setCaptionProgressBar: value => context.progress.push(value),
+    lockCaptionQueueControls() {}, renderCaptionQueue() {}, publishCaptionLocalState() {},
+    loadQueuedCaptionVideo(index) { context.captionQueueIndex = index; context.generatedCaptions = plain(context.captionVideoQueue[index].captions || []); },
+    waitForQueueVideoReady: async () => {}, ensureCaptionLocalItemId: item => item?.id,
+    setQueueItemState(index, patch) { Object.assign(context.captionVideoQueue[index], patch); },
+    startQueueProgressHeartbeat: () => 1, clearInterval() {}, setTimeout, clearTimeout,
+    isSongCaptionMode: () => !!options.song,
+    isRetryableCaptionQueueError: () => false,
+    explainCaptionTimingFailure: async error => error,
+    speakCaptionStudio() {}, notifyCaptionStudio() {}, console: { error() {} },
+    exportActiveCaptionVideoForQueue: async index => {
+      context.exports.push({ index, captions: plain(context.captionVideoQueue[index].captions) });
+      context.captionVideoQueue[index].status = 'exported';
+    },
+    normalizeCaptionLanguageCode: value => String(value || ''), inferCaptionLanguageCode: () => '',
+    captionMetadataFromTranscription(result) { Object.assign(context.captionVideoQueue[context.captionQueueIndex], { sourceLanguage: result.language, timingSource: result.timingSource, warnings: result.warnings || [] }); },
+    buildCaptionChunksFromTranscription: result => result.captions,
+    applyCaptionSpellingCorrections: captions => captions,
+    window: { electronAPI: { transcribeVideo: options.transcribeVideo || (async () => { throw new Error('Unexpected ASR request'); }) } },
+  });
+  vm.runInContext(['captionTranscriptionError', 'captionGroqRetryMessage', 'createCaptionTranscriptionCoordinator',
+    'captionGroqWaiting', 'applyCaptionOutputMetadata', 'prepareCaptionOutput', 'transcribeCaptionQueueFrom'].map(fn).join('\n'), context);
+  context.captionTranscriptionCoordinator = context.createCaptionTranscriptionCoordinator({
+    transcribe: request => context.window.electronAPI.transcribeVideo(request),
+    isCancelled: () => context.captionTranscriptionCancelRequested,
+    onRequest: request => { context.activeCaptionTranscription = request; },
+    validate: result => context.buildCaptionChunksFromTranscription(result),
+  });
+  return context;
+}
+
+const queueItem = overrides => ({ id: 'queue-one', file: { name: 'lesson.mp4', path: 'D:/lesson.mp4' },
+  status: 'transcribed', captions: cues(), timingSource: 'word', sourceLanguage: 'en', warnings: [], ...overrides });
+
+test('a saved English Local draft exports without ASR or translation and resets stale single progress', async () => {
+  const h = queueHarness([queueItem({ outputLanguage: 'en' })]);
+  await h.transcribeCaptionQueueFrom();
+  assert.equal(h.exports.length, 1);
+  assert.equal(h.captionVideoQueue[0].status, 'exported');
+  assert.equal(h.notifications.at(-1).status, 'completed');
+  assert.match(h.statusText.textContent, /Queue complete.*1\/1/);
+  assert.equal(h.hiddenProgress, 2, 'Queue entry and completion must both hide the old single-job spinner.');
+  assert.equal(h.progress[0], 0);
+  assert.equal(h.captionQueueRunning, false);
+});
+
+test('a declared English draft without an output tag uses same-language preparation, preserving exact words', async () => {
+  const item = queueItem({ outputLanguage: undefined });
+  const h = queueHarness([item]);
+  await h.transcribeCaptionQueueFrom();
+  assert.equal(h.exports.length, 1);
+  assert.equal(h.captionVideoQueue[0].outputLanguage, 'en');
+  assert.deepEqual(h.exports[0].captions, item.captions);
+});
+
+test('fresh Local queue recognition prepares English captions then exports them', async () => {
+  const requests = [];
+  const h = queueHarness([queueItem({ status: 'ready', captions: [] })], {
+    transcribeVideo: async request => { requests.push(request); return { ok: true, language: 'en', text: 'Hello children', captions: cues(), words: [{}], timingSource: 'word' }; },
+  });
+  await h.transcribeCaptionQueueFrom();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].engine, 'local');
+  assert.equal(requests[0].languageHint, 'auto');
+  assert.equal(h.exports.length, 1);
+  assert.equal(h.captionVideoQueue[0].outputLanguage, 'en');
+});
+
+test('failed draft translation retains every caption but reports a failed queue with no export', async () => {
+  const item = queueItem({ sourceLanguage: 'hi', outputLanguage: 'hi' });
+  item.captions[0].text = 'नमस्ते बच्चों';
+  const h = queueHarness([item], { fetchImpl: async () => ({ ok: false, status: 502, json: async () => ({ error: 'Provider unavailable' }) }) });
+  await h.transcribeCaptionQueueFrom();
+  assert.deepEqual(plain(h.captionVideoQueue[0].captions), item.captions);
+  assert.equal(h.captionVideoQueue[0].status, 'failed');
+  assert.match(h.captionVideoQueue[0].message, /Provider unavailable.*retained; no export/);
+  assert.equal(h.exports.length, 0);
+  assert.match(h.statusText.textContent, /Exported 0\/1.*Failed 1/);
+  assert.equal(h.notifications.at(-1).status, 'failed');
+  assert.doesNotMatch(h.statusText.textContent, /Queue complete/);
+  assert.equal(h.captionTranslationBusy, false);
+});
+
+test('a translation failure does not block another ready English draft, and retry can reuse retained captions', async () => {
+  let available = false;
+  const first = queueItem({ sourceLanguage: 'hi', outputLanguage: 'hi' });
+  const second = queueItem({ id: 'queue-two', outputLanguage: 'en' });
+  const h = queueHarness([first, second], { fetchImpl: async () => available ? response(['Hello children', 'Good morning'])
+    : ({ ok: false, status: 502, json: async () => ({ error: 'Provider unavailable' }) }) });
+  await h.transcribeCaptionQueueFrom();
+  assert.deepEqual(h.exports.map(item => item.index), [1]);
+  assert.equal(h.captionVideoQueue[0].status, 'failed');
+  assert.match(h.statusText.textContent, /Exported 1\/2.*Failed 1/);
+  available = true;
+  await h.transcribeCaptionQueueFrom();
+  assert.deepEqual(h.exports.map(item => item.index), [1, 0]);
+  assert.equal(h.captionVideoQueue[0].status, 'exported');
+  assert.match(h.statusText.textContent, /Queue complete.*2\/2/);
+});
+
+test('song captions awaiting review do not claim that the export queue completed', async () => {
+  const h = queueHarness([queueItem({ outputLanguage: 'en' })], { song: true });
+  await h.transcribeCaptionQueueFrom();
+  assert.equal(h.exports.length, 0);
+  assert.equal(h.captionVideoQueue[0].status, 'transcribed');
+  assert.match(h.statusText.textContent, /Exported 0\/1.*1 captions ready for review/);
+  assert.doesNotMatch(h.statusText.textContent, /Queue complete/);
+});
+
 test('every native engine route awaits output preparation while ASR remains automatic', () => {
   const single = fn('transcribeActiveCaptionVideo');
   const queue = fn('transcribeCaptionQueueFrom');
@@ -231,11 +352,11 @@ test('manual text changes and undo clear stale language tags while timing change
     const context = {
       captionVideoQueue: [{ captions: previous, outputLanguage: 'hi', captionLanguage: 'Hindi', sourceLanguage: 'hi', timingSource: 'estimated', warnings: [] }],
       captionQueueIndex: 0, generatedCaptions: next, clearCaptionPreviewLoop() {},
-      captionLocalEditedQueueItem: (item, captions, metadata) => ({ ...item, captions: plain(captions), ...metadata }),
       setCaptionExportActionsVisible() {}, exportActions: { replaceChildren() {} }, exportBtn: null, previewBtn: null,
       sourceVideo: { src: '' }, renderCaptionQueue() {},
     };
-    vm.createContext(context); vm.runInContext(fn('commitCaptionLocalEdits'), context);
+    vm.createContext(context); vm.runInContext(['captionTextScriptLanguage', 'captionLocalLanguageCode', 'captionLocalEngineMetadata', 'captionLocalCanonicalCue',
+      'captionLocalLegacyCue', 'captionLocalEditedQueueItem', 'commitCaptionLocalEdits'].map(fn).join('\n'), context);
     context.commitCaptionLocalEdits({ timingSource: 'estimated', warnings: [] }, false, variant === 'translation');
     const item = context.captionVideoQueue[0];
     if (variant === 'text') {

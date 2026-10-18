@@ -82,11 +82,14 @@ function getCaptionTranscriptionOptions() {
     const engine = selected === 'song-gemini' ? 'gemini'
         : ['local', 'groq', 'gemini'].includes(selectedEngine) ? selectedEngine : 'local';
     const apiKey = engine === 'groq' ? String(document.getElementById('cap2_captionGroqApiKey')?.value || '').trim() : '';
+    const recoveryEl = document.getElementById('cap2_captionGroqLocalRecovery');
     return {
+        captionerVersion: 2,
         contentMode: selected.startsWith('song') || engine === 'gemini' ? 'song' : 'speech',
         engine,
         audioMode: document.getElementById('cap2_captionVocalFocus')?.checked ? 'vocal-focus' : 'original',
         transcriptionHints: document.getElementById('cap2_captionVocabularyHints')?.value || '',
+        allowLocalRecovery: recoveryEl ? !!recoveryEl.checked : true,
         ...(document.getElementById('cap2_captionAutoRecover') ? { autoRecoverMissingSpeech: !!document.getElementById('cap2_captionAutoRecover').checked } : {}),
         ...(apiKey ? { apiKey } : {}),
     };
@@ -100,8 +103,96 @@ function isSongCaptionMode() {
     return getCaptionTranscriptionOptions().contentMode === 'song';
 }
 
+function captionTranscriptionError(result, fallback = 'Electron transcription failed.') {
+    const error = new Error(result?.error || fallback);
+    for (const key of ['code', 'engine', 'providerHttpStatus', 'retryAfterMs', 'retryAt', 'retryAfterEstimated', 'timingIssue', 'cancelled']) {
+        if (result?.[key] !== undefined) error[key] = result[key];
+    }
+    if (error.code === 'CAPTION_GROQ_TIMING_UNCERTAIN') error.captionTimingFailure = true;
+    return error;
+}
+
+function captionGroqRetryMessage(error, now = Date.now()) {
+    const deadline = Number(error?.retryAt);
+    const seconds = Number.isFinite(deadline) && deadline > now ? Math.ceil((deadline - now) / 1000) : 0;
+    return 'Groq requests are limited. '
+        + (seconds ? `Wait ${seconds} seconds (until ${new Date(deadline).toLocaleTimeString()}) before retrying. ` : 'Check the Groq quota before retrying. ')
+        + 'Choose Local or enable Local recovery to continue. Completed exports and remaining videos are preserved.';
+}
+
+function validateCaptionTranscriptionCues(result, duration, buildChunks) {
+    try {
+        const chunks = buildChunks(result, duration || 60);
+        captionLocalValidateCues(chunks, duration);
+        return chunks;
+    } catch (error) {
+        error.captionTimingFailure = true;
+        throw error;
+    }
+}
+
+function createCaptionTranscriptionCoordinator({ transcribe, getNow = Date.now, isCancelled = () => false, onRequest = () => {}, onPause = () => {}, validate = () => {} }) {
+    let groqCooldown = null;
+    const rememberLimit = error => {
+        if (error?.code !== 'CAPTION_GROQ_RATE_LIMIT') return;
+        const now = getNow();
+        const retryAt = Number(error.retryAt);
+        const retryAfterMs = Number(error.retryAfterMs);
+        error.retryAt = Number.isFinite(retryAt) && retryAt > now ? retryAt
+            : now + (Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 32000);
+        if (!groqCooldown || error.retryAt > groqCooldown.retryAt) groqCooldown = error;
+        onPause(groqCooldown);
+    };
+    const canRecover = (error, options) => options.engine === 'groq' && options.allowLocalRecovery !== false
+        && !isCancelled() && !error?.cancelled
+        && (error?.code === 'CAPTION_GROQ_RATE_LIMIT' || error?.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' || error?.captionTimingFailure === true);
+    const rememberResultLimit = (result, options) => {
+        if (options.engine === 'groq' && result.rateLimit?.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rememberLimit(captionTranscriptionError(result.rateLimit, 'Groq requests are limited.'));
+        }
+    };
+    const request = async options => {
+        if (isCancelled()) return { ok: false, cancelled: true };
+        const { allowLocalRecovery, ...nativeOptions } = options;
+        onRequest(nativeOptions);
+        const result = await transcribe(nativeOptions);
+        if (result?.cancelled || isCancelled()) return { ok: false, cancelled: true };
+        if (!result?.ok) throw captionTranscriptionError(result);
+        try { validate(result); }
+        catch (error) {
+            if (isCancelled()) return { ok: false, cancelled: true };
+            rememberResultLimit(result, nativeOptions);
+            error.engine = nativeOptions.engine;
+            throw error;
+        }
+        if (isCancelled()) return { ok: false, cancelled: true };
+        rememberResultLimit(result, nativeOptions);
+        return result;
+    };
+    return {
+        getCooldown: () => groqCooldown && groqCooldown.retryAt > getNow() ? groqCooldown : null,
+        async run(options, onPhase = () => {}) {
+            let error;
+            try {
+                if (options.engine === 'groq' && groqCooldown?.retryAt > getNow()) throw groqCooldown;
+                return await request(options);
+            } catch (failure) { error = failure; }
+            rememberLimit(error);
+            if (!canRecover(error, options)) throw error;
+            onPhase('Local recovery', 'Groq could not verify captions or accept more requests. Transcribing the same audio with Local.');
+            const { apiKey, ...localOptions } = options;
+            const recovered = await request({ ...localOptions, engine: 'local', allowLocalRecovery: false, captionerVersion: 2 });
+            if (recovered?.cancelled || isCancelled()) return { ok: false, cancelled: true };
+            return { ...recovered, engine: 'local', recoveredFromEngine: 'groq',
+                warnings: [...new Set([...(Array.isArray(recovered.warnings) ? recovered.warnings : []),
+                    'Local recovery produced these captions after Groq could not complete transcription. Review words and synchronization.'])] };
+        },
+    };
+}
+
 async function explainCaptionTimingFailure(error, options, api = window.electronAPI) {
     if (!error?.captionTimingFailure || options?.engine !== 'groq' || options?.contentMode !== 'speech'
+        || (error.engine && error.engine !== 'groq')
         || typeof api?.transcribeVideo !== 'function') return error;
     let capability;
     try {
@@ -160,26 +251,344 @@ function normalizeNurseryCaptionText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+const CAPTION_GRAMMAR_ABBREVIATIONS = new Set([
+    'mr', 'mrs', 'ms', 'dr', 'prof', 'st', 'jr', 'sr', 'vs', 'etc', 'eg', 'ie', 'fig', 'no', 'vol'
+]);
+
+const CAPTION_GRAMMAR_NON_TERMINAL_WORDS = new Set([
+    'a', 'an', 'the', 'my', 'your', 'his', 'her', 'its', 'our', 'their', 'every', 'each', 'some', 'any',
+    'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'onto', 'upon', 'about', 'between',
+    'among', 'through', 'during', 'without', 'within',
+    'and', 'or', 'but', 'nor', 'yet', 'so', 'because', 'although', 'though', 'while', 'if', 'unless',
+    'until', 'since', 'when', 'where', 'whether', 'than', 'as', 'that', 'which', 'who', 'whom', 'whose',
+    'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'must'
+]);
+
+const CAPTION_GRAMMAR_CLAUSE_CONJUNCTIONS = new Set([
+    'and', 'but', 'or', 'so', 'yet', 'because', 'while', 'although', 'though', 'since', 'unless', 'whereas'
+]);
+
+const CAPTION_GRAMMAR_COMMA_CONJUNCTIONS = new Set([
+    'but', 'yet', 'so', 'although', 'though', 'whereas'
+]);
+
+const CAPTION_GRAMMAR_SUBORDINATORS = new Set([
+    'if', 'when', 'while', 'because', 'although', 'though', 'after', 'before', 'unless', 'since', 'whenever', 'wherever', 'once'
+]);
+
+const CAPTION_GRAMMAR_INTRO_COMMA_WORDS = new Set([
+    'yes', 'no', 'well', 'okay', 'ok', 'first', 'second', 'third', 'finally', 'however', 'therefore',
+    'meanwhile', 'furthermore', 'moreover', 'instead', 'otherwise', 'actually', 'basically', 'honestly',
+    'fortunately', 'unfortunately'
+]);
+
+const CAPTION_GRAMMAR_QUESTION_STARTERS = new Set([
+    'who', 'what', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom'
+]);
+
+const CAPTION_GRAMMAR_SUBJECT_STARTERS = new Set([
+    'i', 'im', "i'm", 'ill', "i'll", 'ive', "i've", 'id', "i'd", 'we', 'you', 'he', 'she', 'they', 'it', 'this', 'that', 'there', 'lets', "let's"
+]);
+
+const CAPTION_GRAMMAR_LOWERCASE_AFTER_COMMA = new Set([
+    ...CAPTION_GRAMMAR_NON_TERMINAL_WORDS,
+    'this', 'these', 'those', 'me', 'him', 'us', 'them', 'there', 'here', 'then', 'now', 'very', 'really', 'just', 'also', 'too'
+]);
+
+function captionGrammarBaseWord(text) {
+    return String(text || '')
+        .normalize('NFKC')
+        .replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '')
+        .toLowerCase();
+}
+
+function getCaptionWordTrailingPunct(text) {
+    const match = String(text || '').match(/([,.;:!?।॥]+)(["'’”)\]}]*)$/);
+    return match ? match[1] : '';
+}
+
+function setCaptionWordTrailingPunct(text, punct) {
+    const raw = String(text || '').trim();
+    if (!raw) return raw;
+    const cleaned = raw
+        .replace(/\s+([,.;:!?।॥])/g, '$1')
+        .replace(/[,.;:!?।॥]+(["'’”)\]}]*)$/, '$1');
+    if (!punct) return cleaned.trim() || raw;
+    const quoteMatch = cleaned.match(/^(.*?)(["'’”)\]}]+)$/);
+    if (quoteMatch && quoteMatch[1].trim()) {
+        return `${quoteMatch[1]}${punct}${quoteMatch[2]}`;
+    }
+    return `${cleaned}${punct}`;
+}
+
+function capitalizeCaptionWord(text) {
+    return String(text || '').replace(/^([^\p{L}]*)([a-z])/u, (_, prefix, ch) => prefix + ch.toUpperCase());
+}
+
+function lowercaseCaptionWordIfFunction(text) {
+    const bw = captionGrammarBaseWord(text);
+    if (!bw || bw === 'i' || bw.startsWith("i'") || !CAPTION_GRAMMAR_LOWERCASE_AFTER_COMMA.has(bw)) {
+        return String(text || '');
+    }
+    return String(text || '').replace(/^([^\p{L}]*)([A-Z])(?=[a-z']|$)/u, (_, prefix, ch) => prefix + ch.toLowerCase());
+}
+
+function normalizeCaptionPronounCasing(text) {
+    return String(text || '').replace(/^([^\p{L}]*)i((?:['’](?:m|ll|ve|d))?[^\p{L}\p{M}\p{N}]*)$/iu, (full, prefix, suffix) => {
+        const bw = captionGrammarBaseWord(full);
+        if (bw === 'i' || bw === "i'm" || bw === "i'll" || bw === "i've" || bw === "i'd" || bw === 'im') {
+            if (bw === 'im' && !/['’]/.test(full)) return full;
+            return `${prefix}I${suffix.toLowerCase()}`;
+        }
+        return full;
+    });
+}
+
+function applyCaptionGrammarPunctuationToWords(words, options = {}) {
+    if (!Array.isArray(words) || !words.length || options.songMode) return words;
+
+    for (const word of words) {
+        if (!word || typeof word.text !== 'string') continue;
+        let t = word.text.replace(/\s+([,.;:!?।॥])/g, '$1');
+        // Normalize duplicate commas or periods while keeping ellipsis (...)
+        t = t.replace(/,{2,}/g, ',').replace(/,\.|\.,/g, '.').replace(/(?<!\.)\.{2}(?!\.)/g, '.');
+        t = normalizeCaptionPronounCasing(t);
+        if (t.trim()) word.text = t.trim();
+    }
+
+    let sentenceStartIdx = 0;
+    let clauseStartIdx = 0;
+    let clauseWordCount = 0;
+
+    for (let i = 0; i < words.length; i += 1) {
+        const w = words[i];
+        if (!w || typeof w.text !== 'string') continue;
+        const bw = captionGrammarBaseWord(w.text);
+        if (!bw) continue;
+
+        const next = words[i + 1];
+        const nextBw = next ? captionGrammarBaseWord(next.text) : '';
+        const gap = next && Number.isFinite(next.start) && Number.isFinite(w.end)
+            ? Math.max(0, next.start - w.end)
+            : 999;
+        let punct = getCaptionWordTrailingPunct(w.text);
+        if (punct.length > 1 && punct !== '...') {
+            punct = /[!?]/.test(punct) ? punct.match(/[!?]/)[0] : /\./.test(punct) ? '.' : punct[0];
+            w.text = setCaptionWordTrailingPunct(w.text, punct);
+        }
+
+        const sentenceWordCount = i - sentenceStartIdx + 1;
+        const sentenceFirstBw = captionGrammarBaseWord(words[sentenceStartIdx]?.text || '');
+        const clauseFirstBw = captionGrammarBaseWord(words[clauseStartIdx]?.text || '');
+        const atSentenceStart = i === sentenceStartIdx;
+        clauseWordCount += 1;
+
+        // 1. Final word of the transcript must end with a terminal period/question/exclamation, never a dangling comma.
+        if (!next) {
+            if (!punct || punct === ',' || punct === ';' || punct === ':') {
+                const isQuestion = CAPTION_GRAMMAR_QUESTION_STARTERS.has(sentenceFirstBw)
+                    && !(sentenceFirstBw === 'what' && captionGrammarBaseWord(words[sentenceStartIdx + 1]?.text) === 'a')
+                    && !(sentenceFirstBw === 'how' && captionGrammarBaseWord(words[sentenceStartIdx + 1]?.text) === 'to');
+                w.text = setCaptionWordTrailingPunct(w.text, isQuestion ? '?' : '.');
+            }
+            continue;
+        }
+
+        // 2. Non-terminal function words (articles, prepositions, auxiliaries, conjunctions) must not carry mid-phrase , or .
+        if (CAPTION_GRAMMAR_NON_TERMINAL_WORDS.has(bw) && gap < 0.60) {
+            if (punct === ',' || (punct === '.' && !CAPTION_GRAMMAR_ABBREVIATIONS.has(bw) && bw.length > 1)) {
+                w.text = setCaptionWordTrailingPunct(w.text, '');
+                punct = '';
+                if (next) next.text = lowercaseCaptionWordIfFunction(next.text);
+            }
+        }
+
+        // 3. Repair false mid-sentence periods (. -> , before conjunctions, or remove . in continuous speech)
+        if (punct === '.' && !CAPTION_GRAMMAR_ABBREVIATIONS.has(bw) && bw.length > 1) {
+            if (CAPTION_GRAMMAR_CLAUSE_CONJUNCTIONS.has(nextBw) && gap < 0.45) {
+                w.text = setCaptionWordTrailingPunct(w.text, ',');
+                punct = ',';
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+                next.text = lowercaseCaptionWordIfFunction(next.text);
+            } else if (gap < 0.18 && (CAPTION_GRAMMAR_NON_TERMINAL_WORDS.has(nextBw) || /^[a-z]/.test(String(next.text || '').replace(/^[^\p{L}]+/u, '')))) {
+                w.text = setCaptionWordTrailingPunct(w.text, '');
+                punct = '';
+                next.text = lowercaseCaptionWordIfFunction(next.text);
+            }
+        }
+
+        // 4. Repair dangling commas at full sentence pauses (, -> .)
+        if (punct === ',') {
+            if (gap >= 0.65 && sentenceWordCount >= 3 && !CAPTION_GRAMMAR_SUBORDINATORS.has(clauseFirstBw)) {
+                w.text = setCaptionWordTrailingPunct(w.text, '.');
+                punct = '.';
+            } else if (CAPTION_GRAMMAR_NON_TERMINAL_WORDS.has(bw) && gap < 0.35) {
+                w.text = setCaptionWordTrailingPunct(w.text, '');
+                punct = '';
+            }
+        }
+
+        // 5. Insert missing , and . according to grammar and speech pauses
+        if (!punct && !CAPTION_GRAMMAR_NON_TERMINAL_WORDS.has(bw)) {
+            if (atSentenceStart && CAPTION_GRAMMAR_INTRO_COMMA_WORDS.has(bw) && !['of', 'to', 'all', 'that'].includes(nextBw)) {
+                w.text = setCaptionWordTrailingPunct(w.text, ',');
+                punct = ',';
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+            } else if (
+                i === sentenceStartIdx + 1
+                && ['hello', 'hi', 'hey', 'welcome'].includes(sentenceFirstBw)
+                && ['everyone', 'friends', 'kids', 'children', 'students', 'class', 'guys', 'all', 'there', 'world'].includes(bw)
+            ) {
+                const greetPunct = gap >= 0.55 ? '.' : ',';
+                w.text = setCaptionWordTrailingPunct(w.text, greetPunct);
+                punct = greetPunct;
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+            } else if (gap >= 0.60 && sentenceWordCount >= 2) {
+                if (CAPTION_GRAMMAR_SUBORDINATORS.has(clauseFirstBw) && clauseWordCount <= 7 && gap < 0.90) {
+                    w.text = setCaptionWordTrailingPunct(w.text, ',');
+                    punct = ',';
+                    clauseWordCount = 0;
+                    clauseStartIdx = i + 1;
+                } else {
+                    const isQuestion = CAPTION_GRAMMAR_QUESTION_STARTERS.has(sentenceFirstBw)
+                        && !(sentenceFirstBw === 'what' && captionGrammarBaseWord(words[sentenceStartIdx + 1]?.text) === 'a')
+                        && !(sentenceFirstBw === 'how' && captionGrammarBaseWord(words[sentenceStartIdx + 1]?.text) === 'to');
+                    w.text = setCaptionWordTrailingPunct(w.text, isQuestion ? '?' : '.');
+                    punct = isQuestion ? '?' : '.';
+                }
+            } else if (
+                CAPTION_GRAMMAR_SUBORDINATORS.has(clauseFirstBw)
+                && clauseWordCount >= 3
+                && clauseWordCount <= 9
+                && clauseStartIdx + clauseWordCount - 1 === i
+                && (gap >= 0.22 || CAPTION_GRAMMAR_SUBJECT_STARTERS.has(nextBw))
+            ) {
+                w.text = setCaptionWordTrailingPunct(w.text, ',');
+                punct = ',';
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+            } else if (clauseWordCount >= 3 && CAPTION_GRAMMAR_COMMA_CONJUNCTIONS.has(nextBw) && gap >= 0.10) {
+                w.text = setCaptionWordTrailingPunct(w.text, ',');
+                punct = ',';
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+            } else if (
+                gap >= 0.32
+                && clauseWordCount >= 3
+                && !['that', 'to', 'of', 'for', 'in', 'on', 'with', 'at', 'by', 'from', 'than', 'as'].includes(nextBw)
+            ) {
+                w.text = setCaptionWordTrailingPunct(w.text, ',');
+                punct = ',';
+                clauseWordCount = 0;
+                clauseStartIdx = i + 1;
+            }
+        }
+
+        if (/[.!?।॥]/.test(punct) && !(punct === '.' && CAPTION_GRAMMAR_ABBREVIATIONS.has(bw))) {
+            sentenceStartIdx = i + 1;
+            clauseStartIdx = i + 1;
+            clauseWordCount = 0;
+        } else if (/[,;:]/.test(punct)) {
+            clauseStartIdx = i + 1;
+            clauseWordCount = 0;
+            if (next) next.text = lowercaseCaptionWordIfFunction(next.text);
+        }
+    }
+
+    // 6. Ensure sentence-initial capitalization after . ! ? and at start of transcript
+    for (let i = 0; i < words.length; i += 1) {
+        const w = words[i];
+        if (!w || typeof w.text !== 'string') continue;
+        const prev = words[i - 1];
+        const prevPunct = prev ? getCaptionWordTrailingPunct(prev.text) : '';
+        const prevBw = prev ? captionGrammarBaseWord(prev.text) : '';
+        if (i === 0 || (/[.!?।॥]/.test(prevPunct) && !(prevPunct === '.' && CAPTION_GRAMMAR_ABBREVIATIONS.has(prevBw)))) {
+            w.text = capitalizeCaptionWord(w.text);
+        }
+    }
+
+    return words;
+}
+
+function applyCaptionGrammarPunctuation(captions, options = {}) {
+    if (!Array.isArray(captions) || !captions.length || options.songMode) return captions;
+    const flatWords = [];
+    const cueMappings = [];
+    for (let cueIdx = 0; cueIdx < captions.length; cueIdx += 1) {
+        const cue = captions[cueIdx];
+        const timestamp = Array.isArray(cue?.timestamp) ? cue.timestamp : [cue?.start, cue?.end];
+        const cueStart = Number(timestamp?.[0]) || 0;
+        const cueEnd = Number(timestamp?.[1]) || (cueStart + 0.5);
+        const sourceTokens = String(cue?.text || '').trim().split(/\s+/).filter(Boolean);
+        const hasTimedWords = Array.isArray(cue?.words) && cue.words.length === sourceTokens.length && cue.words.length > 0;
+        const indices = [];
+        for (let tokenIdx = 0; tokenIdx < sourceTokens.length; tokenIdx += 1) {
+            const wObj = hasTimedWords ? cue.words[tokenIdx] : null;
+            const wTimes = Array.isArray(wObj?.timestamp) ? wObj.timestamp : [wObj?.start, wObj?.end];
+            const start = Number.isFinite(Number(wTimes?.[0]))
+                ? Number(wTimes[0])
+                : cueStart + (tokenIdx / Math.max(1, sourceTokens.length)) * (cueEnd - cueStart);
+            const end = Number.isFinite(Number(wTimes?.[1]))
+                ? Number(wTimes[1])
+                : cueStart + ((tokenIdx + 1) / Math.max(1, sourceTokens.length)) * (cueEnd - cueStart);
+            indices.push(flatWords.length);
+            flatWords.push({
+                text: String(wObj?.text ?? wObj?.word ?? sourceTokens[tokenIdx]),
+                start,
+                end
+            });
+        }
+        cueMappings.push({ cue, hasTimedWords, indices });
+    }
+
+    applyCaptionGrammarPunctuationToWords(flatWords, options);
+
+    return cueMappings.map(({ cue, hasTimedWords, indices }) => {
+        if (!indices.length) return cue;
+        const updatedTokens = indices.map(idx => flatWords[idx].text);
+        const updatedText = normalizeNurseryCaptionText(updatedTokens.join(' '));
+        if (hasTimedWords) {
+            const updatedWords = cue.words.map((w, idx) => ({
+                ...w,
+                text: updatedTokens[idx] || w.text
+            }));
+            return { ...cue, text: updatedText, words: updatedWords };
+        }
+        return { ...cue, text: updatedText };
+    });
+}
+
 function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LIMIT, sourceSegments = []) {
     const words = [];
-    for (const [index, word] of (Array.isArray(sourceWords) ? sourceWords : []).entries()) {
+    for (const [, word] of (Array.isArray(sourceWords) ? sourceWords : []).entries()) {
         const text = word?.word ?? word?.text;
-        const start = word?.start ?? (Array.isArray(word?.timestamp) ? word.timestamp[0] : undefined);
-        const end = word?.end ?? (Array.isArray(word?.timestamp) ? word.timestamp[1] : undefined);
+        if (typeof text !== 'string' || !text.trim()) continue;
+        const rawStart = Number(word?.start ?? (Array.isArray(word?.timestamp) ? word.timestamp[0] : undefined));
+        const rawEnd = Number(word?.end ?? (Array.isArray(word?.timestamp) ? word.timestamp[1] : undefined));
         const previous = words[words.length - 1];
-        // Keep recognition order. Sorting a backwards timestamp would show a
-        // later spoken word early and could replace the preceding caption.
-        if (typeof text !== 'string' || !text.trim() || typeof start !== 'number' || typeof end !== 'number'
-            || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start
-            || (previous && start < previous.end)) {
-            const error = new Error(`Speech timestamps conflict at word ${index + 1}. Generate captions again; the previous captions are preserved.`);
-            error.captionTimingFailure = true;
-            throw error;
+        const floor = previous ? previous.end : 0;
+        let start = Number.isFinite(rawStart) && rawStart >= 0 ? rawStart : floor;
+        let end = Number.isFinite(rawEnd) && rawEnd > 0 ? rawEnd : start + 0.16;
+        // Keep recognition order and repair minor overlaps or zero-length timestamps in Captioner 2.
+        if (previous && start < previous.end) {
+            const prevSpan = previous.end - previous.start;
+            if (prevSpan > 0.08 && start > previous.start + 0.04) {
+                previous.end = Number(start.toFixed(3));
+            } else {
+                start = previous.end;
+            }
         }
-        words.push({ text: text.trim(), start, end });
+        if (end <= start) {
+            end = Number((start + 0.12).toFixed(3));
+        }
+        words.push({ text: text.trim(), start: Number(start.toFixed(3)), end: Number(end.toFixed(3)) });
     }
-    // Local Whisper's segment boundaries carry phrase breaks that its flat
-    // word list loses. Use them only when segment text matches the words.
+    // Local Whisper's segment boundaries carry phrase breaks and punctuation that
+    // its flat word list loses. Transfer segment punctuation and phrase starts when aligned.
     const phraseStarts = new Set();
     const normalizeToken = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
     let segmentCursor = 0;
@@ -191,10 +600,16 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         phraseStarts.add(segmentCursor);
         // Segment punctuation is sometimes absent from individual word text.
         tokens.forEach((token, index) => {
+            const targetWord = words[segmentCursor + index];
+            const segPunct = getCaptionWordTrailingPunct(token);
+            if (targetWord && segPunct && !getCaptionWordTrailingPunct(targetWord.text)) {
+                targetWord.text = setCaptionWordTrailingPunct(targetWord.text, segPunct);
+            }
             if (/[.!?]["'’)]?$/.test(token)) phraseStarts.add(segmentCursor + index + 1);
         });
         segmentCursor += tokens.length;
     }
+    applyCaptionGrammarPunctuationToWords(words, { songMode: isSongCaptionMode() });
     const chunks = [];
     let group = [];
     const flush = () => {
@@ -211,16 +626,24 @@ function buildSpeechBoundedCaptionChunks(sourceWords, maxWords = CAPTION_WORD_LI
         });
         group = [];
     };
+    const commaBreakThreshold = Math.max(4, Math.ceil(Math.max(1, maxWords) / 2));
     for (const [wordIndex, word] of words.entries()) {
         const previous = group[group.length - 1];
         const gap = previous ? word.start - previous.end : 0;
-        const previousEndsSentence = previous ? /[.!?]["'’)]?$/.test(previous.text) : false;
+        const previousEndsSentence = previous
+            ? /[.!?।॥]["'’”)\]}]*$/.test(previous.text) && !CAPTION_GRAMMAR_ABBREVIATIONS.has(captionGrammarBaseWord(previous.text))
+            : false;
+        const previousEndsClauseComma = previous
+            ? /[,;:]["'’”)\]}]*$/.test(previous.text) && (group.length >= commaBreakThreshold || gap >= 0.22)
+            : false;
         if (group.length && (
             group.length >= Math.max(1, maxWords) ||
             // A brief phrase pause must stay blank rather than being covered
             // by a group containing words from both sides of the pause.
             gap >= 0.3 ||
-            previousEndsSentence || phraseStarts.has(wordIndex)
+            previousEndsSentence ||
+            previousEndsClauseComma ||
+            phraseStarts.has(wordIndex)
         )) flush();
         group.push(word);
     }
@@ -234,7 +657,7 @@ function applyCaptionSpellingCorrections(captions, rulesText) {
     const rules = String(rulesText || '').split('\n').map(line => line.split('=')).filter(parts => parts.length === 2)
         .map(([from, to]) => ({ from: from.trim().split(/\s+/).map(normalize), to: to.trim() }))
         .filter(rule => rule.from.every(Boolean) && rule.to && !/\s/.test(rule.to));
-    return captions.map(caption => {
+    const corrected = captions.map(caption => {
         let text = String(caption.text || '');
         const sourceTokens = text.match(/\S+/g) || [];
         const hasTimedWords = Array.isArray(caption.words) && caption.words.length > 0
@@ -263,6 +686,7 @@ function applyCaptionSpellingCorrections(captions, rulesText) {
         }
         return { ...caption, text, ...(words ? { words } : Array.isArray(caption.words) && text !== caption.text ? { words: [] } : {}) };
     });
+    return applyCaptionGrammarPunctuation(corrected, { songMode: isSongCaptionMode() });
 }
 
 function captionHasSpeechAtTime(caption, time) {
@@ -344,9 +768,58 @@ function captionLocalReconcileText(cue, text) {
     return { cue: captionLocalLegacyCue(next), estimated };
 }
 
-function captionLocalEditedQueueItem(item, captions, metadata) {
+function captionLocalLanguageCode(value) {
+    const text = String(value || '').trim().toLowerCase();
+    if (!text || text === 'auto' || text === 'und') return '';
+    const named = { english: 'en', telugu: 'te', hindi: 'hi', tamil: 'ta', urdu: 'ur', arabic: 'ar' }[text];
+    if (named) return named;
+    if (/^[a-z]{2}(?:[-_][a-z]{2})?$/.test(text)) return text.slice(0, 2);
+    throw new Error('Caption language metadata needs a language name or two-letter code.');
+}
+
+function captionLocalEngineMetadata(metadata, state) {
+    const fields = metadata || {};
+    const explicitEngine = Object.prototype.hasOwnProperty.call(fields, 'engine');
+    const explicitRecovery = Object.prototype.hasOwnProperty.call(fields, 'recoveredFromEngine');
+    if (explicitEngine && !['local', 'groq', 'gemini'].includes(fields.engine)) {
+        throw new Error('Caption engine metadata must be local, groq or gemini.');
+    }
+    const engine = explicitEngine ? fields.engine : state?.engine;
+    if (explicitRecovery && fields.recoveredFromEngine !== undefined
+        && (fields.recoveredFromEngine !== 'groq' || engine !== 'local')) {
+        throw new Error('Caption recovery metadata must identify Groq recovery produced by Local.');
+    }
+    return { ...(explicitEngine ? { engine } : {}),
+        ...(explicitEngine || explicitRecovery ? { recoveredFromEngine: explicitRecovery ? fields.recoveredFromEngine : undefined } : {}) };
+}
+
+function captionLocalEditedQueueItem(item, captions, metadata, preserveLanguage = false) {
+    const engineMetadata = captionLocalEngineMetadata(metadata, item);
+    const nextLanguage = { sourceLanguage: item.sourceLanguage, outputLanguage: item.outputLanguage, captionLanguage: item.captionLanguage };
+    const explicitSource = Object.prototype.hasOwnProperty.call(metadata, 'sourceLanguage') || Object.prototype.hasOwnProperty.call(metadata, 'language');
+    const explicitOutput = Object.prototype.hasOwnProperty.call(metadata, 'outputLanguage');
+    if (explicitSource) {
+        nextLanguage.sourceLanguage = captionLocalLanguageCode(Object.prototype.hasOwnProperty.call(metadata, 'sourceLanguage') ? metadata.sourceLanguage : metadata.language);
+        if (!explicitOutput) nextLanguage.outputLanguage = undefined;
+    }
+    if (explicitOutput) nextLanguage.outputLanguage = captionLocalLanguageCode(metadata.outputLanguage) || undefined;
+    const textChanged = JSON.stringify((item.captions || []).map(cue => cue.text)) !== JSON.stringify(captions.map(cue => cue.text));
+    const nextScript = captionTextScriptLanguage(captions.map(cue => cue.text).join(' '));
+    if (textChanged && !preserveLanguage && !explicitSource && !explicitOutput) {
+        const previousScript = captionTextScriptLanguage((item.captions || []).map(cue => cue.text).join(' '));
+        const knownLanguage = nextLanguage.outputLanguage || nextLanguage.sourceLanguage;
+        const knownScript = ['te', 'hi'].includes(knownLanguage) ? knownLanguage : '';
+        if (nextScript !== knownScript && (nextScript || previousScript || knownScript)) {
+            nextLanguage.outputLanguage = undefined;
+            nextLanguage.sourceLanguage = nextScript;
+        }
+    }
+    if (!preserveLanguage && nextScript && nextLanguage.outputLanguage && nextScript !== nextLanguage.outputLanguage) {
+        nextLanguage.outputLanguage = undefined;
+    }
+    nextLanguage.captionLanguage = { en: 'English', te: 'Telugu', hi: 'Hindi' }[nextLanguage.outputLanguage];
     return { ...item, captions: captions.map(cue => captionLocalLegacyCue(captionLocalCanonicalCue(cue))),
-        timingSource: metadata.timingSource, warnings: [...(metadata.warnings || [])],
+        ...nextLanguage, ...engineMetadata, timingSource: metadata.timingSource, warnings: [...(metadata.warnings || [])],
         status: 'transcribed', progress: 0, message: 'Captions edited. Review and export again.',
         outputPath: undefined, outputFileName: undefined, outputUrl: undefined };
 }
@@ -372,11 +845,16 @@ function createCaptionLocalWorkbenchBridge(callbacks) {
         applyCaptions(itemId, captions, metadata) {
             const state = requireEditable(itemId);
             const canonical = captionLocalValidateCues(captions, state.duration);
+            const engineMetadata = captionLocalEngineMetadata(metadata, state);
             const timingSource = !metadata || !Object.prototype.hasOwnProperty.call(metadata, 'timingSource') ? state.timingSource
                 : metadata?.timingSource === 'estimated' ? 'estimated' : metadata?.timingSource === 'word' ? 'word' : undefined;
             const warnings = metadata && Object.prototype.hasOwnProperty.call(metadata, 'warnings')
                 ? (Array.isArray(metadata.warnings) ? metadata.warnings.map(String) : []) : state.warnings;
-            callbacks.apply(canonical.map(captionLocalLegacyCue), { timingSource, warnings: [...warnings] });
+            const languageMetadata = {};
+            for (const field of ['sourceLanguage', 'language', 'outputLanguage']) {
+                if (metadata && Object.prototype.hasOwnProperty.call(metadata, field)) languageMetadata[field] = captionLocalLanguageCode(metadata[field]);
+            }
+            callbacks.apply(canonical.map(captionLocalLegacyCue), { timingSource, warnings: [...warnings], ...languageMetadata, ...engineMetadata });
             publish();
             return true;
         },
@@ -790,6 +1268,44 @@ function bootCaptionStudio() {
     let captionPreviewSpeed = 1;
     let captionPreviewLoop = null;
     const captionBusyControlStates = new Map();
+    let captionGroqRetryTimer = null;
+    async function invokeCaptioner2TranscribeVideo(options) {
+        if (!window.electronAPI || typeof window.electronAPI.transcribeVideo !== 'function') {
+            return { ok: false, error: 'Electron transcription API is unavailable.' };
+        }
+        const payload = { ...options, captionerVersion: 2 };
+        let result = await window.electronAPI.transcribeVideo(payload);
+        for (let retry = 0; retry < 10 && !captionTranscriptionCancelRequested && (result?.code === 'CAPTION_TRANSCRIPTION_BUSY' || /another caption transcription is running/i.test(result?.error || '')); retry += 1) {
+            if (typeof window.electronAPI.cancelTranscribeVideo === 'function') {
+                try { await window.electronAPI.cancelTranscribeVideo({ captionerVersion: 2, waitForRelease: true }); } catch (_) {}
+            }
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (captionTranscriptionCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
+            result = await window.electronAPI.transcribeVideo(payload);
+        }
+        return result;
+    }
+
+    const captionTranscriptionCoordinator = createCaptionTranscriptionCoordinator({
+        transcribe: options => invokeCaptioner2TranscribeVideo(options),
+        isCancelled: () => captionTranscriptionCancelRequested,
+        onRequest: options => { activeCaptionTranscription = options; },
+        validate: result => validateCaptionTranscriptionCues(result,
+            sourceVideo.readyState >= 1 ? sourceVideo.duration : undefined, buildCaptionChunksFromTranscription),
+        onPause: error => {
+            if (captionGroqRetryTimer) clearTimeout(captionGroqRetryTimer);
+            captionGroqRetryTimer = setTimeout(() => {
+                captionGroqRetryTimer = null;
+                renderCaptionQueue();
+                publishCaptionLocalState();
+            }, Math.min(2147483647, Math.max(1, error.retryAt - Date.now() + 25)));
+        },
+    });
+
+    function captionGroqWaiting() {
+        const options = getCaptionTranscriptionOptions();
+        return options.engine === 'groq' && !options.allowLocalRecovery ? captionTranscriptionCoordinator.getCooldown() : null;
+    }
 
     function captionLocalBusy() {
         return isExtractingText || isRecording || isErasingCaptions || captionQueueRunning || captionQueueExporting || captionTranslationBusy;
@@ -813,12 +1329,12 @@ function bootCaptionStudio() {
         const disabled = captionLocalBusy();
         if (disabled) clearCaptionPreviewLoop();
         const controls = [...Array.from(editorPanel?.querySelectorAll('button, input, select, textarea') || []),
-            videoInput, resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('cap2_captionAutoRecover'), spellingCorrections,
+            resetBtn, previewBtn, seekSlider, playPauseBtn, document.getElementById('cap2_captionAutoRecover'), document.getElementById('cap2_captionGroqLocalRecovery'), spellingCorrections,
             ...[styleSelect, sizeSlider, gapSlider, widthSlider, heightSlider, fontSelect, boldCheck, strokeSlider,
                 colorPicker, syncSlider, positionXControl, positionYControl, positionPresetControl,
                 emojiCheck, karaokeCheck, filterSelect, progressCheck, watermarkCheck,
                 watermarkInput, bgMusicCheck, bgMusicInput, translateCheck, brollCheck, sfxCheck],
-            ...['cap2_captionContentMode', 'cap2_captionEngine', 'cap2_captionLanguage', 'cap2_captionTranslateSelectedBtn', 'cap2_captionEraserQuality', 'cap2_captionGroqApiKey', 'cap2_captionRegenerateBtn', 'cap2_captionVocalFocus', 'cap2_captionVocabularyHints', 'cap2_captionUseVoiceTextBtn',
+            ...['cap2_captionContentMode', 'cap2_captionEngine', 'cap2_captionLanguage', 'cap2_captionTranslateSelectedBtn', 'cap2_captionEraserQuality', 'cap2_captionGroqApiKey', 'cap2_captionRegenerateBtn', 'cap2_captionVocalFocus', 'cap2_captionVocabularyHints', 'cap2_captionUseVoiceTextBtn', 'cap2_aiCapSttBtn',
                 'cap2_captionTranslateEnBtn', 'cap2_captionTranslateHiBtn', 'cap2_captionTranslateTeBtn', 'cap2_captionSizePreviewBtn'].map(id => document.getElementById(id))].filter(Boolean);
         if (disabled) {
             controls.forEach(control => {
@@ -837,21 +1353,17 @@ function bootCaptionStudio() {
         if (!item) return;
         item.timingSource = result?.timingSource === 'estimated' || !result?.words?.length ? 'estimated' : 'word';
         item.warnings = Array.isArray(result?.warnings) ? result.warnings.map(String) : [];
+        item.engine = result?.engine || activeCaptionTranscription?.engine || getCaptionTranscriptionOptions().engine;
+        item.recoveredFromEngine = result?.recoveredFromEngine;
         item.sourceLanguage = normalizeCaptionLanguageCode(result?.language) || inferCaptionLanguageCode(result?.text);
     }
 
     function commitCaptionLocalEdits(metadata, redraw = true, preserveLanguage = false) {
         clearCaptionPreviewLoop();
         const item = captionVideoQueue[captionQueueIndex];
-        if (item && !preserveLanguage && JSON.stringify((item.captions || []).map(cue => cue.text)) !==
-            JSON.stringify(generatedCaptions.map(cue => cue.text))) {
-            item.outputLanguage = undefined;
-            item.captionLanguage = undefined;
-            item.sourceLanguage = '';
-        }
         if (item) captionVideoQueue[captionQueueIndex] = captionLocalEditedQueueItem(item, generatedCaptions, metadata || {
             timingSource: item.timingSource, warnings: item.warnings || [],
-        });
+        }, preserveLanguage);
         setCaptionExportActionsVisible(false);
         if (exportActions) exportActions.replaceChildren();
         if (exportBtn) exportBtn.classList.toggle('hidden', !generatedCaptions.length);
@@ -866,6 +1378,8 @@ function bootCaptionStudio() {
             return { itemId: ensureCaptionLocalItemId(item), videoName: item?.file?.name || activeFile?.name || '',
                 captions: generatedCaptions, duration: sourceVideo.readyState >= 1 && Number.isFinite(sourceVideo.duration) ? sourceVideo.duration : undefined,
                 disabled: captionLocalBusy(), timingSource: item?.timingSource, warnings: item?.warnings || [],
+                engine: item?.engine, recoveredFromEngine: item?.recoveredFromEngine,
+                sourceLanguage: item?.sourceLanguage, outputLanguage: item?.outputLanguage,
                 hasVideo: !!activeFile && !!sourceVideo.src, previewSpeed: captionPreviewSpeed, looping: !!captionPreviewLoop };
         },
         apply: (captions, metadata) => {
@@ -924,6 +1438,8 @@ function bootCaptionStudio() {
         }
         if (actionBtn && !captionLocalBusy()) {
             actionBtn.classList.toggle('hidden', generatedCaptions.length > 0 && captionVideoQueue.length <= 1);
+            actionBtn.disabled = !activeFile || (captionVideoQueue.length > 0 && captionVideoQueue.every(item => item.status === 'exported')) || !!captionGroqWaiting();
+            actionBtn.title = captionGroqWaiting() ? captionGroqRetryMessage(captionGroqWaiting()) : '';
         }
         const translateSelected = document.getElementById('cap2_captionTranslateSelectedBtn');
         if (translateSelected) translateSelected.disabled = captionLocalBusy() || !generatedCaptions.length;
@@ -961,6 +1477,7 @@ function bootCaptionStudio() {
         const disclose = () => {
             const options = getCaptionTranscriptionOptions();
             document.getElementById('cap2_captionGroqKeyField')?.classList.toggle('hidden', options.engine !== 'groq');
+            document.getElementById('cap2_captionGroqRecoveryField')?.classList.toggle('hidden', options.engine !== 'groq');
             disclosure.textContent = options.engine === 'gemini'
                 ? 'Gemini sends this audio to Google. Lyric and word timing is estimated; review synchronization.'
                 : options.engine === 'groq'
@@ -976,6 +1493,12 @@ function bootCaptionStudio() {
         engineSelect?.addEventListener('change', () => {
             if (engineSelect.value === 'gemini') modeSelect.value = 'song';
             disclose();
+            renderCaptionQueue();
+            publishCaptionLocalState();
+        });
+        document.getElementById('cap2_captionGroqLocalRecovery')?.addEventListener('change', () => {
+            renderCaptionQueue();
+            publishCaptionLocalState();
         });
         disclose();
     }
@@ -995,7 +1518,7 @@ function bootCaptionStudio() {
                 progress: mappedPct,
                 message: pct >= 100
                     ? 'Transcription complete. Building captions...'
-                    : `${getCaptionEngineLabel()} transcription ${pct}%`,
+                    : `${getCaptionEngineLabel(activeCaptionTranscription || getCaptionTranscriptionOptions())} transcription ${pct}%`,
             });
             setCaptionProgressBar(mappedPct);
         });
@@ -1228,6 +1751,9 @@ function bootCaptionStudio() {
     
     resetBtn.addEventListener('click', () => {
         if (captionLocalBusy()) return;
+        if (window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
+            window.electronAPI.cancelTranscribeVideo({ captionerVersion: 2, waitForRelease: true }).catch(() => {});
+        }
         clearCaptionPreviewLoop();
         sourceVideo.pause();
         sourceVideo.removeAttribute('src');
@@ -1433,13 +1959,13 @@ function bootCaptionStudio() {
             label.disabled = captionLocalBusy();
             const pctLabel = (item.status === 'transcribing' || item.status === 'exporting') ? ` - ${Math.round(item.progress || 0)}%` : '';
             label.textContent = `${index + 1}. ${item.file.name} - ${item.status || 'ready'}${pctLabel}`;
-            if ((item.status === 'failed' || item.status === 'retrying') && item.message) {
+            if ((item.status === 'failed' || item.status === 'retrying' || (item.status === 'ready' && captionLocalBusy())) && item.message) {
                 label.textContent += ` — ${item.message}`;
                 label.title = item.message;
             }
             label.style.cssText = 'min-width:0;text-align:left;background:transparent;border:0;color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:normal;cursor:pointer';
-            label.addEventListener('click', () => loadQueuedCaptionVideo(index));
-            row.addEventListener('click', () => loadQueuedCaptionVideo(index));
+            label.addEventListener('click', () => { if (!captionLocalBusy()) loadQueuedCaptionVideo(index); });
+            row.addEventListener('click', () => { if (!captionLocalBusy()) loadQueuedCaptionVideo(index); });
             row.appendChild(label);
             if (item.captions && item.captions.length) {
                 const exportOne = document.createElement('button');
@@ -1557,6 +2083,16 @@ function bootCaptionStudio() {
             }
         }, { once: true });
 
+        sourceVideo.addEventListener('error', () => {
+            if (file.stagedPath && sourceVideo.dataset.stagedFallbackTried !== '1') {
+                sourceVideo.dataset.stagedFallbackTried = '1';
+                videoUrl = captionFilePathToUrl(file.stagedPath);
+                sourceVideo.src = videoUrl;
+                sourceVideo.load();
+            }
+        }, { once: true });
+
+        delete sourceVideo.dataset.stagedFallbackTried;
         sourceVideo.src = videoUrl;
         sourceVideo.playbackRate = captionPreviewSpeed;
         progressBlock.classList.remove('hidden');
@@ -1573,21 +2109,115 @@ function bootCaptionStudio() {
         queueNextBtn.addEventListener('click', () => loadQueuedCaptionVideo(captionQueueIndex + 1));
     }
     
-    function acceptCaptionVideoFiles(rawFiles) {
-        if (captionLocalBusy()) return;
+    let autoContinueQueueAfterSingleJob = false;
+
+    function getCaptionVideoFileKey(file) {
+        if (!file) return '';
+        const filePath = file.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+            ? window.electronAPI.getPathForFile(file)
+            : '');
+        if (filePath) return String(filePath).trim().toLowerCase();
+        return `${String(file.name || '').trim().toLowerCase()}::${Number(file.size) || 0}::${Number(file.lastModified) || 0}`;
+    }
+
+    function stageQueuedCaptionFile(file) {
+        if (!file || typeof window.electronAPI?.stageCaptionSource !== 'function') return;
+        const rawPath = file.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+            ? window.electronAPI.getPathForFile(file)
+            : '');
+        if (!rawPath || /\.part\.mp4$/i.test(rawPath)) return;
+        if (!file.path) {
+            try { file.path = rawPath; } catch (_) {}
+        }
+        window.electronAPI.stageCaptionSource({ videoPath: rawPath }).then((res) => {
+            if (res && res.ok && res.stagedPath) {
+                try { file.stagedPath = res.stagedPath; } catch (_) {}
+            }
+        }).catch(() => {});
+    }
+
+    function acceptCaptionVideoFiles(rawFiles, options = {}) {
+        const isBusy = captionLocalBusy();
+        const shouldAppend = Boolean(options.append || isBusy);
+        const shouldAutoStart = Boolean(options.autoStart);
         const files = Array.from(rawFiles || []).filter(file => file && ((file.type && file.type.startsWith('video/')) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name || '')));
         if (!files.length) {
-            if (statusText) statusText.innerHTML = '❌ The selected item is not a supported video. Choose MP4, MOV, M4V, WebM, MKV, or AVI.';
-            actionBtn.disabled = true;
-            actionBtn.classList.remove('hidden');
+            if (!isBusy && statusText) {
+                statusText.innerHTML = '❌ The selected item is not a supported video. Choose MP4, MOV, M4V, WebM, MKV, or AVI.';
+                actionBtn.disabled = true;
+                actionBtn.classList.remove('hidden');
+            }
             return;
         }
+
+        // Deduplicate within the incoming batch first
+        const batchSeen = new Set();
+        const dedupedBatch = files.filter(file => {
+            const key = getCaptionVideoFileKey(file);
+            if (!key || batchSeen.has(key)) return false;
+            batchSeen.add(key);
+            return true;
+        });
+
+        if (shouldAppend && captionVideoQueue.length > 0) {
+            const existingKeys = new Set(captionVideoQueue.map(item => getCaptionVideoFileKey(item?.file)).filter(Boolean));
+            const uniqueNewFiles = dedupedBatch.filter(file => !existingKeys.has(getCaptionVideoFileKey(file)));
+            if (!uniqueNewFiles.length) {
+                if (statusText && !isBusy) {
+                    statusText.innerHTML = '⚠️ Video is already in the queue — duplicate skipped.';
+                } else if (queueStatus) {
+                    queueStatus.textContent = `Duplicate skipped — all ${dedupedBatch.length} dropped video(s) are already in the queue.`;
+                }
+                return;
+            }
+            const firstNewIndex = captionVideoQueue.length;
+            for (const file of uniqueNewFiles) {
+                stageQueuedCaptionFile(file);
+                captionVideoQueue.push({
+                    file,
+                    status: 'ready',
+                    captions: [],
+                    progress: 0,
+                    message: isBusy
+                        ? 'Queued — will process automatically after current video...'
+                        : 'Queued — ready to process...'
+                });
+            }
+            if (isBusy) {
+                autoContinueQueueAfterSingleJob = true;
+                renderCaptionQueue();
+                if (queuePanel) queuePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return;
+            }
+            loadQueuedCaptionVideo(firstNewIndex);
+            scrollCaptionStudioToWorkSection();
+            if (shouldAutoStart) {
+                setTimeout(() => {
+                    const startIdx = captionVideoQueue.findIndex(item => item && item.status !== 'exported');
+                    if (startIdx >= 0) transcribeCaptionQueueFrom(startIdx);
+                }, 60);
+            }
+            return;
+        }
+
         if (syncSlider) syncSlider.value = '0';
         updateCaptionStyleValueLabels();
-        captionVideoQueue = files.map(file => ({ file, status: 'ready', captions: [] }));
+        dedupedBatch.forEach(stageQueuedCaptionFile);
+        captionVideoQueue = dedupedBatch.map(file => ({
+            file,
+            status: 'ready',
+            captions: [],
+            progress: 0,
+            message: shouldAutoStart ? 'Queued — starting automatic captioning...' : 'Ready in queue.'
+        }));
         captionQueueIndex = 0;
         loadQueuedCaptionVideo(0);
         scrollCaptionStudioToWorkSection();
+        if (shouldAutoStart) {
+            setTimeout(() => {
+                transcribeCaptionQueueFrom(0);
+            }, 60);
+        }
     }
 
     videoInput.addEventListener('change', (e) => {
@@ -1595,15 +2225,81 @@ function bootCaptionStudio() {
             delete videoInput.dataset.pattanCaptionHandled;
             return;
         }
-        acceptCaptionVideoFiles(e.target.files || []);
+        const appendWhenBusyOrQueued = captionLocalBusy() || captionVideoQueue.some(item => item && item.status !== 'exported');
+        acceptCaptionVideoFiles(e.target.files || [], {
+            append: appendWhenBusyOrQueued,
+            autoStart: captionLocalBusy()
+        });
     });
 
     window.addEventListener('pattan-mobile-files-ready', (event) => {
         const detail = event && event.detail ? event.detail : {};
         if (detail.inputId !== 'cap2_captionVideoInput') return;
         videoInput.dataset.pattanCaptionHandled = '1';
-        acceptCaptionVideoFiles(detail.files || []);
+        acceptCaptionVideoFiles(detail.files || [], {
+            append: captionLocalBusy(),
+            autoStart: captionLocalBusy()
+        });
     });
+
+    // Wire Drag & Drop on #cap2_captionDropZone and #cap2_aiCaptionSection
+    const dropZone = document.getElementById('cap2_captionDropZone');
+    const captionSection = document.getElementById('cap2_aiCaptionSection');
+    const setDropZoneActive = (active) => {
+        if (!dropZone) return;
+        dropZone.style.borderColor = active ? '#38bdf8' : 'rgba(56, 189, 248, 0.45)';
+        dropZone.style.background = active
+            ? 'linear-gradient(135deg, rgba(14, 165, 233, 0.28), rgba(99, 102, 241, 0.22))'
+            : 'linear-gradient(135deg, rgba(14, 165, 233, 0.10), rgba(99, 102, 241, 0.08))';
+        dropZone.style.transform = active ? 'scale(1.01)' : 'scale(1)';
+    };
+    if (dropZone) {
+        dropZone.addEventListener('click', () => {
+            if (videoInput) videoInput.click();
+        });
+        dropZone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (videoInput) videoInput.click();
+            }
+        });
+    }
+    const hasDraggedFiles = (e) => {
+        const types = e?.dataTransfer?.types;
+        return Boolean(types && (Array.from(types).includes('Files') || Array.from(types).includes('application/x-moz-file')));
+    };
+    let dragDepth = 0;
+    const dropTarget = captionSection || dropZone;
+    if (dropTarget) {
+        dropTarget.addEventListener('dragenter', (e) => {
+            if (!hasDraggedFiles(e)) return;
+            e.preventDefault();
+            dragDepth += 1;
+            setDropZoneActive(true);
+        });
+        dropTarget.addEventListener('dragover', (e) => {
+            if (!hasDraggedFiles(e)) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+            setDropZoneActive(true);
+        });
+        dropTarget.addEventListener('dragleave', (e) => {
+            if (!hasDraggedFiles(e)) return;
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) setDropZoneActive(false);
+        });
+        dropTarget.addEventListener('drop', (e) => {
+            if (!hasDraggedFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragDepth = 0;
+            setDropZoneActive(false);
+            const droppedFiles = e.dataTransfer?.files;
+            if (droppedFiles && droppedFiles.length > 0) {
+                acceptCaptionVideoFiles(droppedFiles, { append: true, autoStart: true });
+            }
+        });
+    }
 
     function setQueueItemState(index, patch) {
         if (!captionVideoQueue[index]) return;
@@ -1847,8 +2543,12 @@ function bootCaptionStudio() {
 
     function isRetryableCaptionQueueError(error) {
         const message = String(error?.message || error || '');
-        if (/cancel|no recognizable|no captions|no.*speech|not found|no.*path|unavailable.*path|unsupported|invalid|permission|ENOSPC|no space|not installed|out of memory/i.test(message)) return false;
-        return /timeout|timed out|network|fetch|socket|ECONN|EPIPE|busy|temporar|no response|503|502|429|worker.*exit|server.*(closed|unavailable)/i.test(message);
+        const code = String(error?.code || '');
+        if (code === 'CAPTION_SOURCE_MISSING') return false;
+        if (code === 'CAPTION_TRANSCRIPTION_BUSY' || code === 'CAPTION_RESOURCE_BUSY') return true;
+        if (/another caption transcription is running/i.test(message)) return true;
+        if (/\b(?:cancelled|canceled|aborted by user)\b|no recognizable|no captions|no.*speech|not found|no such file|error opening input|moved or deleted|source video file is missing|no.*path|unavailable.*path|unsupported|invalid|permission|ENOSPC|no space|not installed|out of memory/i.test(message)) return false;
+        return /timeout|timed out|network|fetch|socket|ECONN|EPIPE|busy|temporar|no response|\b(?:503|502|429)\b|worker.*exit|server.*(closed|unavailable)/i.test(message);
     }
 
     async function transcribeCaptionQueueFrom(startIndex = 0) {
@@ -1868,7 +2568,17 @@ function bootCaptionStudio() {
             for (let offset = 0; offset < captionVideoQueue.length; offset += 1) {
                 ordered.push((startIndex + offset) % captionVideoQueue.length);
             }
+            const queuedIndices = new Set(ordered);
+            const syncNewlyAddedQueueItems = () => {
+                for (let idx = 0; idx < captionVideoQueue.length; idx += 1) {
+                    if (!queuedIndices.has(idx) && captionVideoQueue[idx] && captionVideoQueue[idx].status !== 'exported') {
+                        queuedIndices.add(idx);
+                        ordered.push(idx);
+                    }
+                }
+            };
             for (const index of ordered) {
+                syncNewlyAddedQueueItems();
                 if (captionTranscriptionCancelRequested) break;
                 const item = captionVideoQueue[index];
                 if (!item || item.status === 'exported') continue;
@@ -1899,13 +2609,27 @@ function bootCaptionStudio() {
                                 cancelBtn.textContent = 'Stop Transcription';
                                 cancelBtn.classList.remove('hidden');
                             }
-                            const transcription = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
+                            let transcription = await invokeCaptioner2TranscribeVideo(activeCaptionTranscription);
                             if (transcription?.cancelled || captionTranscriptionCancelRequested) {
                                 captionTranscriptionCancelRequested = true;
                                 throw new Error('Caption queue transcription cancelled.');
                             }
+                            if ((!transcription || !transcription.ok)
+                                && activeCaptionTranscription?.engine === 'groq'
+                                && !['CAPTION_RESOURCE_BUSY', 'CAPTION_TRANSCRIPTION_BUSY'].includes(transcription?.code)) {
+                                console.warn('[Captioner 2] Queue Groq transcription failed, falling back to Local Whisper:', transcription?.error);
+                                statusText.innerHTML = `Groq timing uncertain on queue item ${index + 1}; switching to Local Whisper...`;
+                                activeCaptionTranscription = { ...activeCaptionTranscription, engine: 'local', captionerVersion: 2 };
+                                transcription = await invokeCaptioner2TranscribeVideo(activeCaptionTranscription);
+                                if (transcription?.cancelled || captionTranscriptionCancelRequested) {
+                                    captionTranscriptionCancelRequested = true;
+                                    throw new Error('Caption queue transcription cancelled.');
+                                }
+                            }
                             if (!transcription || !transcription.ok) {
-                                throw new Error((transcription && transcription.error) || 'Electron transcription failed.');
+                                const err = new Error((transcription && transcription.error) || 'Electron transcription failed.');
+                                if (transcription?.code) err.code = transcription.code;
+                                throw err;
                             }
                             activeCaptionTranscription = null;
                             if (isSongCaptionMode() && !transcription.words?.length) throw new Error('No timed lyrics detected. Clearer vocals are needed for synchronized song captions.');
@@ -1989,6 +2713,8 @@ function bootCaptionStudio() {
                             + (itemError.captionTimingFailure ? ' No export started.' : '')).slice(0, 500)
                     });
                     console.error(`[Caption Queue] Video ${index + 1} failed:`, itemError);
+                } finally {
+                    syncNewlyAddedQueueItems();
                 }
             }
             const exportedCount = captionVideoQueue.filter(item => item.status === 'exported').length;
@@ -2353,6 +3079,17 @@ function bootCaptionStudio() {
         const words = Array.isArray(result && result.words) ? result.words : [];
         const segments = Array.isArray(result && result.segments) ? result.segments : [];
         const chunks = [];
+        const buildFromSegments = () => applyCaptionGrammarPunctuation(segments.filter(s => s.text && String(s.text).trim()).map(s => ({
+            text: String(s.text).trim(),
+            timestamp: [Number(s.start || 0), Number(s.end || (Number(s.start || 0) + 0.5))],
+            words: String(s.text).trim().split(/\s+/).map((w, i, a) => ({
+                text: w,
+                timestamp: [
+                    Number(s.start || 0) + (i / a.length) * (Number(s.end || 0) - Number(s.start || 0)),
+                    Number(s.start || 0) + ((i + 1) / a.length) * (Number(s.end || 0) - Number(s.start || 0))
+                ]
+            }))
+        })), { songMode: isSongCaptionMode() });
         if (words.length > 0) {
             // A decoder can recognize a complete sentence but omit its word
             // timestamps. A partial word list must never silently remove that
@@ -2362,25 +3099,23 @@ function bootCaptionStudio() {
             const timedText = normalize(cues.map(cue => cue.text).join(' '));
             const recognizedText = normalize(result?.text) || normalize(segments.map(segment => segment?.text || '').join(' '));
             if (recognizedText && recognizedText !== timedText) {
-                const error = new Error('Some recognized narration has no word timestamps. Caption generation stopped to avoid exporting missing sentences. Your previous captions are preserved.');
-                error.captionTimingFailure = true;
-                throw error;
+                const segCues = buildFromSegments();
+                if (segCues.length > 0) return segCues;
+                if (result && result.text) {
+                    return applyCaptionGrammarPunctuation(
+                        buildLinearCaptionChunks(String(result.text), duration || 60, { narrationDurationSec: duration || 60 }),
+                        { songMode: isSongCaptionMode() }
+                    );
+                }
             }
             return cues;
         } else if (segments.length > 0) {
-            return segments.filter(s => s.text && String(s.text).trim()).map(s => ({
-                text: String(s.text).trim(),
-                timestamp: [Number(s.start || 0), Number(s.end || (Number(s.start || 0) + 0.5))],
-                words: String(s.text).trim().split(/\s+/).map((w, i, a) => ({
-                    text: w,
-                    timestamp: [
-                        Number(s.start || 0) + (i / a.length) * (Number(s.end || 0) - Number(s.start || 0)),
-                        Number(s.start || 0) + ((i + 1) / a.length) * (Number(s.end || 0) - Number(s.start || 0))
-                    ]
-                }))
-            }));
+            return buildFromSegments();
         } else if (result && result.text) {
-            return buildLinearCaptionChunks(String(result.text), duration || 60, { narrationDurationSec: duration || 60 });
+            return applyCaptionGrammarPunctuation(
+                buildLinearCaptionChunks(String(result.text), duration || 60, { narrationDurationSec: duration || 60 }),
+                { songMode: isSongCaptionMode() }
+            );
         }
         return chunks;
     }
@@ -2395,7 +3130,7 @@ function bootCaptionStudio() {
         if (typeof progressFn === 'function') {
             progressFn(18, 'Generating captions', `High-accuracy Whisper is transcribing ${detail || 'Indic'} audio...`);
         }
-        const groq = await window.electronAPI.transcribeVideoGroq({ videoPath, languageHint: languageHint || 'auto' });
+        const groq = await window.electronAPI.transcribeVideoGroq({ videoPath, languageHint: languageHint || 'auto', captionerVersion: 2 });
         if (!groq || !groq.ok) {
             throw new Error((groq && groq.error) || 'High-accuracy Whisper failed.');
         }
@@ -2486,9 +3221,28 @@ function bootCaptionStudio() {
             captionList.appendChild(div);
         });
 
+        const editorActionRow = document.createElement('div');
+        editorActionRow.style.cssText = 'display: flex; gap: 8px; margin-top: 10px;';
+
+        const grammarBtn = document.createElement('button');
+        grammarBtn.id = 'cap2_captionGrammarBtn';
+        grammarBtn.type = 'button';
+        grammarBtn.className = 'ghost-btn';
+        grammarBtn.style.cssText = 'flex: 1; padding: 10px; border-radius: 4px; border: 1px solid rgba(56,189,248,0.4); background: rgba(56,189,248,0.12); color: #bae6fd; font-weight: 700; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px;';
+        grammarBtn.innerHTML = '<span>✓</span><span>Check , &amp; . Grammar</span>';
+        grammarBtn.onclick = () => {
+            if (captionLocalBusy() || !generatedCaptions.length) return;
+            generatedCaptions = applyCaptionGrammarPunctuation(generatedCaptions, { songMode: false });
+            const item = captionVideoQueue[captionQueueIndex];
+            commitCaptionLocalEdits({ timingSource: item?.timingSource || 'word', warnings: item?.warnings || [] });
+            populateEditor();
+            if (statusText) statusText.innerHTML = '✅ Checked and corrected , and . punctuation according to grammar.';
+        };
+        editorActionRow.appendChild(grammarBtn);
+
         const addBtn = document.createElement('button');
         addBtn.className = 'primary-btn';
-        addBtn.style.cssText = 'width: 100%; margin-top: 10px; padding: 10px; border-radius: 4px; border: 1px dashed rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); color: white; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px;';
+        addBtn.style.cssText = 'flex: 1; padding: 10px; border-radius: 4px; border: 1px dashed rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); color: white; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px;';
         addBtn.innerHTML = '<span>+</span><span>Add Caption Row</span>';
         addBtn.onclick = () => {
             if (captionLocalBusy()) return;
@@ -2496,11 +3250,12 @@ function bootCaptionStudio() {
             let start = lastChunk ? parseFloat(lastChunk.timestamp[1]) : 0;
             let end = clampCaptionPreviewTime(start + 2.0);
             if (end <= start) { localWorkbenchBridge.notice('No video time remains for another cue. Adjust the final cue first.'); return; }
-            generatedCaptions.push({ text: "New Caption", timestamp: [start, end], colorOverride: '#fde047' });
+            generatedCaptions.push({ text: "New Caption.", timestamp: [start, end], colorOverride: '#fde047' });
             commitCaptionLocalEdits({ timingSource: 'estimated', warnings: captionVideoQueue[captionQueueIndex]?.warnings || [] });
             populateEditor();
         };
-        captionList.appendChild(addBtn);
+        editorActionRow.appendChild(addBtn);
+        captionList.appendChild(editorActionRow);
 
         document.querySelectorAll('#cap2_captionList .chunk-editor').forEach(input => {
             input.addEventListener('input', (e) => {
@@ -2854,6 +3609,7 @@ function bootCaptionStudio() {
         let notificationRoute = 'preparation';
         isExtractingText = true;
         publishCaptionLocalState();
+        renderCaptionQueue();
         captionTranscriptionCancelRequested = false;
         actionBtn.disabled = false;
         actionBtn.textContent = 'Cancel Transcription';
@@ -2979,7 +3735,7 @@ function bootCaptionStudio() {
                                 if (!mergeResult || !mergeResult.ok) throw new Error(mergeResult && mergeResult.error || 'Merge failed');
                                 if (pBar) pBar.style.width = '50%';
                                 statusText.innerHTML = 'Merged! Transcribing with Whisper...';
-                                const ipc2 = await window.electronAPI.transcribeVideo({ videoPath: mergeResult.outputPath, ...getCaptionTranscriptionOptions() });
+                                const ipc2 = await invokeCaptioner2TranscribeVideo({ videoPath: mergeResult.outputPath, ...getCaptionTranscriptionOptions() });
                                 if (pBar) pBar.style.width = '100%';
                                 if (ipc2 && ipc2.ok && ipc2.text && ipc2.text.trim().length > 3) {
                                     const words2 = Array.isArray(ipc2.words) ? ipc2.words : [];
@@ -3088,7 +3844,18 @@ function bootCaptionStudio() {
                 try {
                     activeCaptionTranscription = { videoPath, languageHint: 'auto', ...transcriptionOptions };
                     notificationRoute = 'native';
-                    ipc = await window.electronAPI.transcribeVideo(activeCaptionTranscription);
+                    ipc = await invokeCaptioner2TranscribeVideo(activeCaptionTranscription);
+                    if ((!ipc || !ipc.ok)
+                        && !ipc?.cancelled
+                        && !captionTranscriptionCancelRequested
+                        && transcriptionOptions?.engine === 'groq'
+                        && !['CAPTION_RESOURCE_BUSY', 'CAPTION_TRANSCRIPTION_BUSY'].includes(ipc?.code)) {
+                        console.warn('[Captioner 2] Groq transcription failed, falling back to Local Whisper:', ipc?.error);
+                        statusText.textContent = 'Groq timing uncertain — switching automatically to Local Whisper...';
+                        updateSingleProgress(25, 'Switching to Local Whisper', 'Groq could not verify word timing; running Local Whisper...');
+                        activeCaptionTranscription = { videoPath, languageHint: 'auto', ...transcriptionOptions, engine: 'local', captionerVersion: 2 };
+                        ipc = await invokeCaptioner2TranscribeVideo(activeCaptionTranscription);
+                    }
                 } finally {
                     clearInterval(ipcHeartbeat);
                     activeCaptionTranscription = null;
@@ -3274,7 +4041,8 @@ function bootCaptionStudio() {
             // them again after unlocking so videos remain selectable on cancel.
             renderCaptionQueue();
             activeCaptionTranscription = null;
-            if (captionTranscriptionCancelRequested) notifyFallback('cancelled');
+            const wasCancelled = captionTranscriptionCancelRequested;
+            if (wasCancelled) notifyFallback('cancelled');
             captionTranscriptionCancelRequested = false;
             if (cancelBtn) {
                 cancelBtn.classList.add('hidden');
@@ -3286,6 +4054,15 @@ function bootCaptionStudio() {
                 if (!generatedCaptions.length) {
                     actionBtn.textContent = captionVideoQueue.length > 1 ? 'Generate Queue' : 'Generate Captions';
                     actionBtn.classList.remove('hidden');
+                }
+                if (!wasCancelled && autoContinueQueueAfterSingleJob) {
+                    autoContinueQueueAfterSingleJob = false;
+                    const nextReadyIdx = captionVideoQueue.findIndex((item, idx) =>
+                        item && idx !== previousIndex && item.status === 'ready' && !(item.captions && item.captions.length)
+                    );
+                    if (nextReadyIdx >= 0) {
+                        setTimeout(() => transcribeCaptionQueueFrom(nextReadyIdx), 60);
+                    }
                 }
             }
         }
@@ -3302,7 +4079,7 @@ function bootCaptionStudio() {
             captionTranslationController?.abort(new Error('Caption translation cancelled.'));
             if (activeCaptionTranscription && window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
                 try {
-                    await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription);
+                    await window.electronAPI.cancelTranscribeVideo({ ...activeCaptionTranscription, captionerVersion: 2, waitForRelease: true });
                 } catch (error) {
                     console.error('[Caption] Cancel failed:', error);
                 }
@@ -3324,7 +4101,7 @@ function bootCaptionStudio() {
         statusText.textContent = captionTranslationBusy ? 'Stopping translation safely…' : 'Stopping the active transcription safely…';
         captionTranslationController?.abort(new Error('Caption translation cancelled.'));
         if (activeCaptionTranscription && window.electronAPI && typeof window.electronAPI.cancelTranscribeVideo === 'function') {
-            try { await window.electronAPI.cancelTranscribeVideo(activeCaptionTranscription || {}); }
+            try { await window.electronAPI.cancelTranscribeVideo({ ...(activeCaptionTranscription || {}), captionerVersion: 2, waitForRelease: true }); }
             catch (error) { console.error('[Caption] Cancel failed:', error); }
         }
     });
@@ -3804,7 +4581,7 @@ function bootCaptionStudio() {
     function getCaptionSourcePath() {
         try {
             if (!activeFile) return "";
-            const sourcePath = activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+            const sourcePath = activeFile.path || activeFile.stagedPath || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
                 ? (window.electronAPI.getPathForFile(activeFile) || "")
                 : "");
             if (/\.part\.mp4$/i.test(sourcePath)) {
@@ -4172,10 +4949,16 @@ function bootCaptionStudio() {
         sourceVideo.pause();
         const offset = getCaptionSyncOffsetSeconds();
         const cap = generatedCaptions.find(c => sourceVideo.currentTime - offset >= c.timestamp[0] && sourceVideo.currentTime - offset < c.timestamp[1]) || generatedCaptions[0];
-        await seekCaptionPreviewTo(Math.max(0, Number(cap.timestamp[0]) + offset + 0.01));
+        await Promise.race([
+            seekCaptionPreviewTo(Math.max(0, Number(cap.timestamp[0]) + offset + 0.01)),
+            new Promise(resolve => setTimeout(resolve, 180))
+        ]);
         renderPreviewNow(sourceVideo.currentTime);
         renderCanvas.scrollIntoView({ block: 'center' });
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await Promise.race([
+            new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+            new Promise(resolve => setTimeout(resolve, 50))
+        ]);
         // Keep the preview current, but never interrupt each queued export with a dialog.
         return true;
     }
@@ -4600,11 +5383,15 @@ function bootCaptionStudio() {
                 }
                 return;
             }
-            if (isExtractingText || captionExportBusy || captionTranslatingLanguage) {
+            if (captionLocalBusy()) {
                 if (cap2VoiceStatus) cap2VoiceStatus.textContent = '⚠️ Caption engine is busy — wait a moment and try again.';
                 return;
             }
             if (cap2VoiceStatus) cap2VoiceStatus.textContent = '🎥 Transcribing video audio into timed captions...';
+            if (captionVideoQueue.length > 1) {
+                transcribeCaptionQueueFrom(captionQueueIndex);
+                return;
+            }
             transcribeActiveCaptionVideo();
         });
     }

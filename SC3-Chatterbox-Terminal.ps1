@@ -60,7 +60,7 @@ try {
                 $color = 'Yellow'
             }
         } catch {
-            $message = 'WAITING - SC3 Chatterbox is not responding yet. Model loading can take several minutes. Check the startup log if this continues.'
+            $message = 'UNAVAILABLE - SC3 Chatterbox is not responding. It may be loading, restarting, or paused to free memory for another local AI task. Check the startup log if this continues.'
             $color = 'Yellow'
         }
         if ($message -ne $lastMessage) {

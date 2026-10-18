@@ -1,10 +1,10 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const stripTypeScriptTypes = require('node:module').stripTypeScriptTypes || (code => require('sucrase').transform(code, { transforms: ['typescript'] }).code);
+const { stripTypeScriptTypes } = require('node:module');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'caption', 'caption-tools.ts'), 'utf8');
 const names = ['parseSubtitleFile', 'serializeSubtitles', 'inspectCaptionQuality', 'shiftCaptionTiming',

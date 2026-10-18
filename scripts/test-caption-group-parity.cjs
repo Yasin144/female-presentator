@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
-const stripTypeScriptTypes = require('node:module').stripTypeScriptTypes || (code => require('sucrase').transform(code, { transforms: ['typescript'] }).code);
+const { stripTypeScriptTypes } = require('node:module');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src/caption/burn.ts'), 'utf8')
   .split('export async function burnCaptions')[0].replace(/^import .*;\r?\n/gm, '');
 const api = vm.runInNewContext(stripTypeScriptTypes(source).replace(/^export /gm, '')

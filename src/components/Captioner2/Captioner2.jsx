@@ -1,6 +1,5 @@
 import React from 'react';
 import LocalCaptionWorkbench2 from '../../caption/LocalCaptionWorkbench2';
-import CaptionBurner2 from '../../caption/CaptionBurner2';
 import '../../caption/captioner2-panel.css';
 
 function CaptionSlider({ id, valueId, label, value, min, max, step, defaultValue }) {
@@ -35,8 +34,31 @@ function LocalCaptionPanel2() {
           <div className="lcp-source-fields">
             <div className="lcp-field lcp-upload">
               <label htmlFor="cap2_captionVideoInput">Source video</label>
+              <div
+                id="cap2_captionDropZone"
+                role="button"
+                tabIndex={0}
+                aria-label="Drag and drop video files here to add to the caption queue"
+                style={{
+                  border: '2px dashed rgba(56, 189, 248, 0.45)',
+                  borderRadius: '12px',
+                  padding: '16px 14px',
+                  textAlign: 'center',
+                  background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.10), rgba(99, 102, 241, 0.08))',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  marginBottom: '8px',
+                }}
+              >
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#e0f2fe', marginBottom: '4px' }}>
+                  📥 Drag &amp; Drop Video(s) Here — Auto-Queues &amp; Processes
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 600 }}>
+                  Drop files anytime (even while processing) to append them to the live queue
+                </div>
+              </div>
               <input id="cap2_captionVideoInput" className="image-input" type="file" accept="video/*" multiple />
-              <p className="lcp-help">Choose one video, or hold Ctrl to select several videos for the queue.</p>
+              <p className="lcp-help">Drag &amp; drop videos anywhere in Captioner 2, or choose files above to queue and process automatically.</p>
             </div>
             <div className="lcp-recognition-fields">
               <label className="lcp-field" htmlFor="cap2_captionContentMode">Audio content
@@ -54,6 +76,9 @@ function LocalCaptionPanel2() {
               <div id="cap2_captionIntelligenceStatus" className="lcp-help" role="status" aria-live="polite">Automatic review checks language, word timing and possible missing speech after generation.</div>
               <CaptionToggle id="cap2_captionAutoRecover" defaultChecked>Automatically recover missed speech</CaptionToggle>
               <p className="lcp-help">Checks uncaptioned audio gaps. Groq makes additional short audio requests; Local checks on this computer. Recovery cannot detect every omission.</p>
+              <div id="cap2_captionGroqRecoveryField" className="hidden" style={{ gridColumn: '1 / -1' }}>
+                <CaptionToggle id="cap2_captionGroqLocalRecovery" defaultChecked>Use Local if Groq cannot verify captions or reaches its quota</CaptionToggle>
+              </div>
               <div id="cap2_captionGroqKeyField" className="lcp-field hidden">
                 <label htmlFor="cap2_captionGroqApiKey">Groq API key (optional)</label>
                 <input id="cap2_captionGroqApiKey" type="password" maxLength={256} autoComplete="off" placeholder="Leave blank to use the configured key" className="theme-input" />
@@ -77,7 +102,7 @@ function LocalCaptionPanel2() {
             <h3 id="cap2_lcp-queue-heading">Video queue</h3>
             <p className="lcp-help">Select videos using Choose Files above. Start Queue generates captions and exports the queued videos.</p>
             <div id="cap2_captionQueuePanel" className="hidden">
-              <div className="cap2_lcp-queue-heading">
+              <div className="lcp-queue-heading">
                 <span id="cap2_captionQueueStatus" className="lcp-help">Queue ready.</span>
                 <div className="lcp-action-row">
                   <button id="cap2_captionQueueRunBtn" className="ghost-btn" type="button">Start Queue</button>
@@ -205,7 +230,7 @@ function LocalCaptionPanel2() {
         </section>
 
         <section className="lcp-card lcp-export-card" aria-labelledby="cap2_lcp-export-heading">
-          <div className="cap2_lcp-export-heading"><div className="lcp-card-heading"><span className="lcp-step">4</span><h2 id="cap2_lcp-export-heading">Export</h2></div><p className="lcp-help">Review the captions and timing before saving.</p></div>
+          <div className="lcp-export-heading"><div className="lcp-card-heading"><span className="lcp-step">4</span><h2 id="cap2_lcp-export-heading">Export</h2></div><p className="lcp-help">Review the captions and timing before saving.</p></div>
           <div className="lcp-action-row"><button id="cap2_captionExportBtn" className="primary-btn hidden" type="button">Export Video</button><button id="cap2_captionPreviewBtn" className="ghost-btn hidden" type="button">Preview 5s</button></div>
           <div id="cap2_captionExportActions" className="hidden" />
         </section>
@@ -215,57 +240,14 @@ function LocalCaptionPanel2() {
 }
 
 export default function Captioner2({ onClose }) {
-  const [viewMode, setViewMode] = React.useState('local-v2');
   React.useEffect(() => {
     if (typeof window !== 'undefined' && typeof window.bootCaptionStudioV2 === 'function') {
       window.bootCaptionStudioV2();
     }
-  }, [viewMode]);
+  }, []);
   return (
     <div className="captioner2-workspace" style={{ maxWidth: '1440px', margin: '0 auto', padding: '16px 20px 80px' }}>
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '12px',
-        marginBottom: '16px',
-        padding: '12px 16px',
-        borderRadius: '14px',
-        background: 'rgba(15, 23, 42, 0.78)',
-        border: '1px solid rgba(148, 163, 184, 0.22)'
-      }}>
-        <div>
-          <strong style={{ fontSize: '15px', color: '#f8fafc', display: 'block' }}>Captioner 2 (New GitHub Caption Engine)</strong>
-          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Includes Local Whisper + Groq + Gemini Song mode, AI Caption Eraser, Missed Speech Recovery &amp; Caption Workbench.</span>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            className={viewMode === 'local-v2' ? 'primary-btn' : 'ghost-btn'}
-            onClick={() => setViewMode('local-v2')}
-            style={{ minHeight: '36px', fontSize: '12px', padding: '6px 14px', borderRadius: '8px' }}
-          >
-            AI Video Captioning (Local v2)
-          </button>
-          <button
-            type="button"
-            className={viewMode === 'burner-v2' ? 'primary-btn' : 'ghost-btn'}
-            onClick={() => setViewMode('burner-v2')}
-            style={{ minHeight: '36px', fontSize: '12px', padding: '6px 14px', borderRadius: '8px' }}
-          >
-            Caption Burner v2
-          </button>
-        </div>
-      </div>
-      <div style={{ display: viewMode === 'local-v2' ? 'block' : 'none' }}>
-        <LocalCaptionPanel2 />
-      </div>
-      {viewMode === 'burner-v2' && (
-        <div style={{ borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(148, 163, 184, 0.22)' }}>
-          <CaptionBurner2 onClose={() => setViewMode('local-v2')} />
-        </div>
-      )}
+      <LocalCaptionPanel2 />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'caption-script-v2.js'), 'utf8').replace(/cap2_/g, '');
+const source = fs.readFileSync(path.join(__dirname, '..', 'caption-script.js'), 'utf8');
 const functions = new Map();
 traverse(parser.parse(source), { FunctionDeclaration(p) {
   functions.set(p.node.id.name, source.slice(p.node.start, p.node.end));

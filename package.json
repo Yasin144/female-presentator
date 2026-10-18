@@ -14,7 +14,9 @@
         "android:sync": "npm run build:react && npx cap sync android",
         "android:open": "npx cap open android",
         "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "test:caption-local": "node scripts/test-caption-local-all.cjs",
+        "test:captions": "node scripts/test-caption-local-all.cjs --browser"
     },
     "author": "Anjali",
     "license": "ISC",
@@ -22,6 +24,12 @@
         "appId": "com.presentator.app",
         "files": [
             "**/*",
+            "!**/.groq_api_key",
+            "!**/.gemini_api_key",
+            "!**/.hf_token",
+            "!**/.env",
+            "!**/.env.*",
+            "!**/.caption-eraser-venv/**",
             "!**/temp/**",
             "!**/dist/**",
             "!**/logs/**",
@@ -31,6 +39,12 @@
             "!**/*.wav",
             "!**/*.mp3",
             "!**/*.tmp"
+        ],
+        "extraResources": [
+            {
+                "from": "Setup-Caption-Eraser-AI.ps1",
+                "to": "Setup-Caption-Eraser-AI.ps1"
+            }
         ],
         "win": {
             "target": "portable",

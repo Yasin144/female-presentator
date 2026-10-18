@@ -9,7 +9,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
-const input = read('src/components/InputPanel.jsx');
+const input = read('src/components/InputPanel.jsx') + '\n' + read('src/components/LocalCaptionPanel.jsx');
 const stage = read('src/components/StagePanel.jsx');
 const presenterCss = read('src/classic-presentator.css');
 const legacySource = read('script.js');

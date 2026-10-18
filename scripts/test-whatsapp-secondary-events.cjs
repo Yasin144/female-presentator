@@ -104,34 +104,60 @@ test('actual MP3 save reports its result but excludes cancelled dialogs and empt
 });
 
 function captionTranslationFixture(options = {}) {
-  const reports = [];
+  const reports = [], original = [{ text: 'First', timestamp: [1, 2] }, { text: 'Second', timestamp: [3, 4] }];
+  const classes = { add() {}, remove() {} };
   const context = vm.createContext({
-    window: { electronAPI: { reportWhatsAppJob: event => reports.push(event) } },
-    generatedCaptions: options.empty ? [] : [{ text: 'First' }, { text: 'Second' }],
+    window: { electronAPI: { reportWhatsAppJob: event => reports.push({ ...event,
+      committedTexts: context.captionVideoQueue[0].captions.map(cue => cue.text) }) } },
+    generatedCaptions: options.empty ? [] : JSON.parse(JSON.stringify(original)),
     statusText: {}, document: { getElementById: () => null },
-    TRANSLATE_SERVER: 'http://fake-local-service', AbortSignal: { timeout: () => undefined },
-    editorPanel: { style: {} }, populateEditor: () => {},
-    fetch: async url => {
-      if (options.healthFail && url.endsWith('/health')) throw new Error('Connection refused');
-      return { ok: !options.batchFail || url.endsWith('/health'), status: 503, json: async () => ({ results: options.noResults ? [] : ['One', 'Two'] }) };
+    AbortController, setTimeout, clearTimeout,
+    captionVideoQueue: [{ id: 'translation-video', captions: JSON.parse(JSON.stringify(original)), sourceLanguage: 'en',
+      timingSource: 'word', warnings: [], outputPath: 'previous-export.mp4' }], captionQueueIndex: 0,
+    captionTranslationBusy: false, captionTranslationController: null, captionTranscriptionCancelRequested: false,
+    actionBtn: { disabled: false, classList: classes }, cancelBtn: { disabled: false, classList: classes },
+    captionLocalBusy: () => options.busy || context.captionTranslationBusy,
+    ensureCaptionLocalItemId: item => item.id, publishCaptionLocalState() {}, populateEditor() {},
+    renderCaptionQueue() {}, updateCaptionStyleValueLabels() {},
+    commitCaptionLocalEdits(metadata) {
+      context.captionVideoQueue[0] = { ...context.captionVideoQueue[0], captions: JSON.parse(JSON.stringify(context.generatedCaptions)),
+        ...metadata, outputPath: undefined };
+    },
+    fetch: async () => {
+      if (options.providerFail) throw new Error('Connection refused');
+      if (options.cancel) { context.captionTranscriptionCancelRequested = true; context.captionTranslationController.abort(); }
+      return { ok: !options.batchFail, status: 503, json: async () => ({ results: options.noResults ? [] : ['One', 'Two'] }) };
     },
   });
-  for (const name of ['createCaptionWhatsAppJob', 'translateCaptionsTo']) vm.runInContext(captions.functions.get(name), context);
-  return { context, reports };
+  for (const name of ['createCaptionWhatsAppJob', 'normalizeCaptionOutputLanguage', 'captionTextScriptLanguage',
+    'captionTranslationTimeoutMs', 'translateCaptionLanguageBatch', 'applyCaptionOutputMetadata', 'prepareCaptionOutput',
+    'translateCaptionsTo']) vm.runInContext(captions.functions.get(name), context);
+  return { context, reports, original };
 }
 
-test('actual HTTP caption translation has one truthful terminal report and no empty-input success', async () => {
-  for (const options of [{}, { healthFail: true }, { batchFail: true }, { noResults: true }, { empty: true }]) {
-    const { context, reports } = captionTranslationFixture(options);
+test('manual caption translation reports one committed success or atomic failure, while cancellation, empty and busy stay quiet', async () => {
+  for (const options of [{}, { providerFail: true }, { batchFail: true }, { noResults: true }, { cancel: true }, { empty: true }, { busy: true }]) {
+    const { context, reports, original } = captionTranslationFixture(options);
     await context.translateCaptionsTo('hi');
-    if (options.empty) assert.equal(reports.length, 0);
+    if (options.empty || options.busy || options.cancel) assert.equal(reports.length, 0);
     else {
       assert.equal(reports.length, 1);
       assert.equal(reports[0].status, Object.keys(options).length ? 'failed' : 'completed');
-      if (options.healthFail) assert.match(reports[0].details, /Connection refused/);
-      if (options.noResults) assert.match(reports[0].details, /no caption results/);
+      if (options.providerFail) assert.match(reports[0].details, /Connection refused/);
+      if (options.noResults) assert.match(reports[0].details, /incomplete captions/);
+    }
+    if (!Object.keys(options).length) {
+      assert.deepEqual(JSON.parse(JSON.stringify(context.captionVideoQueue[0].captions.map(cue => cue.text))), ['One', 'Two']);
+      assert.deepEqual(JSON.parse(JSON.stringify(reports[0].committedTexts)), ['One', 'Two'], 'Completion must follow the atomic caption commit');
+      assert.deepEqual(JSON.parse(JSON.stringify(context.captionVideoQueue[0].captions.map(cue => cue.timestamp))), original.map(cue => cue.timestamp));
+      assert.equal(context.captionVideoQueue[0].outputPath, undefined);
+    } else if (!options.empty) {
+      assert.deepEqual(JSON.parse(JSON.stringify(context.generatedCaptions)), original);
+      assert.equal(context.captionVideoQueue[0].outputPath, 'previous-export.mp4');
     }
   }
+  assert.doesNotMatch(captions.functions.get('prepareCaptionOutput'), /createCaptionWhatsAppJob|notifyTranslation/);
+  assert.doesNotMatch(captions.functions.get('transcribeCaptionQueueFrom'), /notifyTranslation/);
 });
 
 test('intermediate HTTP fallback errors are not separately reported', () => {

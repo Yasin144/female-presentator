@@ -103,7 +103,7 @@ def clean(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False, clip_timestamps="0"):
+def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False, clip_timestamps="0", chunk_length=30):
     """Run faster-whisper with speech and confidence filtering using a preloaded model."""
     lenient = lenient or song_mode
     segs, info = m.transcribe(
@@ -119,7 +119,7 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
         word_timestamps=True,                      # real word-level timestamps
         # Long repeated choruses can derail a 30-second decode and collapse
         # word times at the end. Short windows keep lyrics anchored to audio.
-        chunk_length=10 if song_mode else 30,
+        chunk_length=10 if song_mode else chunk_length,
         clip_timestamps=clip_timestamps,
         # Keep the physical audio timeline intact. VAD's concatenated speech
         # clips can attach the next phrase's first word to an earlier intro,
@@ -153,14 +153,14 @@ def run_whisper_with_model(m, audio_path: str, lang: str, lenient: bool = False,
         if not song_mode and is_repetition_loop(t):
             continue
         parts.append(t)
-        seg_list.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": t})
+        seg_list.append({"start": float(s.start), "end": float(s.end), "text": t})
         if hasattr(s, "words") and s.words:
             for w in s.words:
                 wt = w.word.strip()
                 if wt:
                     word_list.append({
-                        "start": round(w.start, 2),
-                        "end":   round(w.end, 2),
+                        "start": float(w.start),
+                        "end":   float(w.end),
                         "word":  wt
                     })
 
@@ -176,6 +176,22 @@ def audio_duration_seconds(audio_path: str) -> float:
             return wav_file.getnframes() / max(1, wav_file.getframerate())
     except Exception:
         return 0.0
+
+
+def caption_audio_is_silent(audio_path):
+    """Skip only exact digital silence; quiet nonzero samples still reach ASR."""
+    try:
+        with wave.open(audio_path, 'rb') as audio:
+            if audio.getsampwidth() != 2 or audio.getcomptype() != 'NONE' or audio.getnframes() == 0:
+                return False
+            while True:
+                samples = audio.readframes(65536)
+                if not samples:
+                    return True
+                if any(samples):
+                    return False
+    except (OSError, EOFError, wave.Error):
+        return False
 
 
 def uncovered_audio_ranges(words, duration: float, minimum_gap: float = 1.0):
@@ -209,13 +225,15 @@ def valid_caption_word_timeline(words, duration=None):
     previous_end = 0.0
     try:
         for word in words:
+            if not isinstance(word, dict) or not isinstance(word.get('word'), str) or any(isinstance(word.get(key), bool) for key in ('start', 'end')):
+                return False
             start, end = float(word["start"]), float(word["end"])
             if (not str(word.get("word", "")).strip() or not math.isfinite(start)
                     or not math.isfinite(end) or start < previous_end or end <= start
                     or (duration is not None and end > duration + 0.01)):
                 return False
             previous_end = end
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
         return False
     return bool(words)
 
@@ -234,6 +252,306 @@ def caption_segments_from_words(words):
         segments.append({"start": group[0]["start"], "end": group[-1]["end"],
                          "text": clean(" ".join(w["word"] for w in group))})
     return segments
+
+
+def caption_text_match_key(value):
+    """Match payload coverage exactly as the app does, without spelling aliases."""
+    import unicodedata
+    return ''.join(char for char in unicodedata.normalize('NFKC', str(value)).lower()
+                   if unicodedata.category(char)[0] in 'LMN')
+
+
+def read_caption_audio_range(m, audio_path, lang, start, end, lenient=False):
+    """Decode exact PCM frames independently, then restore their physical offset."""
+    temporary = None
+    try:
+        with wave.open(audio_path, 'rb') as source:
+            rate = source.getframerate()
+            first_frame = max(0, int(math.floor(start * rate)))
+            last_frame = min(source.getnframes(), int(math.ceil(end * rate)))
+            if last_frame <= first_frame or source.getcomptype() != 'NONE':
+                raise ValueError('Focused caption audio range is empty or not PCM')
+            source.setpos(first_frame)
+            samples = source.readframes(last_frame - first_frame)
+            clip = tempfile.NamedTemporaryFile(suffix='_cap_timing.wav', delete=False)
+            temporary = clip.name
+            clip.close()
+            with wave.open(temporary, 'wb') as target:
+                target.setparams(source.getparams())
+                target.writeframes(samples)
+        result = run_whisper_with_model(m, temporary, lang, lenient=lenient, chunk_length=10)
+        text, detected, segments, words = result
+        clip_duration = (last_frame - first_frame) / rate
+        if not valid_caption_word_timeline(words, clip_duration):
+            raise ValueError('Focused audio read returned incomplete or conflicting word timing')
+        if caption_text_match_key(text) != caption_text_match_key(' '.join(word['word'] for word in words)):
+            raise ValueError('Focused audio read omitted recognized word timing')
+        offset = first_frame / rate
+        shifted = [dict(word, start=float(word['start']) + offset, end=float(word['end']) + offset)
+                   for word in words]
+        return text, detected, caption_segments_from_words(shifted), shifted
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
+def repair_primary_caption_timing(m, audio_path, lang, current):
+    """Replace invalid decoder intervals only with two complete agreeing reads."""
+    text, detected, segments, words = current
+    duration = audio_duration_seconds(audio_path)
+    if not auto_recovery or not words or valid_caption_word_timeline(words, duration):
+        return current
+    try:
+        source_text = text or ' '.join(segment.get('text', '') for segment in segments)
+        covered_text = ' '.join(word.get('word', '') for word in words)
+    except (AttributeError, TypeError):
+        recovery_warnings.append('Local primary timing recheck retained malformed word timing for strict validation.')
+        return current
+    if caption_text_match_key(source_text) != caption_text_match_key(covered_text):
+        recovery_warnings.append('Local primary timing recheck cannot replace recognized speech with incomplete word timing.')
+        return current
+    try:
+        ranges = suspicious_caption_audio_ranges(words, duration)
+    except (KeyError, TypeError, ValueError):
+        ranges = []
+    merged = list(words)
+    for start, end in ranges:
+        warning = f'Local primary timing recheck on audio {start:.2f}\u2013{end:.2f}s'
+        if end - start > 24.0:
+            recovery_warnings.append(warning + ' was too broad to verify safely.')
+            continue
+        try:
+            prefix = [word for word in merged if float(word['end']) <= start and float(word['start']) < start]
+            suffix = [word for word in merged if float(word['start']) >= end]
+            original = [word for word in merged if word not in prefix and word not in suffix]
+            if prefix + original + suffix != merged or not original:
+                raise ValueError('Replacement words do not form a contiguous source interval')
+            core_left, core_right = len(prefix), len(merged) - len(suffix)
+            read_start, read_end = start, end
+            for attempt in range(4):
+                second_start, second_end = max(0, read_start - .25), min(duration, read_end + .25)
+                if second_end - second_start > 24:
+                    raise ValueError('Independent timing reads exceed the bounded audio range')
+                first_read = read_caption_audio_range(m, audio_path, lang, read_start, read_end, lenient=False)
+                second_read = read_caption_audio_range(m, audio_path, lang, second_start, second_end, lenient=True)
+                if any(caption_text_match_key(result[0]) != caption_text_match_key(' '.join(word['word'] for word in result[3]))
+                       or not valid_caption_word_timeline(result[3], duration)
+                       for result in (first_read, second_read)):
+                    raise ValueError('Focused audio read returned incomplete word timing')
+                first, second = first_read[3], second_read[3]
+                crossing = any(float(word['start']) < boundary < float(word['end'])
+                               for word in first + second for boundary in (start, end))
+                inside = lambda candidates: [word for word in candidates
+                    if start <= float(word['start']) < float(word['end']) <= end]
+                ordinary_first, ordinary_second = inside(first), inside(second)
+                if (not crossing and caption_word_passes_agree(ordinary_first, ordinary_second)
+                        and caption_preserves_word_sequence(original, ordinary_second)
+                        and len(filter_recovery_speech(audio_path, ordinary_second)) == len(ordinary_second)
+                        and (not prefix or float(prefix[-1]['end']) <= float(ordinary_second[0]['start']))
+                        and (not suffix or float(ordinary_second[-1]['end']) <= float(suffix[0]['start']))):
+                    replacement = caption_restore_original_orthography(original, ordinary_second)
+                    break
+
+                # A stale edge can split a genuinely decoded neighboring word.
+                # Own that word only through a unique exact source alignment,
+                # and physically reread both crops if either lacks its context.
+                source_tokens = [caption_word_match_key(word['word']) for word in merged]
+                def align(decoded):
+                    tokens = [caption_word_match_key(word['word']) for word in decoded]
+                    matches = [index for index in range(len(source_tokens) - len(tokens) + 1)
+                               if tokens and source_tokens[index:index + len(tokens)] == tokens]
+                    if len(matches) != 1:
+                        raise ValueError('Boundary context did not uniquely match the original words')
+                    return matches[0], matches[0] + len(tokens)
+                first_left, first_right = align(first)
+                second_left, second_right = align(second)
+                if not (first_left <= core_left < core_right <= first_right
+                        and second_left <= core_left < core_right <= second_right):
+                    raise ValueError('Independent reads did not include every replacement word')
+                owned_left, owned_right = core_left, core_right
+                for decoded, offset in ((first, first_left), (second, second_left)):
+                    for index, word in enumerate(decoded):
+                        if any(float(word['start']) < boundary < float(word['end']) for boundary in (start, end)):
+                            owned_left = min(owned_left, offset + index)
+                            owned_right = max(owned_right, offset + index + 1)
+                while True:
+                    if not (second_left <= owned_left < owned_right <= second_right):
+                        raise ValueError('Boundary context lacks complete independent word timing')
+                    candidate = second[owned_left - second_left:owned_right - second_left]
+                    if owned_left and float(merged[owned_left - 1]['end']) > float(candidate[0]['start']):
+                        owned_left -= 1
+                    elif owned_right < len(merged) and float(candidate[-1]['end']) > float(merged[owned_right]['start']):
+                        owned_right += 1
+                    else:
+                        break
+                if (not (first_left <= owned_left < owned_right <= first_right)
+                        or float(candidate[0]['start']) < read_start
+                        or float(candidate[-1]['end']) > read_end):
+                    next_start = max(0, min(read_start, float(candidate[0]['start']) - .25,
+                                            float(merged[owned_left]['start']) - .75))
+                    next_end = min(duration, max(read_end, float(candidate[-1]['end']) + .25,
+                                                  float(merged[owned_right - 1]['end']) + .75))
+                    physical_width = min(duration, next_end + .25) - max(0, next_start - .25)
+                    if attempt == 3 or physical_width > 24 or (next_start, next_end) == (read_start, read_end):
+                        raise ValueError('Boundary context cannot be independently verified within a bounded audio range')
+                    read_start, read_end = next_start, next_end
+                    continue
+                confirmed = first[owned_left - first_left:owned_right - first_left]
+                if (not caption_word_passes_agree(confirmed, candidate)
+                        or len(filter_recovery_speech(audio_path, candidate)) != len(candidate)):
+                    raise ValueError('Independent reads did not confirm every word and timestamp')
+                prefix, suffix = merged[:owned_left], merged[owned_right:]
+                replacement = caption_restore_original_orthography(merged[owned_left:owned_right], candidate)
+                break
+            merged = prefix + replacement + suffix
+            print(f'[Whisper] Primary timing recheck {read_start:.1f}s-{read_end:.1f}s verified {len(replacement)} words.', flush=True)
+        except Exception as err:
+            recovery_warnings.append(warning + f' could not verify timing: {err}.')
+            print('[Whisper] ' + recovery_warnings[-1], flush=True)
+    if not valid_caption_word_timeline(merged, duration):
+        return retry_primary_caption_transcript(m, audio_path, lang, current, ranges)
+    groups = caption_segments_from_words(merged)
+    return clean(' '.join(word['word'] for word in merged)), detected, groups, merged
+
+
+def retry_primary_caption_transcript(m, audio_path, lang, current, ranges):
+    """Select fresh audio recognition only after independently confirming its changed phrase."""
+    text, detected, segments, words = current
+    duration = audio_duration_seconds(audio_path)
+    if (not auto_recovery or len(ranges) != 1 or not words or song_mode
+            or valid_caption_word_timeline(words, duration)):
+        return current
+    start, end = ranges[0]
+    if end - start > 24:
+        return current
+    before = [word for word in words if float(word['end']) <= start and float(word['start']) < start]
+    after = [word for word in words if float(word['start']) >= end]
+    original = [word for word in words if word not in before and word not in after]
+    if not original or before + original + after != words:
+        return current
+    allowed_left, allowed_right = len(before), len(words) - len(after)
+    invalid = set()
+    for index, word in enumerate(words):
+        if not valid_caption_word_timeline([word], duration):
+            invalid.add(index)
+        if index and float(word['start']) < float(words[index - 1]['end']):
+            invalid.update((index - 1, index))
+    key = lambda candidates: [caption_word_match_key(word['word']) for word in candidates]
+    # Move the decoder's 30-second boundary rather than repeating it at 10s.
+    for chunk_length in (20,):
+        try:
+            fresh = run_whisper_with_model(m, audio_path, lang, lenient=False, chunk_length=chunk_length)
+            fresh_text, fresh_language, _, candidate = fresh
+            if (not valid_caption_word_timeline(candidate, duration)
+                    or caption_text_match_key(fresh_text) != caption_text_match_key(' '.join(word['word'] for word in candidate))):
+                raise ValueError('Fresh complete recognition returned incomplete or conflicting timing')
+            source_tokens, fresh_tokens = key(words), key(candidate)
+            core_left = 0
+            while (core_left < min(len(words), len(candidate)) and core_left not in invalid
+                   and source_tokens[core_left] == fresh_tokens[core_left]):
+                core_left += 1
+            source_right, core_right = len(words), len(candidate)
+            while (source_right > core_left and core_right > core_left and source_right - 1 not in invalid
+                   and source_tokens[source_right - 1] == fresh_tokens[core_right - 1]):
+                source_right -= 1
+                core_right -= 1
+            prefix, suffix = words[:core_left], words[source_right:]
+            if (core_left >= core_right or core_left < allowed_left or source_right > allowed_right
+                    or (prefix and not valid_caption_word_timeline(prefix, duration))
+                    or (suffix and not valid_caption_word_timeline(suffix, duration))
+                    or (prefix and not caption_word_passes_agree(prefix[-1:], candidate[core_left - 1:core_left]))
+                    or (suffix and not caption_word_passes_agree(suffix[:1], candidate[core_right:core_right + 1]))):
+                raise ValueError('Fresh recognition changed or omitted existing outside narration')
+            replacement = candidate[core_left:core_right]
+            if ((prefix and float(prefix[-1]['end']) > float(replacement[0]['start']))
+                    or (suffix and float(replacement[-1]['end']) > float(suffix[0]['start']))):
+                raise ValueError('Fresh recognition conflicts with unchanged outside audio anchors')
+            block_left = max(0, core_left - 1)
+            block_right = min(len(candidate), core_right + 1)
+            block = candidate[block_left:block_right]
+            read_start = max(0, float(block[0]['start']) - .75)
+            read_end = min(duration, float(block[-1]['end']) + .75)
+            second_start, second_end = max(0, read_start - .25), min(duration, read_end + .25)
+            if second_end - second_start > 24:
+                raise ValueError('Fresh recognition confirmation exceeds the bounded audio range')
+            first = read_caption_audio_range(m, audio_path, lang, read_start, read_end, lenient=False)
+            second = read_caption_audio_range(m, audio_path, lang, second_start, second_end, lenient=True)
+            confirmed = []
+            for result in (first, second):
+                decoded = result[3]
+                if (not valid_caption_word_timeline(decoded, duration)
+                        or caption_text_match_key(result[0]) != caption_text_match_key(' '.join(word['word'] for word in decoded))):
+                    raise ValueError('Fresh recognition confirmation omitted recognized word timing')
+                tokens, expected = key(decoded), key(block)
+                matches = [index for index in range(len(tokens) - len(expected) + 1)
+                           if tokens[index:index + len(expected)] == expected]
+                if len(matches) != 1:
+                    raise ValueError('Fresh recognition confirmation did not uniquely include the whole phrase and anchors')
+                left, right = matches[0], matches[0] + len(block)
+                matched = decoded[left:right]
+                if ((prefix and not caption_word_passes_agree(prefix[-1:], matched[:1]))
+                        or (suffix and not caption_word_passes_agree(suffix[:1], matched[-1:]))
+                        or any(float(word['end']) > float(block[0]['start']) for word in decoded[:left])
+                        or any(float(word['start']) < float(block[-1]['end']) for word in decoded[right:])):
+                    raise ValueError('Fresh recognition confirmation changed the owned phrase or its boundaries')
+                confirmed.append(matched)
+            if (not caption_word_passes_agree(block, confirmed[1])
+                    or not caption_word_passes_agree(*confirmed)
+                    or len(filter_recovery_speech(audio_path, confirmed[1])) != len(block)):
+                raise ValueError('Independent audio reads did not confirm the fresh recognized phrase')
+            focused_core = confirmed[1][core_left - block_left:core_right - block_left]
+            replacement = [dict(word, start=timed['start'], end=timed['end'])
+                           for word, timed in zip(replacement, focused_core)]
+            if ((prefix and float(prefix[-1]['end']) > float(replacement[0]['start']))
+                    or (suffix and float(replacement[-1]['end']) > float(suffix[0]['start']))):
+                raise ValueError('Confirmed phrase conflicts with unchanged outside audio anchors')
+            selected = prefix + replacement + suffix
+            selected_text = clean(' '.join(word['word'] for word in selected))
+            selected_segments = caption_segments_from_words(selected)
+            require_valid_caption_result(selected_text, selected_segments, selected, duration)
+            recovery_warnings.append(f'Local primary timing recovered from a fresh {chunk_length}s-chunk audio recognition; its changed phrase and neighboring words were independently confirmed twice.')
+            print('[Whisper] ' + recovery_warnings[-1], flush=True)
+            return selected_text, detected or fresh_language, selected_segments, selected
+        except Exception as err:
+            recovery_warnings.append(f'Local fresh {chunk_length}s-chunk timing recognition could not be confirmed: {err}.')
+            print('[Whisper] ' + recovery_warnings[-1], flush=True)
+    return current
+
+
+def require_valid_caption_result(text, segments, words, duration):
+    """Do not send successful captions that the app cannot render safely."""
+    def fail(reason, start=0, end=None, timing_issue=None):
+        right = duration if end is None else end
+        error = ValueError(f'Local caption timing could not be verified on audio {start:.2f}\u2013{right:.2f}s: {reason}.')
+        error.code = 'CAPTION_LOCAL_RESULT_INVALID'
+        error.timing_issue = timing_issue or {'reason': reason, 'start': start, 'end': right}
+        raise error
+    numeric = lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if not numeric(duration) or duration <= 0:
+        fail('audio duration is missing or invalid', end=0)
+    for items, field in ((words, 'word'), (segments, 'text')):
+        previous_end = 0.0
+        for index, item in enumerate(items):
+            start, end = (item.get('start'), item.get('end')) if isinstance(item, dict) else (None, None)
+            if not isinstance(item, dict) or not isinstance(item.get(field), str) or not item[field].strip():
+                fail(f'{field} {index + 1} is missing recognized text')
+            if not numeric(start) or not numeric(end):
+                fail(f'{field} {index + 1} has a missing or nonfinite timestamp')
+            if start < previous_end or end <= start or end > duration + .01:
+                fail(f'{field} {index + 1} {item[field]!r} has an empty, overlapping, or out-of-range interval (previous end {previous_end:.2f}s)',
+                     max(0, min(start, end, duration)), max(0, min(duration, max(start, end))),
+                     {'field': field, 'index': index, 'text': item[field], 'start': start, 'end': end,
+                      'previousEnd': previous_end, 'reason': 'empty, overlapping, or out-of-range interval'})
+            previous_end = end
+    source_text = text or ' '.join(segment['text'] for segment in segments)
+    timed_text = ' '.join(word['word'] for word in words) if words else ' '.join(segment['text'] for segment in segments)
+    if caption_text_match_key(source_text) != caption_text_match_key(timed_text):
+        fail('timestamp coverage omits recognized speech')
+    if text.strip() and not words and not segments:
+        fail('recognized speech has no usable timestamps')
 
 
 def caption_speech_ranges(audio_path):
@@ -276,7 +594,9 @@ def filter_recovery_speech(audio_path, words):
 
 def caption_word_match_key(value):
     """Match explicitly equivalent spellings without merging different words."""
-    token = re.sub(r"\W+", "", str(value).casefold())
+    import unicodedata
+    token = ''.join(char for char in unicodedata.normalize('NFKC', str(value)).casefold()
+                    if unicodedata.category(char)[0] in 'LMN')
     # These spellings represent the same spoken English words. Restrict
     # equivalence to complete tokens; never fuzzy-match names or short words.
     return {"colour": "color", "colours": "colors", "coloured": "colored",
@@ -285,10 +605,10 @@ def caption_word_match_key(value):
 
 def caption_word_passes_agree(first, second):
     """Require complete word-by-word agreement, including repeated words."""
-    return bool(first) and len(first) == len(second) and all(
+    return valid_caption_word_timeline(first) and valid_caption_word_timeline(second) and len(first) == len(second) and all(
         caption_word_match_key(a["word"]) == caption_word_match_key(b["word"])
-        and abs(float(a["start"]) - float(b["start"])) <= 0.25
-        and abs(float(a["end"]) - float(b["end"])) <= 0.25
+        and abs(float(a["start"]) - float(b["start"])) <= 0.25 + 1e-9
+        and abs(float(a["end"]) - float(b["end"])) <= 0.25 + 1e-9
         for a, b in zip(first, second))
 
 
@@ -300,7 +620,8 @@ def suspicious_caption_audio_ranges(words, duration):
         if not math.isfinite(start) or not math.isfinite(end):
             continue  # The final strict timing check will reject unbounded data.
         token_length = len(re.sub(r"\W+", "", str(word.get("word", ""))))
-        if end - start >= 2.0 or (end - start >= 1.5 and token_length <= 5) or end <= start:
+        if (end - start >= 2.0 or (end - start >= 1.5 and token_length <= 5)
+                or end <= start or start < 0 or end > duration + .01):
             suspicious.add(index)
         if index and start < float(words[index - 1]["end"]):
             suspicious.update((index - 1, index))
@@ -428,12 +749,12 @@ def repair_covered_audio_speech(m, audio_path: str, lang: str, current):
                 m, audio_path, lang, lenient=False, clip_timestamps=clip)
             second_text, _, _, second = run_whisper_with_model(
                 m, audio_path, lang, lenient=True, clip_timestamps=clip)
-            normalize = lambda value: re.sub(r"\W+", "", str(value).casefold())
+            normalize = lambda value: ''.join(caption_word_match_key(word) for word in str(value).split())
             complete = all(normalize(decoded) == normalize(" ".join(w["word"] for w in candidates))
                            for decoded, candidates in ((first_text, first), (second_text, second)))
             valid = (complete and valid_caption_word_timeline(first, duration)
                      and valid_caption_word_timeline(second, duration)
-                     and all(start <= float(w["start"]) < float(w["end"]) <= end for w in second)
+                     and all(start <= float(w["start"]) < float(w["end"]) <= end for w in first + second)
                      and caption_word_passes_agree(first, second)
                      and caption_preserves_word_sequence(original, second)
                      and len(filter_recovery_speech(audio_path, second)) == len(second)
@@ -481,10 +802,18 @@ def repair_remaining_audio_gaps(m, audio_path: str, lang: str, current, only_gap
                 m, audio_path, lang, lenient=False,
                 clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
             )
-            _, _, _, confirmed_words = run_whisper_with_model(
+            confirmed_text, _, _, confirmed_words = run_whisper_with_model(
                 m, audio_path, lang, lenient=True,
                 clip_timestamps=f"{clip_start:.3f},{clip_end:.3f}",
             )
+            normalize = lambda value: ''.join(caption_word_match_key(word) for word in str(value).split())
+            if any(normalize(decoded) != normalize(' '.join(word['word'] for word in candidates))
+                   for decoded, candidates in ((gap_text, gap_words), (confirmed_text, confirmed_words))):
+                recovery_warnings.append(f"Local recovery audio checks disagreed or returned incomplete word timing on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
+                continue
+            if not valid_caption_word_timeline(gap_words, duration) or not valid_caption_word_timeline(confirmed_words, duration):
+                recovery_warnings.append(f"Local recovery skipped overlapping word timing on audio {gap_start:.2f}–{gap_end:.2f}s. Existing captions were retained; review this gap.")
+                continue
             # Compare complete phrases within the hole, rather than accepting
             # whichever individual words happen to match two different reads.
             inside = lambda candidate: (gap_start <= float(candidate["start"])
@@ -548,16 +877,20 @@ def verify_opening_speech(m, audio_path: str, lang: str, current):
     if boundary <= 0 or any(float(w["start"]) < boundary < float(w["end"]) for w in words):
         return current
     def read(extra):
-        _, _, _, decoded = run_whisper_with_model(m, audio_path, lang, lenient=True,
+        decoded_text, _, _, decoded = run_whisper_with_model(m, audio_path, lang, lenient=True,
             clip_timestamps=f"0,{min(duration, boundary + extra):.3f}")
+        normalize = lambda value: ''.join(caption_word_match_key(word) for word in str(value).split())
+        if (not valid_caption_word_timeline(decoded, duration)
+                or (decoded_text and normalize(decoded_text) != normalize(' '.join(w['word'] for w in decoded)))):
+            raise ValueError('Opening decode returned incomplete or conflicting word timing')
         return filter_recovery_speech(audio_path, [w for w in decoded if 0 <= float(w["start"]) < float(w["end"]) <= boundary])
     try:
         first, second = read(0), read(0.25)
-        normalize = lambda value: re.sub(r"\W+", "", str(value).lower())
+        normalize = lambda value: ''.join(caption_word_match_key(word) for word in str(value).split())
         valid = bool(first) and len(first) == len(second) and all(
             normalize(a["word"]) == normalize(b["word"])
-            and abs(float(a["start"]) - float(b["start"])) <= 0.25
-            and abs(float(a["end"]) - float(b["end"])) <= 0.25
+            and abs(float(a["start"]) - float(b["start"])) <= 0.25 + 1e-9
+            and abs(float(a["end"]) - float(b["end"])) <= 0.25 + 1e-9
             for a, b in zip(first, second))
         valid = valid and valid_caption_word_timeline(second, duration)
         if not valid:
@@ -581,6 +914,9 @@ def verify_opening_speech(m, audio_path: str, lang: str, current):
                 second = [w for w in proposal if float(w["start"]) < gap_end]
         corrected_tokens = [normalize(w["word"]) for w in second]
         corrected_text = "".join(corrected_tokens)
+        token_boundaries = {0}
+        for token in corrected_tokens:
+            token_boundaries.add(max(token_boundaries) + len(token))
         # Agreement between two clips is not proof that every original word
         # was captured. Preserve audio-supported words that both clips omit.
         supported = filter_recovery_speech(audio_path, original)
@@ -589,6 +925,8 @@ def verify_opening_speech(m, audio_path: str, lang: str, current):
         for word in supported:
             token = normalize(word["word"])
             position = corrected_text.find(token, cursor) if token else cursor
+            while position >= 0 and (position not in token_boundaries or position + len(token) not in token_boundaries):
+                position = corrected_text.find(token, position + 1)
             if len(token) <= 2:
                 # Short words such as "a"/"to" cannot be verified merely
                 # because their letters occur inside another decoded word.
@@ -621,6 +959,8 @@ def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
     if not auto_recovery:
         return current
     text, detected, segs, words = current
+    if words and not valid_caption_word_timeline(words):
+        return current
     ordered_words = sorted(
         (w for w in words if isinstance(w, dict)),
         key=lambda w: float(w.get("start", 0.0)),
@@ -667,13 +1007,23 @@ def retry_sparse_with_child_speech_mode(m, audio_path: str, lang: str, current):
         return current
     retry_text, _, _, retry_words = retry
     timing_valid = valid_caption_word_timeline(retry_words, audio_duration)
-    normalize = lambda value: re.sub(r"\W+", "", str(value).lower())
+    normalize = lambda value: ''.join(caption_word_match_key(word) for word in str(value).split())
+    timing_valid = timing_valid and normalize(retry_text) == normalize(' '.join(w['word'] for w in retry_words))
     # A more verbose decode can be hallucinated. Existing words must still
     # have the same audio anchors; new words need acoustic speech support.
-    preserves_original = timing_valid and all(any(normalize(word["word"]) == normalize(candidate["word"])
-        and abs(float(word["start"]) - float(candidate["start"])) <= 0.35
-        and abs(float(word["end"]) - float(candidate["end"])) <= 0.35
-        for candidate in retry_words) for word in words)
+    preserves_original = timing_valid
+    cursor = 0
+    for word in words:
+        while cursor < len(retry_words):
+            candidate = retry_words[cursor]
+            cursor += 1
+            if (normalize(word["word"]) == normalize(candidate["word"])
+                    and abs(float(word["start"]) - float(candidate["start"])) <= 0.35 + 1e-9
+                    and abs(float(word["end"]) - float(candidate["end"])) <= 0.35 + 1e-9):
+                break
+        else:
+            preserves_original = False
+            break
     try:
         speech_supported = song_mode or len(filter_recovery_speech(audio_path, retry_words)) == len(retry_words)
     except Exception:
@@ -901,6 +1251,11 @@ def run_whisper(model_size: str, audio_path: str, lang: str):
 norm_path = preprocess(audio_path)
 
 try:
+    if caption_audio_is_silent(norm_path):
+        print(json.dumps({'text': '', 'language': lang_hint or 'auto', 'duration': audio_duration_seconds(norm_path),
+                          'engine': 'local', 'timingSource': 'estimated', 'segments': [], 'words': [],
+                          'warnings': [], 'noSpeech': True}))
+        sys.exit(0)
     if lang_hint is None or lang_hint == "auto":
         # Load fast tiny model to detect the language (takes less than 1 second)
         print("[Whisper] Loading 'tiny' model for fast language detection...", flush=True)
@@ -923,6 +1278,9 @@ try:
                 print(f"[Whisper] Indic speech recognition returned empty; falling back to 'small' model in {lang_hint}...", flush=True)
                 m_small = get_whisper_model("small")
                 text, lang, segs, words = run_whisper_with_model(m_small, norm_path, lang_hint)
+                text, lang, segs, words = repair_primary_caption_timing(m_small, norm_path, lang_hint, (text, lang, segs, words))
+                if words:
+                    require_valid_caption_result(text, [], words, audio_duration_seconds(norm_path))
                 text, lang, segs, words = retry_sparse_with_child_speech_mode(
                     m_small, norm_path, lang_hint, (text, lang, segs, words)
                 )
@@ -946,6 +1304,9 @@ try:
             del m # release memory of tiny model
             m_small = get_whisper_model("small")
             text, lang, segs, words = run_whisper_with_model(m_small, norm_path, lang_hint)
+            text, lang, segs, words = repair_primary_caption_timing(m_small, norm_path, lang_hint, (text, lang, segs, words))
+            if words:
+                require_valid_caption_result(text, [], words, audio_duration_seconds(norm_path))
             text, lang, segs, words = retry_sparse_with_child_speech_mode(
                 m_small, norm_path, lang_hint, (text, lang, segs, words)
             )
@@ -965,6 +1326,9 @@ try:
             # Pass 1: use primary model
             primary = get_whisper_model(primary_model)
             text, lang, segs, words = run_whisper_with_model(primary, norm_path, lang_hint)
+            text, lang, segs, words = repair_primary_caption_timing(primary, norm_path, lang_hint, (text, lang, segs, words))
+            if words:
+                require_valid_caption_result(text, [], words, audio_duration_seconds(norm_path))
             text, lang, segs, words = retry_sparse_with_child_speech_mode(
                 primary, norm_path, lang_hint, (text, lang, segs, words)
             )
@@ -984,10 +1348,19 @@ try:
     # Keep only decoded speech. Never reconstruct lyrics from a filename and
     # guessed timing: the recording may use a different version or omit lines.
 
+    # Decoder segment boundaries can omit the leading phoneme of a timed word.
+    # Use the real word ranges for phrase bounds after all recovery passes.
+    if valid_caption_word_timeline(words, audio_duration_seconds(norm_path)):
+        segs = caption_segments_from_words(words)
+    require_valid_caption_result(text, segs, words, audio_duration_seconds(norm_path))
+
     # Return result — even empty text is valid (video has no recognisable speech)
     print(json.dumps({
         "text":     text,
         "language": lang,
+        "duration": audio_duration_seconds(norm_path),
+        "engine": "local",
+        "timingSource": "word" if words else "estimated",
         "segments": segs,
         "words":    words,
         "warnings": recovery_warnings,
@@ -997,11 +1370,14 @@ try:
 except Exception as err:
     print(json.dumps({
         "error":    str(err),
+        "code": getattr(err, 'code', 'CAPTION_LOCAL_WORKER_FAILED'),
+        "timingIssue": getattr(err, 'timing_issue', None),
+        "warnings": recovery_warnings,
         "text":     "",
         "language": "en",
         "segments": [],
         "words":    [],
-        "noSpeech": True
+        "noSpeech": False
     }))
     sys.exit(1)
 

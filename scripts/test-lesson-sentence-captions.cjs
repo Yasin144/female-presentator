@@ -121,3 +121,22 @@ test('caption sentence boundaries follow punctuation and line breaks', () => {
   assert.match(resolver, /\\r\?\\n/);
   assert.match(resolver, /\[\.\!\?\]/);
 });
+test('captions are opt-in during both playback and export', () => {
+  const vm = require('node:vm');
+  const parser = require('@babel/parser');
+  const ast = parser.parse(script, { sourceType: 'script' });
+  const node = ast.program.body.find(n => n.type === 'FunctionDeclaration' && n.id.name === 'drawFinalSynchronizedKaraokeOverlay');
+  for (const exportingVideo of [false, true]) {
+    const state = { speaking: !exportingVideo, exportingVideo, previewCaptionsEnabled:false, pdf:{currentTimeMs:0}, narration:{} };
+    let painted = 0;
+    const draw = vm.runInNewContext(`(${script.slice(node.start,node.end)})`, {
+      state, isPdfPresentationMode:()=>true, getPdfPresentationText:()=> 'Lesson',
+      drawCurrentLessonSentenceCaption:()=> {painted++;return true;}
+    });
+    assert.equal(draw(), false);
+    assert.equal(painted, 0);
+    state.previewCaptionsEnabled = true;
+    assert.equal(draw(), true);
+    assert.equal(painted, 1);
+  }
+});

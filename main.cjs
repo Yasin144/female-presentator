@@ -55,7 +55,7 @@ for (const channel of ['whatsapp-session-status', 'whatsapp-session-enable', 'wh
 desktopOnlyIpcChannels.add('whatsapp-session-retry');
 const observeWhatsAppJob = createWhatsAppJobObserver(reportWhatsAppJob);
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
-const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'finish-download-file', 'write-file']);
+const revealExportChannels = new Set(['burn-captions', 'sc3-replace-video-audio', 'erase-captions', 'merge-audio-into-video', 'export-translated-video', 'export-synced-translated-video', 'video-resizer-export', 'my-exporter-export', 'my-exporter-crop-save', 'quote-export-finish', 'kitten-shorts-export', 'finish-download-file', 'write-file']);
 ipcMain.handle = (channel, listener) => {
   const observed = observeWhatsAppJob(channel, listener);
   if (!desktopOnlyIpcChannels.has(channel)) mobileIpcHandlers.set(channel, observed);
@@ -112,6 +112,94 @@ function ensureCaptionWorkDir(...segments) {
   return dir;
 }
 
+const stagedCaptionSourceMap = new Map();
+function computeStagedCaptionSourcePath(rawVideoPath) {
+  const normalized = path.resolve(String(rawVideoPath || '')).toLowerCase();
+  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+  const ext = path.extname(String(rawVideoPath || '')) || '.mp4';
+  const safeBase = path.basename(String(rawVideoPath || ''), ext).replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 72) || 'video';
+  return {
+    key: normalized,
+    stagedPath: path.join(ensureCaptionWorkDir('staged-sources'), `${safeBase}-${hash}${ext}`),
+    safeBase,
+    ext,
+  };
+}
+
+function stageCaptionSourceVideo(rawVideoPath) {
+  try {
+    if (!rawVideoPath || !fs.existsSync(rawVideoPath)) return '';
+    const stat = fs.statSync(rawVideoPath);
+    if (!stat.isFile() || stat.size <= 0) return '';
+    const { key, stagedPath } = computeStagedCaptionSourcePath(rawVideoPath);
+    if (fs.existsSync(stagedPath)) {
+      try {
+        const stagedStat = fs.statSync(stagedPath);
+        if (stagedStat.isFile() && stagedStat.size === stat.size) {
+          stagedCaptionSourceMap.set(key, stagedPath);
+          return stagedPath;
+        }
+        fs.unlinkSync(stagedPath);
+      } catch (_) {}
+    }
+    try {
+      // Zero-cost NTFS hardlink when on the same volume (e.g. D:\LESSONS -> D:\voice\caption-work)
+      fs.linkSync(rawVideoPath, stagedPath);
+    } catch (_) {
+      fs.copyFileSync(rawVideoPath, stagedPath);
+    }
+    stagedCaptionSourceMap.set(key, stagedPath);
+    // Opportunistically prune staged sources older than 12 hours
+    try {
+      const stagedDir = ensureCaptionWorkDir('staged-sources');
+      const cutoff = Date.now() - 12 * 3600 * 1000;
+      for (const name of fs.readdirSync(stagedDir)) {
+        const candidate = path.join(stagedDir, name);
+        if (candidate === stagedPath) continue;
+        try {
+          if (fs.statSync(candidate).mtimeMs < cutoff) fs.unlinkSync(candidate);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return stagedPath;
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveCaptionSourceVideo(rawVideoPath, sourceFileName = '') {
+  if (!rawVideoPath) return '';
+  if (fs.existsSync(rawVideoPath)) {
+    stageCaptionSourceVideo(rawVideoPath);
+    return rawVideoPath;
+  }
+  try {
+    const { key, stagedPath, safeBase, ext } = computeStagedCaptionSourcePath(rawVideoPath);
+    const mapped = stagedCaptionSourceMap.get(key);
+    if (mapped && fs.existsSync(mapped)) return mapped;
+    if (fs.existsSync(stagedPath)) {
+      stagedCaptionSourceMap.set(key, stagedPath);
+      return stagedPath;
+    }
+    const stagedDir = ensureCaptionWorkDir('staged-sources');
+    const prefix = `${safeBase}-`.toLowerCase();
+    for (const entry of fs.readdirSync(stagedDir)) {
+      if (entry.toLowerCase().startsWith(prefix) && entry.toLowerCase().endsWith(ext.toLowerCase())) {
+        const candidate = path.join(stagedDir, entry);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).size > 0) return candidate;
+      }
+    }
+    const fallbackName = path.basename(String(sourceFileName || rawVideoPath || ''));
+    if (fallbackName) {
+      const downloadsCandidate = path.join(os.homedir(), 'Downloads', fallbackName);
+      if (fs.existsSync(downloadsCandidate) && fs.statSync(downloadsCandidate).size > 0) {
+        return downloadsCandidate;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
 const groqKeyPath = path.join(ROOT, '.groq_api_key');
 if (fs.existsSync(groqKeyPath)) {
   try {
@@ -126,14 +214,14 @@ function resolveConfiguredGroqApiKey(suppliedGroqApiKey = '') {
   const direct = typeof suppliedGroqApiKey === 'string' ? suppliedGroqApiKey.trim() : '';
   if (direct) {
     process.env.GROQ_API_KEY = direct;
-    try { fs.writeFileSync(groqKeyPath, direct, 'utf8'); } catch (_) {}
+    try { fs.writeFileSync?.(groqKeyPath, direct, 'utf8'); } catch (_) {}
     return direct;
   }
   if (process.env.GROQ_API_KEY && String(process.env.GROQ_API_KEY).trim()) {
     return String(process.env.GROQ_API_KEY).trim();
   }
   try {
-    if (fs.existsSync(groqKeyPath)) {
+    if (typeof groqKeyPath === 'string' && fs.existsSync(groqKeyPath)) {
       const diskKey = fs.readFileSync(groqKeyPath, 'utf8').trim();
       if (diskKey) {
         process.env.GROQ_API_KEY = diskKey;
@@ -263,6 +351,11 @@ function mobileBridgeSource() {
             lastProgressAt = Date.now();
             if (job.progress?.channel === 'caption-transcribe-progress') {
               for (const callback of captionProgressHandlers) {
+                try { callback(job.progress.data); } catch (_) {}
+              }
+            }
+            if (job.progress?.channel === 'caption-erase-progress') {
+              for (const callback of captionEraseProgressHandlers) {
                 try { callback(job.progress.data); } catch (_) {}
               }
             }
@@ -432,6 +525,61 @@ function saveMobileLinkState(mobileUrl = '', extra = {}) {
     try { window.webContents.send('mobile-link-updated', data); } catch (_) {}
   }
   return data;
+}
+
+const otSalaryFilePath = path.join(ROOT, 'ot-salary-data.json');
+
+function readOtSalaryStoreFromDisk() {
+  try {
+    if (fs.existsSync(otSalaryFilePath)) {
+      const raw = fs.readFileSync(otSalaryFilePath, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn('[OT Salary] Failed to read disk store:', err.message);
+  }
+  return null;
+}
+
+function mergeAndSaveOtSalaryStoreToDisk(incomingPayload = {}, broadcast = true) {
+  const existing = readOtSalaryStoreFromDisk() || {};
+  let mergedDays = {};
+  if (incomingPayload && incomingPayload.replaceAll === true) {
+    mergedDays = incomingPayload.days && typeof incomingPayload.days === 'object'
+      ? { ...incomingPayload.days }
+      : {};
+  } else {
+    const existingDays = existing.days && typeof existing.days === 'object' ? existing.days : {};
+    const nextDays = incomingPayload?.days && typeof incomingPayload.days === 'object' ? incomingPayload.days : {};
+    mergedDays = { ...existingDays };
+    for (const [iso, record] of Object.entries(nextDays)) {
+      if (record === null) {
+        delete mergedDays[iso];
+        continue;
+      }
+      const prev = mergedDays[iso];
+      if (!prev || !prev.savedAt || !record.savedAt || String(record.savedAt) >= String(prev.savedAt)) {
+        mergedDays[iso] = record;
+      }
+    }
+  }
+  const merged = {
+    settings: { ...(existing.settings || {}), ...(incomingPayload?.settings || {}) },
+    days: mergedDays,
+    updatedAt: new Date().toISOString(),
+  };
+  const serialized = JSON.stringify(merged, null, 2);
+  const tmpPath = `${otSalaryFilePath}.tmp`;
+  fs.writeFileSync(tmpPath, serialized, 'utf8');
+  fs.renameSync(tmpPath, otSalaryFilePath);
+  if (broadcast) {
+    for (const window of BrowserWindow.getAllWindows()) {
+      try {
+        if (!window.isDestroyed()) window.webContents.send('ot-salary-updated', merged);
+      } catch (_) {}
+    }
+  }
+  return merged;
 }
 
 function startMobileHttpServer() {
@@ -714,12 +862,70 @@ function startMobileHttpServer() {
           res.end(JSON.stringify(data));
           return;
         }
-        const requested = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, '');
+        if (requestUrl.pathname === '/api/ot-salary-sync') {
+          const corsHeaders = {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, X-Presentator-Mobile-Token',
+            'Cache-Control': 'no-store',
+          };
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204, corsHeaders);
+            res.end();
+            return;
+          }
+          if (req.method === 'GET') {
+            let saved = {};
+            try { saved = JSON.parse(fs.readFileSync(path.join(ROOT, 'temp', 'active-mobile-link.json'), 'utf8')); } catch (_) {}
+            const rawMobile = lastSentMobileUrl || saved.mobileUrl || '';
+            let mobileOtUrl = '';
+            if (rawMobile) {
+              try {
+                const parsedUrl = new URL(rawMobile);
+                parsedUrl.pathname = '/ot';
+                mobileOtUrl = parsedUrl.toString();
+              } catch (_) {}
+            }
+            const wifiIp = getMobileWifiIp();
+            res.writeHead(200, corsHeaders);
+            res.end(JSON.stringify({
+              ok: true,
+              data: readOtSalaryStoreFromDisk(),
+              filePath: otSalaryFilePath,
+              wifiOtUrl: `http://${wifiIp}:${MOBILE_HTTP_PORT}/ot`,
+              mobileOtUrl,
+            }));
+            return;
+          }
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { if (body.length < 10 * 1024 * 1024) body += chunk; });
+            req.on('end', () => {
+              try {
+                const incoming = JSON.parse(body || '{}');
+                const merged = mergeAndSaveOtSalaryStoreToDisk(incoming, true);
+                res.writeHead(200, corsHeaders);
+                res.end(JSON.stringify({
+                  ok: true,
+                  data: merged,
+                  filePath: otSalaryFilePath,
+                  savedAt: merged.updatedAt,
+                }));
+              } catch (err) {
+                res.writeHead(500, corsHeaders);
+                res.end(JSON.stringify({ ok: false, error: err.message }));
+              }
+            });
+            return;
+          }
+        }
+        const isStandaloneOtPath = ['/ot', '/ot/', '/ot-mobile', '/ot-mobile.html'].includes(requestUrl.pathname.toLowerCase());
+        const requested = isStandaloneOtPath ? '' : decodeURIComponent(requestUrl.pathname).replace(/^\/+/, '');
         const bundledRootAssets = new Set([
           'logo-data.js',
           'script.js',
           'caption-script.js',
-          'caption-script-v2.js',
           'assets/alphabet-realistic-object-atlas-v1.png',
           'assets/alphabet-realistic-object-atlas-4x-v2.png',
           'assets/alphabet-realistic-object-atlas-4x-v2.webp',
@@ -738,7 +944,13 @@ function startMobileHttpServer() {
         ) filePath = path.join(rendererRoot, 'index.html');
         const contentType = mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
         if (path.basename(filePath).toLowerCase() === 'index.html') {
-          const html = fs.readFileSync(filePath, 'utf8').replace('</head>', '<script src="/mobile-bridge.js"></script></head>');
+          const otBootTag = isStandaloneOtPath
+            ? '<link rel="manifest" href="/ot-manifest.json"><meta name="theme-color" content="#070b16"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="OT & Salary"><script>window.__PATTAN_STANDALONE_OT_APP__=true;</script>'
+            : '';
+          let html = fs.readFileSync(filePath, 'utf8').replace('</head>', `${otBootTag}<script src="/mobile-bridge.js"></script></head>`);
+          if (isStandaloneOtPath) {
+            html = html.replace(/<title>.*?<\/title>/i, '<title>OT &amp; Salary Tracker Mobile</title>');
+          }
           res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }); res.end(html);
         } else {
           const extension = path.extname(filePath).toLowerCase();
@@ -1124,9 +1336,10 @@ async function ensureLocalAgentBrain() {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-    env: fs.existsSync(path.join(ROOT, 'AI_Models', 'ollama'))
-      ? { ...process.env, OLLAMA_MODELS: path.join(ROOT, 'AI_Models', 'ollama') }
-      : process.env,
+    env: {
+      ...process.env,
+      OLLAMA_MODELS: path.join(ROOT, 'AI_Models', 'ollama'),
+    },
   }).unref();
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -1500,26 +1713,42 @@ function spawnManaged(key, cmd, args, opts = {}) {
 
 async function pauseManagedServersForImage(keys) {
   const paused = [];
-  for (const key of keys) {
+  for (const key of new Set(keys)) {
+    if (isQuitting) break;
     const entry = servers[key];
-    if (!entry?.proc || entry.proc.killed) continue;
-    entry.stopped = true;
+    if (!entry?.proc) continue; // Leave externally managed workers running.
+    if (!entry.resourcePauseCount) {
+      if (entry.proc.killed || entry.stopped) continue;
+      entry.resourcePauseCount = 0;
+      entry.stopped = true;
+      const proc = entry.proc;
+      // All overlapping jobs wait for this same termination, then retain
+      // their own lease until their idempotent resume callback is called.
+      entry.resourcePausePromise = new Promise(resolve => {
+        if (process.platform !== 'win32') {
+          try { proc.kill('SIGKILL'); } catch (_) {}
+          resolve();
+          return;
+        }
+        execFile('taskkill.exe', ['/PID', String(proc.pid), '/T', '/F'], {
+          windowsHide: true,
+          timeout: 15000,
+        }, () => resolve());
+      }).then(() => new Promise(resolve => setTimeout(resolve, 1200)));
+    }
+    entry.resourcePauseCount += 1;
     paused.push(entry);
-    await new Promise(resolve => {
-      if (process.platform !== 'win32') {
-        try { entry.proc.kill('SIGKILL'); } catch (_) {}
-        resolve();
-        return;
-      }
-      execFile('taskkill.exe', ['/PID', String(entry.proc.pid), '/T', '/F'], {
-        windowsHide: true,
-        timeout: 15000,
-      }, () => resolve());
-    });
+    await entry.resourcePausePromise;
   }
-  if (paused.length) await new Promise(resolve => setTimeout(resolve, 1200));
+  let resumed = false;
   return () => {
+    if (resumed) return;
+    resumed = true;
     for (const entry of paused) {
+      entry.resourcePauseCount = Math.max(0, entry.resourcePauseCount - 1);
+      if (entry.resourcePauseCount) continue;
+      delete entry.resourcePausePromise;
+      if (isQuitting) continue;
       entry.stopped = false;
       entry.restartCount = 0;
       entry.lastRestartAt = 0;
@@ -1659,12 +1888,16 @@ function postJsonForBuffer(port, path_, payload, timeoutMs = 120000, signal = nu
   });
 }
 
-async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 120000, retries = 1) {
+async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 120000, retries = 1, signal) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    throwIfCaptionTranscriptionCancelled(signal);
     try {
-      return await postJsonForBuffer(port, path_, payload, timeoutMs);
+      const result = await postJsonForBuffer(port, path_, payload, timeoutMs, signal);
+      throwIfCaptionTranscriptionCancelled(signal);
+      return result;
     } catch (error) {
+      throwIfCaptionTranscriptionCancelled(signal);
       lastError = error;
       const transient = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET'].includes(String(error?.code || ''))
         || /ECONNRESET|socket hang up|connection reset|fetch failed/i.test(String(error?.message || ''));
@@ -1679,14 +1912,15 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
       // Give a restarting native worker time to reopen its health endpoint.
       let ready = false;
       for (let check = 0; check < 30; check += 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await waitForGroqCaptionRetry(1000, signal);
+        throwIfCaptionTranscriptionCancelled(signal);
         if (await pingPort(port, '/health', 3000)) {
           ready = true;
           break;
         }
       }
       if (!ready) break;
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitForGroqCaptionRetry(1500, signal);
     }
   }
   const friendly = new Error(`The local AI worker reset its connection and automatic recovery did not complete. Please retry once. (${lastError?.code || 'connection reset'})`);
@@ -1694,9 +1928,9 @@ async function postJsonForBufferWithRecovery(port, path_, payload, timeoutMs = 1
   throw friendly;
 }
 
-// ————————————— Edge TTS health-check watchdog —————————————————————————————————
-// Pings port 8426 every 20 seconds. If unreachable, kills the process so
-// the auto-restart watchdog in spawnManaged fires immediately.
+// ————————————— SC3 Chatterbox health-check watchdog ——————————————————————————
+// Pings port 8426 every 30 seconds. Thirty consecutive misses trigger recovery;
+// intentional resource pauses must leave the worker stopped until all jobs end.
 let anjaliHealthTimer = null;
 let anjaliHealthFailureCount = 0;
 
@@ -1704,7 +1938,16 @@ function startAnjaliWatchdog() {
   if (anjaliHealthTimer) clearInterval(anjaliHealthTimer);
   anjaliHealthTimer = setInterval(async () => {
     if (isQuitting) return;
+    if (servers.AnjaliAI?.stopped) {
+      anjaliHealthFailureCount = 0;
+      return;
+    }
     const alive = await pingPort(8426, '/health', 10000);
+    // A job may have paused the worker while the health request was pending.
+    if (isQuitting || servers.AnjaliAI?.stopped) {
+      anjaliHealthFailureCount = 0;
+      return;
+    }
     if (alive) {
       anjaliHealthFailureCount = 0;
       return;
@@ -1749,7 +1992,7 @@ function startAnjaliWatchdog() {
         });
       });
     }
-  }, 30000); // ping every 30s; restart only after 5 consecutive misses = 150s grace
+  }, 30000); // Thirty misses give approximately 15 minutes of grace.
 }
 
 // ————————————— Start individual servers ————————————————————————————————————————
@@ -4420,11 +4663,19 @@ let activeCaptionTranscribeProcess = null;
 let activeCaptionTranscribeCancelRequested = false;
 let activeCaptionSongController = null;
 
-ipcMain.handle('cancel-transcribe-video', async () => {
+ipcMain.handle('cancel-transcribe-video', async (_event, opts) => {
   activeCaptionTranscribeCancelRequested = true;
   activeCaptionSongController?.abort();
   if (activeCaptionTranscribeProcess) {
     try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+  }
+  if (opts?.captionerVersion === 2 || opts?.waitForRelease === true) {
+    for (let step = 0; step < 30 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    activeCaptionTranscribeProcess = null;
+    activeCaptionSongController = null;
+    activeCaptionTranscribeCancelRequested = false;
   }
   return { ok: true, cancelled: true };
 });
@@ -4436,19 +4687,81 @@ ipcMain.handle('cancel-transcribe-video', async () => {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
+  const { videoPath: rawVideoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
   // The existing preload can query the loaded backend without sending audio
   // or credentials. A stale main refuses this pathless request harmlessly.
   if (opts?.capabilityProbe === true && opts.engine === 'groq' && opts.contentMode === 'speech') {
     return { ok: true, capabilityProbe: true, groqSpeechTimingRepairVersion: 1 };
   }
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
+  if (!fs.existsSync(videoPath)) {
+    return {
+      ok: false,
+      code: 'CAPTION_SOURCE_MISSING',
+      error: `Source video file was not found (${path.basename(String(rawVideoPath))}). It may have been moved or deleted from its folder.`,
+    };
+  }
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
-    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    if (opts?.captionerVersion === 2) {
+      activeCaptionTranscribeCancelRequested = true;
+      activeCaptionSongController?.abort();
+      if (activeCaptionTranscribeProcess) {
+        try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+      }
+      for (let step = 0; step < 60 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      activeCaptionTranscribeProcess = null;
+      activeCaptionSongController = null;
+      activeCaptionTranscribeCancelRequested = false;
+    } else {
+      return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    }
   }
   if (!['local', 'groq', 'gemini'].includes(engine)) return { ok: false, error: 'Unknown caption transcription engine.' };
   if (engine === 'gemini' && contentMode !== 'song') return { ok: false, error: 'Gemini captioning requires Song / lyrics mode.' };
+
+  function normalizeLocalCaptionResult(result) {
+    const fail = (reason, timingIssue) => {
+      const location = timingIssue ? ` ${timingIssue.array}[${timingIssue.index}]: ${timingIssue.reason}`
+        + ` (${Number.isFinite(timingIssue.start) ? timingIssue.start.toFixed(2) : '?'}-`
+        + `${Number.isFinite(timingIssue.end) ? timingIssue.end.toFixed(2) : '?'}s).` : '';
+      throw Object.assign(new Error(`Local caption result is invalid: ${reason}.` + location), {
+        code: 'CAPTION_LOCAL_RESULT_INVALID', ...(timingIssue ? { timingIssue } : {})
+      });
+    };
+    if (!result || typeof result !== 'object' || Array.isArray(result)) fail('missing result object');
+    if (result.ok === false || result.error) fail(String(result.error || 'worker rejected transcription'));
+    const words = result.words ?? [], segments = result.segments ?? [];
+    if (!Array.isArray(words) || !Array.isArray(segments)) fail('missing caption arrays');
+    const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+    if (result.text !== undefined && typeof result.text !== 'string') fail('invalid transcript text');
+    const text = typeof result.text === 'string' ? result.text.trim() : '';
+    if (result.duration !== undefined && (!Number.isFinite(result.duration) || result.duration <= 0)) fail('invalid audio duration');
+    const sourceText = text || segments.map(segment => segment?.text || '').join(' ');
+    for (const [items, field, array] of [[words, 'word', 'words'], [segments, 'text', 'segments']]) {
+      let previousEnd = 0;
+      for (const [index, item] of items.entries()) {
+        const reason = !item || typeof item[field] !== 'string' || !item[field].trim() ? 'missing caption text'
+          : !Number.isFinite(item.start) || !Number.isFinite(item.end) ? 'non-finite timestamp'
+          : item.start < previousEnd ? 'overlapping or negative timestamp'
+          : item.end <= item.start ? 'empty or inverted interval'
+          : Number.isFinite(result.duration) && item.end > result.duration + 0.01 ? 'outside audio duration' : '';
+        if (reason) fail('conflicting or incomplete caption timestamps', {
+          array, index, label: typeof item?.[field] === 'string' ? item[field].slice(0, 120) : '',
+          start: item?.start, end: item?.end, previousEnd, duration: result.duration, reason
+        });
+        previousEnd = item.end;
+      }
+    }
+    if (words.length && sourceText && normalize(words.map(word => word.word).join(' ')) !== normalize(sourceText)) fail('word timing omits recognized speech');
+    if (!words.length && segments.length && text && normalize(segments.map(segment => segment.text).join(' ')) !== normalize(text)) fail('segment timing omits recognized speech');
+    if (!words.length && !segments.length && (text || result.noSpeech !== true)) fail('no usable caption timestamps');
+    return { ...result, text: text || (words.length ? words.map(word => word.word) : segments.map(segment => segment.text)).join(' '),
+      words, segments, engine: 'local', timingSource: words.length ? 'word' : 'estimated',
+      warnings: Array.isArray(result.warnings) ? result.warnings.filter(warning => typeof warning === 'string') : [] };
+  }
 
   // Find FFmpeg
   function findFFmpeg() {
@@ -4465,6 +4778,23 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   let audioWarnings = [];
   let progressFloor = 0;
   let transcriptionProgressBase = 0;
+  const saveLocalCaptionFailure = (error, details) => {
+    try {
+      const diagnosticPath = path.join(ensureCaptionWorkDir('diagnostics'), 'local-caption-' + stamp
+        + (details.transport === 'http' ? '-http' : '-primary') + '-failure.json');
+      fs.writeFileSync(diagnosticPath, JSON.stringify({
+        engine: 'local', sourceVideo: rawVideoPath, audioPath: transcriptionAudioPath,
+        error: error.message, code: error.code, timingIssue: error.timingIssue,
+        ...details,
+      }, null, 2), 'utf8');
+      error.diagnosticPath = diagnosticPath;
+      console.error('[Caption] Local transcription failed:', path.basename(rawVideoPath), error.message,
+        error.timingIssue || '', 'Diagnostics:', diagnosticPath);
+    } catch (diagnosticError) {
+      console.warn('[Caption] Could not save Local failure diagnostics:', diagnosticError.message);
+    }
+    return error;
+  };
   const reportCaptionProgress = raw => {
     progressFloor = Math.max(progressFloor, Math.max(0, Math.min(100, Number(raw) || 0)));
     try { event.sender.send('caption-transcribe-progress', progressFloor); } catch (_) {}
@@ -4476,7 +4806,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   activeCaptionSongController = new AbortController();
   try {
     // Step 1: Extract audio from video as 16kHz mono WAV
-    console.log('[Caption] Extracting audio from:', path.basename(videoPath));
+    console.log('[Caption] Extracting audio from:', path.basename(rawVideoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -4510,21 +4840,37 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
 
     if (effectiveEngine === 'groq') {
       if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-      const resolvedGroqKey = resolveConfiguredGroqApiKey(suppliedGroqApiKey);
+      const resolvedGroqKey = typeof resolveConfiguredGroqApiKey === 'function'
+        ? resolveConfiguredGroqApiKey(suppliedGroqApiKey)
+        : (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
       if (resolvedGroqKey) {
-        const result = await transcribeCaptionWavWithGroq({
-          audioBuffer: fs.readFileSync(transcriptionAudioPath),
-          apiKey: resolvedGroqKey,
-          languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
-          signal: activeCaptionSongController.signal,
-          onProgress: reportTranscriptionProgress,
-        });
-        if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
-        return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+        try {
+          const result = await transcribeCaptionWavWithGroq({
+            audioBuffer: fs.readFileSync(transcriptionAudioPath),
+            apiKey: resolvedGroqKey,
+            languageHint: languageHint || 'auto', contentMode, transcriptionHints, autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
+            captionerVersion: opts?.captionerVersion,
+            signal: activeCaptionSongController.signal,
+            onProgress: reportTranscriptionProgress,
+          });
+          if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
+          return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+        } catch (groqErr) {
+          if (activeCaptionTranscribeCancelRequested || groqErr?.name === 'AbortError' || opts?.captionerVersion !== 2 || typeof app === 'undefined') {
+            throw groqErr;
+          }
+          console.warn('[Captioner2] Groq transcription failed — falling back automatically to Local Whisper:', groqErr.message);
+          audioWarnings.push(`Groq transcription could not complete (${groqErr.message}); generated captions with Local Whisper on this computer.`);
+          effectiveEngine = 'local';
+        }
+      } else {
+        if (typeof app === 'undefined') {
+          throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
+        }
+        console.warn('[Caption] Groq API key is missing — falling back automatically to Local Whisper.');
+        audioWarnings.push('Groq API key is not configured; generated captions with Local Whisper on this computer.');
+        effectiveEngine = 'local';
       }
-      console.warn('[Caption] Groq API key is missing — falling back automatically to Local Whisper.');
-      audioWarnings.push('Groq API key is not configured; generated captions with Local Whisper on this computer.');
-      effectiveEngine = 'local';
     }
 
     if (effectiveEngine === 'gemini' && contentMode === 'song') {
@@ -4541,6 +4887,9 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
         });
         if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
         return { ok: true, ...result, warnings: [...audioWarnings, ...(result.warnings || [])] };
+      }
+      if (typeof app === 'undefined') {
+        throw new Error('Google Gemini API key is missing. Add it in AI Tools first.');
       }
       console.warn('[Caption] Gemini API key is missing — falling back automatically to Local Whisper.');
       audioWarnings.push('Gemini API key is not configured; generated song captions with Local Whisper on this computer.');
@@ -4566,6 +4915,9 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       ? voiceVenvPy
       : (fs.existsSync(singingVenvPy) ? singingVenvPy : 'python');
     const scriptPath = fs.existsSync(captionScript) ? captionScript : whisperScript;
+    const captionPythonPath = [voiceVenvPy, singingVenvPy].includes(pyExe)
+      ? path.join(path.dirname(path.dirname(pyExe)), 'Lib', 'site-packages')
+      : SINGING_ENV.PYTHONPATH;
 
     console.log('[Caption] Running Whisper:', path.basename(scriptPath), 'via', path.basename(pyExe));
 
@@ -4577,11 +4929,16 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const proc = spawn(pyExe, [scriptPath, transcriptionAudioPath, langParam, path.basename(videoPath), contentMode === 'song' ? 'song' : 'speech', String(transcriptionHints).slice(0, 1000), opts?.autoRecoverMissingSpeech === false ? 'no-recovery' : 'recover'], {
         stdio: 'pipe',
         windowsHide: true,
-        env: { ...process.env, ...SINGING_ENV, PYTHONIOENCODING: 'utf-8' }
+        // Keep ASR imports in the selected runtime; mixing the singing package
+        // directory into voice-clone Python can change decoder word alignment.
+        env: { ...process.env, ...SINGING_ENV, PYTHONPATH: captionPythonPath, PYTHONIOENCODING: 'utf-8' }
       });
       activeCaptionTranscribeProcess = proc;
-      let stdout = '', stderr = '', progressBuffer = '';
+      let stdout = '', stderr = '', progressBuffer = '', settled = false;
+      proc.stdout?.setEncoding?.('utf8');
+      proc.stderr?.setEncoding?.('utf8');
       proc.stdout && proc.stdout.on('data', d => {
+        if (settled) return;
         const text = d.toString('utf8');
         stdout += text;
         progressBuffer += text;
@@ -4595,40 +4952,57 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
           }
         }
       });
-      proc.stderr && proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+      proc.stderr && proc.stderr.on('data', d => { if (!settled) stderr += d.toString('utf8'); });
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         killProcessTree(proc);
-        const error = new Error('Local caption transcription timed out after 12 minutes. Retry with a shorter video or use Groq.');
+        const error = new Error('Local caption transcription timed out after 20 minutes. Retry with a shorter video or use Groq.');
         error.code = 'CAPTION_PRIMARY_TIMEOUT';
         reject(error);
       }, 1200000);
-      proc.on('error', err => { clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
+      proc.on('error', err => { if (settled) return; settled = true; clearTimeout(timer); reject(new Error('Whisper spawn: ' + err.message)); });
       proc.on('exit', code => {
-        clearTimeout(timer);
-        if (activeCaptionTranscribeCancelRequested) {
-          reject(new Error('Transcription cancelled.'));
-          return;
-        }
-        try {
-          const lastLine = stdout.trim().split('\n').pop() || '';
-          const json = JSON.parse(lastLine);
-          if (json.error) reject(new Error('Whisper: ' + json.error));
-          else if (code !== 0) reject(new Error('Whisper exited with code ' + code + ': ' + stderr.slice(-300)));
-          else {
-            reportTranscriptionProgress(100);
-            resolve(json);
+        if (settled) return;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (activeCaptionTranscribeCancelRequested) {
+            reject(new Error('Transcription cancelled.'));
+            return;
           }
-        } catch(e) {
-          reject(new Error(code !== 0
-            ? 'Whisper exited with code ' + code + ': ' + stderr.slice(-300)
-            : 'Whisper parse failed. stderr: ' + stderr.slice(0, 200)));
-        }
+          let json;
+          try {
+            const lastLine = stdout.trim().split('\n').pop() || '';
+            json = JSON.parse(lastLine);
+            if (json?.error) throw Object.assign(new Error('Whisper: ' + json.error),
+              json.code === 'CAPTION_LOCAL_RESULT_INVALID' ? { code: json.code, timingIssue: json.timingIssue } : {});
+            if (code !== 0) throw new Error('Whisper exited with code ' + code + ': ' + stderr.slice(-300));
+            const result = normalizeLocalCaptionResult(json);
+            reportTranscriptionProgress(100);
+            resolve(result);
+          } catch(e) {
+            const error = e.code === 'CAPTION_LOCAL_RESULT_INVALID' || json?.error ? e : new Error(code !== 0
+              ? 'Whisper exited with code ' + code + ': ' + stderr.slice(-300)
+              : 'Whisper parse failed. stderr: ' + stderr.slice(0, 200));
+            reject(saveLocalCaptionFailure(error, { exitCode: code, result: json,
+              stdout: stdout.slice(-1048576), stderr: stderr.slice(-32768), stdoutTruncated: stdout.length > 1048576 }));
+          }
+        };
+        // Process exit can precede the last buffered stdout chunk.
+        const pendingStreams = [proc.stdout, proc.stderr].filter(stream => stream?.readableEnded === false && !stream.destroyed);
+        if (pendingStreams.length) {
+          let remaining = pendingStreams.length;
+          for (const stream of pendingStreams) stream.once('end', () => { if (--remaining === 0) finish(); });
+        } else finish();
       });
     });
 
     if (activeCaptionTranscribeCancelRequested) throw new Error('Transcription cancelled.');
     console.log('[Caption] Whisper done. Text:', (whisperResult.text || '').length, 'chars,', (whisperResult.words || []).length, 'words');
     return {
+      ...whisperResult,
       ok:       true,
       text:     whisperResult.text     || '',
       segments: whisperResult.segments || [],
@@ -4645,15 +5019,22 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
     if (err.code === 'CAPTION_RESOURCE_CANCELLED') return { ok: false, cancelled: true, error: err.message };
     if (err.code === 'CAPTION_RESOURCE_BUSY') return { ok: false, code: err.code, error: err.message };
     if (err.code === 'CAPTION_PRIMARY_TIMEOUT') return { ok: false, code: err.code, error: err.message };
-    if (effectiveEngine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}` };
+    if (err.code === 'CAPTION_LOCAL_RESULT_INVALID') return { ok: false, code: err.code, error: err.message,
+      ...(err.diagnosticPath ? { diagnosticPath: err.diagnosticPath } : {}), ...(err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
+    if (effectiveEngine === 'groq') return { ok: false, engine: 'groq', error: `Groq caption transcription failed: ${err.message}`,
+      ...(['CAPTION_GROQ_RATE_LIMIT', 'CAPTION_GROQ_TIMING_UNCERTAIN'].includes(err.code) ? { code: err.code } : {}),
+      ...(Number.isInteger(err.providerHttpStatus) ? { providerHttpStatus: err.providerHttpStatus } : {}),
+      ...(err.code === 'CAPTION_GROQ_RATE_LIMIT' ? { retryAfterMs: err.retryAfterMs, retryAt: err.retryAt,
+        retryAfterEstimated: err.retryAfterEstimated } : {}),
+      ...(err.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' && err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
     if (contentMode === 'song') return { ok: false, error: `${effectiveEngine === 'gemini' ? 'Gemini' : 'Local'} song transcription failed: ${err.message}` };
     // Fallback: HTTP transcription server (port 8428)
     activeCaptionTranscribeProcess = null;
     console.warn('[Caption] Direct Whisper failed:', err.message, '— trying HTTP server fallback');
-    let fallbackError;
+    let fallbackError, fallbackResponse, fallbackPayload, fallbackDiagnostic;
     try {
       const wavBase64 = fs.readFileSync(transcriptionAudioPath).toString('base64');
-      const result = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
+      const result = fallbackResponse = await postJsonForBufferWithRecovery(8428, '/api/transcribe', {
         audioBase64: wavBase64, wordTimestamps: true, language: languageHint || 'auto',
         contentMode: 'speech', sourceName: path.basename(videoPath),
         transcriptionHints: String(transcriptionHints || '').slice(0, 1000),
@@ -4661,10 +5042,8 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       }, 300000, 3, activeCaptionSongController?.signal);
       if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
       if (result && result.statusCode === 200) {
-        const p = JSON.parse(result.buffer.toString('utf8'));
+        const p = normalizeLocalCaptionResult(fallbackPayload = JSON.parse(result.buffer.toString('utf8')));
         if (p?.error || p?.ok === false) throw new Error(p?.error || 'Local transcription worker rejected the caption job.');
-        if (!String(p?.text || '').trim() && !(Array.isArray(p?.words) && p.words.length)
-            && !(Array.isArray(p?.segments) && p.segments.length)) throw new Error('Local transcription worker returned no recognizable speech.');
         reportTranscriptionProgress(100);
         return {
           ...p,
@@ -4678,15 +5057,27 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
             'Local captions used the backup transcription worker. Review synchronization before exporting.'],
         };
       }
-      throw new Error(`Local transcription worker returned HTTP ${result?.statusCode || 'no response'}.`);
+      let responseError;
+      try { responseError = JSON.parse(result?.buffer?.toString('utf8') || '{}')?.error; } catch (_) {}
+      const error = new Error(`Local transcription worker returned HTTP ${result?.statusCode || 'no response'}.`
+        + (typeof responseError === 'string' ? ' ' + responseError.slice(0, 1000) : ''));
+      throw saveLocalCaptionFailure(error, { transport: 'http', statusCode: result?.statusCode,
+        responseBody: result?.buffer?.toString('utf8').slice(0, 32768) });
     } catch(e2) {
       if (activeCaptionTranscribeCancelRequested || activeCaptionSongController?.signal.aborted) {
         return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
       }
       fallbackError = e2.message;
+      fallbackDiagnostic = e2.diagnosticPath ? e2 : saveLocalCaptionFailure(e2, {
+        transport: 'http', statusCode: fallbackResponse?.statusCode, result: fallbackPayload,
+        responseBody: fallbackResponse?.buffer?.toString('utf8').slice(0, 32768),
+      });
       console.error('[Caption] HTTP fallback also failed:', e2.message);
     }
-    return { ok: false, error: `${err.message} Backup transcription also failed: ${fallbackError || 'No usable response.'}` };
+    return { ok: false, error: `${err.message} Backup transcription also failed: ${fallbackError || 'No usable response.'}`,
+      ...(fallbackDiagnostic?.diagnosticPath ? { diagnosticPath: fallbackDiagnostic.diagnosticPath } : {}),
+      ...(fallbackDiagnostic?.code === 'CAPTION_LOCAL_RESULT_INVALID' ? { code: fallbackDiagnostic.code } : {}),
+      ...(fallbackDiagnostic?.timingIssue ? { timingIssue: fallbackDiagnostic.timingIssue } : {}) };
   } finally {
     activeCaptionTranscribeProcess = null;
     for (const generatedFile of enhancedAudioFiles) {
@@ -4741,11 +5132,11 @@ function waitForGroqCaptionRetry(milliseconds, signal) {
   });
 }
 
-async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signal, transcriptionHints = '') {
+async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signal, transcriptionHints = '', model = 'whisper-large-v3') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfCaptionTranscriptionCancelled(signal);
     const form = new FormData();
-    form.append('model', 'whisper-large-v3');
+    form.append('model', model === 'whisper-large-v3-turbo' ? model : 'whisper-large-v3');
     form.append('response_format', 'verbose_json');
     form.append('temperature', '0');
     form.append('timestamp_granularities[]', 'word');
@@ -4781,18 +5172,38 @@ async function callGroqWhisperForBuffer(audioBuffer, apiKey, languageHint, signa
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
     }
-    if (resp.status !== 429 || attempt === 2) {
-      // Remote error bodies can echo request data; expose only the status.
-      throw new Error(resp.status === 429 ? 'Groq quota is exhausted or requests are limited. Check the Groq quota, then retry.' : `Groq caption API returned HTTP ${resp.status}. Check the API key, permissions and connection.`);
-    }
-    const retryAfter = Number(resp.headers.get('retry-after'));
-    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? Math.min(60000, Math.ceil(retryAfter * 1000))
-      : 32000;
+    // Remote error bodies can echo credentials or account data; expose only
+    // the status and parsed cooldown. Never retry before a provider deadline.
+    if (resp.status !== 429) throw Object.assign(new Error(`Groq caption API returned HTTP ${resp.status}. Check the API key, permissions and connection.`), {
+      providerHttpStatus: resp.status,
+    });
+    const now = Date.now(), retryAfter = String(resp.headers?.get?.('retry-after') || '').trim();
+    const seconds = Number(retryAfter), deadline = Number.isNaN(seconds) ? Date.parse(retryAfter) : NaN;
+    const requestedDelay = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000)
+      : Number.isFinite(deadline) && deadline > now ? deadline - now : NaN;
+    const retryAfterEstimated = !Number.isSafeInteger(requestedDelay) || requestedDelay <= 0
+      || requestedDelay > 8640000000000000 - now;
+    const waitMs = retryAfterEstimated ? 32000 : requestedDelay;
+    // Long quota windows belong to the queue's pause/recovery state, not a
+    // hidden network wait. The transport still makes at most three attempts.
+    if (attempt === 2 || waitMs > 60000) throw Object.assign(new Error(
+      `Groq quota is exhausted or requests are limited. Retry after ${Math.ceil(waitMs / 1000)} seconds`
+        + `${retryAfterEstimated ? ' (estimated cooldown)' : ''}, or check the Groq quota.`
+    ), { code: 'CAPTION_GROQ_RATE_LIMIT', providerHttpStatus: 429,
+      retryAfterMs: waitMs, retryAt: now + waitMs, retryAfterEstimated });
     console.warn(`[CaptionGroq] Rate limited; retrying in ${Math.ceil(waitMs / 1000)} seconds.`);
     await waitForGroqCaptionRetry(waitMs, signal);
   }
   throw new Error('Groq API rate limit retry failed.');
+}
+
+function groqCaptionRateLimitDetails(error) {
+  return {
+    code: 'CAPTION_GROQ_RATE_LIMIT', engine: 'groq', providerHttpStatus: 429,
+    retryAfterMs: Number.isSafeInteger(error.retryAfterMs) && error.retryAfterMs > 0 ? error.retryAfterMs : undefined,
+    retryAt: Number.isSafeInteger(error.retryAt) && error.retryAt > 0 ? error.retryAt : undefined,
+    retryAfterEstimated: error.retryAfterEstimated === true,
+  };
 }
 
 function readGroqCaptionWav(audioBuffer) {
@@ -4831,13 +5242,29 @@ function assertGroqCaptionWordTimeline(words) {
     const word = words[index], previous = words[index - 1];
     if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start
         || (previous && word.start < previous.end)) {
-      throw new Error('Groq returned conflicting caption word timestamps. Generate captions again or use the Local engine.');
+      throw Object.assign(new Error('Groq returned conflicting caption word timestamps. Generate captions again or use the Local engine.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { array: 'words', index, start: word.start, end: word.end,
+          previousEnd: previous?.end, reason: 'conflicting caption word timestamps' },
+      });
     }
   }
 }
 
-function groqCaptionTimingWindows(words, duration) {
-  const conflicts = new Set(), candidates = [];
+function groqCaptionTimingWithin(value, limit) {
+  // Decimal ASR timestamps can differ by a few floating-point rounding bits.
+  return value <= limit + 1e-9;
+}
+
+function groqCaptionTimingWindows(words, duration, compact = false) {
+  const conflicts = new Set(), candidates = [], wide = new Set();
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index], previous = words[index - 1], next = words[index + 1];
+    const isolated = (!previous || word.start - previous.end >= 0.35)
+      && (!next || next.start - word.end >= 0.35);
+    const suspiciousOpening = index === 0 && groqCaptionTimingWithin(word.start, 0.05);
+    if (!groqCaptionTimingWithin(word.end - word.start, 1.5)
+        && (suspiciousOpening || (isolated && String(word.word).trim().split(/\s+/).length === 1))) wide.add(index);
+  }
   for (let index = 1; index < words.length; index += 1) {
     if (words[index].start < words[index - 1].end) {
       conflicts.add(index - 1); conflicts.add(index);
@@ -4846,24 +5273,25 @@ function groqCaptionTimingWindows(words, duration) {
   const conflictingIndices = [...conflicts].sort((left, right) => left - right);
   for (let cursor = 0; cursor < conflictingIndices.length;) {
     const core = [conflictingIndices[cursor++]];
-    while (cursor < conflictingIndices.length && conflictingIndices[cursor] === core.at(-1) + 1) {
+    while (cursor < conflictingIndices.length && conflictingIndices[cursor] === core.at(-1) + 1
+        && words[conflictingIndices[cursor]].start < words[core.at(-1)].end) {
       core.push(conflictingIndices[cursor++]);
     }
-    const start = Math.max(0, Math.floor(Math.min(...core.map(index => words[index].start))) - 2);
-    let end = Math.min(duration, Math.ceil(Math.max(...core.map(index => words[index].end))) + 4);
+    const firstStart = Math.min(...core.map(index => words[index].start));
+    const lastEnd = Math.max(...core.map(index => words[index].end));
+    const start = Math.max(0, compact ? firstStart - 1 : Math.floor(firstStart) - 2);
+    let end = Math.min(duration, compact ? lastEnd + 1 : Math.ceil(lastEnd) + 4);
     // Forward boundary conflicts benefit from a full decoding context. Keep
     // backwards-label checks focused so unrelated words cannot mask them.
     const forwardConflict = core.every((wordIndex, index) => !index || words[wordIndex].start >= words[core[index - 1]].start);
-    end = Math.min(duration, Math.max(end, start + (forwardConflict ? 30 : 10)));
-    candidates.push({ start, end, core, focused: false });
+    end = Math.min(duration, Math.max(end, start + (compact ? 4 : forwardConflict ? 30 : 10)));
+    candidates.push({ start, end, core, wide: core.filter(index => wide.has(index)), focused: false });
   }
   for (let index = 0; index < words.length; index += 1) {
     if (conflicts.has(index)) continue;
-    const word = words[index], previous = words[index - 1], next = words[index + 1];
-    const isolated = (!previous || word.start - previous.end >= 0.35)
-      && (!next || next.start - word.end >= 0.35);
-    const suspiciousOpening = index === 0 && word.start <= 0.05 && word.end - word.start > 1.5;
-    if (word.end - word.start <= 1.5 || (!isolated && !suspiciousOpening) || String(word.word).trim().split(/\s+/).length !== 1) continue;
+    if (!wide.has(index)) continue;
+    const word = words[index];
+    const suspiciousOpening = index === 0 && groqCaptionTimingWithin(word.start, 0.05);
     // Long music/silence before an isolated label can give Whisper an early
     // start. Re-recognize the actual tail audio rather than imposing a delay.
     candidates.push({ start: suspiciousOpening ? 0 : Math.max(0, word.end - 2), end: Math.min(duration, word.end + 2),
@@ -4872,72 +5300,87 @@ function groqCaptionTimingWindows(words, duration) {
   for (const window of candidates) {
     // Do not ask ASR to recognize half of a neighboring word. Focused windows
     // deliberately crop a suspect target's wide prefix, never its neighbors.
-    for (let pass = 0; pass < words.length; pass += 1) {
-      let moved = false;
-      for (let index = 0; index < words.length; index += 1) {
-        if (window.core.includes(index)) continue;
-        const word = words[index];
-        if (word.start < window.start && word.end > window.start) {
-          window.start = window.focused ? word.end + 0.05 : Math.max(0, word.start - 0.2); moved = true;
+    for (let paddingPass = 0; paddingPass < (compact && !window.focused ? 2 : 1); paddingPass += 1) {
+      // Predicted word ends can stop before the actual final phoneme. Add
+      // context once, then extend to complete neighbors without chaining pads.
+      if (paddingPass) window.end = Math.min(duration, window.end + 0.5);
+      for (let pass = 0; pass < words.length; pass += 1) {
+        let moved = false;
+        for (let index = 0; index < words.length; index += 1) {
+          if (window.core.includes(index)) continue;
+          const word = words[index];
+          if (word.start < window.start && word.end > window.start) {
+            window.start = window.focused ? word.end + 0.05 : Math.max(0, word.start - (compact ? 0 : 0.2)); moved = true;
+          }
+          if (word.start < window.end && word.end > window.end) {
+            window.end = window.focused ? word.start - 0.05 : Math.min(duration, word.end + (compact ? 0 : 0.2)); moved = true;
+          }
         }
-        if (word.start < window.end && word.end > window.end) {
-          window.end = window.focused ? word.start - 0.05 : Math.min(duration, word.end + 0.2); moved = true;
-        }
+        if (!moved) break;
       }
-      if (!moved) break;
     }
     // Dense overlapping timestamps can require more than twenty seconds of
     // context. Verify the broader audio instead of rejecting before ASR runs.
     if (!(window.end > window.start) || window.end - window.start > 60) {
-      throw new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.');
+      throw Object.assign(new Error('Groq returned caption timing that could not be verified in a short audio window. Generate captions again or use the Local engine.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: window.start, end: window.end, reason: 'unverifiable audio window' },
+      });
     }
   }
   candidates.sort((left, right) => left.start - right.start);
   const windows = [];
   for (const window of candidates) {
     const previous = windows.at(-1);
-    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 60) {
+    if (previous && window.start <= previous.end && Math.max(previous.end, window.end) - previous.start <= 60
+        && (!compact || window.core.some(index => previous.core.includes(index)))) {
       previous.end = Math.max(previous.end, window.end);
       previous.core = [...new Set([...previous.core, ...window.core])];
       previous.wide = [...new Set([...(previous.wide || []), ...(window.wide || [])])];
+      previous.focused = previous.focused && window.focused;
     } else windows.push({ ...window });
   }
-  if (windows.length > 8) {
-    throw new Error('Groq returned too many uncertain caption timestamps for automatic verification. Try a shorter video or the Local engine.');
+  if (windows.length > (compact ? 16 : 8)) {
+    throw Object.assign(new Error('Groq returned too many uncertain caption timestamps for automatic verification. Try a shorter video or the Local engine.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
   }
   return windows;
 }
 
-async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress }) {
-  const windows = groqCaptionTimingWindows(words, duration);
+async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress,
+  compact = false, verificationState = { requests: 0 } }) {
+  const windows = groqCaptionTimingWindows(words, duration, compact);
   if (!windows.length) { assertGroqCaptionWordTimeline(words); return { words, verifiedTimingWindows: 0 }; }
   const repaired = words.map(word => ({ ...word }));
+  const confirmedText = words.map(word => word.word);
   const textChanges = [];
-  let verificationRequests = 0;
   const maximumVerificationRequests = 16;
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
-  const failure = (window, reason) => new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`);
+  const failure = (window, reason) => Object.assign(new Error(`Groq could not verify the caption words and timing on audio ${window.start.toFixed(2)}–${window.end.toFixed(2)}s: ${reason}.`), {
+    code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: window.start, end: window.end, reason },
+  });
   for (let index = 0; index < windows.length; index += 1) {
     throwIfCaptionTranscriptionCancelled(signal);
     const window = windows[index];
     const startSample = Math.max(0, Math.floor(window.start * sampleRate));
     const endSample = Math.min(pcm.length / 2, Math.ceil(window.end * sampleRate));
     const offset = startSample / sampleRate, length = (endSample - startSample) / sampleRate;
-    const expectedIndices = words.flatMap((word, wordIndex) => window.core.includes(wordIndex)
-      || (word.start >= offset && word.end <= endSample / sampleRate) ? [wordIndex] : []);
-    const expected = expectedIndices.map(wordIndex => words[wordIndex]);
+    const expectedIndices = repaired.flatMap((word, wordIndex) => word && (window.core.includes(wordIndex)
+      || (word.start >= offset && word.end <= endSample / sampleRate)) ? [wordIndex] : []);
+    const expected = expectedIndices.map(wordIndex => repaired[wordIndex]);
     const isolatedBroadOpening = expectedIndices.length === 1 && expectedIndices[0] === 0
       && window.core.length === 1 && (window.wide || []).includes(0)
       && words[0].start <= 0.05 && (!words[1] || words[1].start - words[0].end >= 0.35);
     let fresh, changedProposal, broadOpeningProposal, confirmedBroadOpening = false;
+    const verifiedContextIndices = new Set();
     let acceptedTextChange = false, rejectionReason = 'recognition disagreed';
-    // A cropped recognition can disagree transiently. Retry once, retaining
-    // every word and timing check rather than exporting unverified captions.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Retry transient conflicts while retaining every word and timing check.
+    for (let attempt = 0; attempt < (window.focused ? 2 : 3); attempt += 1) {
       throwIfCaptionTranscriptionCancelled(signal);
-      if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
-      verificationRequests += 1;
-      const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
+      if (verificationState.requests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+      verificationState.requests += 1;
+      const verificationModel = !window.focused && attempt > 0 ? 'whisper-large-v3-turbo' : 'whisper-large-v3';
+      const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(startSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints, verificationModel);
       throwIfCaptionTranscriptionCancelled(signal);
       const decoded = Array.isArray(json?.words) ? json.words.filter(word => String(word?.word || word?.text || '').trim()).map(word => ({ ...word })) : [];
       // Groq can overlap adjacent boundary words by a few frames and let the
@@ -4946,10 +5389,10 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       for (let wordIndex = 0; wordIndex < decoded.length; wordIndex += 1) {
         const word = decoded[wordIndex], previous = decoded[wordIndex - 1];
         if (wordIndex === decoded.length - 1 && Number.isFinite(word.end)
-            && word.end > length && word.end - length <= 0.35) word.end = length;
+            && word.end > length && groqCaptionTimingWithin(word.end - length, 0.35)) word.end = length;
         if (previous && Number.isFinite(previous.end) && Number.isFinite(word.start)
             && word.start >= previous.start && word.start < previous.end
-            && previous.end - word.start <= 0.2) {
+            && groqCaptionTimingWithin(previous.end - word.start, 0.2)) {
           const boundary = (previous.end + word.start) / 2;
           if (boundary > previous.start && boundary < word.end) {
             previous.end = boundary; word.start = boundary;
@@ -4960,74 +5403,174 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
       // normalized character spans, retaining the original caption text.
       const expectedText = expected.map(word => normalized(word.word)).join('');
       const decodedText = decoded.map(word => normalized(word.word || word.text)).join('');
+      if (compact && !window.focused
+          && (!String(json?.text || '').trim() || normalized(json.text) === decodedText)) {
+        const coreIndices = expectedIndices.filter(sourceIndex => window.core.includes(sourceIndex));
+        const coreText = coreIndices.map(sourceIndex => normalized(repaired[sourceIndex].word)).join('');
+        const matches = [];
+        for (let first = 0; first < decoded.length && coreText; first += 1) {
+          let text = '';
+          for (let last = first; last < decoded.length; last += 1) {
+            text += normalized(decoded[last].word || decoded[last].text);
+            if (text === coreText) matches.push({ first, last });
+            if (text.length >= coreText.length) break;
+          }
+        }
+        if (matches.length === 1) {
+          let { first, last } = matches[0];
+          let firstIndex = coreIndices[0], lastIndex = coreIndices.at(-1);
+          let matched = decoded.slice(first, last + 1);
+          let coreValid = matched.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+            && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
+          try { assertGroqCaptionWordTimeline(matched); } catch (_) { coreValid = false; }
+          coreValid = coreValid && coreIndices.every((sourceIndex, index) => sourceIndex === firstIndex + index)
+            && !coreIndices.some(sourceIndex => (window.wide || []).includes(sourceIndex));
+          const expectedIndexSet = new Set(expectedIndices);
+          const extendContext = direction => {
+            let sourceIndex = direction < 0 ? firstIndex - 1 : lastIndex + 1;
+            let decodedIndex = direction < 0 ? first - 1 : last + 1;
+            let sourceText = '', decodedContextText = '', sourceCount = 0, decodedCount = 0;
+            // Grow only through complete, identical context token spans. This
+            // lets real ASR boundaries move together without trimming a neighbor.
+            for (;;) {
+              if (sourceText.length <= decodedContextText.length) {
+                if (!expectedIndexSet.has(sourceIndex) || !repaired[sourceIndex]) return false;
+                const text = normalized(repaired[sourceIndex].word);
+                sourceText = direction < 0 ? text + sourceText : sourceText + text;
+                sourceCount += 1; sourceIndex += direction;
+              } else {
+                if (decodedIndex < 0 || decodedIndex >= decoded.length) return false;
+                const text = normalized(decoded[decodedIndex].word || decoded[decodedIndex].text);
+                decodedContextText = direction < 0 ? text + decodedContextText : decodedContextText + text;
+                decodedCount += 1; decodedIndex += direction;
+              }
+              if (sourceCount && decodedCount && sourceText.length === decodedContextText.length) {
+                if (sourceText !== decodedContextText) return false;
+                if (direction < 0) { firstIndex -= sourceCount; first -= decodedCount; }
+                else { lastIndex += sourceCount; last += decodedCount; }
+                matched = decoded.slice(first, last + 1);
+                let valid = matched.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
+                  && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
+                try { assertGroqCaptionWordTimeline(matched); } catch (_) { valid = false; }
+                return valid;
+              }
+            }
+          };
+          while (coreValid) {
+            const before = repaired.slice(0, firstIndex).filter(Boolean).at(-1);
+            const after = repaired.slice(lastIndex + 1).find(Boolean);
+            if (before && offset + matched[0].start < before.end) coreValid = extendContext(-1);
+            else if (after && offset + matched.at(-1).end > after.start) coreValid = extendContext(1);
+            else break;
+          }
+          if (coreValid) {
+            const ownedIndices = Array.from({ length: lastIndex - firstIndex + 1 }, (_, index) => firstIndex + index);
+            for (const sourceIndex of ownedIndices) if (!window.core.includes(sourceIndex)) verifiedContextIndices.add(sourceIndex);
+            // A merged ASR token has one genuine interval; preserve the source
+            // phrase together instead of inventing timings for its subwords.
+            fresh = matched.length === ownedIndices.length && matched.every((word, wordIndex) =>
+              normalized(word.word || word.text) === normalized(repaired[ownedIndices[wordIndex]].word))
+              ? matched.map((word, wordIndex) => ({ ...word, sourceIndices: [ownedIndices[wordIndex]] }))
+              : [{ word: ownedIndices.map(sourceIndex => repaired[sourceIndex].word).join(' '),
+                start: matched[0].start, end: matched.at(-1).end, sourceIndices: ownedIndices }];
+            break;
+          }
+        }
+      }
       let candidate = decoded;
       let decodedValid = decoded.length > 0 && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end)
-        && word.start >= 0 && word.end > word.start && word.end <= length + 0.05);
+        && word.start >= 0 && word.end > word.start && groqCaptionTimingWithin(word.end - length, 0.05));
       try { assertGroqCaptionWordTimeline(decoded); } catch (_) { decodedValid = false; }
-      if (decodedValid && expectedText === decodedText && decoded.length !== expected.length) {
-        let cursor = 0;
-        const spans = decoded.map(word => {
-          const start = cursor; cursor += normalized(word.word || word.text).length;
-          return { start, end: cursor, word };
-        });
-        cursor = 0;
-        candidate = expected.map(word => {
-          const start = cursor; cursor += normalized(word.word).length;
-          const matching = spans.filter(span => span.end > start && span.start < cursor);
-          return { word: word.word, start: matching[0]?.word.start, end: matching.at(-1)?.word.end };
-        });
+      if (decodedValid && expectedText === decodedText) {
+        // Keep only boundaries shared by both tokenizations. When ASR merges
+        // words, retain their original text together at the actual ASR interval.
+        // Splitting that interval would invent subword timestamps.
+        candidate = [];
+        let expectedCursor = 0, decodedCursor = 0, expectedEnd = 0, decodedEnd = 0;
+        while (expectedCursor < expected.length && decodedCursor < decoded.length) {
+          const expectedStart = expectedCursor, decodedStart = decodedCursor;
+          expectedEnd += normalized(expected[expectedCursor++].word).length;
+          decodedEnd += normalized(decoded[decodedCursor].word || decoded[decodedCursor].text).length;
+          decodedCursor += 1;
+          while (expectedEnd !== decodedEnd) {
+            if (expectedEnd < decodedEnd && expectedCursor < expected.length) {
+              expectedEnd += normalized(expected[expectedCursor++].word).length;
+            } else if (decodedEnd < expectedEnd && decodedCursor < decoded.length) {
+              decodedEnd += normalized(decoded[decodedCursor].word || decoded[decodedCursor].text).length;
+              decodedCursor += 1;
+            } else break;
+          }
+          candidate.push({ word: expected.slice(expectedStart, expectedCursor).map(word => word.word).join(' '),
+            start: decoded[decodedStart].start, end: decoded[decodedCursor - 1].end,
+            sourceIndices: expectedIndices.slice(expectedStart, expectedCursor) });
+        }
       }
-      let valid = decodedValid && candidate.length === expected.length && !candidate.some((word, wordIndex) =>
-        normalized(word.word || word.text) !== normalized(expected[wordIndex].word)
-        || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || word.end > length + 0.05
-        || ((window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5));
+      const candidateIndices = (word, wordIndex) => word.sourceIndices || [expectedIndices[wordIndex]];
+      const candidateFitsNeighbors = !compact || candidate.every((word, wordIndex) => {
+        const indices = candidateIndices(word, wordIndex);
+        if (!indices.some(sourceIndex => window.core.includes(sourceIndex))) return true;
+        const before = repaired.slice(0, indices[0]).filter(Boolean).at(-1);
+        const after = repaired.slice(indices.at(-1) + 1).find(Boolean);
+        return (!before || window.core.includes(indices[0] - 1) || offset + word.start >= before.end)
+          && (!after || window.core.includes(indices.at(-1) + 1) || offset + word.end <= after.start);
+      });
+      let valid = decodedValid && candidate.flatMap(candidateIndices).length === expected.length && !candidate.some((word, wordIndex) =>
+        normalized(word.word || word.text) !== candidateIndices(word, wordIndex).map(sourceIndex => normalized(repaired[sourceIndex].word)).join('')
+        || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end <= word.start || !groqCaptionTimingWithin(word.end - length, 0.05)
+        || (candidateIndices(word, wordIndex).some(sourceIndex => (window.wide || []).includes(sourceIndex)) && !groqCaptionTimingWithin(word.end - word.start, 1.5)));
       if (String(json?.text || '').trim() && normalized(json.text) !== decodedText) valid = false;
       try { assertGroqCaptionWordTimeline(candidate); } catch (_) { valid = false; }
+      if (!candidateFitsNeighbors) valid = false;
       if (valid) { fresh = candidate; break; }
       // An isolated opening label can retain its silent prefix even on two
       // complete-prefix recognitions. Only unchanged, agreeing broad results
       // may authorize an additional focused check of the label's tail audio.
       const broadOpeningValid = isolatedBroadOpening && decodedValid && expectedText === decodedText
-        && candidate.length === 1 && candidate[0].end - candidate[0].start > 1.5
+        && candidate.length === 1 && !groqCaptionTimingWithin(candidate[0].end - candidate[0].start, 1.5)
         && (!String(json?.text || '').trim() || normalized(json.text) === decodedText);
       if (broadOpeningValid) {
-        if (broadOpeningProposal && Math.abs(candidate[0].start - broadOpeningProposal.start) <= 0.25
-            && Math.abs(candidate[0].end - broadOpeningProposal.end) <= 0.25) confirmedBroadOpening = true;
+        if (broadOpeningProposal && groqCaptionTimingWithin(Math.abs(candidate[0].start - broadOpeningProposal.start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(candidate[0].end - broadOpeningProposal.end), 0.25)) confirmedBroadOpening = true;
         broadOpeningProposal = { ...candidate[0] };
       } else broadOpeningProposal = undefined;
       // Permit small spelling corrections only with stable surrounding words,
       // the same word count and two agreeing, independently valid audio passes.
       const changedCount = candidate.length === expected.length ? candidate.filter((word, wordIndex) =>
         normalized(word.word || word.text) !== normalized(expected[wordIndex].word)).length : Infinity;
-      const correctionValid = decodedValid && candidate.length === expected.length && expected.length >= 3
+      const correctionValid = decodedValid && candidateFitsNeighbors && candidate.length === expected.length && expected.length >= 3
         && changedCount > 0 && changedCount <= Math.max(1, Math.floor(expected.length * 0.2))
         && (!String(json?.text || '').trim() || normalized(json.text) === decodedText)
-        && !candidate.some((word, wordIndex) => (window.wide || []).includes(expectedIndices[wordIndex]) && word.end - word.start > 1.5);
+        && !candidate.some((word, wordIndex) => (window.wide || []).includes(expectedIndices[wordIndex]) && !groqCaptionTimingWithin(word.end - word.start, 1.5));
       if (correctionValid) {
         if (changedProposal && candidate.every((word, wordIndex) =>
             normalized(word.word || word.text) === normalized(changedProposal[wordIndex].word || changedProposal[wordIndex].text)
-            && Math.abs(word.start - changedProposal[wordIndex].start) <= 0.25
-            && Math.abs(word.end - changedProposal[wordIndex].end) <= 0.25)) {
+            && groqCaptionTimingWithin(Math.abs(word.start - changedProposal[wordIndex].start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(word.end - changedProposal[wordIndex].end), 0.25))) {
           fresh = candidate; acceptedTextChange = true; break;
         }
         changedProposal = candidate.map(word => ({ ...word }));
       } else changedProposal = undefined;
-      rejectionReason = expectedText !== decodedText ? 'the second recognition returned different words'
-        : !decodedValid ? 'the second recognition returned missing, overlapping or invalid timestamps'
+      rejectionReason = expectedText !== decodedText ? 'recognition returned different words'
+        : !decodedValid ? 'recognition returned missing, overlapping or invalid timestamps'
         : 'word boundaries or wide timestamps remain uncertain';
+      console.warn('[CaptionGroq] Timing verification rejected', {
+        start: offset, end: offset + length, attempt: attempt + 1,
+        expectedWords: expected.length, decodedWords: decoded.length,
+        textMatches: expectedText === decodedText, decodedValid, model: verificationModel, reason: rejectionReason,
+      });
     }
     if (!fresh && confirmedBroadOpening) {
       const expectedText = normalized(expected[0].word);
       let firstTail;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         throwIfCaptionTranscriptionCancelled(signal);
-        if (verificationRequests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
-        const tailStart = Math.max(0, words[0].end - 2 - attempt * 0.25);
+        if (verificationState.requests >= maximumVerificationRequests) throw failure(window, 'automatic timing verification request limit reached');
+        const tailStart = Math.max(0, words[0].end - 2 - Math.min(attempt, 1) * 0.25);
         const tailStartSample = Math.floor(tailStart * sampleRate);
         const tailOffset = tailStartSample / sampleRate;
         const tailLength = (endSample - tailStartSample) / sampleRate;
         if (tailOffset <= offset || tailLength <= 0 || tailLength > length) break;
-        verificationRequests += 1;
+        verificationState.requests += 1;
         const json = await callGroqWhisperForBuffer(buildWavChunkBuffer(pcm.subarray(tailStartSample * 2, endSample * 2), sampleRate), apiKey, languageHint, signal, transcriptionHints);
         throwIfCaptionTranscriptionCancelled(signal);
         const decoded = (Array.isArray(json?.words) ? json.words : [])
@@ -5042,34 +5585,64 @@ async function verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration
         // crop boundary cannot prove that its complete speech was retained.
         const candidate = decoded.length ? { word: expected[0].word,
           start: tailOffset + decoded[0].start, end: tailOffset + decoded.at(-1).end } : undefined;
-        valid = valid && candidate.end - candidate.start <= 1.5
-          && decoded[0].start >= 0.1 && decoded.at(-1).end <= tailLength - 0.1;
+        valid = valid && groqCaptionTimingWithin(candidate.end - candidate.start, 1.5)
+          && groqCaptionTimingWithin(0.1 - decoded[0].start, 0) && groqCaptionTimingWithin(decoded.at(-1).end - (tailLength - 0.1), 0);
         if (!valid) { rejectionReason = 'focused opening audio did not confirm complete words and narrow timing'; break; }
-        if (firstTail && Math.abs(candidate.start - firstTail.start) <= 0.25
-            && Math.abs(candidate.end - firstTail.end) <= 0.25) {
+        if (firstTail && groqCaptionTimingWithin(Math.abs(candidate.start - firstTail.start), 0.25)
+            && groqCaptionTimingWithin(Math.abs(candidate.end - firstTail.end), 0.25)) {
           fresh = [{ ...candidate, start: candidate.start - offset, end: candidate.end - offset }];
           break;
         }
-        if (firstTail) { rejectionReason = 'focused opening audio passes returned different timing'; break; }
+        if (firstTail) {
+          rejectionReason = 'focused opening audio passes returned different timing';
+          console.warn('[CaptionGroq] Opening timing disagreement', {
+            attempt: attempt + 1, startDifference: candidate.start - firstTail.start,
+            endDifference: candidate.end - firstTail.end,
+          });
+        }
         firstTail = candidate;
       }
     }
+    if (!fresh && !compact && !window.focused && length > 20) {
+      // Full context can reproduce the same faulty phrase boundary. Verify
+      // independent short regions once, under the original shared request cap.
+      console.warn('[CaptionGroq] Retrying timing with shorter audio regions', { start: offset, end: offset + length });
+      const minimumProgress = 80 + Math.round(index / windows.length * 18);
+      const focused = await verifyGroqCaptionSpeechTimings({ words: repaired.filter(Boolean), pcm, sampleRate, duration,
+        apiKey, languageHint, signal, transcriptionHints,
+        onProgress: value => onProgress?.(Math.max(minimumProgress, value)), compact: true, verificationState });
+      return { ...focused, verifiedTimingWindows: index + focused.verifiedTimingWindows,
+        warnings: [...(textChanges.length ? [`Two short audio passes confirmed text corrections: ${textChanges.join('; ')}. Review these words against the recording.`] : []), ...(focused.warnings || [])] };
+    }
     if (!fresh) throw failure(window, rejectionReason);
     for (let wordIndex = 0; wordIndex < fresh.length; wordIndex += 1) {
-      const originalIndex = expectedIndices[wordIndex], word = fresh[wordIndex];
+      const word = fresh[wordIndex], sourceIndices = word.sourceIndices || [expectedIndices[wordIndex]];
+      // Overlapping short regions share context. Keep that context's accepted
+      // timing and repair only the uncertain words owned by this region.
+      if (compact && !sourceIndices.some(sourceIndex => window.core.includes(sourceIndex) || verifiedContextIndices.has(sourceIndex))) continue;
+      const originalIndex = sourceIndices[0];
       // A second broad interval is still uncertain, even if its transcript is
       // correct. Never report an unchanged early label as verified timing.
-      if ((window.wide || []).includes(originalIndex) && word.end - word.start > 1.5) throw failure(window, 'word timestamp remains too wide');
-      const replacementText = acceptedTextChange ? String(word.word || word.text).trim() : words[originalIndex].word;
-      if (normalized(replacementText) !== normalized(words[originalIndex].word)) {
-        textChanges.push(`${words[originalIndex].word} → ${replacementText} at ${(offset + word.start).toFixed(2)}s`);
+      if (sourceIndices.some(sourceIndex => (window.wide || []).includes(sourceIndex)) && !groqCaptionTimingWithin(word.end - word.start, 1.5)) throw failure(window, 'word timestamp remains too wide');
+      const originalText = sourceIndices.map(sourceIndex => repaired[sourceIndex].word).join(' ');
+      const replacementText = acceptedTextChange ? String(word.word || word.text).trim() : originalText;
+      if (normalized(replacementText) !== normalized(originalText)) {
+        textChanges.push(`${originalText} → ${replacementText} at ${(offset + word.start).toFixed(2)}s`);
       }
-      repaired[originalIndex] = { ...words[originalIndex], word: replacementText, start: offset + word.start, end: Math.min(duration, offset + word.end) };
+      confirmedText[originalIndex] = replacementText;
+      repaired[originalIndex] = { ...repaired[originalIndex], word: replacementText, start: offset + word.start, end: Math.min(duration, offset + word.end) };
+      for (const sourceIndex of sourceIndices.slice(1)) { repaired[sourceIndex] = null; confirmedText[sourceIndex] = null; }
     }
     try { onProgress?.(80 + Math.round((index + 1) / windows.length * 18)); } catch (_) {}
   }
-  assertGroqCaptionWordTimeline(repaired);
-  return { words: repaired, verifiedTimingWindows: windows.length,
+  const verifiedWords = repaired.filter(Boolean);
+  assertGroqCaptionWordTimeline(verifiedWords);
+  if (normalized(verifiedWords.map(word => word.word).join(' ')) !== normalized(confirmedText.join(' '))) {
+    throw Object.assign(new Error('Groq timing verification changed the caption word coverage. Generate captions again.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
+  }
+  return { words: verifiedWords, verifiedTimingWindows: windows.length,
     warnings: textChanges.length ? [`Two short audio passes confirmed text corrections: ${textChanges.join('; ')}. Review these words against the recording.`] : [] };
 }
 
@@ -5083,6 +5656,7 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
   if (duration - cursor >= 2) gaps.push([cursor, duration]);
   const additions = [], normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   let checked = 0;
+  let rateLimit;
   const warnings = [];
   const totalWindows = gaps.reduce((sum, [start, end]) => sum + Math.ceil((end - start) / 10), 0);
   recoveryWindows:
@@ -5105,8 +5679,13 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
       first = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
       if (!first.length) continue;
       second = read(await callGroqWhisperForBuffer(audio, apiKey, languageHint, signal, transcriptionHints));
-      } catch (_) {
+      } catch (error) {
         throwIfCaptionTranscriptionCancelled(signal);
+        if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+          rateLimit = groqCaptionRateLimitDetails(error);
+          warnings.push('Groq quota interrupted automatic recovery. Existing captions and speech already confirmed by two audio passes were retained; some gaps remain unchecked.');
+          break recoveryWindows;
+        }
         warnings.push('Automatic recovery stopped after a short audio request failed. Existing captions were retained; some gaps remain unchecked.');
         break recoveryWindows;
       }
@@ -5119,12 +5698,14 @@ async function recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey
   if (totalWindows > 8 && checked === 8) warnings.push(`Automatic recovery checked 8 of ${totalWindows} audio windows. Remaining gaps need review.`);
   const repaired = [...words.map(word => ({ ...word })), ...additions].sort((a, b) => a.start - b.start);
   assertGroqCaptionWordTimeline(repaired);
-  return { words: repaired, recoveredWords: additions.length, warnings };
+  return { words: repaired, recoveredWords: additions.length, warnings, ...(rateLimit ? { rateLimit } : {}) };
 }
 
 async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints }) {
   const clipEnd = Math.min(duration, segment.end + 0.5);
-  if (clipEnd > 60) throw new Error('Groq returned an uncertain opening caption without word timing. Its audio window is too long to verify automatically.');
+  if (clipEnd > 60) throw Object.assign(new Error('Groq returned an uncertain opening caption without word timing. Its audio window is too long to verify automatically.'), {
+    code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening verification window too long' },
+  });
   const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   const expectedText = normalized(segment.text);
   const audio = buildWavChunkBuffer(pcm.subarray(0, Math.ceil(clipEnd * sampleRate) * 2), sampleRate);
@@ -5139,10 +5720,14 @@ async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, durat
       && decoded.every(word => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end <= clipEnd)
       && !(decoded[0]?.start <= 0.05 && decoded[0].end - decoded[0].start > 1.5);
     try { assertGroqCaptionWordTimeline(decoded); } catch (_) { valid = false; }
-    if (!valid) throw new Error('Groq could not verify the opening caption words and timing. Its segment starts at the beginning of the video without usable word timestamps.');
+    if (!valid) throw Object.assign(new Error('Groq could not verify the opening caption words and timing. Its segment starts at the beginning of the video without usable word timestamps.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening caption has no usable word timestamps' },
+    });
     if (first && (first.length !== decoded.length || decoded.some((word, index) => normalized(word.word) !== normalized(first[index].word)
         || Math.abs(word.start - first[index].start) > 0.25 || Math.abs(word.end - first[index].end) > 0.25))) {
-      throw new Error('Groq opening audio checks disagreed on the words or timing. Generate captions again.');
+      throw Object.assign(new Error('Groq opening audio checks disagreed on the words or timing. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { start: 0, end: clipEnd, reason: 'opening audio passes disagreed' },
+      });
     }
     first = decoded;
   }
@@ -5150,10 +5735,106 @@ async function verifyGroqCaptionOpeningSegment({ segment, pcm, sampleRate, durat
   return { segment: { ...segment, start: first[0].start, end: first.at(-1).end }, words: first };
 }
 
-async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false }) {
+async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', signal, onProgress, autoRecoverMissingSpeech = false, captionerVersion }) {
   throwIfCaptionTranscriptionCancelled(signal);
   if (!apiKey) throw new Error('Groq API key is missing. Enter it under Caption engine or configure the saved key.');
+  const isCaptionerV2 = captionerVersion === 2;
   const { pcm, sampleRate, duration } = readGroqCaptionWav(audioBuffer);
+  const repairGroqWordTimelineV2 = (rawWords, clipDuration) => {
+    const cleaned = (Array.isArray(rawWords) ? rawWords : [])
+      .map(item => ({
+        ...item,
+        word: String(item?.word ?? item?.text ?? '').trim(),
+        start: Number(item?.start),
+        end: Number(item?.end),
+      }))
+      .filter(item => item.word);
+    if (!cleaned.length) return [];
+    const maxDur = Number.isFinite(clipDuration) && clipDuration > 0
+      ? clipDuration
+      : Math.max(1, ...cleaned.map(w => (Number.isFinite(w.end) ? w.end : 0)));
+    if (Number.isFinite(cleaned[0].start) && Number.isFinite(cleaned[0].end)
+        && cleaned[0].start <= 0.05 && cleaned[0].end - cleaned[0].start > 1.5) {
+      cleaned[0].start = Math.max(0, Math.min(cleaned[0].end - 0.2, cleaned[0].end - 1.2));
+    }
+    const minStep = Math.min(0.04, maxDur / Math.max(cleaned.length * 4, 10));
+    for (let idx = 0; idx < cleaned.length; idx += 1) {
+      const prev = cleaned[idx - 1];
+      const prevEnd = prev ? prev.end : 0;
+      let s = Number.isFinite(cleaned[idx].start) ? Math.max(0, cleaned[idx].start) : prevEnd;
+      let e = Number.isFinite(cleaned[idx].end) ? cleaned[idx].end : s + 0.16;
+      if (prev && s < prevEnd) {
+        if (s >= prev.start && prevEnd - s <= 0.35) {
+          const mid = (prevEnd + s) / 2;
+          if (mid > prev.start + minStep && mid < e - minStep) {
+            prev.end = mid;
+            s = mid;
+          } else {
+            s = prevEnd;
+          }
+        } else {
+          s = prevEnd;
+        }
+      }
+      if (e <= s) e = s + Math.max(minStep, 0.12);
+      if (e - s > 1.5) {
+        s = Math.max(prevEnd, e - 1.2);
+      }
+      cleaned[idx].start = s;
+      cleaned[idx].end = e;
+    }
+    if (cleaned.at(-1).end > maxDur) {
+      let tailIdx = cleaned.length - 1;
+      while (tailIdx > 0 && cleaned[tailIdx - 1].end >= maxDur - (cleaned.length - tailIdx) * minStep) {
+        tailIdx -= 1;
+      }
+      const safeSpanStart = Math.max(0, tailIdx > 0 ? Math.min(cleaned[tailIdx - 1].end, maxDur - (cleaned.length - tailIdx) * minStep) : 0);
+      const count = cleaned.length - tailIdx;
+      const step = Math.max(1e-4, (maxDur - safeSpanStart) / count);
+      for (let k = 0; k < count; k += 1) {
+        const w = cleaned[tailIdx + k];
+        w.start = safeSpanStart + k * step;
+        w.end = k === count - 1 ? maxDur : safeSpanStart + (k + 1) * step;
+      }
+    }
+    return cleaned;
+  };
+  const repairGroqSegmentsV2 = (rawSegments, clipDuration) => {
+    const cleaned = (Array.isArray(rawSegments) ? rawSegments : [])
+      .map(seg => ({
+        ...seg,
+        text: String(seg?.text || '').trim(),
+        start: Number(seg?.start),
+        end: Number(seg?.end),
+      }))
+      .filter(seg => seg.text);
+    if (!cleaned.length) return [];
+    const maxDur = Number.isFinite(clipDuration) && clipDuration > 0 ? clipDuration : 60;
+    const minStep = Math.min(0.08, maxDur / Math.max(cleaned.length * 4, 10));
+    for (let idx = 0; idx < cleaned.length; idx += 1) {
+      const prev = cleaned[idx - 1];
+      const prevEnd = prev ? prev.end : 0;
+      let s = Number.isFinite(cleaned[idx].start) ? Math.max(0, cleaned[idx].start) : prevEnd;
+      let e = Number.isFinite(cleaned[idx].end) ? cleaned[idx].end : s + 1.0;
+      if (prev && s < prevEnd) {
+        if (s >= prev.start && prevEnd - s <= 0.35) {
+          const mid = (prevEnd + s) / 2;
+          if (mid > prev.start + minStep && mid < e - minStep) {
+            prev.end = mid;
+            s = mid;
+          } else {
+            s = prevEnd;
+          }
+        } else {
+          s = prevEnd;
+        }
+      }
+      if (e <= s) e = s + Math.max(minStep, 0.4);
+      cleaned[idx].start = Math.min(s, Math.max(0, maxDur - minStep));
+      cleaned[idx].end = Math.min(maxDur, Math.max(cleaned[idx].start + minStep, e));
+    }
+    return cleaned;
+  };
   const bytesPerSecond = sampleRate * 2;
   // Nine-minute chunks fit the Groq upload limit; an overlapping second on
   // each side protects words at the boundary without deleting repeated lyrics.
@@ -5179,7 +5860,15 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     throwIfCaptionTranscriptionCancelled(signal);
     if (typeof json?.language === 'string' && json.language.trim() && !detectedLanguage) detectedLanguage = json.language.trim();
     const validInterval = item => Number.isFinite(item?.start) && Number.isFinite(item?.end)
-      && item.start >= 0 && item.start < chunkDuration && item.end > item.start && item.end <= chunkDuration + 0.35;
+      && item.start >= 0 && item.start < chunkDuration && item.end > item.start && groqCaptionTimingWithin(item.end - chunkDuration, 0.35);
+    const sourceSegmentsList = isCaptionerV2 && Array.isArray(json?.segments)
+      && json.segments.some(seg => String(seg?.text || '').trim() && !validInterval(seg))
+      ? repairGroqSegmentsV2(json.segments, chunkDuration)
+      : (Array.isArray(json?.segments) ? json.segments : []);
+    const sourceWordsList = isCaptionerV2 && Array.isArray(json?.words)
+      && json.words.some(w => String(w?.word || w?.text || '').trim() && !validInterval(w))
+      ? repairGroqWordTimelineV2(json.words, chunkDuration)
+      : (Array.isArray(json?.words) ? json.words : []);
     const accepted = item => {
       if (!validInterval(item)) return null;
       const { start, end } = item;
@@ -5188,12 +5877,12 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
       if (midpoint < ownedStart || (i + 1 < totalChunks ? midpoint >= ownedEnd : midpoint > ownedEnd)) return null;
       return { start: absoluteStart, end: absoluteEnd };
     };
-    const chunkSegments = (Array.isArray(json?.segments) ? json.segments : []).flatMap(segment => {
+    const chunkSegments = sourceSegmentsList.flatMap(segment => {
       const interval = accepted(segment), text = String(segment?.text || '').trim();
       return interval && text ? [{ ...interval, text }] : [];
     });
     const providedWords = [];
-    for (const word of Array.isArray(json?.words) ? json.words : []) {
+    for (const word of sourceWordsList) {
       const previous = providedWords.at(-1);
       const normalize = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
       // An overlapping duplicate cannot represent two successive spoken words.
@@ -5211,31 +5900,67 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
     });
     const invalidWordTiming = providedWords.some(word => String(word?.word || word?.text || '').trim() && !validInterval(word));
     const normalized = text => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
-    const wordText = normalized((Array.isArray(json?.words) ? json.words : []).map(word => word?.word || word?.text || '').join(' '));
-    const segmentText = normalized((Array.isArray(json?.segments) ? json.segments : []).map(segment => segment?.text || '').join(' '));
+    const wordText = normalized(sourceWordsList.map(word => word?.word || word?.text || '').join(' '));
+    const segmentText = normalized(sourceSegmentsList.map(segment => segment?.text || '').join(' '));
     const sourceText = normalized(json?.text) || segmentText;
     const incompleteWordText = !!sourceText && sourceText !== wordText;
     if (incompleteWordText && sourceText !== segmentText) {
-      throw new Error('Groq returned recognized speech without complete caption timestamps. Generate captions again.');
+      if (isCaptionerV2 && String(json?.text || '').trim()) {
+        chunkSegments.splice(0, chunkSegments.length, {
+          start: ownedStart,
+          end: Math.max(ownedStart + 0.2, ownedEnd),
+          text: String(json.text).trim(),
+        });
+        chunkWords = [];
+      } else {
+        throw Object.assign(new Error('Groq returned recognized speech without complete caption timestamps. Generate captions again.'), {
+          code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+        });
+      }
     }
     // A partial set of word intervals would hide segment-only captions in the
     // renderer. Retain the complete segment timeline and disclose estimation.
     let chunkMissingWordTiming = chunkSegments.length && (!chunkWords.length || invalidWordTiming || incompleteWordText);
-    if (chunkMissingWordTiming && (Array.isArray(json?.segments) ? json.segments : [])
+    if (chunkMissingWordTiming && sourceSegmentsList
         .some(segment => String(segment?.text || '').trim() && !validInterval(segment))) {
-      throw new Error('Groq returned incomplete caption segment timestamps. Generate captions again.');
+      throw Object.assign(new Error('Groq returned incomplete caption segment timestamps. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+      });
     }
     if (contentMode === 'speech' && i === 0 && chunkMissingWordTiming
         && chunkSegments[0].start <= 0.05 && chunkSegments[0].end - chunkSegments[0].start > 1.5) {
-      const verified = await verifyGroqCaptionOpeningSegment({ segment: chunkSegments[0], pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
-      chunkSegments[0] = verified.segment;
-      if (chunkSegments.length === 1) { chunkWords = verified.words; chunkMissingWordTiming = false; }
-      sourceWarnings.push('Two short audio passes verified the opening caption timing. Review synchronization.');
+      try {
+        const verified = await verifyGroqCaptionOpeningSegment({ segment: chunkSegments[0], pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+        chunkSegments[0] = verified.segment;
+        if (chunkSegments.length === 1) { chunkWords = verified.words; chunkMissingWordTiming = false; }
+        sourceWarnings.push('Two short audio passes verified the opening caption timing. Review synchronization.');
+      } catch (openErr) {
+        if (!isCaptionerV2) throw openErr;
+        throwIfCaptionTranscriptionCancelled(signal);
+        chunkSegments[0] = {
+          ...chunkSegments[0],
+          start: Math.max(0, Math.min(chunkSegments[0].end - 0.2, chunkSegments[0].end - 1.2)),
+        };
+        sourceWarnings.push('Opening caption timing was smoothed automatically. Review synchronization.');
+      }
     }
     if (chunkMissingWordTiming) missingWordTiming = true;
-    if (invalidWordTiming && !chunkSegments.length) throw new Error('Groq returned incomplete caption timestamps. Generate captions again.');
+    if (invalidWordTiming && !chunkSegments.length) throw Object.assign(new Error('Groq returned incomplete caption timestamps. Generate captions again.'), {
+      code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+    });
     if (String(json?.text || '').trim() && !chunkSegments.length && !chunkWords.length) {
-      throw new Error('Groq returned text without usable caption timestamps. Generate captions again.');
+      if (isCaptionerV2) {
+        chunkSegments.push({
+          start: ownedStart,
+          end: Math.max(ownedStart + 0.2, ownedEnd),
+          text: String(json.text).trim(),
+        });
+        missingWordTiming = true;
+      } else {
+        throw Object.assign(new Error('Groq returned text without usable caption timestamps. Generate captions again.'), {
+          code: 'CAPTION_GROQ_TIMING_UNCERTAIN',
+        });
+      }
     }
     if (chunkSegments.length) allSegments.push(...chunkSegments);
     else {
@@ -5258,35 +5983,72 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   let words = missingWordTiming ? [] : allWords;
   let verifiedTimingWindows = 0;
   let recoveredWords = 0;
+  let repairedTimelineV2 = false;
+  let rateLimit;
   let recoveryWarnings = [...sourceWarnings];
   if (words.length) {
-    if (contentMode === 'song') assertGroqCaptionWordTimeline(words);
-    else {
+    if (contentMode === 'song') {
+      if (isCaptionerV2) {
+        try { assertGroqCaptionWordTimeline(words); } catch (_) {
+          words = repairGroqWordTimelineV2(words, duration);
+          repairedTimelineV2 = true;
+        }
+      }
+      assertGroqCaptionWordTimeline(words);
+    } else {
       try {
         const verified = await verifyGroqCaptionSpeechTimings({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints, onProgress: report });
         words = verified.words; verifiedTimingWindows = verified.verifiedTimingWindows;
         recoveryWarnings.push(...(verified.warnings || []));
       } catch (error) {
         throwIfCaptionTranscriptionCancelled(signal);
-        // Optional checks must not discard a complete, non-overlapping result.
-        // Conflicting intervals and a broad zero-start intro remain unusable
-        // until verified; never mark the retained original timing as verified.
-        try { assertGroqCaptionWordTimeline(words); } catch (_) { throw error; }
-        if (words[0].start <= 0.05 && words[0].end - words[0].start > 1.5) throw error;
-        const uncertainWords = words.filter(word => word.end - word.start > 1.5)
-          .map(word => `${word.word} (${word.start.toFixed(2)}–${word.end.toFixed(2)}s)`).join('; ');
-        recoveryWarnings.push(`Groq could not complete an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. ${error.message}`);
+        if (isCaptionerV2) {
+          let needsRepair = words[0].start <= 0.05 && words[0].end - words[0].start > 1.5;
+          if (!needsRepair) {
+            try { assertGroqCaptionWordTimeline(words); } catch (_) { needsRepair = true; }
+          }
+          if (needsRepair) {
+            words = repairGroqWordTimelineV2(words, duration);
+            repairedTimelineV2 = true;
+          }
+          if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rateLimit = groqCaptionRateLimitDetails(error);
+            recoveryWarnings.push('Groq quota interrupted an optional audio timing check; caption word timing was smoothed automatically. Review synchronization.');
+          } else {
+            recoveryWarnings.push('Groq caption word timing was smoothed automatically on uncertain audio windows. Review synchronization.');
+          }
+        } else {
+          // Optional checks must not discard a complete, non-overlapping result.
+          // Conflicting intervals and a broad zero-start intro remain unusable
+          // until verified; never mark the retained original timing as verified.
+          try { assertGroqCaptionWordTimeline(words); } catch (_) { throw error; }
+          if (words[0].start <= 0.05 && words[0].end - words[0].start > 1.5) throw error;
+          const uncertainWords = words.filter(word => word.end - word.start > 1.5)
+            .map(word => `${word.word} (${word.start.toFixed(2)}–${word.end.toFixed(2)}s)`).join('; ');
+          if (error.code === 'CAPTION_GROQ_RATE_LIMIT') {
+            rateLimit = groqCaptionRateLimitDetails(error);
+            recoveryWarnings.push(`Groq quota interrupted an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. Missing-speech recovery was skipped.`);
+          } else recoveryWarnings.push(`Groq could not complete an optional audio timing check. Original non-overlapping timestamps were retained; review ${uncertainWords || 'the caption timing'}. ${error.message}`);
+        }
       }
     }
   }
-  if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length) {
-    const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
-    words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings.push(...recovery.warnings);
+  if (autoRecoverMissingSpeech && contentMode === 'speech' && words.length && !rateLimit) {
+    try {
+      const recovery = await recoverGroqCaptionGaps({ words, pcm, sampleRate, duration, apiKey, languageHint, signal, transcriptionHints });
+      words = recovery.words; recoveredWords = recovery.recoveredWords; recoveryWarnings.push(...recovery.warnings);
+      rateLimit = recovery.rateLimit;
+    } catch (gapErr) {
+      if (!isCaptionerV2) throw gapErr;
+      throwIfCaptionTranscriptionCancelled(signal);
+      words = repairGroqWordTimelineV2(words, duration);
+      repairedTimelineV2 = true;
+    }
   }
   // Original segment boundaries can conflict with corrected word intervals.
   // Keep only real verified word ranges after a repair, with no stale fallback.
-  const segments = verifiedTimingWindows || recoveredWords ? [] : allSegments;
-  if (verifiedTimingWindows || recoveredWords) {
+  const segments = verifiedTimingWindows || recoveredWords || repairedTimelineV2 ? [] : allSegments;
+  if (verifiedTimingWindows || recoveredWords || repairedTimelineV2) {
     // Rebuild phrase boundaries from corrected word timing. Returning one
     // segment per word makes the Local page split Groq into one-word captions.
     let group = [];
@@ -5315,7 +6077,15 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
         const boundary = (previous.end + segment.start) / 2;
         if (boundary > previous.start && boundary < segment.end) { previous.end = boundary; segment.start = boundary; continue; }
       }
-      throw new Error('Groq returned overlapping caption segment timestamps without usable word timing. Generate captions again.');
+      if (isCaptionerV2) {
+        const repairedSegs = repairGroqSegmentsV2(segments, duration);
+        segments.splice(0, segments.length, ...repairedSegs);
+        break;
+      }
+      throw Object.assign(new Error('Groq returned overlapping caption segment timestamps without usable word timing. Generate captions again.'), {
+        code: 'CAPTION_GROQ_TIMING_UNCERTAIN', timingIssue: { array: 'segments', index, start: segment.start,
+          end: segment.end, previousEnd: previous.end, reason: 'overlapping caption segment timestamps' },
+      });
     }
   }
   const warnings = timingSource === 'estimated' ? ['Groq returned segment timing only. Word highlighting is estimated; review synchronization before exporting.'] : [];
@@ -5327,18 +6097,40 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
   return {
     text, segments, words, language: detectedLanguage || 'auto', duration,
     engine: 'groq', contentMode: contentMode === 'song' ? 'song' : 'speech', timingSource,
+    ...(rateLimit ? { rateLimit } : {}),
     ...(verifiedTimingWindows ? { timingVerification: 'short-audio', verifiedTimingWindows } : {}), warnings,
   };
 }
 
 ipcMain.handle('transcribe-video-groq', async (event, opts) => {
-  const { videoPath, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
-  if (activeCaptionSongController || activeCaptionTranscribeProcess) {
-    return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+  const { videoPath: rawVideoPath, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
+  if (!fs.existsSync(videoPath)) {
+    return {
+      ok: false,
+      code: 'CAPTION_SOURCE_MISSING',
+      error: `Source video file was not found (${path.basename(String(rawVideoPath))}). It may have been moved or deleted from its folder.`,
+    };
   }
-  const apiKey = resolveConfiguredGroqApiKey(suppliedGroqApiKey);
+  if (activeCaptionSongController || activeCaptionTranscribeProcess) {
+    if (opts?.captionerVersion === 2) {
+      activeCaptionTranscribeCancelRequested = true;
+      activeCaptionSongController?.abort();
+      if (activeCaptionTranscribeProcess) {
+        try { killProcessTree(activeCaptionTranscribeProcess); } catch (_) {}
+      }
+      for (let step = 0; step < 60 && (activeCaptionSongController || activeCaptionTranscribeProcess); step += 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      activeCaptionTranscribeProcess = null;
+      activeCaptionSongController = null;
+      activeCaptionTranscribeCancelRequested = false;
+    } else {
+      return { ok: false, code: 'CAPTION_TRANSCRIPTION_BUSY', error: 'Another caption transcription is running. Wait for it to finish or cancel it first.' };
+    }
+  }
+  const apiKey = (typeof suppliedGroqApiKey === 'string' && suppliedGroqApiKey.trim() ? suppliedGroqApiKey : String(process.env.GROQ_API_KEY || '')).trim();
   if (!apiKey) return { ok: false, engine: 'groq', error: 'Groq API key is missing. Enter it under Caption engine or configure the saved key.' };
 
   function findFFmpeg() {
@@ -5354,7 +6146,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   activeCaptionTranscribeCancelRequested = false;
   activeCaptionSongController = new AbortController();
   try {
-    console.log('[CaptionGroq] Extracting audio from:', path.basename(videoPath));
+    console.log('[CaptionGroq] Extracting audio from:', path.basename(rawVideoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -5372,6 +6164,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
     const result = await transcribeCaptionWavWithGroq({
       audioBuffer: fs.readFileSync(tmpWav), apiKey, languageHint, contentMode, transcriptionHints,
       autoRecoverMissingSpeech: opts?.autoRecoverMissingSpeech === true,
+      captionerVersion: opts?.captionerVersion,
       signal: activeCaptionSongController.signal,
       onProgress: value => { try { event.sender.send('caption-transcribe-progress', value); } catch (_) {} },
     });
@@ -5380,7 +6173,12 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   } catch (err) {
     if (activeCaptionTranscribeCancelRequested) return { ok: false, cancelled: true, error: 'Transcription cancelled.' };
     console.error('[CaptionGroq] Failed:', err.message);
-    return { ok: false, engine: 'groq', error: err.message };
+    return { ok: false, engine: 'groq', error: err.message,
+      ...(['CAPTION_GROQ_RATE_LIMIT', 'CAPTION_GROQ_TIMING_UNCERTAIN'].includes(err.code) ? { code: err.code } : {}),
+      ...(Number.isInteger(err.providerHttpStatus) ? { providerHttpStatus: err.providerHttpStatus } : {}),
+      ...(err.code === 'CAPTION_GROQ_RATE_LIMIT' ? { retryAfterMs: err.retryAfterMs, retryAt: err.retryAt,
+        retryAfterEstimated: err.retryAfterEstimated } : {}),
+      ...(err.code === 'CAPTION_GROQ_TIMING_UNCERTAIN' && err.timingIssue ? { timingIssue: err.timingIssue } : {}) };
   } finally {
     activeCaptionTranscribeProcess = null;
     activeCaptionSongController = null;
@@ -5962,9 +6760,22 @@ function findCaptionFFmpegPath() {
   throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
 }
 
+ipcMain.handle('stage-caption-source', async (_event, opts) => {
+  const rawVideoPath = opts?.videoPath;
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const stagedPath = stageCaptionSourceVideo(rawVideoPath);
+  if (!stagedPath) {
+    const resolved = resolveCaptionSourceVideo(rawVideoPath);
+    if (resolved) return { ok: true, stagedPath: resolved };
+    return { ok: false, error: 'Could not stage source video.' };
+  }
+  return { ok: true, stagedPath };
+});
+
 ipcMain.handle('probe-video-meta', async (event, opts) => {
-  const { videoPath } = opts || {};
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  const { videoPath: rawVideoPath } = opts || {};
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
   try {
     const { execFileSync } = require('child_process');
     const FFMPEG = findCaptionFFmpegPath();
@@ -5993,6 +6804,21 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const { videoPath, sourceFileName, captions, fontSize = 28, position = 'bottom', assContent, emojiOverlays } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!assContent && (!captions || !captions.length)) return { ok: false, error: 'No captions or assContent provided.' };
+
+  const inputVideoPath = resolveCaptionSourceVideo(videoPath, sourceFileName);
+  if (!inputVideoPath || !fs.existsSync(inputVideoPath)) {
+    const displayName = path.basename(String(sourceFileName || videoPath || 'video.mp4'));
+    const missingMsg = `Source video file is missing (${displayName}). It was moved or deleted from its folder before caption export completed.`;
+    const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
+    try {
+      fs.appendFileSync(
+        burnLogPath,
+        `[${new Date().toISOString()}] ${displayName}\nError: ${missingMsg} (expected at: ${videoPath})\n\n`,
+        'utf8'
+      );
+    } catch (_) {}
+    return { ok: false, code: 'CAPTION_SOURCE_MISSING', error: missingMsg };
+  }
 
   // ── Dynamic FFmpeg detection ─────────────────────────────────────────────────
   function findFFmpegPath() {
@@ -6026,17 +6852,36 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     if (assContent) {
       // Burn structured ASS subtitles directly (preserves colors, outlines, box backgrounds, fonts)
       assPath = path.join(tmpDir, 'captions-' + stamp + '.ass');
-      require('fs').writeFileSync(assPath, assContent, 'utf8');
+      let normalizedAss = String(assContent)
+        .normalize('NFC')
+        .replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1');
+      if (/[\u0900-\u0dff]/u.test(normalizedAss)) {
+        normalizedAss = normalizedAss.replace(/^(Style:\s*Preview,)Nunito[^,]*/m, '$1Nirmala UI');
+      }
+      require('fs').writeFileSync(assPath, normalizedAss, 'utf8');
       console.log('[BurnCaptions] ASS written:', assPath);
       const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
       // Load the same offline Nunito faces as the preview. libass's system
       // font provider still supplies Windows fonts and non-Latin fallbacks.
+      // IMPORTANT: Use the `ass` filter with `shaping=complex` (HarfBuzz) rather
+      // than `subtitles`, because FFmpeg's `subtitles` filter leaves AssContext.shaping=0
+      // (FriBidi simple shaper), which breaks Telugu/Indic conjuncts (vattulu) and matras.
       const captionFonts = path.join(ROOT, 'public', 'caption-fonts').split('\\').join('/').split(':').join('\\:');
-      subFilter = `subtitles='${safeAss}':fontsdir='${captionFonts}'`;
+      subFilter = `ass='${safeAss}':fontsdir='${captionFonts}':shaping=complex`;
     } else {
-      // Fallback SRT subtitles
+      // Fallback SRT + ASS subtitles (using ass filter with shaping=complex for proper Indic shaping)
       srtPath = path.join(tmpDir, 'captions-' + stamp + '.srt');
+      assPath = path.join(tmpDir, 'captions-' + stamp + '.ass');
       const srtLines = [];
+      const assEvents = [];
+      const toAssTime = (secs) => {
+        const cs = Math.max(0, Math.round(Number(secs) * 100));
+        const h = Math.floor(cs / 360000);
+        const m = String(Math.floor((cs % 360000) / 6000)).padStart(2, '0');
+        const s = String(Math.floor((cs % 6000) / 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${String(cs % 100).padStart(2, '0')}`;
+      };
+      let hasIndic = false;
       captions.forEach((c, i) => {
         let start = 0;
         let end   = 2;
@@ -6052,19 +6897,30 @@ ipcMain.handle('burn-captions', async (event, opts) => {
         }
         start = Math.max(0, start || 0);
         end   = Math.max(start + 0.1, end || start + 2);
-        const text  = String(c.text || '').trim().replace(/[<>]/g, '');
+        const text = String(c.text || '')
+          .normalize('NFC')
+          .replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1')
+          .trim()
+          .replace(/[<>]/g, '');
         if (!text) return;
+        if (/[\u0900-\u0dff]/u.test(text)) hasIndic = true;
         srtLines.push(String(i + 1));
         srtLines.push(toSrtTime(start) + ' --> ' + toSrtTime(end));
         srtLines.push(text);
         srtLines.push('');
+        const assText = text.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\r?\n/g, '\\N');
+        assEvents.push(`Dialogue: 0,${toAssTime(start)},${toAssTime(end)},Default,,0,0,0,,${assText}`);
       });
 
       require('fs').writeFileSync(srtPath, srtLines.join('\n'), 'utf8');
-      console.log('[BurnCaptions] SRT written:', srtPath, '(' + captions.length + ' captions)');
+      const fallbackFont = hasIndic ? 'Nirmala UI' : 'Arial';
+      const fallbackAlign = position === 'top' ? 8 : position === 'middle' ? 5 : 2;
+      const fallbackAss = `[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${fallbackFont},${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,1,${fallbackAlign},20,20,40,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${assEvents.join('\n')}\n`;
+      require('fs').writeFileSync(assPath, fallbackAss, 'utf8');
+      console.log('[BurnCaptions] SRT/ASS written:', srtPath, '(' + captions.length + ' captions)');
 
-      const safeSrt    = srtPath.split('\\').join('/').split(':').join('\\:');
-      subFilter  = `subtitles='${safeSrt}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Bold=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'`;
+      const safeAss = assPath.split('\\').join('/').split(':').join('\\:');
+      subFilter = `ass='${safeAss}':shaping=complex`;
     }
 
     if (Array.isArray(emojiOverlays) && emojiOverlays.length) {
@@ -6082,7 +6938,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       // Safely replace only the file name (ffmpeg.exe -> ffprobe.exe), not parent directory names
       const ffprobe = path.join(path.dirname(FFMPEG), path.basename(FFMPEG).replace('ffmpeg', 'ffprobe'));
       const probeOut = execSync(
-        `"${ffprobe}" -v error -select_streams v:0 -show_entries stream=bit_rate:format=duration,bit_rate -of json "${videoPath}"`,
+        `"${ffprobe}" -v error -select_streams v:0 -show_entries stream=bit_rate:format=duration,bit_rate -of json "${inputVideoPath}"`,
         { encoding: 'utf8', timeout: 10000 }
       ).trim();
       const probe = JSON.parse(probeOut || '{}');
@@ -6096,7 +6952,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       const videoQualityArgs = sourceVideoBitrate > 0
         ? [
             '-c:v', 'libx264',
-            '-preset', 'fast',
+            '-preset', 'ultrafast',
             '-b:v', String(Math.ceil(sourceVideoBitrate * 1.15)),
             '-maxrate', String(Math.ceil(sourceVideoBitrate * 1.75)),
             '-bufsize', String(Math.ceil(sourceVideoBitrate * 3.5)),
@@ -6104,12 +6960,12 @@ ipcMain.handle('burn-captions', async (event, opts) => {
           ]
         : [
             '-c:v', 'libx264',
-            '-preset', 'fast',
+            '-preset', 'ultrafast',
             '-crf', '16',
             '-pix_fmt', 'yuv420p',
           ];
       const proc = spawn(FFMPEG, [
-        '-y', '-i', videoPath,
+        '-y', '-i', inputVideoPath,
         ...emojiExport.inputArgs,
         ...emojiExport.videoArgs,
         '-map', '0:a?',
@@ -6147,8 +7003,22 @@ ipcMain.handle('burn-captions', async (event, opts) => {
         if (code === 0) {
           event.sender.send('burn-captions-progress', { videoPath, pct: 98, phase: 'finalizing' });
           resolve();
+        } else {
+          const displayName = path.basename(String(sourceFileName || videoPath || 'video.mp4'));
+          if (code === 4294967294 || /No such file or directory/i.test(stderr)) {
+            reject(Object.assign(
+              new Error(`Source video file is missing (${displayName}). It was moved or deleted from its folder before caption export completed.`),
+              { code: 'CAPTION_SOURCE_MISSING', rawStderr: stderr.slice(-500) }
+            ));
+            return;
+          }
+          const cleanStderr = stderr
+            .split(/\r?\n/)
+            .filter(line => line.trim() && !/Added subtitle file:/i.test(line))
+            .slice(-4)
+            .join(' ');
+          reject(new Error(`FFmpeg exit ${code} (${displayName}): ${(cleanStderr || stderr).slice(-260)}`));
         }
-        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
       });
     });
 
@@ -6181,11 +7051,11 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     try {
       fs.appendFileSync(
         burnLogPath,
-        `[${new Date().toISOString()}] ${path.basename(videoPath)}\n${err.stack || err.message || String(err)}\n\n`,
+        `[${new Date().toISOString()}] ${path.basename(videoPath)}\n${err.rawStderr || err.stack || err.message || String(err)}\n\n`,
         'utf8'
       );
     } catch (_) {}
-    return { ok: false, error: err.message };
+    return { ok: false, ...(err.code ? { code: err.code } : {}), error: err.message };
   } finally {
     if (emojiWorkDir && path.dirname(path.resolve(emojiWorkDir)) === path.resolve(tmpDir)
         && path.basename(emojiWorkDir).startsWith('caption-emoji-')) {
@@ -6196,7 +7066,6 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   }
 });
 
-
 // ─── IPC: Open a file/folder with the OS default handler ────────────────────
 ipcMain.handle('open-file', async (event, filePath) => {
   if (!filePath) return { ok: false, error: 'No path provided' };
@@ -6205,6 +7074,44 @@ ipcMain.handle('open-file', async (event, filePath) => {
     await shell.openPath(filePath);
     return { ok: true };
   } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ─── IPC: Persistent OT & Salary Daily Calculations Storage ─────────────────
+ipcMain.handle('load-ot-salary-data', async () => {
+  try {
+    let saved = {};
+    try { saved = JSON.parse(fs.readFileSync(path.join(ROOT, 'temp', 'active-mobile-link.json'), 'utf8')); } catch (_) {}
+    const rawMobile = lastSentMobileUrl || saved.mobileUrl || '';
+    let mobileOtUrl = '';
+    if (rawMobile) {
+      try {
+        const parsedUrl = new URL(rawMobile);
+        parsedUrl.pathname = '/ot';
+        mobileOtUrl = parsedUrl.toString();
+      } catch (_) {}
+    }
+    const wifiIp = getMobileWifiIp();
+    return {
+      ok: true,
+      data: readOtSalaryStoreFromDisk(),
+      filePath: otSalaryFilePath,
+      wifiOtUrl: `http://${wifiIp}:${MOBILE_HTTP_PORT}/ot`,
+      mobileOtUrl,
+    };
+  } catch (err) {
+    console.warn('[OT Salary] Failed to load data:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('save-ot-salary-data', async (event, payload) => {
+  try {
+    const merged = mergeAndSaveOtSalaryStoreToDisk({ ...payload, replaceAll: true }, true);
+    return { ok: true, data: merged, filePath: otSalaryFilePath, savedAt: merged.updatedAt };
+  } catch (err) {
+    console.error('[OT Salary] Failed to save data:', err.message);
     return { ok: false, error: err.message };
   }
 });
@@ -6655,7 +7562,10 @@ setInterval(() => {
 
 
 // ————————————— My Exporter: native timeline renderer ————————————————————————
-const myExporterProcesses = new Map();
+const myExporterEngine = require('./my-exporter-engine.cjs').createMyExporterEngine({
+  findFFmpeg: findMyExporterFFmpeg, probe: myExporterProbePath,
+  defaultOutputDirectory: () => path.join(os.homedir(), 'Downloads'),
+});
 
 function myExporterSafeName(value, fallback = 'my-export.mp4') {
   const clean = String(value || fallback).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim();
@@ -6688,6 +7598,264 @@ function myExporterProbePath(filePath) {
   };
 }
 
+function kittenShortsFilterPath(filePath) {
+  return String(filePath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+}
+
+function writeKittenShortsSoundEffect(filePath, kind) {
+  const sampleRate = 44100;
+  const duration = kind === 'pop' ? 0.16 : kind === 'rimshot' ? 0.38 : 0.46;
+  const sampleCount = Math.floor(sampleRate * duration);
+  const data = Buffer.alloc(sampleCount * 2);
+  let phase = 0;
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    let sample = 0;
+    if (kind === 'boing') {
+      const frequency = 150 + 430 * Math.exp(-5.2 * t);
+      phase += (2 * Math.PI * frequency) / sampleRate;
+      sample = (Math.sin(phase) + 0.28 * Math.sin(phase * 2)) * Math.exp(-4.5 * t);
+    } else if (kind === 'pop') {
+      const noise = Math.sin(i * 12.9898) * 43758.5453;
+      const fraction = noise - Math.floor(noise);
+      sample = (Math.sin(2 * Math.PI * 145 * t) * 0.65 + (fraction * 2 - 1) * 0.35) * Math.exp(-32 * t);
+    } else {
+      const noise = Math.sin(i * 78.233) * 12515.873;
+      const fraction = noise - Math.floor(noise);
+      const drum = Math.sin(2 * Math.PI * 105 * t) * Math.exp(-12 * t);
+      const cymbal = (fraction * 2 - 1) * Math.exp(-8 * Math.max(0, t - 0.09));
+      sample = drum * 0.75 + (t > 0.09 ? cymbal * 0.2 : 0);
+    }
+    const attack = Math.min(1, t / 0.008);
+    const release = Math.min(1, (duration - t) / 0.025);
+    const value = Math.max(-0.9, Math.min(0.9, sample * attack * release * 0.65));
+    data.writeInt16LE(Math.round(value * 32767), i * 2);
+  }
+
+  const wav = Buffer.alloc(44 + data.length);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + data.length, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(data.length, 40);
+  data.copy(wav, 44);
+  fs.writeFileSync(filePath, wav);
+}
+
+ipcMain.handle('kitten-shorts-pick-srt', async (event) => {
+  try {
+    const preferencePath = path.join(app.getPath('userData'), 'kitten-shorts-srt-location.json');
+    let rememberedFile = '';
+    let rememberedDirectory = '';
+    try {
+      const saved = JSON.parse(fs.readFileSync(preferencePath, 'utf8'));
+      rememberedFile = typeof saved?.filePath === 'string' ? saved.filePath : '';
+      rememberedDirectory = typeof saved?.directory === 'string' ? saved.directory : '';
+    } catch (_) {}
+
+    const generatedSrt = path.join(ROOT, 'KITTENS-comedy-te.srt');
+    const defaultPath = rememberedFile && fs.existsSync(rememberedFile)
+      ? rememberedFile
+      : rememberedDirectory && fs.existsSync(rememberedDirectory) ? rememberedDirectory
+        : fs.existsSync(generatedSrt) ? generatedSrt : app.getPath('downloads');
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(owner || undefined, {
+      title: 'Choose timed subtitle file',
+      defaultPath,
+      properties: ['openFile'],
+      filters: [{ name: 'SubRip subtitles', extensions: ['srt'] }],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { ok: false, canceled: true };
+
+    const filePath = path.resolve(result.filePaths[0]);
+    if (path.extname(filePath).toLowerCase() !== '.srt') throw new Error('Choose a SubRip .srt subtitle file.');
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size > 5 * 1024 * 1024) throw new Error('The SRT file must be a regular file smaller than 5 MB.');
+    const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    fs.mkdirSync(path.dirname(preferencePath), { recursive: true });
+    fs.writeFileSync(preferencePath, JSON.stringify({ filePath, directory: path.dirname(filePath) }, null, 2), 'utf8');
+    return { ok: true, filePath, name: path.basename(filePath), text };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Could not open the selected SRT file.' };
+  }
+});
+
+ipcMain.handle('kitten-shorts-export', async (event, opts = {}) => {
+  let workDir = '';
+  let outputPath = '';
+  let exportCompleted = false;
+  try {
+    const videoPath = path.resolve(String(opts.videoPath || ''));
+    if (!fs.existsSync(videoPath) || !fs.statSync(videoPath).isFile()) throw new Error('The selected kitten video could not be found.');
+    const moodTable = {
+      playful: { rate: '+2%', malePitch: '+1Hz', femalePitch: '+1Hz' },
+      dramatic: { rate: '-4%', malePitch: '+0Hz', femalePitch: '+0Hz' },
+      silly: { rate: '+6%', malePitch: '+2Hz', femalePitch: '+2Hz' },
+    };
+    const mood = moodTable[String(opts.mood || 'playful')] || moodTable.playful;
+    const voiceMode = ['male', 'female', 'both'].includes(String(opts.voiceMode)) ? String(opts.voiceMode) : 'both';
+    const language = ['te', 'hi', 'en'].includes(String(opts.language)) ? String(opts.language) : 'te';
+    const languageVoices = {
+      te: { female: 'te-IN-ShrutiNeural', male: 'te-IN-MohanNeural' },
+      hi: { female: 'hi-IN-SwaraNeural', male: 'hi-IN-MadhurNeural' },
+      en: { female: 'en-IN-NeerjaExpressiveNeural', male: 'en-IN-PrabhatNeural' },
+    };
+    const segments = Array.isArray(opts.segments) ? opts.segments : [];
+    if (!segments.length || segments.length > 100) throw new Error('Provide between 1 and 100 timed SRT lines for one Short.');
+    const meta = myExporterProbePath(videoPath);
+    if (!meta.hasVideo || meta.duration <= 0) throw new Error('The selected file does not contain a readable video track.');
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      const start = Number(segment?.start);
+      const end = Number(segment?.end);
+      const text = String(segment?.text || '').trim();
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > meta.duration + 0.08 || !text || text.length > 1000) {
+        throw new Error(`SRT line ${index + 1} has invalid text or timing, or extends past the video.`);
+      }
+      if (index && start < Number(segments[index - 1].end) - 0.03) throw new Error(`SRT lines ${index} and ${index + 1} overlap; adjust their timings for clean alternating narration.`);
+    }
+    const srtText = String(opts.srtText || '');
+    if (Buffer.byteLength(srtText, 'utf8') > 5 * 1024 * 1024) throw new Error('The SRT file is unusually large.');
+
+    workDir = path.join(app.getPath('temp'), `pattan-kitten-shorts-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+    fs.mkdirSync(workDir, { recursive: true });
+    const outputDir = app.getPath('downloads');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const baseName = path.basename(videoPath, path.extname(videoPath)).replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || 'Kitten-Video';
+    outputPath = path.join(outputDir, `${baseName}-Kitten-Shorts.mp4`);
+    if (fs.existsSync(outputPath)) outputPath = path.join(outputDir, `${baseName}-Kitten-Shorts-${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`);
+    const sendProgress = (value) => { try { if (!event.sender.isDestroyed()) event.sender.send('kitten-shorts-progress', value); } catch (_) {} };
+    const clipPaths = [];
+
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      const targetSeconds = Number(segment.end) - Number(segment.start);
+      const speaker = voiceMode === 'both' ? (index % 2 === 0 ? 'female' : 'male') : voiceMode;
+      const voice = languageVoices[language][speaker];
+      const response = await postJsonForBufferWithRecovery(8427, '/api/preview-mp3', {
+        text: String(segment.text), voice, rate: mood.rate,
+        pitch: speaker === 'male' ? mood.malePitch : mood.femalePitch, volume: '+0%',
+      }, 180000, 2);
+      if (response.statusCode < 200 || response.statusCode >= 300 || !response.buffer?.length) {
+        let detail = `Voice generation failed on SRT line ${index + 1}.`;
+        try { detail = JSON.parse(response.buffer.toString('utf8'))?.error || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const clipPath = path.join(workDir, `line-${String(index + 1).padStart(3, '0')}.mp3`);
+      fs.writeFileSync(clipPath, response.buffer);
+      const speechDuration = myExporterProbePath(clipPath).duration;
+      if (!speechDuration || speechDuration > targetSeconds + 0.12) {
+        throw new Error(`Voice line ${index + 1} needs about ${speechDuration.toFixed(1)}s but its SRT slot is ${targetSeconds.toFixed(1)}s. Extend that subtitle’s end time so the funny voice is not rushed or cut off.`);
+      }
+      clipPaths.push(clipPath);
+      sendProgress({ running: true, percent: Math.min(82, 7 + Math.round((index + 1) / segments.length * 75)), phase: `Generating ${speaker} ${language.toUpperCase()} funny voice`, line: index + 1, total: segments.length });
+    }
+
+    const ffmpeg = findMyExporterFFmpeg();
+    const args = ['-y', '-hide_banner', '-i', videoPath, '-f', 'lavfi', '-t', String(meta.duration), '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000'];
+    for (const clipPath of clipPaths) args.push('-i', clipPath);
+    const effectClips = [];
+    if (opts.soundEffects !== false) {
+      const effectPlan = [
+        { cue: 0, kind: 'boing' }, { cue: 2, kind: 'pop' }, { cue: 4, kind: 'rimshot' },
+        { cue: 6, kind: 'boing' }, { cue: 8, kind: 'pop' }, { cue: 10, kind: 'rimshot' },
+        { cue: 12, kind: 'boing' },
+      ].filter(effect => effect.cue < segments.length);
+      for (let index = 0; index < effectPlan.length; index += 1) {
+        const effect = effectPlan[index];
+        const effectPath = path.join(workDir, `sfx-${String(index + 1).padStart(2, '0')}-${effect.kind}.wav`);
+        writeKittenShortsSoundEffect(effectPath, effect.kind);
+        effectClips.push({ ...effect, filePath: effectPath });
+        args.push('-i', effectPath);
+      }
+    }
+    const filters = ['[1:a]aformat=sample_rates=48000:channel_layouts=stereo[silence]'];
+    clipPaths.forEach((_, index) => {
+      const segment = segments[index];
+      const delay = Math.max(0, Math.round(Number(segment.start) * 1000));
+      filters.push(`[${index + 2}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay=${delay}|${delay},apad,atrim=duration=${meta.duration.toFixed(3)}[voice${index}]`);
+    });
+    effectClips.forEach((effect, index) => {
+      const segment = segments[effect.cue];
+      const offsetSeconds = Math.min(0.32, Math.max(0.08, (Number(segment.end) - Number(segment.start)) * 0.12));
+      const delay = Math.max(0, Math.round((Number(segment.start) + offsetSeconds) * 1000));
+      const inputIndex = clipPaths.length + 2 + index;
+      filters.push(`[${inputIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.16,adelay=${delay}|${delay},atrim=duration=${meta.duration.toFixed(3)}[sfx${index}]`);
+    });
+    const mixInputs = ['[silence]', ...clipPaths.map((_, index) => `[voice${index}]`), ...effectClips.map((_, index) => `[sfx${index}]`)].join('');
+    filters.push(`${mixInputs}amix=inputs=${clipPaths.length + effectClips.length + 1}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.94[aout]`);
+    const crop = 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,format=yuv420p';
+    let videoFilter = crop;
+    if (opts.showCaptions && srtText.trim()) {
+      const srtPath = path.join(workDir, 'captions.srt');
+      const assPath = path.join(workDir, 'captions.ass');
+      fs.writeFileSync(srtPath, srtText.replace(/^\uFEFF/, ''), 'utf8');
+      const toAssTime = (secs) => {
+        const cs = Math.max(0, Math.round(Number(secs) * 100));
+        const h = Math.floor(cs / 360000);
+        const m = String(Math.floor((cs % 360000) / 6000)).padStart(2, '0');
+        const s = String(Math.floor((cs % 6000) / 100)).padStart(2, '0');
+        return `${h}:${m}:${s}.${String(cs % 100).padStart(2, '0')}`;
+      };
+      const hasIndic = /[\u0900-\u0dff]/u.test(srtText);
+      const shortFont = hasIndic ? 'Nirmala UI' : 'Arial';
+      const assEvents = segments.map(seg => {
+        const text = String(seg.text || '').normalize('NFC').replace(/(\u0c4d)[\u200b\u200c]+(?=[\u0c15-\u0c39])/gu, '$1').replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\r?\n/g, '\\N');
+        return `Dialogue: 0,${toAssTime(seg.start)},${toAssTime(seg.end)},Default,,0,0,0,,${text}`;
+      }).join('\n');
+      const assContent = `[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,${shortFont},22,&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,20,20,190,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${assEvents}\n`;
+      fs.writeFileSync(assPath, assContent, 'utf8');
+      videoFilter += `,ass='${kittenShortsFilterPath(assPath)}':shaping=complex`;
+    }
+    args.push('-filter_complex', filters.join(';'), '-map', '0:v:0', '-map', '[aout]', '-vf', videoFilter,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+      '-t', String(meta.duration), '-movflags', '+faststart', '-shortest', '-progress', 'pipe:2', '-nostats', outputPath);
+    sendProgress({ running: true, percent: 84, phase: 'Rendering vertical 1080 × 1920 video with original sound muted', line: segments.length, total: segments.length });
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+      let stderr = '';
+      let progressBuffer = '';
+      proc.stderr.on('data', chunk => {
+        const text = chunk.toString();
+        stderr = (stderr + text).slice(-5000);
+        progressBuffer += text;
+        const match = progressBuffer.match(/out_time_ms=(\d+)/);
+        if (match) {
+          const pct = Math.min(99, 84 + Math.floor(Number(match[1]) / 1000000 / meta.duration * 15));
+          sendProgress({ running: true, percent: pct, phase: 'Rendering vertical YouTube Short', line: segments.length, total: segments.length });
+          progressBuffer = progressBuffer.slice(-1000);
+        }
+      });
+      proc.once('error', reject);
+      proc.once('exit', code => code === 0 ? resolve() : reject(new Error(`Video render failed${code === null ? ' or was cancelled' : ''}: ${stderr.slice(-1200)}`)));
+    });
+    const finalMeta = myExporterProbePath(outputPath);
+    if (!finalMeta.hasVideo || !finalMeta.hasAudio || finalMeta.width !== 1080 || finalMeta.height !== 1920 || fs.statSync(outputPath).size < 10000) {
+      throw new Error('The rendered file did not pass its video/audio validation.');
+    }
+    sendProgress({ running: false, percent: 100, phase: 'Short ready', line: segments.length, total: segments.length });
+    exportCompleted = true;
+    return { ok: true, outputPath, fileName: path.basename(outputPath), duration: finalMeta.duration, width: finalMeta.width, height: finalMeta.height, voiceLines: segments.length, captionsBurned: Boolean(opts.showCaptions) };
+  } catch (error) {
+    try { if (!event.sender.isDestroyed()) event.sender.send('kitten-shorts-progress', { running: false, percent: 0, phase: 'Export stopped', error: String(error?.message || error) }); } catch (_) {}
+    return { ok: false, error: String(error?.message || error) };
+  } finally {
+    if (!exportCompleted && outputPath && fs.existsSync(outputPath)) {
+      try { fs.unlinkSync(outputPath); } catch (error) { console.warn('[Kitten Shorts] Partial output could not be removed:', error.message); }
+    }
+    if (workDir && fs.existsSync(workDir)) {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (error) { console.warn('[Kitten Shorts] Temporary files could not be cleaned:', error.message); }
+    }
+  }
+});
+
 
 function findMyExporterFFmpeg() {
   const { execSync } = require('child_process');
@@ -6702,59 +7870,19 @@ function findMyExporterFFmpeg() {
 }
 
 function validateMyExporterJob(opts) {
-  const warnings = [];
-  const errors = [];
-  const scenes = Array.isArray(opts?.scenes) ? opts.scenes : [];
-  if (!scenes.length) errors.push('Add at least one video or image scene.');
-  for (const [index, scene] of scenes.entries()) {
-    const label = scene?.name || `Scene ${index + 1}`;
-    if (!scene?.path || !fs.existsSync(scene.path)) { errors.push(`${label}: source file is missing or was moved.`); continue; }
-    try {
-      const meta = myExporterProbePath(scene.path);
-      if (!meta.hasVideo && scene.kind !== 'image') errors.push(`${label}: no usable video stream was found.`);
-      if (meta.duration > 0 && Number(scene.trimStart || 0) >= meta.duration) errors.push(`${label}: trim start is beyond the end of the file.`);
-    } catch (error) { errors.push(`${label}: cannot read this media (${error.message}).`); }
-  }
-  for (const track of Array.isArray(opts?.audioTracks) ? opts.audioTracks : []) {
-    if (!track?.muted && (!track?.path || !fs.existsSync(track.path))) errors.push(`${track?.name || 'Audio track'}: audio file is missing or was moved.`);
-  }
-  for (const [label, filePath] of [['Background music', opts?.musicPath], ['Watermark', opts?.watermarkPath]]) {
-    if (filePath && !fs.existsSync(filePath)) errors.push(`${label}: selected file is missing or was moved.`);
-  }
-  try { findMyExporterFFmpeg(); } catch (error) { errors.push(error.message); }
-  return { ok: errors.length === 0, errors, warnings };
+  return myExporterEngine.preflight(opts);
 }
 
-function runMyExporterFFmpeg(ffmpeg, args, event, phase, progressStart, progressSpan, durationSeconds, jobId) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
-    if (jobId) myExporterProcesses.set(jobId, proc);
-    let stderr = '';
-    proc.stderr.on('data', chunk => {
-      const text = chunk.toString();
-      stderr = (stderr + text).slice(-12000);
-      const matches = [...text.matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
-      if (matches.length && durationSeconds > 0) {
-        const match = matches[matches.length - 1];
-        const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-        const pct = Math.min(99, Math.round(progressStart + (seconds / durationSeconds) * progressSpan));
-        event.sender.send('my-exporter-progress', { jobId, pct, phase });
-      }
-    });
-    proc.on('error', reject);
-    proc.on('exit', code => {
-      if (jobId) myExporterProcesses.delete(jobId);
-      if (code === 0) resolve();
-      else if (code === null || code === 255) reject(new Error('Export cancelled.'));
-      else reject(new Error(`${phase} failed: ${stderr.slice(-900)}`));
-    });
-  });
+function myExporterAssColor(value) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value || ''));
+  const hex = match ? match[1].toUpperCase() : 'FFFFFF';
+  return `&H00${hex.slice(4, 6)}${hex.slice(2, 4)}${hex.slice(0, 2)}`;
 }
 
 // IPC handles
 ipcMain.handle('my-exporter-probe', async (_event, opts) => {
   try {
-    const meta = myExporterProbePath(opts.filePath || opts.path);
+    const meta = await myExporterEngine.probeMedia(opts.filePath || opts.path);
     return { ok: true, ...meta };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -6762,11 +7890,11 @@ ipcMain.handle('my-exporter-probe', async (_event, opts) => {
 });
 
 ipcMain.handle('my-exporter-waveform', async (_event, opts) => {
-  const peaks = [];
-  for (let i = 0; i < (opts.bars || 120); i++) {
-    peaks.push(0.15 + Math.random() * 0.75);
+  try {
+    return { ok: true, ...await myExporterEngine.waveform(opts) };
+  } catch (error) {
+    return { ok: false, error: error.message };
   }
-  return { ok: true, peaks };
 });
 
 ipcMain.handle('my-exporter-preflight', async (_event, opts) => {
@@ -6832,181 +7960,23 @@ ipcMain.handle('sing-song-pick-video-folder', async (_event, options = {}) => {
   }
 });
 
-ipcMain.handle('my-exporter-crop-save', async (event, opts) => {
-  const { inputPath, outputPath, crop, start, end } = opts;
-  if (path.resolve(inputPath).toLowerCase() === path.resolve(outputPath).toLowerCase())
-    return { ok: false, error: 'Choose a different folder; the original uploaded video cannot be overwritten.' };
-  const ffmpeg = findMyExporterFFmpeg();
-  const args = ['-y'];
-  if (start > 0) args.push('-ss', String(start));
-  if (end > 0) args.push('-to', String(end));
-  args.push('-i', inputPath);
-  if (crop && typeof crop.width === 'number') {
-    args.push('-vf', `crop=${Math.round(crop.width)}:${Math.round(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`);
-  }
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'copy', outputPath);
-  try {
-    const { spawn } = require('child_process');
-    await new Promise((resolve, reject) => {
-      const proc = spawn(ffmpeg, args, { windowsHide: true });
-      let stderr = '';
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', reject);
-      proc.on('exit', code => code === 0 ? resolve() : reject(new Error(`Crop exit ${code}: ${stderr.slice(-300)}`)));
-    });
-    return { ok: true, outputPath };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-});
+ipcMain.handle('my-exporter-crop-save', async (event, opts) => myExporterEngine.exportCrop(opts, {
+  onProgress: progress => event.sender.send('my-exporter-progress', progress),
+}));
 
 ipcMain.handle('my-exporter-caption-cache-load', async (_event, { key }) => {
-  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
-  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
-  try {
-    if (fs.existsSync(cacheFile)) {
-      return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    }
-  } catch (_) {}
-  return null;
+  return myExporterEngine.loadCaptionCache(key);
 });
 
 ipcMain.handle('my-exporter-caption-cache-save', async (_event, { key, data }) => {
-  const cacheDir = path.join(os.tmpdir(), 'pattan-caption-cache');
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-  const cacheFile = path.join(cacheDir, `${encodeURIComponent(key)}.json`);
-  try {
-    fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
-    return true;
-  } catch (_) {}
-  return false;
+  return myExporterEngine.saveCaptionCache(key, data);
 });
 
-ipcMain.handle('my-exporter-export', async (event, opts) => {
-  const jobId = opts?.jobId || `job-${Date.now()}`;
-  const validation = validateMyExporterJob(opts);
-  if (!validation.ok) return { ok: false, error: `Export check failed:\n${validation.errors.join('\n')}`, warnings: validation.warnings };
-  const scenes = (Array.isArray(opts?.scenes) ? opts.scenes : []).filter(scene => scene?.path && fs.existsSync(scene.path));
-  if (opts?.outputPath && scenes.some(scene => path.resolve(scene.path).toLowerCase() === path.resolve(opts.outputPath).toLowerCase()))
-    return { ok: false, error: 'Choose a different export folder; an uploaded source cannot be overwritten.' };
-  if (!scenes.length) return { ok: false, error: 'Add at least one video or image scene.' };
-  const resolutionMap = { '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160], vertical: [1080, 1920], square: [1080, 1080] };
-  const [width, height] = resolutionMap[opts?.resolution] || resolutionMap['1080p'];
-  const fps = [24, 25, 30, 50, 60].includes(Number(opts?.fps)) ? Number(opts.fps) : 30;
-  const ffmpeg = findMyExporterFFmpeg();
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pattan-my-exporter-'));
-  
-  // Resolve unique output path in downloads folder if not specified
-  let outputPath = opts?.outputPath;
-  if (!outputPath) {
-    const downloadsFolder = path.join(os.homedir(), 'Downloads');
-    const baseName = myExporterSafeName(opts?.outputName || 'My-Exporter');
-    const parsedPath = path.parse(path.join(downloadsFolder, baseName));
-    let finalPath = path.join(downloadsFolder, baseName);
-    let counter = 0;
-    while (fs.existsSync(finalPath)) {
-      counter++;
-      finalPath = path.join(downloadsFolder, `${parsedPath.name} (${counter})${parsedPath.ext}`);
-    }
-    outputPath = finalPath;
-  }
-
-  const totalDuration = scenes.reduce((sum, scene) => {
-    const duration = Math.max(0.1, Number(scene.duration) || 3);
-    const speed = scene.kind === 'image' ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
-    return sum + duration / speed;
-  }, 0);
-  const preset = opts?.quality === 'maximum' ? 'slow' : opts?.quality === 'small' ? 'veryfast' : 'medium';
-  const crf = opts?.quality === 'maximum' ? '16' : opts?.quality === 'small' ? '23' : '19';
-  const segmentPaths = [];
-  try {
-    event.sender.send('my-exporter-progress', { jobId, pct: 1, phase: 'Preparing timeline' });
-    for (let index = 0; index < scenes.length; index += 1) {
-      const scene = scenes[index];
-      const meta = myExporterProbePath(scene.path);
-      const isImage = scene.kind === 'image' || !meta.hasVideo;
-      const trimStart = Math.max(0, Number(scene.trimStart) || 0);
-      const requestedDuration = Math.max(0.1, Number(scene.duration) || (meta.duration - trimStart) || 3);
-      const duration = meta.duration > 0 && !isImage ? Math.min(requestedDuration, Math.max(0.1, meta.duration - trimStart)) : requestedDuration;
-      const speed = isImage ? 1 : Math.max(0.5, Math.min(2, Number(scene.speed) || 1));
-      const outputDuration = duration / speed;
-      const segmentPath = path.join(workDir, `segment-${String(index).padStart(3, '0')}.mp4`);
-      const args = ['-y'];
-      if (isImage) args.push('-loop', '1', '-t', duration.toFixed(3), '-i', scene.path);
-      else args.push('-ss', trimStart.toFixed(3), '-i', scene.path); // Remove -t duration from before -i for accurate non-truncating seek
-      const useSourceAudio = !isImage && meta.hasAudio && !scene.muted;
-      if (!useSourceAudio) args.push('-f', 'lavfi', '-t', duration.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo');
-      const rotation = [90, 180, 270].includes(Number(scene.rotation)) ? Number(scene.rotation) : 0;
-      const rotationFilter = rotation === 90 ? 'transpose=1,' : rotation === 270 ? 'transpose=2,' : rotation === 180 ? 'hflip,vflip,' : '';
-      const framingFilter = scene.fit === 'fill'
-        ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
-        : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`;
-      const brightness = Math.max(-1, Math.min(1, Number(scene.brightness) || 0));
-      const contrast = Math.max(0, Math.min(2, Number(scene.contrast) || 1));
-      const saturation = Math.max(0, Math.min(3, Number(scene.saturation) || 1));
-      const fadeDuration = Math.min(1.5, outputDuration / 3, Math.max(0, Number(scene.fade) || 0));
-      const fades = fadeDuration > 0.02
-        ? `,fade=t=in:st=0:d=${fadeDuration.toFixed(2)},fade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`
-        : '';
-      const speedFilter = speed !== 1 ? `setpts=PTS/${speed.toFixed(3)},` : '';
-      const videoFilter = `${rotationFilter}${framingFilter},setsar=1,eq=brightness=${brightness.toFixed(2)}:contrast=${contrast.toFixed(2)}:saturation=${saturation.toFixed(2)},${speedFilter}fps=${fps},format=yuv420p${fades}`;
-      args.push('-map', '0:v:0', '-map', useSourceAudio ? '0:a:0' : '1:a:0', '-vf', videoFilter);
-      if (useSourceAudio) {
-        const safeVolume = Number.isFinite(Number(scene.volume)) ? Number(scene.volume) : 1;
-        const audioFilters = [`volume=${Math.max(0, Math.min(2, safeVolume)).toFixed(2)}`];
-        if (speed !== 1) audioFilters.push(`atempo=${speed.toFixed(3)}`);
-        if (scene.noiseReduction) audioFilters.push('highpass=f=80', 'lowpass=f=14000', 'afftdn=nf=-25');
-        if (scene.normalizeAudio) audioFilters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
-        if (fadeDuration > 0.02) audioFilters.push(`afade=t=in:st=0:d=${fadeDuration.toFixed(2)}`, `afade=t=out:st=${Math.max(0, outputDuration - fadeDuration).toFixed(2)}:d=${fadeDuration.toFixed(2)}`);
-        audioFilters.push('apad'); // Pad audio with silence to prevent early end
-        args.push('-af', audioFilters.join(','));
-      }
-      args.push('-c:v', 'libx264', '-preset', preset, '-crf', crf, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-t', outputDuration.toFixed(3), '-movflags', '+faststart', segmentPath);
-      const base = 3 + (index / scenes.length) * 54;
-      await runMyExporterFFmpeg(ffmpeg, args, event, `Rendering scene ${index + 1} of ${scenes.length}`, base, 54 / scenes.length, outputDuration, jobId);
-      segmentPaths.push(segmentPath);
-    }
-    const concatList = path.join(workDir, 'timeline.txt');
-    fs.writeFileSync(concatList, segmentPaths.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
-    const joinedPath = path.join(workDir, 'joined.mp4');
-    event.sender.send('my-exporter-progress', { jobId, pct: 58, phase: 'Joining scenes' });
-    await runMyExporterFFmpeg(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', concatList, '-c', 'copy', '-movflags', '+faststart', joinedPath], event, 'Joining scenes', 58, 8, totalDuration, jobId);
-
-    let mixedPath = joinedPath;
-    const musicPath = String(opts?.musicPath || '');
-    const positionedAudio = (Array.isArray(opts?.audioTracks) ? opts.audioTracks : [])
-      .filter(track => track?.path && fs.existsSync(track.path) && track.muted !== true);
-    if ((musicPath && fs.existsSync(musicPath)) || positionedAudio.length) {
-      mixedPath = path.join(workDir, 'mixed.mp4');
-      const musicVolume = Math.max(0, Math.min(1.5, Number(opts?.musicVolume) || 0.18));
-      const mixArgs = ['-y', '-i', joinedPath];
-      const chains = ['[0:a]volume=1[base]'];
-      const labels = ['[base]'];
-      let inputIndex = 1;
-      for (const track of positionedAudio) {
-        mixArgs.push('-i', track.path);
-        const trimStart = Math.max(0, Number(track.trimStart) || 0);
-        const duration = Math.max(0.1, Math.min(totalDuration, Number(track.duration) || totalDuration));
-        const trackSpeed = Math.max(0.5, Math.min(2, Number(track.speed) || 1));
-        const delayMs = Math.max(0, Math.round((Number(track.start) || 0) * 1000));
-        const volume = Math.max(0, Math.min(2, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 1));
-        const speedFilter = trackSpeed !== 1 ? `,atempo=${trackSpeed.toFixed(3)}` : '';
-        chains.push(`[${inputIndex}:a]atrim=start=${trimStart.toFixed(3)}:duration=${(duration * trackSpeed).toFixed(3)},asetpts=PTS-STARTPTS${speedFilter},volume=${volume.toFixed(2)},adelay=${delayMs}:all=1[a${inputIndex}]`);
-        labels.push(`[a${inputIndex}]`);
-        inputIndex += 1;
-      }
-      if (musicPath && fs.existsSync(musicPath)) {
-        mixArgs.push('-stream_loop', '-1', '-i', musicPath);
-        chains.push(`[${inputIndex}:a]volume=${musicVolume.toFixed(2)},afade=t=out:st=${Math.max(0, totalDuration - 2).toFixed(2)}:d=2[music]`);
-        labels.push('[music]');
-        inputIndex += 1;
-      }
-      chains.push(`${labels.join('')}amix=inputs=${labels.length}:duration=first:dropout_transition=2[a]`);
-      mixArgs.push('-filter_complex', chains.join(';'), '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-t', totalDuration.toFixed(3), mixedPath);
-      await runMyExporterFFmpeg(ffmpeg, mixArgs, event, 'Mixing audio tracks', 67, 10, totalDuration, jobId);
-    }
-
-    const captions = (Array.isArray(opts?.captions) ? opts.captions : []).filter(item => String(item.text || '').trim() && Number(item.end) > Number(item.start));
+ipcMain.handle('my-exporter-export', async (event, opts) => myExporterEngine.exportVideo(opts, {
+  onProgress: progress => event.sender.send('my-exporter-progress', progress),
+  finish: async ({ inputPath, stagedPath, workDir, width, height, preset, crf, totalDuration, run }) => {
+    const mixedPath = inputPath;
+    const captions = (opts?.burnCaptions === false ? [] : Array.isArray(opts?.captions) ? opts.captions : []).filter(item => String(item.text || '').trim() && Number(item.end) > Number(item.start));
     const textOverlays = (Array.isArray(opts?.textOverlays) ? opts.textOverlays : []).filter(item => String(item.text || '').trim());
     const watermarkPath = String(opts?.watermarkPath || '');
     const hasWatermark = Boolean(watermarkPath && fs.existsSync(watermarkPath));
@@ -7027,7 +7997,7 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
       const baseFontSize = Math.max(24, Math.min(84, Number(opts?.captionFontSize) || 42));
       const fontSize = Math.round(baseFontSize * height / 1080);
       const maxChars = Math.max(16, Math.min(60, Number(opts?.captionMaxChars) || 36));
-      const customCaptionColor = assColor(opts?.captionColor || '#ffffff');
+      const customCaptionColor = myExporterAssColor(opts?.captionColor || '#ffffff');
       const style = {
         classic: { primary: customCaptionColor, secondary: customCaptionColor, back: '&H00000000', border: 1, outline: 0, shadow: 0, bold: opts?.captionBold === false ? 0 : -1 },
         box: { primary: '&H00FFFFFF', secondary: '&H00FFFFFF', back: '&H50000000', border: 3, outline: 0, shadow: 0, bold: -1 },
@@ -7047,13 +8017,24 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
           else line = line ? `${line} ${word}` : word;
         }
         if (line) lines.push(line);
-        return lines.join('\\\\N');
+        return lines.join('\\N');
       };
       const dialogues = captions.map(item => {
         const words = String(item.text || '').replace(/[{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/).filter(Boolean);
         let text = wrapText(item.text);
+        let dialogueStart = Number(item.start), leadingDialogue = '';
         if (styleName.startsWith('karaoke') && words.length) {
-          const timedWords = Array.isArray(item.words) && item.words.length ? item.words : null;
+          let previousEnd = Number(item.start);
+          const timedWords = Array.isArray(item.words) && item.words.length === words.length && item.words.every(timing => {
+            const valid = typeof timing.start === 'number' && typeof timing.end === 'number' && Number.isFinite(timing.start)
+              && Number.isFinite(timing.end) && timing.start >= previousEnd && timing.end > timing.start && timing.end <= Number(item.end);
+            previousEnd = timing.end;
+            return valid;
+          }) ? item.words : null;
+          if (timedWords && timedWords[0].start > dialogueStart) {
+            leadingDialogue = `Dialogue: 0,${assTime(dialogueStart)},${assTime(timedWords[0].start)},Caption,,0,0,0,,{\\c${style.secondary}}${text}\n`;
+            dialogueStart = timedWords[0].start;
+          }
           const totalCs = Math.max(words.length, Math.round((Number(item.end) - Number(item.start)) * 100));
           const each = Math.max(1, Math.floor(totalCs / words.length));
           let lineLength = 0;
@@ -7061,15 +8042,16 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
             const breakLine = lineLength && lineLength + word.length + 1 > maxChars;
             lineLength = breakLine ? word.length : lineLength + word.length + (lineLength ? 1 : 0);
             const timing = timedWords?.[index];
-            const durationCs = timing ? Math.max(1, Math.round((Number(timing.end) - Number(timing.start)) * 100)) : each;
-            return `${breakLine ? '\\\\N' : ''}{\\\\k${durationCs}}${word}`;
+            const durationCs = timing ? Math.max(1, Math.round(((timedWords[index + 1]?.start ?? Number(item.end)) - timing.start) * 100)) : each;
+            return `${breakLine ? '\\N' : ''}{\\k${durationCs}}${word}`;
           }).join(' ');
         }
-        return `Dialogue: 0,${assTime(item.start)},${assTime(item.end)},Caption,,0,0,0,,${text}`;
+        return `${leadingDialogue}Dialogue: 0,${assTime(dialogueStart)},${assTime(item.end)},Caption,,0,0,0,,${text}`;
       }).join('\n');
-      const safeFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
+      const safeFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS', 'Nirmala UI']);
       const textStyles = textOverlays.map((item, index) => {
-        const font = safeFonts.has(item.fontFamily) ? item.fontFamily : 'Arial';
+        const preferredFont = safeFonts.has(item.fontFamily) ? item.fontFamily : 'Arial';
+        const font = /[\u0900-\u0dff]/.test(String(item.text || '')) && ['Arial', 'Segoe UI'].includes(preferredFont) ? 'Nirmala UI' : preferredFont;
         const size = Math.round(Math.max(20, Math.min(180, Number(item.fontSize) || 64)) * height / 1080);
         const boxed = item.shape && item.shape !== 'none';
         const depth = Math.round(Math.max(0, Math.min(16, Number(item.depth) || 0)) * height / 1080);
@@ -7078,20 +8060,22 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
       const textDialoguesFixed = textOverlays.map((item, index) => {
         const x = Math.round(width * Math.max(0, Math.min(100, Number(item.x) || 0)) / 100);
         const y = Math.round(height * Math.max(0, Math.min(100, Number(item.y) || 0)) / 100);
-        const alpha = Math.round((1 - Math.max(0, Math.min(1, Number(item.opacity) || .8))) * 255).toString(16).padStart(2, '0').toUpperCase();
+        const alpha = Math.round((1 - Math.max(0, Math.min(1, (Number.isFinite(Number(item.opacity)) ? Number(item.opacity) : .8)))) * 255).toString(16).padStart(2, '0').toUpperCase();
         const start = Math.max(0, Number(item.start) || 0);
         const end = Math.max(start + .1, Number(item.end) || totalDuration);
-        const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\\\N');
-        return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${assColor(item.color)}}${text}`;
+        const text = String(item.text).replace(/[{}]/g, '').replace(/\r?\n/g, '\\N');
+        return `Dialogue: 1,${assTime(start)},${assTime(end)},Text${index},,0,0,0,,{\\an5\\pos(${x},${y})\\alpha&H${alpha}&\\c${myExporterAssColor(item.color)}}${text}`;
       }).join('\n');
-      const captionFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS']);
-      const captionFont = captionFonts.has(opts?.captionFontFamily) ? opts.captionFontFamily : 'Arial';
+      const captionFonts = new Set(['Arial', 'Segoe UI', 'Georgia', 'Impact', 'Comic Sans MS', 'Nirmala UI']);
+      const preferredCaptionFont = captionFonts.has(opts?.captionFontFamily) ? opts.captionFontFamily : 'Arial';
+      const hasIndicCaptions = captions.some(item => /[\u0900-\u0dff]/.test(String(item.text || '')));
+      const captionFont = hasIndicCaptions && ['Arial', 'Segoe UI'].includes(preferredCaptionFont) ? 'Nirmala UI' : preferredCaptionFont;
       const captionScaleX = Math.max(30, Math.min(100, Number(opts?.captionWidth) || 100));
       const captionScaleY = Math.max(70, Math.min(140, Number(opts?.captionHeight) || 100));
       const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${width}\nPlayResY: ${height}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,${captionFont},${fontSize},${style.primary},${style.secondary},&H00000000,${style.back},${style.bold},0,0,0,${captionScaleX},${captionScaleY},0,0,${style.border},0,0,${alignment},60,60,${Math.round(height * .055)},1\n${textStyles}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues}\n${textDialoguesFixed}\n`;
       fs.writeFileSync(assPath, ass, 'utf8');
       const escaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-      subtitleFilter = `subtitles='${escaped}'`;
+      subtitleFilter = `ass='${escaped}':shaping=complex`;
     }
     if (hasWatermark) {
       let xPercent = 0.90;
@@ -7124,16 +8108,10 @@ ipcMain.handle('my-exporter-export', async (event, opts) => {
     } else {
       finalArgs.push('-c:v', 'copy');
     }
-    finalArgs.push('-c:a', 'copy', '-t', totalDuration.toFixed(3), '-movflags', '+faststart', outputPath);
-    await runMyExporterFFmpeg(ffmpeg, finalArgs, event, captions.length ? 'Burning captions and finishing' : 'Finishing MP4', 78, 21, totalDuration, jobId);
-    event.sender.send('my-exporter-progress', { jobId, pct: 100, phase: 'Export complete', outputPath });
-    return { ok: true, jobId, outputPath, fileName: path.basename(outputPath), width, height, duration: totalDuration };
-  } catch (error) {
-    return { ok: false, error: error.message };
-  } finally {
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
-  }
-});
+    finalArgs.push('-c:a', 'copy', '-t', totalDuration.toFixed(6), '-movflags', '+faststart', stagedPath);
+    await run(finalArgs, captions.length ? 'Burning captions and finishing' : 'Finishing MP4', 78, 20, totalDuration);
+  },
+}));
 
 // ── Multi-voice pool: female & male EdgeTTS voices per language ─────────────
 const MY_EXPORTER_VOICE_POOL = {
@@ -7527,9 +8505,6 @@ ipcMain.handle('render-srt-voice-video', async (event, opts = {}) => {
       if (!clipDuration) throw new Error(`Voice generation produced an unreadable clip at ${cue.start.toFixed(2)} seconds.`);
       generated.push({ ...cue, clipPath, clipDuration });
     }
-    // Preserve subtitle order. For simultaneous SRT speaker windows, fit their
-    // turns into the shared window with only gentle acceleration before allowing
-    // the final frame to extend for any remaining natural speech duration.
     const dialogueGroups = [];
     for (const cue of generated) {
       const windowEnd = Number(cue.originalEnd) || cue.end;
@@ -7564,7 +8539,6 @@ ipcMain.handle('render-srt-voice-video', async (event, opts = {}) => {
     const finalDuration = Math.max(meta.duration, ...generated.map(cue => cue.end));
     const videoExtension = finalDuration - meta.duration;
     if (videoExtension > 30) throw new Error(`Removing the dialogue overlaps would extend the video by ${videoExtension.toFixed(1)} seconds. Please space the SRT dialogue a little more or split the lines.`);
-    // Small batches avoid Windows command-line limits on videos with hundreds of cues.
     const batches = [];
     for (let offset = 0; offset < generated.length; offset += 48) {
       const group = generated.slice(offset, offset + 48);
@@ -7608,7 +8582,6 @@ ipcMain.handle('render-srt-voice-video', async (event, opts = {}) => {
       try {
         await runFfmpeg([...muxArgs, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', String(finalDuration), '-movflags', '+faststart', finalPath]);
       } catch (copyError) {
-        // VP9/WebM and some camera codecs cannot be copied into an MP4 container.
         report(96, 'Converting the source video to MP4-compatible H.264');
         await runFfmpeg([...muxArgs, '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-t', String(finalDuration), '-movflags', '+faststart', finalPath]);
       }
@@ -7639,8 +8612,8 @@ ipcMain.handle('render-srt-voice-video', async (event, opts = {}) => {
 //   5. Mix all TTS clips at their exact timestamps into a single audio track
 //   6. Mux new audio into original video (copy video stream – no re-encode)
 ipcMain.handle('export-synced-translated-video', async (event, opts) => {
-  const { videoPath, segments, voice, outputName, targetLanguage, singleVoice = false, voiceMode = singleVoice ? 'female' : 'both', audioOnly = false } = opts || {};
-  if (!videoPath || !Array.isArray(segments) || !segments.length)
+  const { videoPath, segments: requestedSegments, voice, outputName, targetLanguage, singleVoice = false, voiceMode = singleVoice ? 'female' : 'both', audioOnly = false } = opts || {};
+  if (!videoPath || !Array.isArray(requestedSegments) || !requestedSegments.length)
     return { ok: false, error: 'videoPath and segments are required.' };
   if (!fs.existsSync(videoPath))
     return { ok: false, error: `Source video not found: ${videoPath}` };
@@ -7659,7 +8632,11 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     // STEP 1: Probe duration
     send(3, 'Reading source video…');
     const meta          = myExporterProbePath(videoPath);
-    const totalDuration = meta.duration || 300;
+    const totalDuration = meta.duration;
+    const { validateSyncedNarrationSegments, trimGeneratedNarrationClip } = require('./synced-narration-timing.cjs');
+    // Validate the entire timeline before generating even the first voice clip.
+    // A conflicting timestamp is actionable; it must never be silently moved.
+    const segments = validateSyncedNarrationSegments(requestedSegments, totalDuration);
 
     // STEP 2: Detect gender per segment
     send(8, `Detecting speakers in ${segments.length} segments…`);
@@ -7685,8 +8662,7 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     const clipPaths = [];
     for (let i = 0; i < segments.length; i++) {
       const seg  = segments[i];
-      const text = String(seg.translatedText || seg.text || '').trim();
-      if (!text) continue;
+      const text = seg.narrationText;
 
       const segVoice = segmentVoices[i] || voice || 'hi-IN-SwaraNeural';
       send(
@@ -7702,22 +8678,16 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
       }
 
       fs.writeFileSync(clipPath, ttsResp.buffer);
-      const startSec = Math.max(0, Number(seg.start || 0));
-      const endSec = Math.max(startSec + 0.12, Number(seg.end || startSec + 0.12));
-      const generatedDuration = Math.max(0.01, Number(myExporterProbePath(clipPath).duration) || (endSec - startSec));
-      clipPaths.push({ path: clipPath, startSec, endSec, generatedDuration });
+      const preparedPath = path.join(workDir, `clip_${String(i).padStart(4, '0')}_speech.wav`);
+      await trimGeneratedNarrationClip(ffmpeg, clipPath, preparedPath);
+      const generatedDuration = myExporterProbePath(preparedPath).duration;
+      if (!Number.isFinite(generatedDuration) || generatedDuration <= 0) {
+        throw new Error(`Narration segment ${i + 1} generated no audible speech. Try generating its voice again.`);
+      }
+      clipPaths.push({ path: preparedPath, startSec: seg.start, endSec: seg.end, generatedDuration });
     }
 
     if (!clipPaths.length) throw new Error('No TTS audio was generated — check that translated segments have text.');
-
-    // Whisper timestamps can themselves touch or overlap slightly. Give every
-    // clip an exclusive boundary at the next clip's start as a second guard.
-    for (let i = 0; i < clipPaths.length - 1; i++) {
-      clipPaths[i].endSec = Math.max(
-        clipPaths[i].startSec + 0.12,
-        Math.min(clipPaths[i].endSec, clipPaths[i + 1].startSec)
-      );
-    }
 
     // STEP 5: Mix TTS clips into one full-length audio track
     // Write filter to FILE to avoid Windows 32,767-char CLI limit (ENAMETOOLONG)
@@ -7731,13 +8701,13 @@ ipcMain.handle('export-synced-translated-video', async (event, opts) => {
     const mixFilterParts = [`[0:a]apad=whole_dur=${totalDuration}[base]`];
     for (let i = 0; i < clipPaths.length; i++) {
       const clip = clipPaths[i];
-      const delayMs = Math.round(clip.startSec * 1000);
-      const slotDuration = Math.max(0.12, clip.endSec - clip.startSec);
+      const delaySamples = Math.round(clip.startSec * 44100);
+      const slotDuration = clip.endSec - clip.startSec;
       // A generated sentence can be longer than its Whisper time slot. Fit it
       // into that slot and trim at the boundary so adjacent voices never overlap.
       const tempo = Math.max(1, clip.generatedDuration / slotDuration);
       const tempoFilter = buildAtempoChain(tempo);
-      mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[c${i}]`);
+      mixFilterParts.push(`[${i + 1}:a]${tempoFilter}atrim=duration=${slotDuration.toFixed(6)},asetpts=PTS-STARTPTS,adelay=${delaySamples}S:all=1[c${i}]`);
     }
     const mixLabels = ['[base]', ...clipPaths.map((_, i) => `[c${i}]`)].join('');
     mixFilterParts.push(`${mixLabels}amix=inputs=${clipPaths.length + 1}:normalize=0,atrim=end=${totalDuration}[aout]`);
@@ -7941,26 +8911,7 @@ ipcMain.handle('video-resizer-cancel', async (_event, opts = {}) => {
   return { ok: true, cancelled: true };
 });
 
-ipcMain.handle('my-exporter-cancel', async (event, opts) => {
-  const jobId = opts?.jobId;
-  if (jobId) {
-    const proc = myExporterProcesses.get(jobId);
-    if (proc) {
-      try { proc.kill('SIGTERM'); } catch (_) {}
-      myExporterProcesses.delete(jobId);
-      return { ok: true, cancelled: true };
-    }
-    return { ok: true, cancelled: false };
-  } else {
-    let killed = false;
-    for (const [id, proc] of myExporterProcesses.entries()) {
-      try { proc.kill('SIGTERM'); } catch (_) {}
-      killed = true;
-    }
-    myExporterProcesses.clear();
-    return { ok: true, cancelled: killed };
-  }
-});
+ipcMain.handle('my-exporter-cancel', async (_event, opts) => myExporterEngine.cancel(opts?.jobId));
 
 ipcMain.handle('my-exporter-delete-project', async (_event, opts) => {
   const filePath = path.resolve(String(opts?.filePath || ''));
