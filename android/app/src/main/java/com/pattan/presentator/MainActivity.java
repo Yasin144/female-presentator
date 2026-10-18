@@ -28,6 +28,14 @@ import com.getcapacitor.BridgeWebViewClient;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
 public class MainActivity extends BridgeActivity {
     private static final int REQ_DEVICE_CREDENTIAL = 9421;
     private String pendingBioActionType = "in";
@@ -170,6 +178,46 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void vibrate(final int durationMs) {
             triggerNativeVibrate(durationMs);
+        }
+
+        @JavascriptInterface
+        public void syncHttpPost(final String urlStr, final String jsonBody) {
+            new Thread(() -> {
+                HttpURLConnection conn = null;
+                try {
+                    URL url = new URL(urlStr);
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setConnectTimeout(3500);
+                    conn.setReadTimeout(4500);
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                    byte[] bytes = (jsonBody != null ? jsonBody : "{}").getBytes(StandardCharsets.UTF_8);
+                    try (OutputStream os = conn.getOutputStream()) {
+                        os.write(bytes);
+                        os.flush();
+                    }
+                    int code = conn.getResponseCode();
+                    if (code >= 200 && code < 300 && urlStr.contains("/api/ot-salary-sync")) {
+                        InputStream is = conn.getInputStream();
+                        StringBuilder sb = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                sb.append(line);
+                            }
+                        }
+                        final String respJson = sb.toString();
+                        if (bridge != null && bridge.getWebView() != null && !respJson.isEmpty()) {
+                            final String js = "window.dispatchEvent(new CustomEvent('pattan-native-sync-response', { detail: " + respJson + " }));";
+                            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(js, null));
+                        }
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            }).start();
         }
 
         @SuppressWarnings("deprecation")

@@ -733,7 +733,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     active: false,
     direction: '',
     progress: 0,
-    statusText: 'Tap IN when arriving · Tap OUT when leaving (Uses Phone Unlock Biometric)',
+    statusText: 'Biometric Attendance Terminal · IN & OUT Ready',
     lastVerifiedText: '',
   });
   const [liveClockHHMM, setLiveClockHHMM] = useState(getCurrentTime24h);
@@ -881,63 +881,362 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     return () => window.removeEventListener('resize', onResize);
   }, [standaloneMobile]);
 
-  // Load from disk / sync server on mount + subscribe to live mobile/desktop updates
+  const clientIdRef = useRef(`ot_${Math.random().toString(36).slice(2, 10)}`);
+  const settingsUpdatedAtRef = useRef(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_OT_SALARY_KEY) || '{}');
+      return Number(raw.settingsUpdatedAt || 0);
+    } catch (_) {
+      return 0;
+    }
+  });
+  if (typeof settingsUpdatedAtRef.current === 'function') {
+    settingsUpdatedAtRef.current = settingsUpdatedAtRef.current();
+  }
+  const lastAppliedSyncMsRef = useRef(0);
+
+  const getCandidateLanBases = useCallback(() => {
+    const bases = new Set();
+    try {
+      const origin = window.location.origin;
+      const isCapacitorLocal =
+        window.Capacitor ||
+        origin.startsWith('capacitor://') ||
+        (origin.startsWith('https://localhost') && !window.location.port);
+      if (!isCapacitorLocal && origin.startsWith('http')) {
+        bases.add('');
+      }
+    } catch (_) {}
+    try {
+      const savedBase = (pcSyncIpInput || localStorage.getItem('pattan.ot.syncServerUrl') || '').trim().replace(/\/+$/, '');
+      if (savedBase) {
+        if (/^https?:\/\//i.test(savedBase)) {
+          bases.add(savedBase);
+        } else if (savedBase.includes(':')) {
+          bases.add(`http://${savedBase}`);
+        } else {
+          bases.add(`http://${savedBase}:5173`);
+          bases.add(`http://${savedBase}:8433`);
+        }
+      }
+    } catch (_) {}
+    bases.add('http://10.149.161.101:5173');
+    bases.add('http://10.149.161.101:8433');
+    bases.add('http://192.168.29.161:5173');
+    bases.add('http://192.168.29.161:8433');
+    return Array.from(bases);
+  }, [pcSyncIpInput]);
+
+  const applyIncomingStore = useCallback((data, fromCloudRelay = false) => {
+    if (!data || typeof data !== 'object') return;
+    if (data.clientId && data.clientId === clientIdRef.current) return;
+
+    const incomingTs = Number(data.updatedAtMs || Date.parse(data.updatedAt || '') || 0);
+    if (incomingTs > 0 && incomingTs <= lastAppliedSyncMsRef.current && !fromCloudRelay) {
+      // Allow day-level inspection even if top-level timestamp matches
+    }
+    if (incomingTs > lastAppliedSyncMsRef.current) {
+      lastAppliedSyncMsRef.current = incomingTs;
+    }
+
+    const inSettingsTs = Number(data.settingsUpdatedAt || incomingTs || 0);
+    let nextSettingsSnapshot = null;
+    if (data.settings && typeof data.settings === 'object') {
+      if (inSettingsTs >= (settingsUpdatedAtRef.current || 0)) {
+        settingsUpdatedAtRef.current = inSettingsTs;
+        setSettings((prev) => {
+          const mergedSettings = { ...DEFAULT_SETTINGS, ...prev, ...data.settings };
+          nextSettingsSnapshot = mergedSettings;
+          return mergedSettings;
+        });
+      }
+    }
+
+    const inDays = data.days && typeof data.days === 'object' ? data.days : {};
+    setDaysMap((prev) => {
+      let changed = Boolean(nextSettingsSnapshot);
+      const mergedDays = { ...prev };
+      for (const [iso, inRec] of Object.entries(inDays)) {
+        if (!inRec || typeof inRec !== 'object') continue;
+        const exRec = mergedDays[iso];
+        const inDayTs = Number(inRec.updatedAtMs || Date.parse(inRec.updatedAt || inRec.savedAt || '') || incomingTs || 1);
+        const exDayTs = exRec ? Number(exRec.updatedAtMs || Date.parse(exRec.updatedAt || exRec.savedAt || '') || 0) : -1;
+        if (!exRec || inDayTs >= exDayTs) {
+          if (inRec._deleted) {
+            if (mergedDays[iso]) {
+              delete mergedDays[iso];
+              changed = true;
+            }
+          } else {
+            const combined = { ...exRec, ...inRec };
+            if (JSON.stringify(exRec) !== JSON.stringify(combined)) {
+              mergedDays[iso] = combined;
+              changed = true;
+            }
+          }
+        }
+      }
+      if (changed) {
+        try {
+          const currentRaw = JSON.parse(localStorage.getItem(LS_OT_SALARY_KEY) || '{}');
+          const toSave = {
+            settings: nextSettingsSnapshot || currentRaw.settings || DEFAULT_SETTINGS,
+            settingsUpdatedAt: settingsUpdatedAtRef.current || Date.now(),
+            days: mergedDays,
+            updatedAt: new Date().toISOString(),
+            updatedAtMs: Date.now(),
+          };
+          localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(toSave));
+          // If this is the Web/Desktop app and the update arrived from Mobile via Cloud Relay, also persist to local server disk!
+          if (fromCloudRelay) {
+            const isWebServer = window.location.origin.startsWith('http') && !window.Capacitor;
+            if (isWebServer) {
+              fetch('/api/ot-salary-sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(toSave),
+              }).catch(() => {});
+            }
+            if (window.electronAPI && typeof window.electronAPI.saveOtSalaryData === 'function') {
+              window.electronAPI.saveOtSalaryData(toSave).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+      return changed ? mergedDays : prev;
+    });
+  }, []);
+
+  // Load from disk / sync server on mount + subscribe to live mobile/desktop updates (LAN + SSE + Cloud Relay + BroadcastChannel)
   useEffect(() => {
     let mounted = true;
-    const applyIncomingStore = (data) => {
-      if (!mounted || !data || typeof data !== 'object') return;
-      const loadedSettings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
-      const loadedDays = data.days && typeof data.days === 'object' ? data.days : {};
-      setSettings(loadedSettings);
-      setDaysMap((prev) => {
-        const merged = { ...prev, ...loadedDays };
-        try {
-          localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify({ settings: loadedSettings, days: merged }));
-        } catch (_) {}
-        return merged;
-      });
-    };
+    const CLOUD_TOPIC = 'pattan_ot_salary_live_sync_yasin144_v2';
+    const CLOUD_BASE = `https://ntfy.sh/${CLOUD_TOPIC}`;
 
+    // 1. Electron desktop IPC
     if (window.electronAPI && typeof window.electronAPI.loadOtSalaryData === 'function') {
       window.electronAPI.loadOtSalaryData().then((res) => {
         if (!mounted || !res || (!res.ok && !res.success)) return;
         if (res.filePath) setDiskPath(res.filePath);
         if (res.wifiOtUrl) setWifiOtUrl(res.wifiOtUrl);
         if (res.mobileOtUrl) setMobileOtUrl(res.mobileOtUrl);
-        if (res.data) applyIncomingStore(res.data);
+        if (res.data) applyIncomingStore(res.data, false);
       }).catch(() => {});
     }
 
-    let unsubscribe = null;
+    let unsubscribeElectron = null;
     if (window.electronAPI && typeof window.electronAPI.onOtSalaryUpdated === 'function') {
-      unsubscribe = window.electronAPI.onOtSalaryUpdated((updatedData) => {
-        applyIncomingStore(updatedData);
+      unsubscribeElectron = window.electronAPI.onOtSalaryUpdated((updatedData) => {
+        if (mounted) applyIncomingStore(updatedData, false);
       });
     }
+
+    // 2. Same-Browser Cross-Tab BroadcastChannel + Storage Event
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('pattan_ot_salary_live_channel');
+        bc.onmessage = (ev) => {
+          if (mounted && ev?.data) applyIncomingStore(ev.data, false);
+        };
+      }
+    } catch (_) {}
+
+    const onStorage = (ev) => {
+      if (ev.key === LS_OT_SALARY_KEY && ev.newValue && mounted) {
+        try {
+          applyIncomingStore(JSON.parse(ev.newValue), false);
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    // 3. Native Android syncHttpPost response listener
+    const onNativeSyncResp = (ev) => {
+      if (!mounted || !ev?.detail) return;
+      const d = ev.detail;
+      if (d && (d.ok || d.success) && d.data) {
+        applyIncomingStore(d.data, false);
+      }
+    };
+    window.addEventListener('pattan-native-sync-response', onNativeSyncResp);
+
+    // 4. Pull latest state from LAN server & Cloud Relay immediately on mount & periodically
+    const pullLatestFromServers = async () => {
+      if (!mounted) return;
+      const bases = getCandidateLanBases();
+      for (const base of bases) {
+        try {
+          const res = await fetch(`${base}/api/ot-salary-sync`, { cache: 'no-store' });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && (json.ok || json.success) && json.data && mounted) {
+              applyIncomingStore(json.data, false);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+    };
+
+    const pullLatestFromCloudRelay = async (sinceWindow = '24h') => {
+      if (!mounted) return;
+      try {
+        const res = await fetch(`${CLOUD_BASE}/json?poll=1&since=${sinceWindow}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const text = await res.text();
+        const lines = text.trim().split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const envelope = JSON.parse(line);
+            if (envelope && envelope.event === 'message' && envelope.message) {
+              const inner = JSON.parse(envelope.message);
+              const storeData = inner && inner.data ? inner.data : inner;
+              if (storeData && (storeData.days || storeData.settings) && mounted) {
+                applyIncomingStore(storeData, true);
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    };
+
+    pullLatestFromServers();
+    pullLatestFromCloudRelay('24h');
+
+    // 5. Real-Time Server-Sent Events (Local LAN SSE + Global Cloud Relay SSE)
+    let localSse = null;
+    try {
+      if (window.location.origin.startsWith('http') && !window.Capacitor) {
+        localSse = new EventSource('/api/ot-salary-events');
+        localSse.onmessage = (ev) => {
+          try {
+            const parsed = JSON.parse(ev.data || '{}');
+            if (parsed && parsed.data && mounted) {
+              applyIncomingStore(parsed.data, false);
+            }
+          } catch (_) {}
+        };
+      }
+    } catch (_) {}
+
+    let cloudSse = null;
+    try {
+      if (typeof EventSource !== 'undefined') {
+        cloudSse = new EventSource(`${CLOUD_BASE}/sse`);
+        cloudSse.onmessage = (ev) => {
+          try {
+            const envelope = JSON.parse(ev.data || '{}');
+            const rawMsg = envelope.message || ev.data;
+            const inner = typeof rawMsg === 'string' ? JSON.parse(rawMsg) : rawMsg;
+            const storeData = inner && inner.data ? inner.data : inner;
+            if (storeData && (storeData.days || storeData.settings) && mounted) {
+              applyIncomingStore(storeData, true);
+            }
+          } catch (_) {}
+        };
+      }
+    } catch (_) {}
+
+    // 6. Fast 2.5s background poll so any change on Mobile immediately reflects on Web even if SSE reconnects
+    const fastPollTimer = setInterval(() => {
+      pullLatestFromServers();
+      pullLatestFromCloudRelay('15s');
+    }, 2500);
+
     return () => {
       mounted = false;
-      if (typeof unsubscribe === 'function') unsubscribe();
+      clearInterval(fastPollTimer);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('pattan-native-sync-response', onNativeSyncResp);
+      if (typeof unsubscribeElectron === 'function') unsubscribeElectron();
+      try { if (bc) bc.close(); } catch (_) {}
+      try { if (localSse) localSse.close(); } catch (_) {}
+      try { if (cloudSse) cloudSse.close(); } catch (_) {}
     };
-  }, []);
+  }, [applyIncomingStore, getCandidateLanBases]);
 
   const persistStore = useCallback((nextSettings, nextDays, message = 'Saved') => {
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const stampedDays = {};
+    for (const [iso, rec] of Object.entries(nextDays || {})) {
+      if (!rec) continue;
+      stampedDays[iso] = {
+        ...rec,
+        updatedAt: rec.updatedAt || nowIso,
+        updatedAtMs: Number(rec.updatedAtMs || Date.parse(rec.updatedAt || rec.savedAt || '') || nowMs),
+      };
+    }
     const payload = {
+      type: 'OT_SALARY_LIVE_SYNC',
+      clientId: clientIdRef.current,
       settings: nextSettings,
-      days: nextDays,
-      updatedAt: new Date().toISOString(),
+      settingsUpdatedAt: settingsUpdatedAtRef.current || nowMs,
+      days: stampedDays,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
     };
+    lastAppliedSyncMsRef.current = nowMs;
+
     try {
       localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(payload));
     } catch (_) {}
+
+    // Broadcast across tabs
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('pattan_ot_salary_live_channel');
+        bc.postMessage(payload);
+        bc.close();
+      }
+    } catch (_) {}
+
+    // Save via Electron IPC if in desktop shell
     if (window.electronAPI && typeof window.electronAPI.saveOtSalaryData === 'function') {
       window.electronAPI.saveOtSalaryData(payload).then((res) => {
         if (res?.filePath) setDiskPath(res.filePath);
       }).catch(() => {});
     }
-    if (message) {
-      setSaveNotice(`${message} (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
+
+    // Immediately push to Local LAN / Web Server endpoints AND Global HTTPS Cloud Relay
+    const jsonBody = JSON.stringify(payload);
+    const lanBases = getCandidateLanBases();
+    for (const base of lanBases) {
+      const url = `${base}/api/ot-salary-sync`;
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonBody,
+      }).then((res) => res.ok ? res.json() : null).then((json) => {
+        if (json && (json.ok || json.success) && json.data) {
+          applyIncomingStore(json.data, false);
+        }
+      }).catch(() => {});
+
+      if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function' && base.startsWith('http')) {
+        try {
+          window.PattanBiometric.syncHttpPost(url, jsonBody);
+        } catch (_) {}
+      }
     }
-  }, []);
+
+    // Push to Global Real-Time HTTPS Cloud Relay (works over 4G/5G Mobile Data & Wi-Fi)
+    const cloudUrl = 'https://ntfy.sh/pattan_ot_salary_live_sync_yasin144_v2';
+    fetch(cloudUrl, {
+      method: 'POST',
+      body: jsonBody,
+    }).catch(() => {});
+    if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
+      try {
+        window.PattanBiometric.syncHttpPost(cloudUrl, jsonBody);
+      } catch (_) {}
+    }
+
+    if (message) {
+      setSaveNotice(`${message} · ⚡ Live Synced (${new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
+    }
+  }, [getCandidateLanBases, applyIncomingStore]);
 
   // Derived rate math
   const rates = useMemo(() => {
@@ -1133,6 +1432,8 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       otHours: entryOtHours,
       extraAllowance: entryBonus,
     });
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const record = {
       ...existing,
       date: selectedDate,
@@ -1145,12 +1446,14 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       note: String(entryNote || '').trim(),
       biometricIn: Boolean(entryBiometricIn),
       biometricOut: Boolean(entryBiometricOut),
-      biometricInAt: entryBiometricIn ? (existing.biometricInAt || new Date().toISOString()) : null,
-      biometricOutAt: entryBiometricOut ? (existing.biometricOutAt || new Date().toISOString()) : null,
+      biometricInAt: entryBiometricIn ? (existing.biometricInAt || nowIso) : null,
+      biometricOutAt: entryBiometricOut ? (existing.biometricOutAt || nowIso) : null,
       basePaySnapshot: Number(calc.basePay.toFixed(2)),
       otPaySnapshot: Number(calc.otPay.toFixed(2)),
       totalPaySnapshot: Number(calc.totalPay.toFixed(2)),
-      savedAt: new Date().toISOString(),
+      savedAt: nowIso,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
     };
     const nextDays = { ...daysMap, [selectedDate]: record };
     setDaysMap(nextDays);
@@ -1193,12 +1496,16 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       merged.outTime = minutesToTimeInput(targetOutMins);
     }
 
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const calc = computeDayEarnings(merged);
     merged.workedMins = calc.workedMins;
     merged.basePaySnapshot = Number(calc.basePay.toFixed(2));
     merged.otPaySnapshot = Number(calc.otPay.toFixed(2));
     merged.totalPaySnapshot = Number(calc.totalPay.toFixed(2));
-    merged.savedAt = new Date().toISOString();
+    merged.savedAt = nowIso;
+    merged.updatedAt = nowIso;
+    merged.updatedAtMs = nowMs;
 
     const nextDays = { ...daysMap, [isoDate]: merged };
     setDaysMap(nextDays);
@@ -1214,6 +1521,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   };
 
   const updateSetting = (key, value) => {
+    settingsUpdatedAtRef.current = Date.now();
     const next = { ...settings, [key]: value };
     setSettings(next);
     persistStore(next, daysMap, 'Updated salary settings');
@@ -1411,7 +1719,8 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const worked = Math.max(0, outM - inM);
     const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
-    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -1430,6 +1739,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         biometricInMethod: isBiometric ? methodUsed : (existing?.biometricInMethod || ''),
         savedAt: nowIso,
         updatedAt: nowIso,
+        updatedAtMs: nowMs,
       },
     };
     setSelectedDate(todayIso);
@@ -1441,7 +1751,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       settings,
       nextDays,
       isBiometric
-        ? `🫆 Biometric Touch IN Verified at ${formatTime12h(nowHHMM)} (${todayIso})`
+        ? `✓ Touch ID IN Verified at ${formatTime12h(nowHHMM)} (${todayIso})`
         : `🟢 Punched Enter at ${formatTime12h(nowHHMM)} (${todayIso})`
     );
     return { todayIso, nowHHMM, otMins, worked };
@@ -1459,7 +1769,8 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const worked = outM >= inM ? outM - inM : (24 * 60 - inM) + outM;
     const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
-    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -1479,6 +1790,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         biometricOutMethod: isBiometric ? methodUsed : (existing?.biometricOutMethod || ''),
         savedAt: nowIso,
         updatedAt: nowIso,
+        updatedAtMs: nowMs,
       },
     };
     setSelectedDate(todayIso);
@@ -1495,7 +1807,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       settings,
       nextDays,
       isBiometric
-        ? `🫆 Biometric Touch OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
+        ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
         : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
     );
     return { todayIso, inTime, nowHHMM, otMins, worked };
@@ -1584,6 +1896,8 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const outTime = minutesToHHMM(outM);
     const worked = outM >= inM ? outM - inM : (24 * 60 - inM) + outM;
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -1596,8 +1910,9 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         otHours: Number(otHoursValue) || 0,
         note: existing?.note || '',
         extraAllowance,
-        savedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        savedAt: nowIso,
+        updatedAt: nowIso,
+        updatedAtMs: nowMs,
       },
     };
     setSelectedDate(todayIso);
@@ -1765,21 +2080,20 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     >
       <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* LUXURY GLASS TOP BAR */}
+        {/* EXECUTIVE FLAGSHIP APP TITLE HEADER */}
         <div style={{
+          padding: mobileMode ? '16px 16px' : '18px 22px',
+          borderRadius: 22,
+          background: 'linear-gradient(135deg, #0b132b 0%, #060a17 55%, #0f172a 100%)',
+          border: '1.5px solid rgba(250, 204, 21, 0.45)',
+          boxShadow: '0 18px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 10,
-          padding: '12px 15px',
-          borderRadius: 18,
-          background: 'rgba(15, 23, 42, 0.82)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid rgba(148, 163, 184, 0.18)',
-          boxShadow: '0 14px 34px rgba(0, 0, 0, 0.42)',
+          gap: 12,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
               <button
                 type="button"
@@ -1788,10 +2102,10 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                   if (res !== 'handled' && onClose) onClose();
                 }}
                 style={{
-                  padding: '7px 12px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(56, 189, 248, 0.45)',
-                  background: 'rgba(14, 165, 233, 0.16)',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(56, 189, 248, 0.5)',
+                  background: 'rgba(14, 165, 233, 0.18)',
                   color: '#e0f2fe',
                   fontWeight: 900,
                   fontSize: 12.5,
@@ -1802,13 +2116,61 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                 ← Back
               </button>
             )}
-            <TouchIdSvg variant="gold" size={38} />
+            <div style={{
+              padding: 4,
+              borderRadius: 16,
+              background: 'radial-gradient(circle, rgba(250,204,21,0.22), rgba(15,23,42,0.92))',
+              border: '1px solid rgba(250,204,21,0.45)',
+              boxShadow: '0 0 22px rgba(250,204,21,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <TouchIdSvg variant="gold" size={42} />
+            </div>
             <div>
-              <div style={{ fontSize: 16.5, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
-                Biometric OT &amp; Salary Studio
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                flexWrap: 'wrap',
+              }}>
+                <span style={{
+                  fontSize: 9.5,
+                  fontWeight: 900,
+                  letterSpacing: '0.16em',
+                  textTransform: 'uppercase',
+                  color: '#fde047',
+                }}>
+                  EXECUTIVE ATTENDANCE &amp; PAYROLL
+                </span>
+                <span style={{
+                  padding: '2px 7px',
+                  borderRadius: 999,
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  border: '1px solid rgba(52, 211, 153, 0.55)',
+                  color: '#6ee7b7',
+                  fontSize: 9.5,
+                  fontWeight: 900,
+                  letterSpacing: '0.06em',
+                }}>
+                  ● LIVE SYNC
+                </span>
               </div>
-              <div style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 700, marginTop: 1 }}>
-                ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr · 🕒 {formatTime12h(liveClockHHMM)}
+              <div style={{
+                fontSize: mobileMode ? 21 : 25,
+                fontWeight: 950,
+                background: 'linear-gradient(90deg, #ffffff 0%, #fef08a 55%, #38bdf8 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                letterSpacing: '-0.02em',
+                lineHeight: 1.15,
+                marginTop: 2,
+              }}>
+                OT &amp; SALARY PRO
+              </div>
+              <div style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700, marginTop: 2 }}>
+                Biometric OT &amp; Salary Studio · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
               </div>
             </div>
           </div>
@@ -1835,10 +2197,10 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               }}
               style={{
                 background: '#080d1a',
-                border: '1px solid rgba(148,163,184,0.28)',
+                border: '1px solid rgba(250, 204, 21, 0.38)',
                 borderRadius: 10,
                 padding: '6px 9px',
-                color: '#fff',
+                color: '#fef08a',
                 fontWeight: 800,
                 fontSize: 12,
               }}
@@ -1857,7 +2219,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                 cursor: 'pointer',
               }}
             >
-              📱 Mobile App / Sync
+              📱 App / Sync
             </button>
             <button
               type="button"
@@ -1933,7 +2295,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               flexWrap: 'wrap',
             }}>
               <span style={{ fontSize: 11.5, fontWeight: 800, color: '#cbd5e1' }}>
-                ✏️ Edit Monthly Salary: ₹
+                ✏️ Monthly Salary: ₹
               </span>
               <input
                 type="number"
@@ -1975,7 +2337,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                 + ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
               </div>
               <div style={{ marginTop: 3, fontSize: 11.5, color: '#a7f3d0', fontWeight: 700 }}>
-                {formatMinutesReadable(monthSummary.totalOtMins)} Extra OT · {monthSummary.biometricBothCount}d Touch ID ✓
+                {formatMinutesReadable(monthSummary.totalOtMins)} Extra OT · {monthSummary.biometricBothCount}d IN &amp; OUT ✓
               </div>
             </div>
             <TouchIdSvg variant="out" size={48} verified={monthSummary.biometricBothCount > 0} />
@@ -2199,8 +2561,12 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                       ? `⚡ Overtime Active (Past ${formatTime12h(settings.officeEndTime)})`
                       : `Shift: ${formatTime12h(settings.officeStartTime)} – ${formatTime12h(settings.officeEndTime)}`}
                   </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, marginTop: 4 }}>
-                    🔒 Phone Unlock Biometric Active
+                  <div style={{ fontSize: 11, color: '#6ee7b7', fontWeight: 800, marginTop: 4 }}>
+                    {hasBioInToday && hasBioOutToday
+                      ? '✓ IN & OUT Complete'
+                      : hasBioInToday
+                        ? `🟢 IN at ${formatTime12h(todayRec.inTime)}`
+                        : '⚡ Biometric IN / OUT Ready'}
                   </div>
                 </div>
               </div>
@@ -2217,101 +2583,147 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {/* TOUCH ID ORB 1: MORNING IN */}
+                {/* TOUCH ID ORB 1: IN */}
                 <button
                   type="button"
                   onClick={() => performBiometricPunch('in')}
                   disabled={biometricScanState.active}
                   style={{
                     padding: mobileMode ? '20px 12px' : '24px 16px',
-                    borderRadius: 20,
-                    border: hasBioInToday ? '2px solid #38bdf8' : '1.5px solid rgba(56, 189, 248, 0.38)',
+                    borderRadius: 22,
+                    border: hasBioInToday ? '2px solid #38bdf8' : '1.5px solid rgba(56, 189, 248, 0.45)',
                     background: hasBioInToday
-                      ? 'linear-gradient(145deg, rgba(2, 132, 199, 0.38), rgba(15, 23, 42, 0.96))'
-                      : 'linear-gradient(145deg, rgba(14, 165, 233, 0.18), rgba(15, 23, 42, 0.95))',
+                      ? 'linear-gradient(155deg, rgba(2, 132, 199, 0.42), rgba(7, 12, 24, 0.98))'
+                      : 'linear-gradient(155deg, rgba(14, 165, 233, 0.22), rgba(7, 12, 24, 0.96))',
                     color: '#fff',
                     cursor: 'pointer',
                     textAlign: 'center',
                     boxShadow: hasBioInToday
-                      ? '0 14px 34px rgba(56, 189, 248, 0.26)'
-                      : '0 10px 26px rgba(0, 0, 0, 0.35)',
+                      ? '0 16px 38px rgba(56, 189, 248, 0.3), inset 0 1px 0 rgba(255,255,255,0.16)'
+                      : '0 12px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.1)',
                     transition: 'transform 0.15s ease',
                   }}
                 >
-                  <div style={{ fontSize: 10, fontWeight: 900, color: '#7dd3fc', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                    MORNING SHIFT · IN
+                  <div style={{
+                    display: 'inline-block',
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                    background: 'rgba(56, 189, 248, 0.18)',
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    fontSize: 10,
+                    fontWeight: 900,
+                    color: '#7dd3fc',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    marginBottom: 10,
+                  }}>
+                    {hasBioInToday ? '✓ VERIFIED IN' : 'OFFICE ENTRY'}
                   </div>
                   <TouchIdSvg
                     variant="in"
-                    size={mobileMode ? 68 : 76}
+                    size={mobileMode ? 70 : 78}
                     verified={hasBioInToday}
                     scanning={biometricScanState.active && biometricScanState.direction === 'in'}
                   />
-                  <div style={{ fontSize: mobileMode ? 14 : 15.5, fontWeight: 900, marginTop: 12, color: '#fff' }}>
+                  <div style={{
+                    fontSize: mobileMode ? 24 : 28,
+                    fontWeight: 950,
+                    marginTop: 10,
+                    color: '#ffffff',
+                    letterSpacing: '0.06em',
+                    textShadow: '0 2px 14px rgba(56, 189, 248, 0.45)',
+                  }}>
+                    IN
+                  </div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 2, color: '#bae6fd' }}>
                     Touch Sensor — IN (Enter)
                   </div>
                   <div style={{
                     display: 'inline-block',
-                    marginTop: 6,
-                    padding: '4px 10px',
+                    marginTop: 8,
+                    padding: '5px 12px',
                     borderRadius: 999,
-                    background: hasBioInToday ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.06)',
-                    color: hasBioInToday ? '#e0f2fe' : '#94a3b8',
-                    fontSize: 11.5,
-                    fontWeight: 800,
+                    background: hasBioInToday ? 'rgba(56, 189, 248, 0.26)' : 'rgba(56, 189, 248, 0.14)',
+                    border: '1px solid rgba(56, 189, 248, 0.45)',
+                    color: '#e0f2fe',
+                    fontSize: 12,
+                    fontWeight: 900,
                   }}>
                     {hasBioInToday
-                      ? `✓ IN Verified · ${formatTime12h(todayRec.inTime)}`
-                      : 'Tap & Unlock Phone'}
+                      ? `✓ IN · ${formatTime12h(todayRec.inTime)}`
+                      : `IN · ${formatTime12h(todayRec?.inTime || entryInTime)}`}
                   </div>
                 </button>
 
-                {/* TOUCH ID ORB 2: EVENING OUT + OT */}
+                {/* TOUCH ID ORB 2: OUT + OT */}
                 <button
                   type="button"
                   onClick={() => performBiometricPunch('out')}
                   disabled={biometricScanState.active}
                   style={{
                     padding: mobileMode ? '20px 12px' : '24px 16px',
-                    borderRadius: 20,
-                    border: hasBioOutToday ? '2px solid #34d399' : '1.5px solid rgba(52, 211, 153, 0.38)',
+                    borderRadius: 22,
+                    border: hasBioOutToday ? '2px solid #34d399' : '1.5px solid rgba(52, 211, 153, 0.45)',
                     background: hasBioOutToday
-                      ? 'linear-gradient(145deg, rgba(5, 150, 105, 0.42), rgba(15, 23, 42, 0.96))'
-                      : 'linear-gradient(145deg, rgba(16, 185, 129, 0.18), rgba(15, 23, 42, 0.95))',
+                      ? 'linear-gradient(155deg, rgba(5, 150, 105, 0.45), rgba(7, 12, 24, 0.98))'
+                      : 'linear-gradient(155deg, rgba(16, 185, 129, 0.22), rgba(7, 12, 24, 0.96))',
                     color: '#fff',
                     cursor: 'pointer',
                     textAlign: 'center',
                     boxShadow: hasBioOutToday
-                      ? '0 14px 34px rgba(16, 185, 129, 0.28)'
-                      : '0 10px 26px rgba(0, 0, 0, 0.35)',
+                      ? '0 16px 38px rgba(16, 185, 129, 0.32), inset 0 1px 0 rgba(255,255,255,0.16)'
+                      : '0 12px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.1)',
                     transition: 'transform 0.15s ease',
                   }}
                 >
-                  <div style={{ fontSize: 10, fontWeight: 900, color: '#6ee7b7', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                    EVENING SHIFT · OUT + OT
+                  <div style={{
+                    display: 'inline-block',
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.18)',
+                    border: '1px solid rgba(52, 211, 153, 0.4)',
+                    fontSize: 10,
+                    fontWeight: 900,
+                    color: '#6ee7b7',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    marginBottom: 10,
+                  }}>
+                    {hasBioOutToday ? '✓ VERIFIED OUT' : 'OFFICE EXIT + OT'}
                   </div>
                   <TouchIdSvg
                     variant="out"
-                    size={mobileMode ? 68 : 76}
+                    size={mobileMode ? 70 : 78}
                     verified={hasBioOutToday}
                     scanning={biometricScanState.active && biometricScanState.direction === 'out'}
                   />
-                  <div style={{ fontSize: mobileMode ? 14 : 15.5, fontWeight: 900, marginTop: 12, color: '#fff' }}>
+                  <div style={{
+                    fontSize: mobileMode ? 24 : 28,
+                    fontWeight: 950,
+                    marginTop: 10,
+                    color: '#ffffff',
+                    letterSpacing: '0.06em',
+                    textShadow: '0 2px 14px rgba(16, 185, 129, 0.45)',
+                  }}>
+                    OUT
+                  </div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 2, color: '#a7f3d0' }}>
                     Touch Sensor — OUT (Exit + OT)
                   </div>
                   <div style={{
                     display: 'inline-block',
-                    marginTop: 6,
-                    padding: '4px 10px',
+                    marginTop: 8,
+                    padding: '5px 12px',
                     borderRadius: 999,
-                    background: hasBioOutToday ? 'rgba(16, 185, 129, 0.24)' : 'rgba(255, 255, 255, 0.06)',
-                    color: hasBioOutToday ? '#d1fae5' : '#94a3b8',
-                    fontSize: 11.5,
-                    fontWeight: 800,
+                    background: hasBioOutToday ? 'rgba(16, 185, 129, 0.28)' : 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(52, 211, 153, 0.45)',
+                    color: '#d1fae5',
+                    fontSize: 12,
+                    fontWeight: 900,
                   }}>
                     {hasBioOutToday
-                      ? `✓ OUT Verified · ${formatTime12h(todayRec.outTime)}`
-                      : 'Tap & Unlock Phone'}
+                      ? `✓ OUT · ${formatTime12h(todayRec.outTime)}`
+                      : `OUT · ${formatTime12h(todayRec?.outTime || entryOutTime)}`}
                   </div>
                 </button>
               </div>

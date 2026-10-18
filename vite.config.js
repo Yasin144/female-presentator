@@ -53,15 +53,66 @@ export default defineConfig({
     {
       name: 'serve-root-files',
       configureServer(server) {
+        const otSseClients = new Set();
+        const mergeOtSalaryStores = (existing = {}, incoming = {}) => {
+          const exSettingsTs = Number(existing.settingsUpdatedAt || 0);
+          const inSettingsTs = Number(incoming.settingsUpdatedAt || 0);
+          const mergedSettings = inSettingsTs >= exSettingsTs
+            ? { ...(existing.settings || {}), ...(incoming.settings || {}) }
+            : { ...(incoming.settings || {}), ...(existing.settings || {}) };
+          const settingsUpdatedAt = Math.max(exSettingsTs, inSettingsTs, Date.now());
+
+          const exDays = existing.days && typeof existing.days === 'object' ? existing.days : {};
+          const inDays = incoming.days && typeof incoming.days === 'object' ? incoming.days : {};
+          const mergedDays = incoming.replaceAll === true ? {} : { ...exDays };
+
+          for (const [iso, inRec] of Object.entries(inDays)) {
+            if (!inRec || typeof inRec !== 'object') continue;
+            const exRec = mergedDays[iso];
+            const inTs = Number(inRec.updatedAtMs || Date.parse(inRec.updatedAt || inRec.savedAt || '') || 0);
+            const exTs = exRec ? Number(exRec.updatedAtMs || Date.parse(exRec.updatedAt || exRec.savedAt || '') || 0) : -1;
+            if (!exRec || inTs >= exTs) {
+              if (inRec._deleted) {
+                delete mergedDays[iso];
+              } else {
+                mergedDays[iso] = { ...exRec, ...inRec };
+              }
+            }
+          }
+
+          return {
+            settings: mergedSettings,
+            settingsUpdatedAt,
+            days: mergedDays,
+            updatedAt: new Date().toISOString(),
+            updatedAtMs: Date.now(),
+          };
+        };
+
         server.middlewares.use((req, res, next) => {
           if (req.url === '/api/mobile-link') {
             const linkFile = path.join(__dirname, 'temp', 'active-mobile-link.json');
-            let data = { wifiUrl: `http://192.168.29.161:5173`, mobileUrl: ``, updatedAt: new Date().toISOString() };
+            let data = { wifiUrl: `http://10.149.161.101:5173`, mobileUrl: ``, updatedAt: new Date().toISOString() };
             if (fs.existsSync(linkFile)) {
               try { data = JSON.parse(fs.readFileSync(linkFile, 'utf8')); } catch (_) {}
             }
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify(data));
+            return;
+          }
+          if (req.url && req.url.split('?')[0] === '/api/ot-salary-events') {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache, no-transform',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Private-Network': 'true',
+            });
+            res.write(`data: ${JSON.stringify({ connected: true, ts: Date.now() })}\n\n`);
+            otSseClients.add(res);
+            req.on('close', () => {
+              otSseClients.delete(res);
+            });
             return;
           }
           if (req.url && req.url.split('?')[0] === '/api/ot-salary-sync') {
@@ -71,6 +122,7 @@ export default defineConfig({
               'Access-Control-Allow-Origin': '*',
               'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
               'Access-Control-Allow-Headers': 'Content-Type, X-Presentator-Mobile-Token',
+              'Access-Control-Allow-Private-Network': 'true',
               'Cache-Control': 'no-store',
             };
             if (req.method === 'OPTIONS') {
@@ -84,7 +136,7 @@ export default defineConfig({
                 if (fs.existsSync(otSalaryFilePath)) data = JSON.parse(fs.readFileSync(otSalaryFilePath, 'utf8'));
               } catch (_) {}
               res.writeHead(200, corsHeaders);
-              res.end(JSON.stringify({ ok: true, data, filePath: otSalaryFilePath }));
+              res.end(JSON.stringify({ ok: true, success: true, data, filePath: otSalaryFilePath }));
               return;
             }
             if (req.method === 'POST') {
@@ -97,17 +149,14 @@ export default defineConfig({
                   try {
                     if (fs.existsSync(otSalaryFilePath)) existing = JSON.parse(fs.readFileSync(otSalaryFilePath, 'utf8'));
                   } catch (_) {}
-                  const mergedDays = incoming.replaceAll === true
-                    ? { ...(incoming.days || {}) }
-                    : { ...(existing.days || {}), ...(incoming.days || {}) };
-                  const merged = {
-                    settings: { ...(existing.settings || {}), ...(incoming.settings || {}) },
-                    days: mergedDays,
-                    updatedAt: new Date().toISOString(),
-                  };
+                  const merged = mergeOtSalaryStores(existing, incoming);
                   fs.writeFileSync(otSalaryFilePath, JSON.stringify(merged, null, 2), 'utf8');
+                  const ssePayload = `data: ${JSON.stringify({ ok: true, data: merged, savedAt: merged.updatedAt })}\n\n`;
+                  for (const client of otSseClients) {
+                    try { client.write(ssePayload); } catch (_) { otSseClients.delete(client); }
+                  }
                   res.writeHead(200, corsHeaders);
-                  res.end(JSON.stringify({ ok: true, data: merged, filePath: otSalaryFilePath, savedAt: merged.updatedAt }));
+                  res.end(JSON.stringify({ ok: true, success: true, data: merged, filePath: otSalaryFilePath, savedAt: merged.updatedAt }));
                 } catch (err) {
                   res.writeHead(500, corsHeaders);
                   res.end(JSON.stringify({ ok: false, error: err.message }));

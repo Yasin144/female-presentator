@@ -543,6 +543,13 @@ function readOtSalaryStoreFromDisk() {
 
 function mergeAndSaveOtSalaryStoreToDisk(incomingPayload = {}, broadcast = true) {
   const existing = readOtSalaryStoreFromDisk() || {};
+  const exSettingsTs = Number(existing.settingsUpdatedAt || 0);
+  const inSettingsTs = Number(incomingPayload?.settingsUpdatedAt || 0);
+  const mergedSettings = inSettingsTs >= exSettingsTs
+    ? { ...(existing.settings || {}), ...(incomingPayload?.settings || {}) }
+    : { ...(incomingPayload?.settings || {}), ...(existing.settings || {}) };
+  const settingsUpdatedAt = Math.max(exSettingsTs, inSettingsTs, Date.now());
+
   let mergedDays = {};
   if (incomingPayload && incomingPayload.replaceAll === true) {
     mergedDays = incomingPayload.days && typeof incomingPayload.days === 'object'
@@ -553,20 +560,24 @@ function mergeAndSaveOtSalaryStoreToDisk(incomingPayload = {}, broadcast = true)
     const nextDays = incomingPayload?.days && typeof incomingPayload.days === 'object' ? incomingPayload.days : {};
     mergedDays = { ...existingDays };
     for (const [iso, record] of Object.entries(nextDays)) {
-      if (record === null) {
+      if (record === null || (record && record._deleted)) {
         delete mergedDays[iso];
         continue;
       }
       const prev = mergedDays[iso];
-      if (!prev || !prev.savedAt || !record.savedAt || String(record.savedAt) >= String(prev.savedAt)) {
-        mergedDays[iso] = record;
+      const inTs = Number(record?.updatedAtMs || Date.parse(record?.updatedAt || record?.savedAt || '') || 0);
+      const exTs = prev ? Number(prev?.updatedAtMs || Date.parse(prev?.updatedAt || prev?.savedAt || '') || 0) : -1;
+      if (!prev || inTs >= exTs) {
+        mergedDays[iso] = { ...prev, ...record };
       }
     }
   }
   const merged = {
-    settings: { ...(existing.settings || {}), ...(incomingPayload?.settings || {}) },
+    settings: mergedSettings,
+    settingsUpdatedAt,
     days: mergedDays,
     updatedAt: new Date().toISOString(),
+    updatedAtMs: Date.now(),
   };
   const serialized = JSON.stringify(merged, null, 2);
   const tmpPath = `${otSalaryFilePath}.tmp`;
@@ -868,6 +879,7 @@ function startMobileHttpServer() {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, X-Presentator-Mobile-Token',
+            'Access-Control-Allow-Private-Network': 'true',
             'Cache-Control': 'no-store',
           };
           if (req.method === 'OPTIONS') {

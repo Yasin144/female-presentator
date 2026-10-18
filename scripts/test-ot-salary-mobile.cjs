@@ -95,11 +95,30 @@ assert.match(otGeneratorJs, /requestMobileUnlockBiometric/);
 assert.match(otGeneratorJs, /bioTouchInBtn/);
 assert.match(otGeneratorJs, /bioTouchOutBtn/);
 
-// 8. Standalone Offline Mobile App HTML & Native Android APK checks
+// 8. Real-time Instant Mobile <-> Web Sync Engine checks
+assert.match(androidMainActivity, /syncHttpPost/);
+assert.match(androidMainActivity, /pattan-native-sync-response/);
+assert.match(viteConfig, /\/api\/ot-salary-events/);
+assert.match(viteConfig, /mergeOtSalaryStores/);
+assert.match(viteConfig, /Access-Control-Allow-Private-Network/);
+assert.match(mainCjs, /Access-Control-Allow-Private-Network/);
+assert.match(otSalaryJsx, /pattan_ot_salary_live_sync_yasin144_v2/);
+assert.match(otSalaryJsx, /OT &amp; SALARY PRO/);
+assert.match(otSalaryJsx, /OT_SALARY_LIVE_SYNC/);
+assert.match(otSalaryJsx, /BroadcastChannel/);
+assert.match(otSalaryJsx, /settingsUpdatedAt/);
+assert.match(otSalaryJsx, /updatedAtMs/);
+assert.match(otGeneratorJs, /CLOUD_RELAY_URL/);
+assert.match(otGeneratorJs, /OT &amp; SALARY PRO/);
+assert.match(otGeneratorJs, /OT_SALARY_LIVE_SYNC/);
+assert.match(otGeneratorJs, /mergeIncomingData/);
+
+// 9. Standalone Offline Mobile App HTML & Native Android APK checks
 assert.match(otGeneratorJs, /generateStandaloneOtMobileHtml/);
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile-App.html')), 'OT-Salary-Mobile-App.html should exist in root');
 assert.ok(fs.existsSync(path.join(rootDir, 'public/OT-Salary-Mobile-App.html')), 'public/OT-Salary-Mobile-App.html should exist');
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile.apk')), 'OT-Salary-Mobile.apk should exist in root');
 assert.ok(fs.statSync(path.join(rootDir, 'OT-Salary-Mobile.apk')).size > 1_000_000, 'OT-Salary-Mobile.apk should be a valid non-empty APK');
 
-console.log('All OT & Salary Mobile App + Biometric Touch Sensor (IN & OUT) + Android APK tests passed!');
+console.log('All OT & Salary Mobile App + Biometric Touch Sensor (IN & OUT) + Instant Live Sync + Android APK tests passed!');
+
