@@ -19,6 +19,9 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import android.widget.Toast;
+
+import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
@@ -28,6 +31,7 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final int REQ_DEVICE_CREDENTIAL = 9421;
     private String pendingBioActionType = "in";
+    private long lastRootBackPressMs = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,6 +40,50 @@ public class MainActivity extends BridgeActivity {
         if (bridge != null && bridge.getWebView() != null) {
             bridge.getWebView().addJavascriptInterface(new PattanBiometricBridge(), "PattanBiometric");
         }
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleSmartBackGesture();
+            }
+        });
+    }
+
+    private void handleSmartBackGesture() {
+        if (bridge == null || bridge.getWebView() == null) {
+            finish();
+            return;
+        }
+        final WebView webView = bridge.getWebView();
+        final String js = "(function(){"
+            + "try {"
+            + "  if (typeof window.__handlePattanHardwareBack === 'function') {"
+            + "    return String(window.__handlePattanHardwareBack() || '');"
+            + "  }"
+            + "} catch (e) {}"
+            + "return '';"
+            + "})()";
+        webView.evaluateJavascript(js, value -> {
+            String clean = value == null ? "" : value.replace("\"", "").trim();
+            if ("handled".equalsIgnoreCase(clean)) {
+                triggerNativeVibrate(25);
+                lastRootBackPressMs = 0L;
+                return;
+            }
+            if (webView.canGoBack()) {
+                webView.goBack();
+                triggerNativeVibrate(25);
+                lastRootBackPressMs = 0L;
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastRootBackPressMs < 2200L) {
+                moveTaskToBack(true);
+            } else {
+                lastRootBackPressMs = now;
+                triggerNativeVibrate(35);
+                Toast.makeText(MainActivity.this, "Swipe back again to close app", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @Override

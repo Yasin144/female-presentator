@@ -227,9 +227,12 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
 <body>
   <div id="toast" class="toast"></div>
   <header class="topbar">
-    <div>
-      <div class="topbar-title">🫆 Biometric OT &amp; Salary Mobile</div>
-      <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button type="button" class="chip" id="topBackBtn" style="display:none;border-color:#38bdf8;color:#e0f2fe;">← Back</button>
+      <div>
+        <div class="topbar-title">🫆 Biometric OT &amp; Salary Mobile</div>
+        <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
       <input type="month" id="monthPicker" style="width:auto;padding:6px 8px;font-size:12px;" />
@@ -640,22 +643,94 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:18px;font-weight:900;color:#facc15;">Final Net Salary: ₹' + fmtINR(netPayable) + '</div>';
     }
 
+    let activeTab = 'today';
+    let tabHistory = ['today'];
+
+    function syncBackBtnVisibility() {
+      const btn = document.getElementById('topBackBtn');
+      if (!btn) return;
+      btn.style.display = (activeTab !== 'today' || selectedDate !== todayIso()) ? 'inline-block' : 'none';
+    }
+
+    function switchTab(tab, pushHistory = true) {
+      if (pushHistory && tab !== activeTab) {
+        tabHistory.push(tab);
+        if (tabHistory.length > 8) tabHistory.shift();
+        try { window.history.pushState({ otGuard: true, tab }, ''); } catch (_) {}
+      }
+      activeTab = tab;
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      ['today','days','summary','settings'].forEach(t => {
+        document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+      });
+      syncBackBtnVisibility();
+    }
+
+    function goBackStep() {
+      if (tabHistory.length > 1) {
+        tabHistory.pop();
+        const prev = tabHistory[tabHistory.length - 1] || 'today';
+        switchTab(prev, false);
+        return 'handled';
+      }
+      if (activeTab !== 'today') {
+        tabHistory = ['today'];
+        switchTab('today', false);
+        return 'handled';
+      }
+      if (selectedDate !== todayIso()) {
+        loadDateIntoForm(todayIso());
+        syncBackBtnVisibility();
+        showToast('Returned to Today');
+        return 'handled';
+      }
+      return '';
+    }
+
+    window.__handlePattanHardwareBack = goBackStep;
+    document.getElementById('topBackBtn').addEventListener('click', () => goBackStep());
+
+    try {
+      window.history.replaceState({ otBase: true, tab: 'today' }, '');
+      window.history.pushState({ otGuard: true, tab: 'today' }, '');
+    } catch (_) {}
+    window.addEventListener('popstate', () => {
+      goBackStep();
+      try { window.history.pushState({ otGuard: true, tab: activeTab }, ''); } catch (_) {}
+    });
+
+    let touchStart = null;
+    document.addEventListener('touchstart', (e) => {
+      const tag = String((e.target && e.target.tagName) || '').toLowerCase();
+      if (['input','select','textarea','button'].includes(tag)) { touchStart = null; return; }
+      const t = e.touches && e.touches[0];
+      if (t) touchStart = { x: t.clientX, y: t.clientY, time: Date.now() };
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      if (!touchStart) return;
+      const start = touchStart;
+      touchStart = null;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x, dy = t.clientY - start.y, dt = Date.now() - start.time;
+      if (dt > 700 || Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+      const order = ['today','days','summary','settings'];
+      const idx = order.indexOf(activeTab);
+      if (dx > 0) {
+        if (idx > 0) switchTab(order[idx - 1]);
+        else goBackStep();
+      } else if (dx < 0 && idx >= 0 && idx < order.length - 1) {
+        switchTab(order[idx + 1]);
+      }
+    }, { passive: true });
+
     window._pickDate = function(iso) {
       loadDateIntoForm(iso);
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'today'));
-      ['today','days','summary','settings'].forEach(t => {
-        document.getElementById('tab-' + t).style.display = t === 'today' ? 'block' : 'none';
-      });
+      switchTab('today');
     };
 
     document.querySelectorAll('.nav-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
-        ['today','days','summary','settings'].forEach(t => {
-          document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
-        });
-      });
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
     ['entryInTime','entryOutTime','entryStatus','entryBonus','entryNote'].forEach(id => {

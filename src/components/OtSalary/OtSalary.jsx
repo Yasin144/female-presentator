@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
@@ -595,6 +595,121 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     lastVerifiedText: '',
   });
   const [liveClockHHMM, setLiveClockHHMM] = useState(getCurrentTime24h);
+  const tabHistoryRef = useRef(['today']);
+  const touchStartRef = useRef(null);
+
+  const navigateTab = useCallback((nextTab) => {
+    setMobileTab((prev) => {
+      if (prev === nextTab) return prev;
+      tabHistoryRef.current = [...tabHistoryRef.current.slice(-8), nextTab];
+      try {
+        window.history.pushState({ otSalaryGuard: true, tab: nextTab }, '');
+      } catch (_) {}
+      return nextTab;
+    });
+  }, []);
+
+  const goBackStep = useCallback(() => {
+    if (showMobileAppModal) {
+      setShowMobileAppModal(false);
+      return 'handled';
+    }
+    if (biometricScanState.active) {
+      setBiometricScanState((s) => ({ ...s, active: false }));
+      return 'handled';
+    }
+    if (tabHistoryRef.current.length > 1) {
+      const nextStack = tabHistoryRef.current.slice(0, -1);
+      const prevTab = nextStack[nextStack.length - 1] || 'today';
+      tabHistoryRef.current = nextStack;
+      setMobileTab(prevTab);
+      return 'handled';
+    }
+    if (mobileTab !== 'today') {
+      tabHistoryRef.current = ['today'];
+      setMobileTab('today');
+      return 'handled';
+    }
+    const todayIso = getTodayIsoDate();
+    if (selectedDate !== todayIso) {
+      setSelectedDate(todayIso);
+      setSaveNotice('Returned to Today');
+      setTimeout(() => setSaveNotice(''), 1800);
+      return 'handled';
+    }
+    if (onClose && !standaloneMobile) {
+      onClose();
+      return 'handled';
+    }
+    return '';
+  }, [showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__handlePattanHardwareBack = goBackStep;
+    return () => {
+      if (window.__handlePattanHardwareBack === goBackStep) {
+        delete window.__handlePattanHardwareBack;
+      }
+    };
+  }, [goBackStep]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    try {
+      window.history.replaceState({ otSalaryBase: true, tab: 'today' }, '');
+      window.history.pushState({ otSalaryGuard: true, tab: 'today' }, '');
+    } catch (_) {}
+    const onPopState = () => {
+      const res = goBackStep();
+      if (res === 'handled') {
+        try {
+          window.history.pushState({ otSalaryGuard: true, tab: mobileTab }, '');
+        } catch (_) {}
+      } else {
+        try {
+          window.history.pushState({ otSalaryGuard: true, tab: 'today' }, '');
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [goBackStep, mobileTab]);
+
+  const handleTouchStart = useCallback((e) => {
+    const tag = String(e.target?.tagName || '').toLowerCase();
+    if (['input', 'select', 'textarea', 'button'].includes(tag)) {
+      touchStartRef.current = null;
+      return;
+    }
+    const touch = e.touches?.[0];
+    if (!touch) return;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  }, []);
+
+  const handleTouchEnd = useCallback((e) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    const touch = e.changedTouches?.[0];
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const dt = Date.now() - start.t;
+    if (dt > 700 || Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const order = ['today', 'month', 'summary', 'rules'];
+    const idx = order.indexOf(mobileTab);
+    if (dx > 0) {
+      // Swipe right -> Go Back
+      if (start.x <= 48 || idx > 0) {
+        if (idx > 0) navigateTab(order[idx - 1]);
+        else goBackStep();
+      }
+    } else if (dx < 0 && idx >= 0 && idx < order.length - 1) {
+      // Swipe left -> Next Tab
+      navigateTab(order[idx + 1]);
+    }
+  }, [mobileTab, navigateTab, goBackStep]);
 
   useEffect(() => {
     const clockTimer = setInterval(() => {
@@ -1489,14 +1604,18 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   const showSummarySection = mobileTab === 'summary';
 
   return (
-    <div style={{
-      minHeight: '100%',
-      background: '#070b14',
-      color: '#f8fafc',
-      padding: mobileMode ? '12px 12px 92px' : '20px 24px 80px',
-      fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-      boxSizing: 'border-box',
-    }}>
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{
+        minHeight: '100%',
+        background: '#070b14',
+        color: '#f8fafc',
+        padding: mobileMode ? '12px 12px 92px' : '20px 24px 80px',
+        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        boxSizing: 'border-box',
+      }}
+    >
       <div style={{ maxWidth: 920, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
         {/* SIMPLE TOP HEADER */}
@@ -1511,12 +1630,36 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           background: '#0f172a',
           border: '1px solid rgba(148, 163, 184, 0.22)',
         }}>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>
-              ⏱️ OT &amp; Salary Tracker
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>
-              ₹{formatINR(rates.salary)}/mo · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const res = goBackStep();
+                  if (res !== 'handled' && onClose) onClose();
+                }}
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: 9,
+                  border: '1px solid rgba(56, 189, 248, 0.45)',
+                  background: 'rgba(14, 165, 233, 0.16)',
+                  color: '#e0f2fe',
+                  fontWeight: 900,
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                }}
+                title="Go Back"
+              >
+                ← Back
+              </button>
+            )}
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>
+                ⏱️ OT &amp; Salary Tracker
+              </div>
+              <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>
+                ₹{formatINR(rates.salary)}/mo · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
+              </div>
             </div>
           </div>
 
@@ -1582,24 +1725,6 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             >
               📲 WhatsApp
             </button>
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                style={{
-                  padding: '7px 12px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                ← Back
-              </button>
-            )}
           </div>
         </div>
 
@@ -1661,7 +1786,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setMobileTab(t.id)}
+                onClick={() => navigateTab(t.id)}
                 style={{
                   padding: '9px 6px',
                   borderRadius: 9,
@@ -3005,7 +3130,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               <button
                 key={nav.id}
                 type="button"
-                onClick={() => setMobileTab(nav.id)}
+                onClick={() => navigateTab(nav.id)}
                 style={{
                   padding: '8px 4px',
                   borderRadius: 10,
