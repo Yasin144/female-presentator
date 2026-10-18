@@ -65,6 +65,55 @@
     .kpi-val { font-size: 19px; font-weight: 900; margin-top: 4px; }
     .kpi-sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; font-weight: 600; }
     .punch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    @keyframes bioPulse {
+      0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45); }
+      70% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+    }
+    .bio-hub {
+      background: linear-gradient(145deg, rgba(6, 22, 42, 0.98), rgba(4, 47, 46, 0.82));
+      border: 1.5px solid rgba(52, 211, 153, 0.6);
+      border-radius: 18px;
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+    }
+    .bio-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .bio-pad {
+      border-radius: 15px;
+      padding: 14px 10px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.14s ease, box-shadow 0.2s ease;
+    }
+    .bio-pad:active { transform: scale(0.96); }
+    .bio-pad-in {
+      border: 1.5px solid rgba(56, 189, 248, 0.72);
+      background: linear-gradient(145deg, rgba(2, 132, 199, 0.3), rgba(9, 13, 22, 0.95));
+      box-shadow: 0 8px 20px rgba(2, 132, 199, 0.2);
+    }
+    .bio-pad-out {
+      border: 1.5px solid rgba(52, 211, 153, 0.72);
+      background: linear-gradient(145deg, rgba(16, 185, 129, 0.3), rgba(9, 13, 22, 0.95));
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.2);
+    }
+    .bio-pad-auto {
+      margin-top: 10px;
+      border: 2px solid rgba(250, 204, 21, 0.75);
+      background: radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.3), rgba(9, 13, 22, 0.96));
+      animation: bioPulse 2.6s infinite;
+    }
+    .bio-ring {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 6px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
     .btn {
       border: none;
       border-radius: 11px;
@@ -167,7 +216,7 @@
   <div id="toast" class="toast"></div>
   <header class="topbar">
     <div>
-      <div class="topbar-title">⏱️ OT &amp; Salary Mobile</div>
+      <div class="topbar-title">🫆 Biometric OT &amp; Salary Mobile</div>
       <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
@@ -178,13 +227,13 @@
 
   <main class="container">
     <div class="kpi-grid">
-      <div class="kpi" style="border-color:rgba(250,204,21,0.4);">
-        <div class="kpi-label" style="color:#fde047;">Net Receivable</div>
+      <div class="kpi" style="border-color:rgba(250,204,21,0.5);background:linear-gradient(145deg,rgba(234,179,8,0.18),rgba(15,23,42,0.95));">
+        <div class="kpi-label" style="color:#fde047;">💰 Net Salary Receivable</div>
         <div class="kpi-val" style="color:#facc15;" id="kpiNetPay">₹25,000.00</div>
         <div class="kpi-sub" id="kpiSavedSub">0 days saved</div>
       </div>
-      <div class="kpi" style="border-color:rgba(52,211,153,0.4);">
-        <div class="kpi-label" style="color:#6ee7b7;">Extra OT Earned</div>
+      <div class="kpi" style="border-color:rgba(52,211,153,0.5);background:linear-gradient(145deg,rgba(16,185,129,0.18),rgba(15,23,42,0.95));">
+        <div class="kpi-label" style="color:#6ee7b7;">⚡ Extra OT Earned</div>
         <div class="kpi-val" style="color:#34d399;" id="kpiOtPay">+ ₹0.00</div>
         <div class="kpi-sub" id="kpiOtTime">0 hr 00 min OT</div>
       </div>
@@ -193,8 +242,34 @@
     <!-- TAB 1: TODAY PUNCH & CALCULATOR -->
     <section id="tab-today" class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:15px;font-weight:900;">⚡ Quick Punch &amp; Daily Calculator</div>
+        <div style="font-size:15px;font-weight:900;">🫆 Biometric Attendance &amp; Daily OT</div>
         <span id="daySavedBadge" style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;"></span>
+      </div>
+
+      <!-- BIOMETRIC TOUCH SENSOR (IN & OUT) SCANNER HUB -->
+      <div class="bio-hub">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">🫆 Biometric Touch Sensor (IN &amp; OUT)</div>
+          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Sensor Ready</span>
+        </div>
+        <div class="bio-grid">
+          <div class="bio-pad bio-pad-in" id="bioTouchInBtn">
+            <div style="font-size:9.5px;font-weight:900;color:#7dd3fc;letter-spacing:0.06em;margin-bottom:4px;">STEP 1 · MORNING IN</div>
+            <div class="bio-ring" style="background:rgba(56,189,248,0.22);border:2px solid #38bdf8;">🫆</div>
+            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — IN</div>
+            <div id="bioInStatusSub" style="font-size:10.5px;color:#bae6fd;font-weight:700;margin-top:3px;">Tap when entering</div>
+          </div>
+          <div class="bio-pad bio-pad-out" id="bioTouchOutBtn">
+            <div style="font-size:9.5px;font-weight:900;color:#6ee7b7;letter-spacing:0.06em;margin-bottom:4px;">STEP 2 · EVENING OUT</div>
+            <div class="bio-ring" style="background:rgba(16,185,129,0.24);border:2px solid #34d399;">🫆</div>
+            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — OUT</div>
+            <div id="bioOutStatusSub" style="font-size:10.5px;color:#a7f3d0;font-weight:700;margin-top:3px;">Tap when leaving</div>
+          </div>
+        </div>
+        <div class="bio-pad bio-pad-auto" id="bioTouchAutoBtn">
+          <div style="font-size:13px;font-weight:900;color:#fde047;">🫆 Smart 1-Touch Sensor Pad (Auto IN → OUT)</div>
+          <div id="bioAutoStatusSub" style="font-size:11px;color:#e2e8f0;font-weight:700;margin-top:3px;">1st Touch = Biometric IN · 2nd Touch = Biometric OUT + Auto OT</div>
+        </div>
       </div>
 
       <div class="punch-grid">
@@ -485,10 +560,23 @@
         badge.style.color = '#fde68a';
       }
 
+      const curRec = store.days[selectedDate] || {};
+      const bioInEl = document.getElementById('bioInStatusSub');
+      const bioOutEl = document.getElementById('bioOutStatusSub');
+      if (bioInEl) {
+        bioInEl.textContent = curRec.biometricIn ? ('✓ IN Verified ' + fmt12(inVal)) : 'Tap when entering';
+        bioInEl.style.color = curRec.biometricIn ? '#7dd3fc' : '#cbd5e1';
+      }
+      if (bioOutEl) {
+        bioOutEl.textContent = curRec.biometricOut ? ('✓ OUT Verified ' + fmt12(outVal)) : 'Tap when leaving';
+        bioOutEl.style.color = curRec.biometricOut ? '#6ee7b7' : '#cbd5e1';
+      }
+
       document.getElementById('liveBreakdownBox').innerHTML =
         '<div><strong>Worked:</strong> ' + fmtMins(preview.workedMins) + ' (' + fmt12(inVal) + ' → ' + fmt12(outVal) + ')</div>' +
         '<div><strong>Extra OT:</strong> <span style="color:#34d399;font-weight:900;">+' + fmtMins(preview.otMins) + ' (+₹' + fmtINR(preview.otPay) + ')</span></div>' +
         '<div><strong>Base Day Pay:</strong> ₹' + fmtINR(preview.basePay) + '</div>' +
+        '<div><strong>Biometric Sensor:</strong> ' + (curRec.biometricIn ? '🫆 IN ✓ ' : 'IN — ') + ' · ' + (curRec.biometricOut ? '🫆 OUT ✓' : 'OUT —') + '</div>' +
         '<div style="margin-top:4px;font-size:16px;font-weight:900;color:#facc15;">Day Total: ₹' + fmtINR(preview.totalPay) + '</div>';
 
       // Build month summary
@@ -518,7 +606,11 @@
 
         cardsHtml += '<div class="day-card ' + (c.otMins > 0 ? 'ot' : '') + '" onclick="window._pickDate(\'' + iso + '\')">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-            '<div><strong>' + iso + ' (' + dayName + ')</strong> ' + (saved ? '<span style="color:#34d399;font-size:11px;">✓ Saved</span>' : '<span style="color:#64748b;font-size:11px;">Default</span>') + '</div>' +
+            '<div><strong>' + iso + ' (' + dayName + ')</strong> ' +
+              (saved ? '<span style="color:#34d399;font-size:11px;">✓ Saved</span>' : '<span style="color:#64748b;font-size:11px;">Default</span>') +
+              (rec.biometricIn ? ' <span style="color:#7dd3fc;font-size:10.5px;">🫆IN✓</span>' : '') +
+              (rec.biometricOut ? ' <span style="color:#6ee7b7;font-size:10.5px;">🫆OUT✓</span>' : '') +
+            '</div>' +
             '<div style="font-weight:900;color:#facc15;">₹' + fmtINR(c.totalPay) + '</div>' +
           '</div>' +
           '<div style="font-size:11.5px;color:#cbd5e1;margin-top:4px;display:flex;justify-content:space-between;">' +
@@ -596,14 +688,15 @@
       });
     });
 
-    function saveCurrentForm(customMsg) {
+    function saveCurrentForm(customMsg, bioPatch) {
       const inVal = document.getElementById('entryInTime').value || '10:00';
       const outVal = document.getElementById('entryOutTime').value || '18:30';
       const stVal = document.getElementById('entryStatus').value || 'present';
       const bonusVal = Number(document.getElementById('entryBonus').value) || 0;
       const noteVal = document.getElementById('entryNote').value || '';
+      const prev = store.days[selectedDate] || {};
       const c = calcDay({ status: stVal, inTime: inVal, outTime: outVal, extraAllowance: bonusVal });
-      store.days[selectedDate] = {
+      store.days[selectedDate] = Object.assign({}, prev, {
         date: selectedDate,
         status: stVal,
         inTime: inVal,
@@ -613,9 +706,74 @@
         extraAllowance: bonusVal,
         note: noteVal,
         savedAt: new Date().toISOString(),
-      };
+      }, bioPatch || {});
       saveStore(customMsg || ('Saved ' + selectedDate));
     }
+
+    function playBioBeep(kind) {
+      try {
+        if (window.PattanBiometric && typeof window.PattanBiometric.vibrate === 'function') {
+          window.PattanBiometric.vibrate(kind === 'out' ? 95 : 65);
+        } else if (navigator.vibrate) {
+          navigator.vibrate(kind === 'out' ? [45, 35, 75] : [60]);
+        }
+      } catch (_) {}
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = new AC();
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(kind === 'out' ? 987.77 : 880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(kind === 'out' ? 1318.51 : 1174.66, ctx.currentTime + 0.14);
+        g.gain.setValueAtTime(0.08, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.19);
+      } catch (_) {}
+    }
+
+    function performBioTouchPunch(mode) {
+      const iso = todayIso();
+      const ex = store.days[iso] || {};
+      let target = mode;
+      if (mode === 'auto') {
+        target = (!ex.biometricIn || ex.biometricOut) ? 'in' : 'out';
+      }
+      const now = new Date();
+      const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      const statusEl = document.getElementById('bioStatusBadge');
+      if (statusEl) statusEl.textContent = 'Scanning Touch Sensor...';
+      playBioBeep('scan');
+      setTimeout(() => {
+        loadDateIntoForm(iso);
+        if (target === 'in') {
+          document.getElementById('entryInTime').value = t;
+          playBioBeep('in');
+          if (statusEl) statusEl.textContent = '🫆 Bio IN Verified ' + fmt12(t);
+          saveCurrentForm('🫆 Biometric Touch IN Verified at ' + fmt12(t), {
+            biometricIn: true,
+            biometricInAt: new Date().toISOString(),
+          });
+        } else {
+          document.getElementById('entryOutTime').value = t;
+          playBioBeep('out');
+          if (statusEl) statusEl.textContent = '🫆 Bio OUT Verified ' + fmt12(t);
+          saveCurrentForm('🫆 Biometric Touch OUT Verified at ' + fmt12(t), {
+            biometricIn: true,
+            biometricOut: true,
+            biometricOutAt: new Date().toISOString(),
+          });
+        }
+      }, 240);
+    }
+
+    document.getElementById('bioTouchInBtn').addEventListener('click', () => performBioTouchPunch('in'));
+    document.getElementById('bioTouchOutBtn').addEventListener('click', () => performBioTouchPunch('out'));
+    document.getElementById('bioTouchAutoBtn').addEventListener('click', () => performBioTouchPunch('auto'));
 
     document.getElementById('saveDayBtn').addEventListener('click', () => saveCurrentForm());
 

@@ -70,13 +70,30 @@ assert.match(otSalaryJsx, /Month Days/);
 assert.match(otSalaryJsx, /Rules & App/);
 assert.match(otSalaryJsx, /OT-Salary-Mobile\.apk/);
 
-// 7. Standalone Offline Mobile App HTML & Native Android APK checks
+// 7. Biometric Touch Sensor (IN & OUT) & Native Android Biometric Bridge checks
+const androidMainActivity = readText('android/app/src/main/java/com/pattan/presentator/MainActivity.java');
+const androidManifest = readText('android/app/src/main/AndroidManifest.xml');
+assert.match(androidManifest, /android\.permission\.USE_BIOMETRIC/);
+assert.match(androidManifest, /android\.permission\.USE_FINGERPRINT/);
+assert.match(androidManifest, /android\.permission\.VIBRATE/);
+assert.match(androidMainActivity, /PattanBiometric/);
+assert.match(androidMainActivity, /BiometricPrompt/);
+assert.match(otSalaryJsx, /performBiometricPunch/);
+assert.match(otSalaryJsx, /Biometric Touch Sensor \(IN &amp; OUT\)/);
+assert.match(otSalaryJsx, /Touch Sensor — IN \(Enter\)/);
+assert.match(otSalaryJsx, /Touch Sensor — OUT \(Exit \+ OT\)/);
+assert.match(otSalaryJsx, /biometricIn/);
+assert.match(otSalaryJsx, /biometricOut/);
+assert.match(otGeneratorJs, /performBioTouchPunch/);
+assert.match(otGeneratorJs, /bioTouchInBtn/);
+assert.match(otGeneratorJs, /bioTouchOutBtn/);
+assert.match(otGeneratorJs, /bioTouchAutoBtn/);
+
+// 8. Standalone Offline Mobile App HTML & Native Android APK checks
 assert.match(otGeneratorJs, /generateStandaloneOtMobileHtml/);
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile-App.html')), 'OT-Salary-Mobile-App.html should exist in root');
 assert.ok(fs.existsSync(path.join(rootDir, 'public/OT-Salary-Mobile-App.html')), 'public/OT-Salary-Mobile-App.html should exist');
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile.apk')), 'OT-Salary-Mobile.apk should exist in root');
 assert.ok(fs.statSync(path.join(rootDir, 'OT-Salary-Mobile.apk')).size > 1_000_000, 'OT-Salary-Mobile.apk should be a valid non-empty APK');
 
-console.log('All OT & Salary Mobile App + Android APK + Upstream integration tests passed!');
-
-
+console.log('All OT & Salary Mobile App + Biometric Touch Sensor (IN & OUT) + Android APK tests passed!');
