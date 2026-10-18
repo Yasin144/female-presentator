@@ -227,10 +227,18 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
 <body>
   <div id="toast" class="toast"></div>
   <header class="topbar">
-    <div style="display:flex;align-items:center;gap:8px;">
+    <div style="display:flex;align-items:center;gap:10px;">
       <button type="button" class="chip" id="topBackBtn" style="display:none;border-color:#38bdf8;color:#e0f2fe;">← Back</button>
+      <div style="width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,rgba(250,204,21,0.2),rgba(16,185,129,0.2));border:1px solid rgba(250,204,21,0.45);display:flex;align-items:center;justify-content:center;">
+        <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+          <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#facc15" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#fde047" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div>
-        <div class="topbar-title">🫆 Biometric OT &amp; Salary Mobile</div>
+        <div class="topbar-title">Touch ID Salary &amp; OT Vault</div>
         <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
       </div>
     </div>
@@ -241,78 +249,104 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
   </header>
 
   <main class="container">
-    <div class="kpi-grid">
-      <div class="kpi" style="border-color:rgba(250,204,21,0.5);background:linear-gradient(145deg,rgba(234,179,8,0.18),rgba(15,23,42,0.95));">
-        <div class="kpi-label" style="color:#fde047;">💰 Net Salary Receivable</div>
-        <div class="kpi-val" style="color:#facc15;" id="kpiNetPay">₹25,000.00</div>
-        <div class="kpi-sub" id="kpiSavedSub">0 days saved</div>
+    <!-- LUXURY HERO SALARY VAULT WITH INLINE EDITABLE SALARY -->
+    <div class="card" style="padding:16px;border-radius:20px;border:1px solid rgba(250,204,21,0.42);background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(9,13,22,0.98));box-shadow:0 16px 36px rgba(0,0,0,0.5);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:10.5px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#fde047;">💎 Total Net Salary Receivable</div>
+          <div style="font-size:28px;font-weight:900;color:#fff;margin-top:4px;letter-spacing:-0.02em;" id="kpiNetPay">₹25,000.00</div>
+          <div class="kpi-sub" id="kpiSavedSub" style="color:#94a3b8;">0 days saved</div>
+        </div>
+        <!-- Inline Editable Monthly Salary Box -->
+        <div style="padding:8px 11px;border-radius:14px;background:rgba(250,204,21,0.1);border:1.5px solid rgba(250,204,21,0.45);min-width:155px;">
+          <div style="font-size:9.5px;font-weight:900;color:#fde047;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;">✏️ Edit Monthly Salary</div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span style="font-size:16px;font-weight:900;color:#facc15;">₹</span>
+            <input type="number" id="heroSalaryInput" min="1000" step="500" value="25000" style="padding:4px 6px;font-size:16px;font-weight:900;color:#fff;background:rgba(2,6,23,0.75);border:1px solid rgba(250,204,21,0.4);border-radius:8px;width:105px;" />
+          </div>
+        </div>
       </div>
-      <div class="kpi" style="border-color:rgba(52,211,153,0.5);background:linear-gradient(145deg,rgba(16,185,129,0.18),rgba(15,23,42,0.95));">
-        <div class="kpi-label" style="color:#6ee7b7;">⚡ Extra OT Earned</div>
-        <div class="kpi-val" style="color:#34d399;" id="kpiOtPay">+ ₹0.00</div>
-        <div class="kpi-sub" id="kpiOtTime">0 hr 00 min OT</div>
+
+      <div class="kpi-grid" style="margin-top:12px;">
+        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
+          <div class="kpi-label" style="color:#6ee7b7;">⚡ Extra OT Earned</div>
+          <div class="kpi-val" style="color:#34d399;font-size:17px;" id="kpiOtPay">+ ₹0.00</div>
+          <div class="kpi-sub" id="kpiOtTime">0 hr 00 min OT</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(56,189,248,0.4);background:rgba(14,165,233,0.1);">
+          <div class="kpi-label" style="color:#7dd3fc;">📈 Per-Day &amp; OT Rate</div>
+          <div class="kpi-val" style="color:#e0f2fe;font-size:16px;" id="kpiPerDayVal">₹833.33/d</div>
+          <div class="kpi-sub" id="kpiOtRateSub" style="color:#bae6fd;">OT: ₹98.04/hr</div>
+        </div>
       </div>
     </div>
 
-    <!-- TAB 1: TODAY PUNCH & CALCULATOR -->
-    <section id="tab-today" class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:15px;font-weight:900;">🫆 Biometric Attendance &amp; Daily OT</div>
+    <!-- TAB 1: TOUCH ID BIOMETRIC SCANNER STUDIO & TODAY PUNCH -->
+    <section id="tab-today" class="card" style="border-radius:20px;">
+      <!-- LIVE TICKING CHRONOMETER CLOCK DISPLAY -->
+      <div id="liveClockWidget" style="padding:12px 14px;border-radius:16px;background:linear-gradient(135deg,rgba(2,6,23,0.94),rgba(15,23,42,0.96));border:1.5px solid rgba(56,189,248,0.45);box-shadow:0 10px 24px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.22),rgba(2,6,23,0.95));border:1.5px solid rgba(56,189,248,0.6);display:flex;align-items:center;justify-content:center;">
+            <svg width="38" height="38" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(148,163,184,0.25)" stroke-width="1.2" stroke-dasharray="2 3" />
+              <line id="analogHrHand" x1="22" y1="22" x2="22" y2="11" stroke="#f8fafc" stroke-width="2.4" stroke-linecap="round" />
+              <line id="analogMinHand" x1="22" y1="22" x2="22" y2="7.5" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" />
+              <line id="analogSecHand" x1="22" y1="24" x2="22" y2="6" stroke="#34d399" stroke-width="1.3" stroke-linecap="round" />
+              <circle cx="22" cy="22" r="2.4" fill="#facc15" />
+            </svg>
+          </div>
+          <div>
+            <div style="font-size:9.5px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;color:#7dd3fc;" id="liveClockDate">LIVE EXACT OFFICE CLOCK</div>
+            <div style="display:flex;align-items:baseline;gap:5px;font-family:monospace;margin-top:2px;">
+              <span id="liveClockHM" style="font-size:25px;font-weight:900;color:#fff;letter-spacing:0.03em;">10:00</span>
+              <span id="liveClockSS" style="font-size:17px;font-weight:900;color:#34d399;">:00</span>
+              <span id="liveClockPeriod" style="padding:2px 6px;border-radius:5px;background:rgba(250,204,21,0.18);border:1px solid rgba(250,204,21,0.45);color:#fde047;font-size:11px;font-weight:900;">AM</span>
+            </div>
+          </div>
+        </div>
         <span id="daySavedBadge" style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;"></span>
       </div>
 
       <!-- BIOMETRIC TOUCH SENSOR (IN & OUT) SCANNER HUB -->
-      <div class="bio-hub">
+      <div class="bio-hub" style="border-radius:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">🫆 Phone Unlock Biometric (IN &amp; OUT)</div>
-          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Unlock Biometric Ready</span>
+          <div style="font-size:12.5px;font-weight:900;color:#ecfdf5;">Phone Unlock Touch ID Sensor (IN &amp; OUT)</div>
+          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Touch ID Ready</span>
         </div>
         <div class="bio-grid">
-          <div class="bio-pad bio-pad-in" id="bioTouchInBtn">
-            <div class="bio-ring" style="background:rgba(56,189,248,0.22);border:2px solid #38bdf8;">🫆</div>
-            <div style="font-size:13px;font-weight:900;color:#fff;">Touch Sensor — IN</div>
+          <div class="bio-pad bio-pad-in" id="bioTouchInBtn" style="padding:16px 10px;border-radius:18px;">
+            <div style="width:62px;height:62px;margin:0 auto 8px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,0.28),rgba(2,6,23,0.92));border:2px solid #38bdf8;box-shadow:0 0 22px rgba(56,189,248,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="40" height="40" viewBox="0 0 64 64" fill="none">
+                <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M15 34 C15.8 39.5 18 44.5 21.5 48.5" stroke="#7dd3fc" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#bae6fd" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#7dd3fc" stroke-width="2.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div style="font-size:13.5px;font-weight:900;color:#fff;">Touch ID — IN</div>
             <div id="bioInStatusSub" style="font-size:11px;color:#bae6fd;font-weight:700;margin-top:4px;">Tap &amp; Unlock Phone for IN</div>
           </div>
-          <div class="bio-pad bio-pad-out" id="bioTouchOutBtn">
-            <div class="bio-ring" style="background:rgba(16,185,129,0.24);border:2px solid #34d399;">🫆</div>
-            <div style="font-size:13px;font-weight:900;color:#fff;">Touch Sensor — OUT</div>
+          <div class="bio-pad bio-pad-out" id="bioTouchOutBtn" style="padding:16px 10px;border-radius:18px;">
+            <div style="width:62px;height:62px;margin:0 auto 8px;border-radius:50%;background:radial-gradient(circle,rgba(16,185,129,0.3),rgba(2,6,23,0.92));border:2px solid #34d399;box-shadow:0 0 22px rgba(16,185,129,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="40" height="40" viewBox="0 0 64 64" fill="none">
+                <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#10b981" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M15 34 C15.8 39.5 18 44.5 21.5 48.5" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#10b981" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div style="font-size:13.5px;font-weight:900;color:#fff;">Touch ID — OUT</div>
             <div id="bioOutStatusSub" style="font-size:11px;color:#a7f3d0;font-weight:700;margin-top:4px;">Tap &amp; Unlock Phone for OUT</div>
           </div>
         </div>
       </div>
 
-      <div class="row-2">
-        <div>
-          <label class="lbl">Work Date</label>
-          <input type="date" id="entryDate" />
-        </div>
-        <div>
-          <label class="lbl">Attendance Status</label>
-          <select id="entryStatus">
-            <option value="present">Present (Full Day)</option>
-            <option value="half">Half Day (50%)</option>
-            <option value="holiday_paid">Sunday / Paid Off</option>
-            <option value="ot_only">Extra Work Only (OT)</option>
-            <option value="leave">Leave (Unpaid)</option>
-          </select>
-        </div>
-      </div>
+      <div id="liveBreakdownBox" style="padding:12px;border-radius:14px;background:var(--card-dark);border:1px solid rgba(52,211,153,0.35);margin-bottom:12px;font-size:12.5px;line-height:1.6;"></div>
 
-      <div class="row-2">
-        <div>
-          <label class="lbl" style="color:#7dd3fc;">🟢 Enter Time (In)</label>
-          <input type="time" id="entryInTime" value="10:00" />
-          <div id="inTime12Label" style="font-size:11px;color:#7dd3fc;margin-top:3px;font-weight:800;">10:00 AM</div>
-        </div>
-        <div>
-          <label class="lbl" style="color:#6ee7b7;">🔴 Exit Time (Out)</label>
-          <input type="time" id="entryOutTime" value="18:30" />
-          <div id="outTime12Label" style="font-size:11px;color:#6ee7b7;margin-top:3px;font-weight:800;">06:30 PM</div>
-        </div>
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <label class="lbl">⚡ 1-Tap Extra OT Presets (Auto-sets Exit Time):</label>
+      <div style="margin-bottom:12px;">
+        <label class="lbl">⚡ 1-Tap Extra OT Presets (Auto-sets Exit Time &amp; Saves):</label>
         <div class="chips" id="otPresetChips">
           <button type="button" class="chip" data-ot="0">0h (6:30 PM)</button>
           <button type="button" class="chip" data-ot="0.5">+30m (7:00 PM)</button>
@@ -323,20 +357,54 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         </div>
       </div>
 
-      <div class="row-2">
-        <div>
-          <label class="lbl">Extra Bonus / Allowance (₹)</label>
-          <input type="number" id="entryBonus" min="0" step="10" value="0" />
-        </div>
-        <div>
-          <label class="lbl">Work Note</label>
-          <input type="text" id="entryNote" placeholder="Optional note..." />
-        </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <button type="button" class="chip" id="toggleManualEditorBtn" style="width:100%;padding:9px;text-align:center;">✏️ Manual Time &amp; Date Override ▼</button>
       </div>
 
-      <div id="liveBreakdownBox" style="padding:12px;border-radius:12px;background:var(--card-dark);border:1px solid rgba(52,211,153,0.35);margin-bottom:12px;font-size:12.5px;line-height:1.6;"></div>
+      <div id="manualEditorDrawer" style="display:none;padding:12px;border-radius:14px;background:rgba(2,6,23,0.65);border:1px solid rgba(148,163,184,0.22);margin-bottom:10px;">
+        <div class="row-2">
+          <div>
+            <label class="lbl">Work Date</label>
+            <input type="date" id="entryDate" />
+          </div>
+          <div>
+            <label class="lbl">Attendance Status</label>
+            <select id="entryStatus">
+              <option value="present">Present (Full Day)</option>
+              <option value="half">Half Day (50%)</option>
+              <option value="holiday_paid">Sunday / Paid Off</option>
+              <option value="ot_only">Extra Work Only (OT)</option>
+              <option value="leave">Leave (Unpaid)</option>
+            </select>
+          </div>
+        </div>
 
-      <button type="button" class="btn btn-save" id="saveDayBtn">💾 Save Day Calculation</button>
+        <div class="row-2">
+          <div>
+            <label class="lbl" style="color:#7dd3fc;">🟢 Enter Time (In)</label>
+            <input type="time" id="entryInTime" value="10:00" />
+            <div id="inTime12Label" style="font-size:11px;color:#7dd3fc;margin-top:3px;font-weight:800;">10:00 AM</div>
+          </div>
+          <div>
+            <label class="lbl" style="color:#6ee7b7;">🔴 Exit Time (Out)</label>
+            <input type="time" id="entryOutTime" value="18:30" />
+            <div id="outTime12Label" style="font-size:11px;color:#6ee7b7;margin-top:3px;font-weight:800;">06:30 PM</div>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div>
+            <label class="lbl">Extra Bonus / Allowance (₹)</label>
+            <input type="number" id="entryBonus" min="0" step="10" value="0" />
+          </div>
+          <div>
+            <label class="lbl">Work Note</label>
+            <input type="text" id="entryNote" placeholder="Optional note..." />
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-save" id="saveDayBtn">💾 Save Day Calculation</button>
+      </div>
     </section>
 
     <!-- TAB 2: MONTH DAYS LIST -->
@@ -544,6 +612,14 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       document.getElementById('hdrRateSub').textContent =
         '₹' + fmtINR(r.salary) + '/mo · ' + fmt12(store.settings.officeStartTime) + '–' + fmt12(store.settings.officeEndTime) + ' · OT ₹' + fmtINR(r.otHourlyRate) + '/hr';
       document.getElementById('monthPicker').value = selectedMonth;
+      const heroSalEl = document.getElementById('heroSalaryInput');
+      if (heroSalEl && document.activeElement !== heroSalEl) {
+        heroSalEl.value = r.salary;
+      }
+      const perDayEl = document.getElementById('kpiPerDayVal');
+      if (perDayEl) perDayEl.textContent = '₹' + fmtINR(r.perDaySalary) + '/d';
+      const otRateEl = document.getElementById('kpiOtRateSub');
+      if (otRateEl) otRateEl.textContent = 'OT: ₹' + fmtINR(r.otHourlyRate) + '/hr';
 
       const inVal = document.getElementById('entryInTime').value || '10:00';
       const outVal = document.getElementById('entryOutTime').value || '18:30';
@@ -568,19 +644,18 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       const bioInEl = document.getElementById('bioInStatusSub');
       const bioOutEl = document.getElementById('bioOutStatusSub');
       if (bioInEl) {
-        bioInEl.textContent = curRec.biometricIn ? ('✓ IN Verified ' + fmt12(inVal)) : 'Tap when entering';
+        bioInEl.textContent = curRec.biometricIn ? ('✓ IN Verified ' + fmt12(inVal)) : 'Tap & Unlock Phone for IN';
         bioInEl.style.color = curRec.biometricIn ? '#7dd3fc' : '#cbd5e1';
       }
       if (bioOutEl) {
-        bioOutEl.textContent = curRec.biometricOut ? ('✓ OUT Verified ' + fmt12(outVal)) : 'Tap when leaving';
+        bioOutEl.textContent = curRec.biometricOut ? ('✓ OUT Verified ' + fmt12(outVal)) : 'Tap & Unlock Phone for OUT';
         bioOutEl.style.color = curRec.biometricOut ? '#6ee7b7' : '#cbd5e1';
       }
 
       document.getElementById('liveBreakdownBox').innerHTML =
-        '<div><strong>Worked:</strong> ' + fmtMins(preview.workedMins) + ' (' + fmt12(inVal) + ' → ' + fmt12(outVal) + ')</div>' +
-        '<div><strong>Extra OT:</strong> <span style="color:#34d399;font-weight:900;">+' + fmtMins(preview.otMins) + ' (+₹' + fmtINR(preview.otPay) + ')</span></div>' +
-        '<div><strong>Base Day Pay:</strong> ₹' + fmtINR(preview.basePay) + '</div>' +
-        '<div><strong>Biometric Sensor:</strong> ' + (curRec.biometricIn ? '🫆 IN ✓ ' : 'IN — ') + ' · ' + (curRec.biometricOut ? '🫆 OUT ✓' : 'OUT —') + '</div>' +
+        '<div><strong>Shift (' + selectedDate + '):</strong> ' + fmt12(inVal) + ' → ' + fmt12(outVal) + ' (' + fmtMins(preview.workedMins) + ')</div>' +
+        '<div><strong>Extra OT:</strong> <span style="color:#34d399;font-weight:900;">+' + fmtMins(preview.otMins) + ' (+₹' + fmtINR(preview.otPay) + ')</span> · <strong>Base:</strong> ₹' + fmtINR(preview.basePay) + '</div>' +
+        '<div><strong>Touch ID Sensor:</strong> ' + (curRec.biometricIn ? 'Touch IN ✓ ' : 'IN — ') + ' · ' + (curRec.biometricOut ? 'Touch OUT ✓' : 'OUT —') + '</div>' +
         '<div style="margin-top:4px;font-size:16px;font-weight:900;color:#facc15;">Day Total: ₹' + fmtINR(preview.totalPay) + '</div>';
 
       // Build month summary
@@ -612,8 +687,8 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
           '<div style="display:flex;justify-content:space-between;align-items:center;">' +
             '<div><strong>' + iso + ' (' + dayName + ')</strong> ' +
               (saved ? '<span style="color:#34d399;font-size:11px;">✓ Saved</span>' : '<span style="color:#64748b;font-size:11px;">Default</span>') +
-              (rec.biometricIn ? ' <span style="color:#7dd3fc;font-size:10.5px;">🫆IN✓</span>' : '') +
-              (rec.biometricOut ? ' <span style="color:#6ee7b7;font-size:10.5px;">🫆OUT✓</span>' : '') +
+              (rec.biometricIn ? ' <span style="color:#7dd3fc;font-size:10.5px;">Touch IN✓</span>' : '') +
+              (rec.biometricOut ? ' <span style="color:#6ee7b7;font-size:10.5px;">Touch OUT✓</span>' : '') +
             '</div>' +
             '<div style="font-weight:900;color:#facc15;">₹' + fmtINR(c.totalPay) + '</div>' +
           '</div>' +
@@ -667,6 +742,11 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     }
 
     function goBackStep() {
+      const drawer = document.getElementById('manualEditorDrawer');
+      if (drawer && drawer.style.display !== 'none') {
+        drawer.style.display = 'none';
+        return 'handled';
+      }
       if (tabHistory.length > 1) {
         tabHistory.pop();
         const prev = tabHistory[tabHistory.length - 1] || 'today';
@@ -689,6 +769,17 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
 
     window.__handlePattanHardwareBack = goBackStep;
     document.getElementById('topBackBtn').addEventListener('click', () => goBackStep());
+
+    const toggleDrawerBtn = document.getElementById('toggleManualEditorBtn');
+    if (toggleDrawerBtn) {
+      toggleDrawerBtn.addEventListener('click', () => {
+        const d = document.getElementById('manualEditorDrawer');
+        if (!d) return;
+        const open = d.style.display !== 'none';
+        d.style.display = open ? 'none' : 'block';
+        toggleDrawerBtn.textContent = open ? '✏️ Manual Time & Date Override ▼' : '▲ Hide Manual Time & Date Override';
+      });
+    }
 
     try {
       window.history.replaceState({ otBase: true, tab: 'today' }, '');
@@ -760,7 +851,7 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         const st = document.getElementById('entryStatus').value;
         const dutyMins = st === 'ot_only' ? 0 : st === 'half' ? Math.round(r.shiftMins / 2) : r.shiftMins;
         document.getElementById('entryOutTime').value = minsToTime(inMins + dutyMins + Math.round(otHrs * 60));
-        renderAll();
+        saveCurrentForm('Saved +' + otHrs + 'h OT for ' + selectedDate);
       });
     });
 
@@ -888,16 +979,16 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       if (target === 'in') {
         document.getElementById('entryInTime').value = t;
         playBioBeep('in');
-        if (statusEl) statusEl.textContent = '🫆 Bio IN Verified ' + fmt12(t);
-        saveCurrentForm('🫆 Biometric Touch IN Verified at ' + fmt12(t), {
+        if (statusEl) statusEl.textContent = '✓ Touch IN Verified ' + fmt12(t);
+        saveCurrentForm('✓ Touch ID IN Verified at ' + fmt12(t), {
           biometricIn: true,
           biometricInAt: new Date().toISOString(),
         });
       } else {
         document.getElementById('entryOutTime').value = t;
         playBioBeep('out');
-        if (statusEl) statusEl.textContent = '🫆 Bio OUT Verified ' + fmt12(t);
-        saveCurrentForm('🫆 Biometric Touch OUT Verified at ' + fmt12(t), {
+        if (statusEl) statusEl.textContent = '✓ Touch OUT Verified ' + fmt12(t);
+        saveCurrentForm('✓ Touch ID OUT Verified at ' + fmt12(t), {
           biometricIn: true,
           biometricOut: true,
           biometricOutAt: new Date().toISOString(),
@@ -947,12 +1038,30 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     document.getElementById('waShareBtn').addEventListener('click', shareReport);
     document.getElementById('shareSummaryBtn').addEventListener('click', shareReport);
 
+    const heroSalaryEl = document.getElementById('heroSalaryInput');
+    if (heroSalaryEl) {
+      const syncHeroSal = () => {
+        const val = Math.max(0, Number(heroSalaryEl.value) || 0);
+        store.settings.monthlySalary = val;
+        const setSalEl = document.getElementById('setSalary');
+        if (setSalEl) setSalEl.value = val;
+        localStorage.setItem(LS_KEY, JSON.stringify(store));
+        renderAll();
+      };
+      heroSalaryEl.addEventListener('input', syncHeroSal);
+      heroSalaryEl.addEventListener('change', () => {
+        syncHeroSal();
+        showToast('Monthly Salary set to ₹' + fmtINR(store.settings.monthlySalary));
+      });
+    }
+
     ['setSalary','setDaysMode','setStart','setEnd'].forEach(id => {
       document.getElementById(id).addEventListener('change', () => {
         store.settings.monthlySalary = Math.max(1000, Number(document.getElementById('setSalary').value) || 25000);
         store.settings.monthDaysMode = document.getElementById('setDaysMode').value || '30';
         store.settings.officeStartTime = document.getElementById('setStart').value || '10:00';
         store.settings.officeEndTime = document.getElementById('setEnd').value || '18:30';
+        if (heroSalaryEl) heroSalaryEl.value = store.settings.monthlySalary;
         saveStore('Updated office rules');
       });
     });
@@ -990,6 +1099,7 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     });
 
     document.getElementById('setSalary').value = store.settings.monthlySalary || 25000;
+    if (heroSalaryEl) heroSalaryEl.value = store.settings.monthlySalary || 25000;
     document.getElementById('setDaysMode').value = store.settings.monthDaysMode || '30';
     document.getElementById('setStart').value = store.settings.officeStartTime || '10:00';
     document.getElementById('setEnd').value = store.settings.officeEndTime || '18:30';
@@ -1015,6 +1125,29 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         showToast('Could not reach PC on Wi-Fi');
       }
     });
+
+    function tickLiveClock() {
+      const now = new Date();
+      const h24 = now.getHours(), m60 = now.getMinutes(), s60 = now.getSeconds();
+      const p = h24 >= 12 ? 'PM' : 'AM';
+      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+      const hmEl = document.getElementById('liveClockHM');
+      const ssEl = document.getElementById('liveClockSS');
+      const pEl = document.getElementById('liveClockPeriod');
+      const dEl = document.getElementById('liveClockDate');
+      if (hmEl) hmEl.textContent = String(h12).padStart(2, '0') + ':' + String(m60).padStart(2, '0');
+      if (ssEl) ssEl.textContent = ':' + String(s60).padStart(2, '0');
+      if (pEl) pEl.textContent = p;
+      if (dEl) dEl.textContent = 'LIVE EXACT CLOCK · ' + now.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+      const hrHand = document.getElementById('analogHrHand');
+      const minHand = document.getElementById('analogMinHand');
+      const secHand = document.getElementById('analogSecHand');
+      if (hrHand) hrHand.setAttribute('transform', 'rotate(' + ((h24 % 12) * 30 + m60 * 0.5) + ' 22 22)');
+      if (minHand) minHand.setAttribute('transform', 'rotate(' + (m60 * 6 + s60 * 0.1) + ' 22 22)');
+      if (secHand) secHand.setAttribute('transform', 'rotate(' + (s60 * 6) + ' 22 22)');
+    }
+    tickLiveClock();
+    setInterval(tickLiveClock, 1000);
 
     loadDateIntoForm(selectedDate);
   </script>
