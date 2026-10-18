@@ -47,7 +47,7 @@ assert.match(androidLauncherJsx, /<OtSalary standaloneMobile=\{true\}/);
 
 // 5. PWA Manifest & Service Worker checks
 assert.equal(otManifest.short_name, 'OT & Salary');
-assert.equal(otManifest.start_url, '/ot');
+assert.equal(otManifest.start_url, '/ot?app=ot');
 assert.match(otSw, /ot-salary/);
 
 // 6. OtSalary.jsx Mobile App Mode, 1-Tap Punch, Day Cards, Bottom Nav & Sync Modal checks
