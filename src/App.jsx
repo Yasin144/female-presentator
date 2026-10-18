@@ -4,8 +4,6 @@ import StagePanel from './components/StagePanel';
 import MyExporter from './components/MyExporter/MyExporter';
 import QuoteStudio from './components/QuoteStudio/QuoteStudio';
 import VideoResizer from './components/VideoResizer/VideoResizer';
-import KittenShorts from './components/KittenShorts/KittenShorts';
-import './components/KittenShorts/kitten-shorts.css';
 import SrtVoiceStudio from './components/SrtVoiceStudio/SrtVoiceStudio';
 import Captioner2 from './components/Captioner2/Captioner2';
 import OtSalary from './components/OtSalary/OtSalary';
@@ -18,7 +16,7 @@ const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'kitten-shorts', 'srt-voice', 'captioner-2', 'ot-salary']);
+const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'srt-voice', 'captioner-2', 'ot-salary']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'home';
 const STUDIO_MODULES = [
   { id: 'presentator', label: 'Presentator', detail: 'Lessons & PDF presentations' },
@@ -26,7 +24,6 @@ const STUDIO_MODULES = [
   { id: 'quotes', label: 'Quote Studio', detail: 'Create a story from your words' },
   { id: 'exporter', label: 'My Exporter', detail: 'Edit, caption & export videos' },
   { id: 'resizer', label: 'Video Resizer', detail: 'A perfect fit for every platform' },
-  { id: 'kitten-shorts', label: 'Kitten Shorts Voiceover', detail: 'Make a funny, timed YouTube Short' },
   { id: 'srt-voice', label: 'SRT Voice Studio', detail: 'Timed subtitle voices and video export' },
   { id: 'ot-salary', label: 'OT & Salary Tracker', detail: 'Daily office salary & extra OT hours calculator' },
 ];
@@ -755,11 +752,6 @@ function App() {
         <div className="studio-module" data-workspace="resizer" style={{ display: (!captionOpen && currentModule === 'resizer') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
           <ModuleErrorBoundary moduleName="Video Ratio Master">
                 <VideoResizer active={!captionOpen && currentModule === 'resizer'} />
-          </ModuleErrorBoundary>
-        </div>
-        <div className="studio-module" data-workspace="kitten-shorts" style={{ display: (!captionOpen && currentModule === 'kitten-shorts') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
-          <ModuleErrorBoundary moduleName="Kitten Shorts Voiceover">
-            <KittenShorts active={!captionOpen && currentModule === 'kitten-shorts'} />
           </ModuleErrorBoundary>
         </div>
         <div className="studio-module" data-workspace="srt-voice" style={{ display: (!captionOpen && currentModule === 'srt-voice') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>

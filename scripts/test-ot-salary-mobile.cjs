@@ -21,7 +21,9 @@ const otSw = readText('public/ot-sw.js');
 assert.match(appJsx, /id:\s*'ot-salary'/);
 assert.match(appJsx, /id:\s*'srt-voice'/);
 assert.match(appJsx, /id:\s*'captioner-2'/);
-assert.match(appJsx, /id:\s*'kitten-shorts'/);
+assert.doesNotMatch(appJsx, /id:\s*'kitten-shorts'/);
+assert.doesNotMatch(studioHomeJsx, /id:\s*'kitten-shorts'/);
+assert.doesNotMatch(studioHomeJsx, /id:\s*'local-captions'/);
 assert.match(studioHomeJsx, /id:\s*'ot-salary'/);
 assert.match(studioHomeJsx, /id:\s*'srt-voice'/);
 

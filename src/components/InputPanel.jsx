@@ -1,6 +1,5 @@
 import React from "react";
 import { useStore } from "../store/useStore";
-import LocalCaptionPanel from "./LocalCaptionPanel";
 
 function InputPanel() {
   const actionLocks = useStore((state) => state.actionLocks);
@@ -1686,10 +1685,6 @@ Space topic with stars, dreamy motion, and a magical learning feel."></textarea>
           </div>
         </div>
       </details>
-
-      <div hidden style={{ display: 'none' }} aria-hidden="true">
-        <LocalCaptionPanel />
-      </div>
 
       <details className="section-card classic-prepare-section" id="mediaSection">
         <summary className="section-summary">

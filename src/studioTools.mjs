@@ -1,7 +1,6 @@
 // Destinations in the existing mounted InputPanel, not new module instances.
 export const PREPARATION_TOOLS = [
   { id: 'singSongSection', label: 'Sing Song', icon: 'music', description: 'Prepare songs and work with your local singing voice', primary: true },
-  { id: 'aiCaptionSection', label: 'AI Captioning (Local)', icon: 'captions', description: 'Open AI Video Captioning (Local) for video transcription and captions', primary: true },
   { id: 'audioToTextSection', label: 'Audio to Text', icon: 'audio', description: 'Transcribe an uploaded audio file' },
   { id: 'speechToolsSection', label: 'Text & Speech Tools', icon: 'audio', description: 'Dictation, voice previews and text helpers' },
   { id: 'narrationSection', label: 'Narration & Audio', icon: 'audio', description: 'Upload, record or prepare a narration track' },
@@ -31,8 +30,7 @@ export function focusPreparationTool(id, document) {
         : [id];
   for (const child of Array.from(input?.children || [])) {
     const presenterHeader = ['pdfSection', 'lessonContentSection'].includes(id) && child.classList.contains('panel-head');
-    const captionActions = id === 'aiCaptionSection' && Boolean(child.querySelector('#aiCapSttBtn'));
-    child.dataset.studioToolVisible = String(sections.includes(child.id) || presenterHeader || captionActions);
+    child.dataset.studioToolVisible = String(sections.includes(child.id) || presenterHeader);
   }
 }
 

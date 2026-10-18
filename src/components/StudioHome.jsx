@@ -7,7 +7,6 @@ export const HOME_MODULES = [
   { id: 'pdf', label: 'PDF Presenter', description: 'Turn PDF pages into narrated lessons and videos.', icon: 'presentator', kind: 'section', target: 'pdfSection' },
   { id: 'lesson', label: 'Lesson Presenter', description: 'Write a lesson, preview it, and present it aloud.', icon: 'presentator', kind: 'section', target: 'lessonContentSection' },
   { id: 'singing', label: 'Sing Song', description: 'Prepare song audio and convert voices.', icon: 'music', kind: 'section', target: 'singSongSection' },
-  { id: 'local-captions', label: 'AI Captioning (Local)', description: 'Create video captions using local transcription.', icon: 'captions', kind: 'section', target: 'aiCaptionSection' },
   { id: 'captioner-2', label: 'Captioner 2', description: 'New AI Video Captioning (Local + Groq + Gemini Song + Caption Eraser + Workbench).', icon: 'captions', kind: 'workspace', target: 'captioner-2' },
   { id: 'captions', label: 'Caption Burner', description: 'Style captions and burn them into your video.', icon: 'captions', kind: 'caption', target: 'captions' },
   { id: 'quotes', label: 'Quote Studio', description: 'Make quote videos with your words and visuals.', icon: 'quotes', kind: 'workspace', target: 'quotes' },
@@ -15,7 +14,6 @@ export const HOME_MODULES = [
   { id: 'resizer', label: 'Video Resizer', description: 'Fit a video to vertical, square, or wide formats.', icon: 'resizer', kind: 'workspace', target: 'resizer' },
   { id: 'srt-voice', label: 'SRT Voice Studio', description: 'Dub a video from 2 or 3 timed subtitle tracks with male or female voices.', icon: 'audio', kind: 'workspace', target: 'srt-voice' },
   { id: 'translator', label: 'Translate Audio', description: 'Translate spoken audio into another language.', icon: 'audio', kind: 'translator', target: 'translator' },
-  { id: 'kitten-shorts', label: 'Kitten Shorts Voiceover', description: 'Turn a silent kitten clip and timed SRT into a funny narrated Short.', icon: 'music', kind: 'workspace', target: 'kitten-shorts' },
   { id: 'ot-salary', label: 'OT & Salary Tracker', description: 'Calculate & save each day’s salary (₹25K/mo, 10:00 AM–6:30 PM + 1 hr / 2 hr extra OT).', icon: 'ot', kind: 'workspace', target: 'ot-salary' },
   { id: 'transcription', label: 'Audio to Text', description: 'Turn a recording into editable text.', icon: 'audio', kind: 'section', target: 'audioToTextSection' },
 ];
