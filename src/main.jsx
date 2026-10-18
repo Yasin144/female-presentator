@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import AppWarnings from './components/AppWarnings.jsx'
-import AndroidLauncher, { isPackagedAndroidLauncher } from './components/AndroidLauncher.jsx'
+import AndroidLauncher, { isPackagedAndroidLauncher, MobileOtErrorBoundary } from './components/AndroidLauncher.jsx'
 import OtSalary from './components/OtSalary/OtSalary.jsx'
 import './classic-presentator.css'
 import './classic-modules.css'
@@ -205,17 +205,23 @@ function isStandaloneOtMobileMode() {
   return appParam === 'ot' || appParam === 'ot-salary';
 }
 
-if (isStandaloneOtMobileMode() && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/ot-sw.js').catch(() => {});
-  });
+if ('serviceWorker' in navigator) {
+  if (isPackagedAndroidLauncher()) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((r) => r.unregister().catch(() => {}));
+    }).catch(() => {});
+  } else if (isStandaloneOtMobileMode()) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/ot-sw.js').catch(() => {});
+    });
+  }
 }
 
 createRoot(document.getElementById('root')).render(
   isStandaloneOtMobileMode()
-    ? <OtSalary standaloneMobile={true} />
+    ? <MobileOtErrorBoundary><OtSalary standaloneMobile={true} /></MobileOtErrorBoundary>
     : isPackagedAndroidLauncher()
-      ? <AndroidLauncher />
+      ? <MobileOtErrorBoundary><AndroidLauncher /></MobileOtErrorBoundary>
       : <><App /><AppWarnings /></>
 )
 

@@ -66,6 +66,12 @@ function getCurrentTime24h() {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
+const STORAGE_KEY = LS_OT_SALARY_KEY;
+const parseTimeMinutes = parseTimeToMinutes;
+const minutesToHHMM = minutesToTimeInput;
+const getNowTimeHHMM = getCurrentTime24h;
+const generateStandaloneOtMobileHtml = buildStandaloneOtMobileAppHtml;
+
 function formatINR(amount) {
   const num = Number(amount) || 0;
   return num.toLocaleString('en-IN', {
@@ -432,14 +438,20 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   const [diskPath, setDiskPath] = useState('');
   const [wifiOtUrl, setWifiOtUrl] = useState('');
   const [mobileOtUrl, setMobileOtUrl] = useState('');
-  const [syncServerUrl, setSyncServerUrl] = useState(() => {
+  const [pcSyncIpInput, setPcSyncIpInput] = useState(() => {
     try { return localStorage.getItem('pattan.ot.syncServerUrl') || ''; } catch (_) { return ''; }
   });
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('');
+  const mobileConnectInfo = useMemo(() => ({
+    otUrl: mobileOtUrl || wifiOtUrl || (typeof window !== 'undefined' ? `${window.location.origin}/ot` : ''),
+    qrDataUrl: '',
+  }), [mobileOtUrl, wifiOtUrl]);
   const [mobileMode, setMobileMode] = useState(() => {
     if (standaloneMobile) return true;
     return typeof window !== 'undefined' && window.innerWidth <= 820;
   });
-  const [mobileTab, setMobileTab] = useState('today'); // 'today' | 'days' | 'summary' | 'settings'
+  const [mobileTab, setMobileTab] = useState('today'); // 'today' | 'month' | 'summary' | 'rules'
   const [mobileDaysLayout, setMobileDaysLayout] = useState(() => (
     standaloneMobile || (typeof window !== 'undefined' && window.innerWidth <= 820) ? 'cards' : 'table'
   ));
@@ -488,7 +500,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
 
     if (window.electronAPI && typeof window.electronAPI.loadOtSalaryData === 'function') {
       window.electronAPI.loadOtSalaryData().then((res) => {
-        if (!mounted || !res || !res.ok) return;
+        if (!mounted || !res || (!res.ok && !res.success)) return;
         if (res.filePath) setDiskPath(res.filePath);
         if (res.wifiOtUrl) setWifiOtUrl(res.wifiOtUrl);
         if (res.mobileOtUrl) setMobileOtUrl(res.mobileOtUrl);
@@ -973,6 +985,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const outM = parseTimeMinutes(outTime, 18 * 60 + 30);
     const worked = Math.max(0, outM - inM);
     const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
+    const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -980,9 +993,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         status,
         inTime: nowHHMM,
         outTime,
+        workedMins: worked,
         otHours: Number((otMins / 60).toFixed(4)),
         note: existing?.note || '',
-        extraBonus: Number(existing?.extraBonus) || 0,
+        extraAllowance,
+        savedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     };
@@ -1003,6 +1018,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const outM = parseTimeMinutes(nowHHMM, 18 * 60 + 30);
     const worked = outM >= inM ? outM - inM : (24 * 60 - inM) + outM;
     const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
+    const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -1010,9 +1026,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         status,
         inTime,
         outTime: nowHHMM,
+        workedMins: worked,
         otHours: Number((otMins / 60).toFixed(4)),
         note: existing?.note || '',
-        extraBonus: Number(existing?.extraBonus) || 0,
+        extraAllowance,
+        savedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     };
@@ -1038,6 +1056,8 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const inM = parseTimeMinutes(inTime, 10 * 60);
     const outM = status === 'ot_only' ? inM + otMins : inM + rates.shiftMins + otMins;
     const outTime = minutesToHHMM(outM);
+    const worked = outM >= inM ? outM - inM : (24 * 60 - inM) + outM;
+    const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nextDays = {
       ...daysMap,
       [todayIso]: {
@@ -1045,9 +1065,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         status,
         inTime,
         outTime,
+        workedMins: worked,
         otHours: Number(otHoursValue) || 0,
         note: existing?.note || '',
-        extraBonus: Number(existing?.extraBonus) || 0,
+        extraAllowance,
+        savedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     };
@@ -1113,23 +1135,47 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     setSyncBusy(true);
     setSyncStatusText('Syncing with PC...');
     try {
-      const targetOrigin = pcSyncIpInput.trim()
-        ? (pcSyncIpInput.trim().startsWith('http') ? pcSyncIpInput.trim().replace(/\/+$/, '') : `http://${pcSyncIpInput.trim()}:8433`)
-        : '';
-      const endpoint = `${targetOrigin}/api/ot-salary-sync`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings, days: daysMap }),
-      });
-      const json = await res.json();
-      if (json && json.success && json.data) {
-        if (json.data.settings) setSettings((prev) => ({ ...prev, ...json.data.settings }));
-        if (json.data.days) setDaysMap(json.data.days);
+      const rawIp = pcSyncIpInput.trim();
+      const candidateBases = [];
+      if (rawIp) {
+        if (/^https?:\/\//i.test(rawIp)) {
+          candidateBases.push(rawIp.replace(/\/+$/, ''));
+        } else if (rawIp.includes(':')) {
+          candidateBases.push(`http://${rawIp.replace(/\/+$/, '')}`);
+        } else {
+          candidateBases.push(`http://${rawIp}:5173`, `http://${rawIp}:8433`);
+        }
+      } else {
+        candidateBases.push('');
+      }
+      let syncedPayload = null;
+      for (const base of candidateBases) {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
+          const endpoint = `${base}/api/ot-salary-sync`;
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings, days: daysMap }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && (json.success || json.ok) && json.data) {
+              syncedPayload = json.data;
+              if (base) {
+                try { localStorage.setItem('pattan.ot.syncServerUrl', base); } catch (_) {}
+              }
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+      if (syncedPayload) {
+        if (syncedPayload.settings) setSettings((prev) => ({ ...prev, ...syncedPayload.settings }));
+        if (syncedPayload.days) setDaysMap(syncedPayload.days);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(syncedPayload));
         } catch {}
-        setSyncStatusText(`✓ Synced ${Object.keys(json.data.days || {}).length} saved days with PC`);
+        setSyncStatusText(`✓ Synced ${Object.keys(syncedPayload.days || {}).length} saved days with PC`);
       } else {
         setSyncStatusText('⚠️ Could not sync with PC. Check Wi-Fi / IP.');
       }

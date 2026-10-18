@@ -41,9 +41,11 @@ assert.match(mainJsx, /loadOtSalaryData:/);
 assert.match(mainJsx, /saveOtSalaryData:/);
 assert.match(mainJsx, /\/ot-sw\.js/);
 
-// 4. Capacitor Android Launcher offline OT Mobile App check
+// 4. Capacitor Android Launcher offline OT Mobile App & Error Boundary check
 assert.match(androidLauncherJsx, /Open OT &amp; Salary Tracker Mobile App/);
 assert.match(androidLauncherJsx, /<OtSalary standaloneMobile=\{true\}/);
+assert.match(androidLauncherJsx, /class MobileOtErrorBoundary/);
+assert.match(mainJsx, /<MobileOtErrorBoundary><OtSalary standaloneMobile=\{true\} \/><\/MobileOtErrorBoundary>/);
 
 // 5. PWA Manifest & Service Worker checks
 assert.equal(otManifest.short_name, 'OT & Salary');
@@ -51,6 +53,11 @@ assert.equal(otManifest.start_url, '/ot?app=ot');
 assert.match(otSw, /ot-salary/);
 
 // 6. OtSalary.jsx Mobile App Mode, 1-Tap Punch, Day Cards, Bottom Nav & Sync Modal checks
+assert.match(otSalaryJsx, /const getNowTimeHHMM =/);
+assert.match(otSalaryJsx, /const parseTimeMinutes =/);
+assert.match(otSalaryJsx, /const minutesToHHMM =/);
+assert.match(otSalaryJsx, /const STORAGE_KEY =/);
+assert.match(otSalaryJsx, /const generateStandaloneOtMobileHtml =/);
 assert.match(otSalaryJsx, /punchEnterNowAndSave/);
 assert.match(otSalaryJsx, /punchExitNowAndSave/);
 assert.match(otSalaryJsx, /quickSetTodayOtAndSave/);
@@ -71,4 +78,5 @@ assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile.apk')), 'OT-Salary-
 assert.ok(fs.statSync(path.join(rootDir, 'OT-Salary-Mobile.apk')).size > 1_000_000, 'OT-Salary-Mobile.apk should be a valid non-empty APK');
 
 console.log('All OT & Salary Mobile App + Android APK + Upstream integration tests passed!');
+
 

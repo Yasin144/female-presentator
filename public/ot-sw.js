@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pattan-ot-salary-mobile-v1';
+const CACHE_NAME = 'pattan-ot-salary-mobile-v2';
 const CORE_URLS = [
   '/ot',
   '/?app=ot',

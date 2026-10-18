@@ -26,7 +26,10 @@ public class MainActivity extends BridgeActivity {
             if (request == null || !request.isForMainFrame()) return false;
             Uri uri = request.getUrl();
             String host = uri == null ? "" : String.valueOf(uri.getHost());
-            return host.endsWith(".trycloudflare.com") || host.endsWith(".loca.lt");
+            if (host.isEmpty() || "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)) {
+                return false;
+            }
+            return true;
         }
 
         private void returnToConnector(WebView view) {

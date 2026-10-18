@@ -4,6 +4,90 @@ import OtSalary from './OtSalary/OtSalary.jsx';
 const LINK_KEY = 'pattan.android.serverUrl';
 const ANDROID_LAUNCH_MODE_KEY = 'pattan.android.launchMode';
 
+class MobileOtErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('[MobileOtErrorBoundary] Caught error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: '#070b16',
+          color: '#f8fafc',
+          padding: 24,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          textAlign: 'center',
+        }}>
+          <div style={{
+            maxWidth: 460,
+            padding: 24,
+            borderRadius: 18,
+            background: '#0f172a',
+            border: '1px solid rgba(248, 113, 113, 0.45)',
+          }}>
+            <h2 style={{ margin: '0 0 8px', color: '#fca5a5', fontSize: 18 }}>
+              ⚠️ OT &amp; Salary Mobile App Recovery
+            </h2>
+            <p style={{ margin: '0 0 14px', fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>
+              {String(this.state.error?.message || this.state.error || 'Unexpected error')}
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, error: null })}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 10,
+                  border: '1px solid #34d399',
+                  background: '#059669',
+                  color: '#fff',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                🔄 Retry OT App
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('pattan.android.launchMode');
+                  } catch (_) {}
+                  window.location.reload();
+                }}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(56, 189, 248, 0.5)',
+                  background: '#0284c7',
+                  color: '#fff',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                🔁 Reload App
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function normalizeServerUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -18,22 +102,42 @@ function normalizeServerUrl(value) {
 }
 
 export function isPackagedAndroidLauncher() {
-  const nativeAndroid = Boolean(window.Capacitor?.isNativePlatform?.()) && window.Capacitor?.getPlatform?.() === 'android';
-  return nativeAndroid && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (typeof window === 'undefined') return false;
+  const cap = window.Capacitor;
+  const isCapAndroid =
+    (typeof cap?.isNativePlatform === 'function' ? Boolean(cap.isNativePlatform()) : Boolean(cap?.isNativePlatform)) ||
+    (typeof cap?.getPlatform === 'function' && cap.getPlatform() === 'android') ||
+    cap?.platform === 'android';
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const isAndroidWebViewLocal =
+    isLocalHost &&
+    !window.location.port &&
+    /Android/i.test(navigator.userAgent || '');
+  return (isCapAndroid && isLocalHost) || isAndroidWebViewLocal;
 }
+
+export { MobileOtErrorBoundary };
 
 export default function AndroidLauncher() {
   const staleLink = useMemo(() => new URLSearchParams(window.location.search).get('staleMobileLink') === '1', []);
   const [activeApp, setActiveApp] = useState(() => {
+    if (staleLink) return 'ot-salary';
     try {
       return localStorage.getItem(ANDROID_LAUNCH_MODE_KEY) === 'launcher' ? 'launcher' : 'ot-salary';
     } catch (_) {
       return 'ot-salary';
     }
   });
-  const [serverUrl, setServerUrl] = useState(() => staleLink ? '' : (localStorage.getItem(LINK_KEY) || ''));
+  const [serverUrl, setServerUrl] = useState(() => {
+    if (staleLink) return '';
+    try {
+      return localStorage.getItem(LINK_KEY) || '';
+    } catch (_) {
+      return '';
+    }
+  });
   const [status, setStatus] = useState(() => staleLink
-    ? 'The previous Mobile Link expired. Generate a new link on your computer and paste it here.'
+    ? 'The previous Mobile Link expired. Returned to your offline OT & Salary Mobile App.'
     : 'Paste the secure Mobile Link shown by Pattan Workspace on your computer, or open the standalone OT & Salary Mobile App below.');
   const [connecting, setConnecting] = useState(false);
   const validUrl = useMemo(() => normalizeServerUrl(serverUrl), [serverUrl]);
@@ -64,24 +168,28 @@ export default function AndroidLauncher() {
     }
     setConnecting(true);
     setStatus('Connecting securely to your Pattan computer…');
-    localStorage.setItem(LINK_KEY, destination);
+    try {
+      localStorage.setItem(LINK_KEY, destination);
+    } catch (_) {}
     window.location.assign(destination);
   };
 
   useEffect(() => {
-    if (activeApp === 'ot-salary') return undefined;
     if (staleLink) {
-      localStorage.removeItem(LINK_KEY);
+      try {
+        localStorage.removeItem(LINK_KEY);
+        localStorage.setItem(ANDROID_LAUNCH_MODE_KEY, 'ot-salary');
+      } catch (_) {}
       window.history.replaceState({}, '', '/');
-      return undefined;
     }
-    if (!validUrl) return undefined;
-    const timer = setTimeout(() => connect(validUrl), 900);
-    return () => clearTimeout(timer);
-  }, [activeApp]); // Reconnect only while the remembered tunnel remains reachable.
+  }, [staleLink]);
 
   if (activeApp === 'ot-salary') {
-    return <OtSalary standaloneMobile={true} onClose={backToAndroidLauncher} />;
+    return (
+      <MobileOtErrorBoundary>
+        <OtSalary standaloneMobile={true} onClose={backToAndroidLauncher} />
+      </MobileOtErrorBoundary>
+    );
   }
 
   return (
