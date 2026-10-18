@@ -586,7 +586,7 @@ function startMobileHttpServer() {
   if (mobileHttpServer?.listening) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const rendererRoot = path.join(ROOT, 'renderer-dist');
-    const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.woff2': 'font/woff2' };
+    const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.wav': 'audio/wav', '.woff2': 'font/woff2', '.apk': 'application/vnd.android.package-archive' };
     mobileHttpServer = http.createServer((req, res) => {
       try {
         const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${MOBILE_HTTP_PORT}`);
@@ -923,6 +923,8 @@ function startMobileHttpServer() {
         const isStandaloneOtPath = ['/ot', '/ot/', '/ot-mobile', '/ot-mobile.html'].includes(requestUrl.pathname.toLowerCase());
         const requested = isStandaloneOtPath ? '' : decodeURIComponent(requestUrl.pathname).replace(/^\/+/, '');
         const bundledRootAssets = new Set([
+          'OT-Salary-Mobile.apk',
+          'OT-Salary-Mobile-App.html',
           'logo-data.js',
           'script.js',
           'caption-script.js',

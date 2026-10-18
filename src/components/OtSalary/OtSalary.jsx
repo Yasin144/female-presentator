@@ -2793,7 +2793,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               </button>
             </div>
 
-            {/* Option 1: Standalone 100% Offline Mobile App File */}
+            {/* Option 1: Native Android APK & Standalone 100% Offline Mobile App */}
             <div style={{
               padding: 16,
               borderRadius: 14,
@@ -2802,27 +2802,44 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               marginBottom: 14,
             }}>
               <div style={{ fontSize: 13, fontWeight: 900, color: '#6ee7b7', marginBottom: 4 }}>
-                ⭐ Option 1: Download 100% Offline Mobile App (Works Everywhere Without Wi-Fi)
+                ⭐ Option 1: Install Native Android APK or 100% Offline Mobile App (Works Everywhere Without Wi-Fi)
               </div>
               <p style={{ margin: '0 0 10px', fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
-                Downloads <strong>OT-Salary-Mobile-App.html</strong> pre-loaded with all your current saved days &amp; ₹{formatINR(rates.salary)} settings. Send it to your phone on WhatsApp/Telegram and open it in Chrome/Safari — works 100% offline at your office!
+                Download <strong>OT-Salary-Mobile.apk</strong> to install the native Android app on your phone, or download <strong>OT-Salary-Mobile-App.html</strong> pre-loaded with all your current saved days &amp; ₹{formatINR(rates.salary)} settings. Both work 100% offline at your office!
               </p>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <a
+                  href="/OT-Salary-Mobile.apk"
+                  download="OT-Salary-Mobile.apk"
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(52, 211, 153, 0.7)',
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    color: '#fff',
+                    fontWeight: 900,
+                    fontSize: 13,
+                    textDecoration: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  🤖 Download Android APK (OT-Salary-Mobile.apk)
+                </a>
                 <button
                   type="button"
                   onClick={downloadStandaloneMobileApp}
                   style={{
                     padding: '10px 16px',
                     borderRadius: 10,
-                    border: '1px solid rgba(52, 211, 153, 0.6)',
-                    background: 'linear-gradient(135deg, #10b981, #0284c7)',
+                    border: '1px solid rgba(56, 189, 248, 0.6)',
+                    background: 'linear-gradient(135deg, #0284c7, #2563eb)',
                     color: '#fff',
                     fontWeight: 900,
                     fontSize: 13,
                     cursor: 'pointer',
                   }}
                 >
-                  📲 Download Offline Mobile App (OT-Salary-Mobile-App.html)
+                  📲 Download Offline Mobile App (.html)
                 </button>
                 <button
                   type="button"

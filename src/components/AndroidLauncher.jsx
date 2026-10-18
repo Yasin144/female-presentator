@@ -26,9 +26,9 @@ export default function AndroidLauncher() {
   const staleLink = useMemo(() => new URLSearchParams(window.location.search).get('staleMobileLink') === '1', []);
   const [activeApp, setActiveApp] = useState(() => {
     try {
-      return localStorage.getItem(ANDROID_LAUNCH_MODE_KEY) === 'ot-salary' ? 'ot-salary' : 'launcher';
+      return localStorage.getItem(ANDROID_LAUNCH_MODE_KEY) === 'launcher' ? 'launcher' : 'ot-salary';
     } catch (_) {
-      return 'launcher';
+      return 'ot-salary';
     }
   });
   const [serverUrl, setServerUrl] = useState(() => staleLink ? '' : (localStorage.getItem(LINK_KEY) || ''));

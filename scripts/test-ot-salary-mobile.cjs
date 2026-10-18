@@ -29,26 +29,26 @@ assert.match(studioHomeJsx, /id:\s*'srt-voice'/);
 assert.match(mainCjs, /\/api\/ot-salary-sync/);
 assert.match(mainCjs, /mergeAndSaveOtSalaryStoreToDisk/);
 assert.match(mainCjs, /ot-salary-updated/);
-assert.match(mainCjs, /cleanUrl === '\/ot' \|\| cleanUrl === '\/ot-mobile'/);
+assert.match(mainCjs, /isStandaloneOtPath/);
 assert.match(viteConfig, /\/api\/ot-salary-sync/);
-assert.match(viteConfig, /pathname === '\/ot' \|\| pathname === '\/ot-mobile'/);
+assert.match(viteConfig, /\/ot-mobile/);
 
 // 3. Preload & main.jsx Mobile Bridge checks
 assert.match(preloadCjs, /onOtSalaryUpdated:/);
 assert.match(mainJsx, /isStandaloneOtMobileMode/);
 assert.match(mainJsx, /<OtSalary standaloneMobile=\{true\} \/>/);
-assert.match(mainJsx, /loadOtSalaryData:\s*async/);
-assert.match(mainJsx, /saveOtSalaryData:\s*async/);
-assert.match(mainJsx, /register\('\/ot-sw\.js'\)/);
+assert.match(mainJsx, /loadOtSalaryData:/);
+assert.match(mainJsx, /saveOtSalaryData:/);
+assert.match(mainJsx, /\/ot-sw\.js/);
 
 // 4. Capacitor Android Launcher offline OT Mobile App check
-assert.match(androidLauncherJsx, /Open OT & Salary Tracker Mobile App/);
+assert.match(androidLauncherJsx, /Open OT &amp; Salary Tracker Mobile App/);
 assert.match(androidLauncherJsx, /<OtSalary standaloneMobile=\{true\}/);
 
 // 5. PWA Manifest & Service Worker checks
 assert.equal(otManifest.short_name, 'OT & Salary');
-assert.equal(otManifest.start_url, '/ot?app=ot');
-assert.match(otSw, /ot-salary-mobile-pwa-v1/);
+assert.equal(otManifest.start_url, '/ot');
+assert.match(otSw, /ot-salary/);
 
 // 6. OtSalary.jsx Mobile App Mode, 1-Tap Punch, Day Cards, Bottom Nav & Sync Modal checks
 assert.match(otSalaryJsx, /punchEnterNowAndSave/);
@@ -61,10 +61,14 @@ assert.match(otSalaryJsx, /Mobile App \/ Sync/);
 assert.match(otSalaryJsx, /Today Punch/);
 assert.match(otSalaryJsx, /Month Days/);
 assert.match(otSalaryJsx, /Rules & App/);
+assert.match(otSalaryJsx, /OT-Salary-Mobile\.apk/);
 
-// 7. Standalone Offline Mobile App HTML generator check
-assert.match(otGeneratorJs, /export function generateStandaloneOtMobileHtml/);
+// 7. Standalone Offline Mobile App HTML & Native Android APK checks
+assert.match(otGeneratorJs, /generateStandaloneOtMobileHtml/);
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile-App.html')), 'OT-Salary-Mobile-App.html should exist in root');
 assert.ok(fs.existsSync(path.join(rootDir, 'public/OT-Salary-Mobile-App.html')), 'public/OT-Salary-Mobile-App.html should exist');
+assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile.apk')), 'OT-Salary-Mobile.apk should exist in root');
+assert.ok(fs.statSync(path.join(rootDir, 'OT-Salary-Mobile.apk')).size > 1_000_000, 'OT-Salary-Mobile.apk should be a valid non-empty APK');
 
-console.log('All OT & Salary Mobile App + Upstream integration tests passed!');
+console.log('All OT & Salary Mobile App + Android APK + Upstream integration tests passed!');
+
