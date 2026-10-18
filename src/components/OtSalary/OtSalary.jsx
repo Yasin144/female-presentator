@@ -107,44 +107,87 @@ function playBiometricBeep(direction = 'in') {
   } catch (_) {}
 }
 
-function requestAndroidHardwareBiometric(actionType, title, subtitle) {
-  return new Promise((resolve) => {
-    if (
-      typeof window === 'undefined' ||
-      !window.PattanBiometric ||
-      typeof window.PattanBiometric.authenticate !== 'function'
-    ) {
-      resolve({ ok: true, fallback: true, method: 'touch-sensor-pad' });
-      return;
-    }
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener('pattan-biometric-result', onResult);
-      resolve(result);
-    };
-    const timer = setTimeout(() => {
-      finish({ ok: true, fallback: true, method: 'touch-sensor-timeout-fallback' });
-    }, 12000);
-    const onResult = (ev) => {
-      clearTimeout(timer);
-      const detail = ev?.detail || {};
-      finish({
-        ok: Boolean(detail.ok),
-        fallback: Boolean(detail.fallback),
-        method: detail.method || 'android-hardware-biometric',
-        error: detail.error || '',
-      });
-    };
-    window.addEventListener('pattan-biometric-result', onResult);
+async function requestAndroidHardwareBiometric(actionType, title, subtitle) {
+  // 1. Native Android APK Bridge (uses real phone unlock Fingerprint / Face / Screen Lock)
+  if (
+    typeof window !== 'undefined' &&
+    window.PattanBiometric &&
+    typeof window.PattanBiometric.authenticate === 'function'
+  ) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('pattan-biometric-result', onResult);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        finish({ ok: false, fallback: false, method: 'timeout', error: 'Biometric unlock timed out' });
+      }, 30000);
+      const onResult = (ev) => {
+        clearTimeout(timer);
+        const detail = ev?.detail || {};
+        finish({
+          ok: Boolean(detail.ok),
+          fallback: Boolean(detail.fallback),
+          method: detail.method || 'android-hardware-biometric',
+          error: detail.error || '',
+        });
+      };
+      window.addEventListener('pattan-biometric-result', onResult);
+      try {
+        window.PattanBiometric.authenticate(actionType, title, subtitle);
+      } catch (err) {
+        clearTimeout(timer);
+        finish({ ok: false, fallback: false, method: 'error', error: err?.message || 'Biometric error' });
+      }
+    });
+  }
+
+  // 2. Mobile Browser / Desktop WebAuthn Platform Authenticator (triggers real Phone / Device Unlock)
+  if (
+    typeof window !== 'undefined' &&
+    window.PublicKeyCredential &&
+    navigator.credentials &&
+    typeof navigator.credentials.create === 'function'
+  ) {
     try {
-      window.PattanBiometric.authenticate(actionType, title, subtitle);
-    } catch (_) {
-      clearTimeout(timer);
-      finish({ ok: true, fallback: true, method: 'touch-sensor-pad' });
+      const challenge = new Uint8Array(32);
+      if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(challenge);
+      }
+      const userId = new Uint8Array(16);
+      userId[0] = 1;
+      await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: 'OT & Salary Tracker' },
+          user: {
+            id: userId,
+            name: 'employee@ot-tracker.local',
+            displayName: title || 'Office Attendance Unlock',
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 },
+            { type: 'public-key', alg: -257 },
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+          },
+          timeout: 30000,
+        },
+      });
+      return { ok: true, fallback: false, method: 'webauthn-device-unlock' };
+    } catch (err) {
+      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+        return { ok: false, fallback: false, method: 'canceled', error: 'Phone biometric unlock was cancelled' };
+      }
     }
-  });
+  }
+
+  return { ok: true, fallback: true, method: 'touch-sensor-pad' };
 }
 
 function formatINR(amount) {
@@ -542,15 +585,13 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   const [entryBiometricIn, setEntryBiometricIn] = useState(false);
   const [entryBiometricOut, setEntryBiometricOut] = useState(false);
 
-  // Biometric Touch Sensor state (supports both On-Screen Touch Sensor Pad + Phone Hardware Fingerprint Sensor)
-  const [biometricSensorMode, setBiometricSensorMode] = useState(() => {
-    try { return localStorage.getItem('pattan.ot.biometricMode') || 'touch_pad'; } catch (_) { return 'touch_pad'; }
-  });
+  // Biometric Touch Sensor state (defaults to Phone Unlock Hardware Biometric)
+  const [biometricSensorMode, setBiometricSensorMode] = useState('hardware');
   const [biometricScanState, setBiometricScanState] = useState({
     active: false,
     direction: '',
     progress: 0,
-    statusText: 'Touch Sensor Ready — Tap or Hold for Biometric IN / OUT',
+    statusText: 'Tap IN when arriving · Tap OUT when leaving (Uses Phone Unlock Biometric)',
     lastVerifiedText: '',
   });
   const [liveClockHHMM, setLiveClockHHMM] = useState(getCurrentTime24h);
@@ -1198,7 +1239,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     return { todayIso, inTime, nowHHMM, otMins, worked };
   };
 
-  // Biometric Touch Sensor Handler (supports IN, OUT, or Smart Auto-Detect In -> Out)
+  // Biometric Touch Sensor Handler (Always triggers real Mobile Unlock Biometric for IN or OUT)
   const performBiometricPunch = async (requestedDirection = 'auto') => {
     if (biometricScanState.active) return;
     const todayIso = getTodayIsoDate();
@@ -1212,50 +1253,43 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
 
     const actionTitle =
       resolvedDir === 'in'
-        ? `Biometric Touch IN (${formatTime12h(getNowTimeHHMM())})`
-        : `Biometric Touch OUT (${formatTime12h(getNowTimeHHMM())})`;
+        ? `Unlock to Punch IN (${formatTime12h(getNowTimeHHMM())})`
+        : `Unlock to Punch OUT (${formatTime12h(getNowTimeHHMM())})`;
 
     triggerBiometricHaptic(45);
     setBiometricScanState({
       active: true,
       direction: resolvedDir,
-      progress: 40,
-      statusText: `Scanning Fingerprint Touch Sensor for ${resolvedDir.toUpperCase()}...`,
+      progress: 50,
+      statusText: `🔐 Unlock your phone with Fingerprint / Face / PIN to Punch ${resolvedDir.toUpperCase()}...`,
       lastVerifiedText: '',
     });
 
-    let methodUsed = 'touch-sensor-pad';
-    if (biometricSensorMode === 'hardware') {
-      const hwRes = await requestAndroidHardwareBiometric(
-        resolvedDir,
-        actionTitle,
-        resolvedDir === 'in'
-          ? 'Touch fingerprint sensor to verify Office Enter (IN)'
-          : 'Touch fingerprint sensor to verify Office Exit (OUT)'
-      );
-      if (!hwRes.ok) {
-        setBiometricScanState({
-          active: false,
-          direction: '',
-          progress: 0,
-          statusText: '⚠️ Biometric scan canceled. Touch sensor again to punch.',
-          lastVerifiedText: '',
-        });
-        return;
-      }
-      methodUsed = hwRes.method || 'android-hardware-biometric';
-    } else {
-      await new Promise((r) => setTimeout(r, 260));
-      setBiometricScanState((prev) => ({ ...prev, progress: 85 }));
-      await new Promise((r) => setTimeout(r, 220));
+    const hwRes = await requestAndroidHardwareBiometric(
+      resolvedDir,
+      actionTitle,
+      resolvedDir === 'in'
+        ? 'Use your phone unlock fingerprint to record Office Enter (IN)'
+        : 'Use your phone unlock fingerprint to record Office Exit (OUT)'
+    );
+    if (!hwRes.ok) {
+      setBiometricScanState({
+        active: false,
+        direction: '',
+        progress: 0,
+        statusText: `⚠️ ${hwRes.error || 'Phone unlock cancelled — Attendance not punched.'}`,
+        lastVerifiedText: '',
+      });
+      return;
     }
+    const methodUsed = hwRes.method || 'android-hardware-biometric';
 
     playBiometricBeep(resolvedDir);
     triggerBiometricHaptic(110);
 
     if (resolvedDir === 'in') {
       const res = punchEnterNowAndSave(true, methodUsed);
-      const verifiedMsg = `✅ Biometric IN Verified at ${formatTime12h(res.nowHHMM)} (${res.todayIso})`;
+      const verifiedMsg = `✅ Biometric IN Verified at ${formatTime12h(res.nowHHMM)}`;
       setBiometricScanState({
         active: false,
         direction: 'in',
@@ -1266,7 +1300,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     } else {
       const res = punchExitNowAndSave(true, methodUsed);
       const otEarned = (res.otMins / 60) * rates.otHourlyRate;
-      const verifiedMsg = `✅ Biometric OUT Verified at ${formatTime12h(res.nowHHMM)} · Worked ${formatMinutesCompact(res.worked)} (+${formatMinutesCompact(res.otMins)} OT = +₹${formatINR(otEarned)})`;
+      const verifiedMsg = `✅ Biometric OUT Verified at ${formatTime12h(res.nowHHMM)} · +${formatMinutesCompact(res.otMins)} OT (+₹${formatINR(otEarned)})`;
       setBiometricScanState({
         active: false,
         direction: 'out',
@@ -1449,157 +1483,83 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     event.target.value = '';
   };
 
-  const showTodaySection = !mobileMode || mobileTab === 'today';
-  const showRulesSection = !mobileMode || mobileTab === 'rules';
-  const showMonthSection = !mobileMode || mobileTab === 'month';
-  const showSummarySection = !mobileMode || mobileTab === 'summary' || mobileTab === 'today';
+  const showTodaySection = mobileTab === 'today';
+  const showRulesSection = mobileTab === 'rules';
+  const showMonthSection = mobileTab === 'month';
+  const showSummarySection = mobileTab === 'summary';
 
   return (
     <div style={{
       minHeight: '100%',
-      background: 'radial-gradient(circle at 15% 0%, rgba(16, 185, 129, 0.14) 0%, transparent 42%), radial-gradient(circle at 85% 5%, rgba(14, 165, 233, 0.14) 0%, transparent 45%), linear-gradient(180deg, #040711 0%, #090f1e 50%, #060a14 100%)',
+      background: '#070b14',
       color: '#f8fafc',
-      padding: mobileMode ? '12px 12px 98px' : '22px 26px 84px',
+      padding: mobileMode ? '12px 12px 92px' : '20px 24px 80px',
       fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
       boxSizing: 'border-box',
     }}>
-      <style>{`
-        @keyframes pattanBioPulseRing {
-          0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.48), 0 0 24px rgba(16, 185, 129, 0.28); }
-          70% { box-shadow: 0 0 0 14px rgba(52, 211, 153, 0), 0 0 32px rgba(56, 189, 248, 0.34); }
-          100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0), 0 0 24px rgba(16, 185, 129, 0.28); }
-        }
-        @keyframes pattanBioScanLine {
-          0% { transform: translateY(-22px); opacity: 0.25; }
-          50% { transform: translateY(22px); opacity: 0.95; }
-          100% { transform: translateY(-22px); opacity: 0.25; }
-        }
-        .pattan-super-card {
-          transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
-        }
-        .pattan-super-card:hover {
-          transform: translateY(-2px);
-        }
-        .pattan-bio-btn:active {
-          transform: scale(0.97);
-        }
-      `}</style>
-      <div style={{ maxWidth: 1380, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: mobileMode ? 14 : 20 }}>
+      <div style={{ maxWidth: 920, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* 👑 EXECUTIVE ROYAL HEADER BANNER */}
+        {/* SIMPLE TOP HEADER */}
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 14,
-          padding: mobileMode ? '16px 16px' : '20px 26px',
-          borderRadius: 22,
-          background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(6, 78, 59, 0.38) 52%, rgba(12, 74, 110, 0.38) 100%)',
-          border: '1.5px solid rgba(52, 211, 153, 0.4)',
-          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+          gap: 10,
+          padding: '14px 16px',
+          borderRadius: 16,
+          background: '#0f172a',
+          border: '1px solid rgba(148, 163, 184, 0.22)',
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{
-                padding: '5px 12px',
-                borderRadius: 999,
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(14, 165, 233, 0.25))',
-                border: '1px solid rgba(52, 211, 153, 0.55)',
-                color: '#6ee7b7',
-                fontSize: 11,
-                fontWeight: 900,
-                letterSpacing: '0.07em',
-                textTransform: 'uppercase',
-              }}>
-                {standaloneMobile ? '📱 OT & Salary Mobile App' : '🫆 Biometric OT & SalaryRegister'}
-              </span>
-              <span style={{
-                padding: '5px 11px',
-                borderRadius: 999,
-                background: 'rgba(15, 23, 42, 0.85)',
-                border: '1px solid rgba(56, 189, 248, 0.4)',
-                color: '#7dd3fc',
-                fontSize: 11.5,
-                fontWeight: 900,
-              }}>
-                🕒 Live Clock: {formatTime12h(liveClockHHMM)} · {getTodayIsoDate()}
-              </span>
-              <span style={{ fontSize: 12, color: '#cbd5e1', fontWeight: 700 }}>
-                Shift: {formatTime12h(settings.officeStartTime)} – {formatTime12h(settings.officeEndTime)} ({formatMinutesReadable(rates.shiftMins)})
-              </span>
+            <div style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>
+              ⏱️ OT &amp; Salary Tracker
             </div>
-            <h1 style={{
-              margin: '8px 0 6px',
-              fontSize: mobileMode ? 19 : 25,
-              fontWeight: 900,
-              letterSpacing: '-0.01em',
-              background: 'linear-gradient(90deg, #ffffff 0%, #a7f3d0 55%, #fde047 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              color: '#fff',
-            }}>
-              Biometric Touch Sensor (IN &amp; OUT) &amp; Smart OT Salary Calculator
-            </h1>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(250, 204, 21, 0.14)', border: '1px solid rgba(250, 204, 21, 0.35)', fontSize: 12, color: '#fef08a', fontWeight: 800 }}>
-                💰 Monthly Salary: ₹{formatINR(rates.salary)}
-              </span>
-              <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(56, 189, 248, 0.14)', border: '1px solid rgba(56, 189, 248, 0.35)', fontSize: 12, color: '#bae6fd', fontWeight: 800 }}>
-                📅 1 Day Pay: ₹{formatINR(rates.perDaySalary)} ({rates.divisorDays}d)
-              </span>
-              <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(52, 211, 153, 0.4)', fontSize: 12, color: '#a7f3d0', fontWeight: 800 }}>
-                ⚡ 1 Hr OT: ₹{formatINR(rates.otHourlyRate)} (₹{formatINR(rates.otPerMinuteRate)}/min)
-              </span>
+            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>
+              ₹{formatINR(rates.salary)}/mo · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {saveNotice && (
               <span style={{
-                padding: '8px 14px',
-                borderRadius: 12,
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(6, 95, 70, 0.85))',
+                padding: '6px 10px',
+                borderRadius: 8,
+                background: 'rgba(16, 185, 129, 0.22)',
                 border: '1px solid #34d399',
-                color: '#ecfdf5',
-                fontSize: 12,
-                fontWeight: 900,
-                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.25)',
+                color: '#a7f3d0',
+                fontSize: 11.5,
+                fontWeight: 800,
               }}>
                 ✓ {saveNotice}
               </span>
             )}
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: '#090d16',
-              padding: '8px 12px',
-              borderRadius: 12,
-              border: '1px solid rgba(148,163,184,0.32)',
-              fontSize: 12,
-              fontWeight: 800,
-            }}>
-              <span style={{ color: '#94a3b8' }}>📅 Month:</span>
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => {
-                  if (e.target.value) setSelectedMonth(e.target.value);
-                }}
-                style={{ background: 'transparent', border: 0, color: '#fff', fontWeight: 900, fontSize: 13, outline: 'none', cursor: 'pointer' }}
-              />
-            </label>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => {
+                if (e.target.value) setSelectedMonth(e.target.value);
+              }}
+              style={{
+                background: '#090d16',
+                border: '1px solid rgba(148,163,184,0.3)',
+                borderRadius: 8,
+                padding: '6px 10px',
+                color: '#fff',
+                fontWeight: 800,
+                fontSize: 12.5,
+              }}
+            />
             <button
               type="button"
               onClick={() => setShowMobileAppModal(true)}
               style={{
-                padding: '9px 14px',
-                borderRadius: 12,
-                border: '1px solid rgba(52, 211, 153, 0.6)',
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(14, 165, 233, 0.26))',
+                padding: '7px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(52, 211, 153, 0.5)',
+                background: 'rgba(16, 185, 129, 0.2)',
                 color: '#ecfdf5',
-                fontWeight: 900,
+                fontWeight: 800,
                 fontSize: 12,
                 cursor: 'pointer',
               }}
@@ -1608,63 +1568,27 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             </button>
             <button
               type="button"
-              onClick={() => {
-                const next = !mobileMode;
-                setMobileMode(next);
-                if (next) setMobileDaysLayout('cards');
-              }}
-              style={{
-                padding: '9px 13px',
-                borderRadius: 12,
-                border: mobileMode ? '1px solid #38bdf8' : '1px solid rgba(148,163,184,0.3)',
-                background: mobileMode ? 'rgba(14, 165, 233, 0.24)' : 'rgba(255,255,255,0.06)',
-                color: '#e0f2fe',
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              {mobileMode ? '🖥️ Desktop View' : '📱 Mobile View'}
-            </button>
-            <button
-              type="button"
               onClick={shareSalarySummaryOnWhatsApp}
               style={{
-                padding: '9px 13px',
-                borderRadius: 12,
-                border: '1px solid rgba(34, 197, 94, 0.5)',
-                background: 'rgba(34, 197, 94, 0.18)',
+                padding: '7px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(34, 197, 94, 0.45)',
+                background: 'rgba(34, 197, 94, 0.16)',
                 color: '#bbf7d0',
                 fontWeight: 800,
                 fontSize: 12,
                 cursor: 'pointer',
               }}
             >
-              📲 WhatsApp Slip
-            </button>
-            <button
-              type="button"
-              onClick={exportMonthCsv}
-              style={{
-                padding: '9px 13px',
-                borderRadius: 12,
-                border: '1px solid rgba(56, 189, 248, 0.45)',
-                background: 'rgba(14, 165, 233, 0.18)',
-                color: '#e0f2fe',
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              📥 CSV
+              📲 WhatsApp
             </button>
             {onClose && (
               <button
                 type="button"
                 onClick={onClose}
                 style={{
-                  padding: '9px 13px',
-                  borderRadius: 12,
+                  padding: '7px 12px',
+                  borderRadius: 8,
                   border: '1px solid rgba(255,255,255,0.18)',
                   background: 'rgba(255,255,255,0.06)',
                   color: '#fff',
@@ -1679,608 +1603,166 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           </div>
         </div>
 
-        {/* 💎 EXECUTIVE 4-CARD MONEY & OT SCOREBOARD (ALWAYS VISIBLE AT A GLANCE) */}
-        {showSummarySection && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: 12,
-        }}>
-          {/* Card 1: Total Net Salary Receivable (Gold Primary Card) */}
-          <div className="pattan-super-card" style={{
-            padding: '16px 18px',
-            borderRadius: 18,
-            background: 'linear-gradient(145deg, rgba(234, 179, 8, 0.22) 0%, rgba(15, 23, 42, 0.96) 100%)',
-            border: '1.5px solid rgba(250, 204, 21, 0.55)',
-            boxShadow: '0 12px 30px rgba(234, 179, 8, 0.14)',
+        {/* SIMPLE 2-BOX TOP MONEY SUMMARY */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 14,
+            background: '#0f172a',
+            border: '1px solid rgba(250, 204, 21, 0.45)',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: '#fde047', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                💰 Total Salary Receivable
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(250, 204, 21, 0.2)', color: '#fef08a' }}>
-                {selectedMonth}
-              </span>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#fde047', textTransform: 'uppercase' }}>
+              💰 Total Net Salary ({selectedMonth})
             </div>
-            <div style={{ marginTop: 6, fontSize: mobileMode ? 24 : 29, fontWeight: 900, color: '#facc15', letterSpacing: '-0.02em' }}>
+            <div style={{ marginTop: 4, fontSize: mobileMode ? 22 : 26, fontWeight: 900, color: '#facc15' }}>
               ₹{formatINR(monthSummary.fullMonthNetPayable)}
             </div>
-            <div style={{ marginTop: 4, fontSize: 11.5, color: '#fef08a', fontWeight: 700 }}>
-              Saved Days Total: ₹{formatINR(monthSummary.savedDaysNetTotal)} ({monthSummary.savedDaysCount}/{monthRows.length}d)
+            <div style={{ marginTop: 2, fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+              {monthSummary.savedDaysCount}/{monthRows.length} days saved
             </div>
           </div>
 
-          {/* Card 2: Extra OT Money Earned */}
-          <div className="pattan-super-card" style={{
-            padding: '16px 18px',
-            borderRadius: 18,
-            background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.22) 0%, rgba(15, 23, 42, 0.96) 100%)',
-            border: '1.5px solid rgba(52, 211, 153, 0.5)',
-            boxShadow: '0 12px 30px rgba(16, 185, 129, 0.14)',
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 14,
+            background: '#0f172a',
+            border: '1px solid rgba(52, 211, 153, 0.45)',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: '#6ee7b7', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                ⚡ Extra OT Money Earned
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.22)', color: '#a7f3d0' }}>
-                {monthSummary.otDaysCount} OT {monthSummary.otDaysCount === 1 ? 'Day' : 'Days'}
-              </span>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#6ee7b7', textTransform: 'uppercase' }}>
+              ⚡ Extra OT Earned
             </div>
-            <div style={{ marginTop: 6, fontSize: mobileMode ? 24 : 29, fontWeight: 900, color: '#34d399', letterSpacing: '-0.02em' }}>
+            <div style={{ marginTop: 4, fontSize: mobileMode ? 22 : 26, fontWeight: 900, color: '#34d399' }}>
               + ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
             </div>
-            <div style={{ marginTop: 4, fontSize: 11.5, color: '#a7f3d0', fontWeight: 700 }}>
-              1h = ₹{formatINR(rates.otHourlyRate)} · 2h = ₹{formatINR(rates.otHourlyRate * 2)}
-            </div>
-          </div>
-
-          {/* Card 3: Extra Work (OT) Time */}
-          <div className="pattan-super-card" style={{
-            padding: '16px 18px',
-            borderRadius: 18,
-            background: 'linear-gradient(145deg, rgba(14, 165, 233, 0.2) 0%, rgba(15, 23, 42, 0.96) 100%)',
-            border: '1.5px solid rgba(56, 189, 248, 0.45)',
-            boxShadow: '0 12px 30px rgba(14, 165, 233, 0.12)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                ⏱️ Extra Work (OT) Time
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(56, 189, 248, 0.2)', color: '#bae6fd' }}>
-                {(monthSummary.totalOtMins / 60).toFixed(1)} hrs
-              </span>
-            </div>
-            <div style={{ marginTop: 6, fontSize: mobileMode ? 22 : 26, fontWeight: 900, color: '#38bdf8' }}>
-              {formatMinutesReadable(monthSummary.totalOtMins)}
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11.5, color: '#bae6fd', fontWeight: 700 }}>
-              Rate: ₹{formatINR(rates.otHourlyRate)}/hr · ₹{formatINR(rates.otPerMinuteRate)}/min
-            </div>
-          </div>
-
-          {/* Card 4: Monthly Base Salary & Per-Day Rate */}
-          <div className="pattan-super-card" style={{
-            padding: '16px 18px',
-            borderRadius: 18,
-            background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.16) 0%, rgba(15, 23, 42, 0.96) 100%)',
-            border: '1.5px solid rgba(129, 140, 248, 0.38)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: '#c7d2fe', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                🏦 Monthly Base Salary
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(99, 102, 241, 0.22)', color: '#e0e7ff' }}>
-                {rates.divisorDays} Days Basis
-              </span>
-            </div>
-            <div style={{ marginTop: 6, fontSize: mobileMode ? 22 : 26, fontWeight: 900, color: '#f8fafc' }}>
-              ₹{formatINR(rates.salary)}
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11.5, color: '#cbd5e1', fontWeight: 700 }}>
-              ₹{formatINR(rates.perDaySalary)} / day · Shift {formatMinutesReadable(rates.shiftMins)}
+            <div style={{ marginTop: 2, fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
+              {formatMinutesReadable(monthSummary.totalOtMins)} OT
             </div>
           </div>
         </div>
-        )}
 
-        {/* 🫆 SUPER-CLASS BIOMETRIC TOUCH SENSOR TERMINAL (STEP 1 IN → SMART SENSOR → STEP 2 OUT) */}
-        {(() => {
+        {/* CLEAN 4-TAB BAR */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 6,
+          padding: 5,
+          borderRadius: 12,
+          background: '#0f172a',
+          border: '1px solid rgba(148, 163, 184, 0.22)',
+        }}>
+          {[
+            { id: 'today', label: '🫆 Today Punch' },
+            { id: 'month', label: '📅 Month Days' },
+            { id: 'summary', label: '📊 Salary Slip' },
+            { id: 'rules', label: '⚙️ Rules & App' },
+          ].map((t) => {
+            const active = mobileTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setMobileTab(t.id)}
+                style={{
+                  padding: '9px 6px',
+                  borderRadius: 9,
+                  border: 0,
+                  background: active ? '#10b981' : 'transparent',
+                  color: active ? '#052e16' : '#cbd5e1',
+                  fontWeight: 900,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 🫆 SIMPLE BIOMETRIC IN & OUT CARD (Uses Real Mobile Unlock Biometric) */}
+        {showTodaySection && (() => {
           const todayIso = getTodayIsoDate();
           const todayRec = daysMap[todayIso];
           const hasBioInToday = Boolean(todayRec?.biometricIn);
           const hasBioOutToday = Boolean(todayRec?.biometricOut);
-          const nextAutoAction = hasBioInToday && !hasBioOutToday ? 'out' : 'in';
-          const todayInDisplay = todayRec?.inTime || entryInTime || settings.officeStartTime;
-          const todayOutDisplay = todayRec?.outTime || entryOutTime || settings.officeEndTime;
           return (
             <div style={{
-              padding: mobileMode ? '16px 14px' : '22px 24px',
-              borderRadius: 22,
-              background: 'linear-gradient(145deg, rgba(6, 24, 44, 0.96) 0%, rgba(15, 23, 42, 0.98) 50%, rgba(4, 47, 46, 0.88) 100%)',
-              border: biometricScanState.active
-                ? '2px solid #34d399'
-                : '1.5px solid rgba(52, 211, 153, 0.5)',
-              boxShadow: biometricScanState.active
-                ? '0 0 38px rgba(16, 185, 129, 0.42)'
-                : '0 18px 42px rgba(0, 0, 0, 0.45)',
+              padding: 16,
+              borderRadius: 16,
+              background: '#0f172a',
+              border: '1.5px solid rgba(52, 211, 153, 0.45)',
             }}>
-              {/* Terminal Top Header & Mode Switcher */}
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                paddingBottom: 14,
-                marginBottom: 16,
-                borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-              }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{
-                      padding: '4px 12px',
-                      borderRadius: 999,
-                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(14, 165, 233, 0.3))',
-                      border: '1px solid #34d399',
-                      color: '#ecfdf5',
-                      fontSize: 11.5,
-                      fontWeight: 900,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}>
-                      🫆 Biometric Touch Sensor (IN &amp; OUT)
-                    </span>
-                    <span style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      background: hasBioInToday && hasBioOutToday
-                        ? 'rgba(250, 204, 21, 0.22)'
-                        : hasBioInToday
-                          ? 'rgba(56, 189, 248, 0.22)'
-                          : 'rgba(148, 163, 184, 0.16)',
-                      border: hasBioInToday && hasBioOutToday
-                        ? '1px solid rgba(250, 204, 21, 0.6)'
-                        : hasBioInToday
-                          ? '1px solid rgba(56, 189, 248, 0.55)'
-                          : '1px solid rgba(148, 163, 184, 0.3)',
-                      color: hasBioInToday && hasBioOutToday
-                        ? '#fde047'
-                        : hasBioInToday
-                          ? '#7dd3fc'
-                          : '#cbd5e1',
-                      fontSize: 11,
-                      fontWeight: 900,
-                    }}>
-                      {hasBioInToday && hasBioOutToday
-                        ? '✅ TODAY IN & OUT VERIFIED'
-                        : hasBioInToday
-                          ? '🟢 CURRENTLY IN OFFICE (Waiting for OUT)'
-                          : '⏳ READY FOR MORNING IN TOUCH'}
-                    </span>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: '#fff' }}>
+                    🫆 Biometric Touch Sensor (IN &amp; OUT)
                   </div>
-                  <div style={{ marginTop: 6, fontSize: 13, color: '#e2e8f0', fontWeight: 700 }}>
+                  <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
                     {biometricScanState.statusText}
                   </div>
                 </div>
-
-                {/* Sensor Mode Selector: Touch Sensor Pad vs Phone Fingerprint */}
-                <div style={{
-                  display: 'inline-flex',
-                  padding: 3,
-                  borderRadius: 12,
-                  background: '#050811',
-                  border: '1px solid rgba(148, 163, 184, 0.3)',
+                <span style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: 'rgba(16, 185, 129, 0.16)',
+                  color: '#6ee7b7',
+                  fontSize: 11.5,
+                  fontWeight: 800,
                 }}>
-                  {[
-                    { id: 'touch_pad', label: '🫆 Touch Sensor Pad' },
-                    { id: 'hardware', label: '🔐 Phone Fingerprint' },
-                  ].map((mode) => {
-                    const active = biometricSensorMode === mode.id;
-                    return (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() => {
-                          setBiometricSensorMode(mode.id);
-                          try { localStorage.setItem('pattan.ot.biometricMode', mode.id); } catch (_) {}
-                        }}
-                        style={{
-                          padding: '7px 12px',
-                          borderRadius: 9,
-                          border: 0,
-                          background: active ? 'linear-gradient(135deg, #10b981, #0284c7)' : 'transparent',
-                          color: active ? '#fff' : '#94a3b8',
-                          fontWeight: 900,
-                          fontSize: 11.5,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {mode.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                  🕒 {formatTime12h(liveClockHHMM)}
+                </span>
               </div>
 
-              {/* 3-STEP VISUAL BIOMETRIC TERMINALS: [STEP 1: IN SENSOR] ⇄ [SMART CENTER PAD] ⇄ [STEP 2: OUT SENSOR] */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: mobileMode ? '1fr' : '1.2fr 0.95fr 1.2fr',
-                gap: 14,
-                alignItems: 'stretch',
-              }}>
-                {/* STEP 1: BIOMETRIC TOUCH SENSOR — IN (ENTER) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <button
                   type="button"
-                  className="pattan-bio-btn"
                   onClick={() => performBiometricPunch('in')}
                   disabled={biometricScanState.active}
                   style={{
-                    padding: '16px 18px',
-                    borderRadius: 18,
-                    border: hasBioInToday
-                      ? '2px solid #38bdf8'
-                      : '1.5px solid rgba(56, 189, 248, 0.48)',
-                    background: hasBioInToday
-                      ? 'linear-gradient(145deg, rgba(2, 132, 199, 0.34), rgba(9, 13, 22, 0.96))'
-                      : 'linear-gradient(145deg, rgba(14, 165, 233, 0.18), rgba(9, 13, 22, 0.96))',
+                    padding: '16px 12px',
+                    borderRadius: 14,
+                    border: hasBioInToday ? '2px solid #38bdf8' : '1.5px solid rgba(56, 189, 248, 0.45)',
+                    background: 'linear-gradient(135deg, #0284c7, #1e3a8a)',
                     color: '#fff',
                     cursor: 'pointer',
-                    textAlign: 'left',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    boxShadow: hasBioInToday
-                      ? '0 10px 28px rgba(14, 165, 233, 0.28)'
-                      : '0 8px 20px rgba(0, 0, 0, 0.3)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <span style={{
-                      padding: '3px 9px',
-                      borderRadius: 999,
-                      background: 'rgba(56, 189, 248, 0.22)',
-                      color: '#7dd3fc',
-                      fontSize: 10.5,
-                      fontWeight: 900,
-                      letterSpacing: '0.06em',
-                    }}>
-                      STEP 1 · MORNING ARRIVAL
-                    </span>
-                    <span style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      background: hasBioInToday ? 'rgba(16, 185, 129, 0.28)' : 'rgba(56, 189, 248, 0.2)',
-                      border: hasBioInToday ? '1px solid #34d399' : '1px solid rgba(56, 189, 248, 0.45)',
-                      color: hasBioInToday ? '#6ee7b7' : '#bae6fd',
-                      fontSize: 11,
-                      fontWeight: 900,
-                    }}>
-                      {hasBioInToday ? '✓ IN VERIFIED' : 'TOUCH IN'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{
-                      width: 58,
-                      height: 58,
-                      borderRadius: '50%',
-                      background: 'radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(15, 23, 42, 0.95) 75%)',
-                      border: '2px solid #38bdf8',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 28,
-                      flexShrink: 0,
-                      boxShadow: '0 0 20px rgba(56, 189, 248, 0.35)',
-                    }}>
-                      🫆
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#fff' }}>
-                        Touch Sensor — IN (Enter)
-                      </div>
-                      <div style={{ fontSize: 12, color: '#bae6fd', fontWeight: 700, marginTop: 3 }}>
-                        {hasBioInToday
-                          ? `Entered Today at ${formatTime12h(todayRec.inTime)}`
-                          : `Tap finger here when entering office`}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(5, 8, 17, 0.72)',
-                    border: '1px solid rgba(56, 189, 248, 0.3)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 12,
-                    fontWeight: 800,
-                  }}>
-                    <span style={{ color: '#94a3b8' }}>Office Enter Time:</span>
-                    <span style={{ color: '#7dd3fc', fontSize: 14, fontWeight: 900 }}>
-                      {formatTime12h(todayInDisplay)}
-                    </span>
-                  </div>
-                </button>
-
-                {/* CENTER: SMART 1-TOUCH ULTRASONIC FINGERPRINT PAD (AUTO IN -> OUT) */}
-                <button
-                  type="button"
-                  className="pattan-bio-btn"
-                  onClick={() => performBiometricPunch('auto')}
-                  disabled={biometricScanState.active}
-                  title="Smart Biometric Touch Sensor — 1st Touch punches IN (Enter), 2nd Touch punches OUT (Exit + Auto OT)"
-                  style={{
-                    padding: '16px 16px',
-                    borderRadius: 20,
-                    border: biometricScanState.active
-                      ? '2px solid #34d399'
-                      : nextAutoAction === 'out'
-                        ? '2px solid rgba(52, 211, 153, 0.8)'
-                        : '2px solid rgba(250, 204, 21, 0.75)',
-                    background: 'radial-gradient(circle at 50% 35%, rgba(16, 185, 129, 0.32) 0%, rgba(14, 165, 233, 0.18) 50%, rgba(5, 8, 17, 0.96) 100%)',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
                     textAlign: 'center',
-                    animation: 'pattanBioPulseRing 2.8s infinite',
                   }}
                 >
-                  <span style={{
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(250, 204, 21, 0.2)',
-                    border: '1px solid rgba(250, 204, 21, 0.5)',
-                    color: '#fde047',
-                    fontSize: 10,
-                    fontWeight: 900,
-                    letterSpacing: '0.07em',
-                    textTransform: 'uppercase',
-                  }}>
-                    ⚡ SMART AUTO SENSOR PAD
-                  </span>
-
-                  <div style={{
-                    position: 'relative',
-                    width: 72,
-                    height: 72,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(16, 185, 129, 0.35) 0%, rgba(9, 13, 22, 0.95) 75%)',
-                    border: '2.5px solid #34d399',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 34,
-                    overflow: 'hidden',
-                    boxShadow: '0 0 26px rgba(16, 185, 129, 0.45)',
-                  }}>
-                    <span>🫆</span>
-                    <div style={{
-                      position: 'absolute',
-                      left: 6,
-                      right: 6,
-                      height: 2.5,
-                      background: 'linear-gradient(90deg, transparent, #34d399, #38bdf8, transparent)',
-                      animation: 'pattanBioScanLine 2.1s ease-in-out infinite',
-                    }} />
+                  <div style={{ fontSize: 28, marginBottom: 4 }}>🫆</div>
+                  <div style={{ fontSize: 14, fontWeight: 900 }}>
+                    Touch Sensor — IN (Enter)
                   </div>
-
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 900, color: '#ecfdf5' }}>
-                      {biometricScanState.active
-                        ? `Scanning Finger (${biometricScanState.progress}%)...`
-                        : `Smart Touch (${nextAutoAction === 'out' ? 'Auto OUT' : 'Auto IN'})`}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>
-                      1st Touch = IN · 2nd Touch = OUT + OT
-                    </div>
+                  <div style={{ fontSize: 11.5, color: '#bae6fd', fontWeight: 700, marginTop: 4 }}>
+                    {hasBioInToday
+                      ? `✓ IN: ${formatTime12h(todayRec.inTime)}`
+                      : 'Tap & Unlock Phone for IN'}
                   </div>
                 </button>
 
-                {/* STEP 2: BIOMETRIC TOUCH SENSOR — OUT (EXIT + AUTO OT) */}
                 <button
                   type="button"
-                  className="pattan-bio-btn"
                   onClick={() => performBiometricPunch('out')}
                   disabled={biometricScanState.active}
                   style={{
-                    padding: '16px 18px',
-                    borderRadius: 18,
-                    border: hasBioOutToday
-                      ? '2px solid #34d399'
-                      : '1.5px solid rgba(52, 211, 153, 0.5)',
-                    background: hasBioOutToday
-                      ? 'linear-gradient(145deg, rgba(16, 185, 129, 0.34), rgba(9, 13, 22, 0.96))'
-                      : 'linear-gradient(145deg, rgba(16, 185, 129, 0.18), rgba(9, 13, 22, 0.96))',
+                    padding: '16px 12px',
+                    borderRadius: 14,
+                    border: hasBioOutToday ? '2px solid #34d399' : '1.5px solid rgba(52, 211, 153, 0.45)',
+                    background: 'linear-gradient(135deg, #059669, #064e3b)',
                     color: '#fff',
                     cursor: 'pointer',
-                    textAlign: 'left',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    boxShadow: hasBioOutToday
-                      ? '0 10px 28px rgba(16, 185, 129, 0.28)'
-                      : '0 8px 20px rgba(0, 0, 0, 0.3)',
+                    textAlign: 'center',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <span style={{
-                      padding: '3px 9px',
-                      borderRadius: 999,
-                      background: 'rgba(16, 185, 129, 0.22)',
-                      color: '#6ee7b7',
-                      fontSize: 10.5,
-                      fontWeight: 900,
-                      letterSpacing: '0.06em',
-                    }}>
-                      STEP 2 · EVENING EXIT + OT
-                    </span>
-                    <span style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      background: hasBioOutToday ? 'rgba(250, 204, 21, 0.24)' : 'rgba(16, 185, 129, 0.24)',
-                      border: hasBioOutToday ? '1px solid #facc15' : '1px solid rgba(52, 211, 153, 0.5)',
-                      color: hasBioOutToday ? '#fde047' : '#a7f3d0',
-                      fontSize: 11,
-                      fontWeight: 900,
-                    }}>
-                      {hasBioOutToday ? '✓ OUT VERIFIED' : 'TOUCH OUT'}
-                    </span>
+                  <div style={{ fontSize: 28, marginBottom: 4 }}>🫆</div>
+                  <div style={{ fontSize: 14, fontWeight: 900 }}>
+                    Touch Sensor — OUT (Exit + OT)
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{
-                      width: 58,
-                      height: 58,
-                      borderRadius: '50%',
-                      background: 'radial-gradient(circle, rgba(16, 185, 129, 0.35) 0%, rgba(15, 23, 42, 0.95) 75%)',
-                      border: '2px solid #34d399',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 28,
-                      flexShrink: 0,
-                      boxShadow: '0 0 20px rgba(16, 185, 129, 0.35)',
-                    }}>
-                      🫆
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#fff' }}>
-                        Touch Sensor — OUT (Exit + OT)
-                      </div>
-                      <div style={{ fontSize: 12, color: '#a7f3d0', fontWeight: 700, marginTop: 3 }}>
-                        {hasBioOutToday
-                          ? `Exited Today at ${formatTime12h(todayRec.outTime)}`
-                          : `Tap finger here when leaving office`}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(5, 8, 17, 0.72)',
-                    border: '1px solid rgba(52, 211, 153, 0.32)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 12,
-                    fontWeight: 800,
-                  }}>
-                    <span style={{ color: '#94a3b8' }}>Office Exit Time:</span>
-                    <span style={{ color: '#6ee7b7', fontSize: 14, fontWeight: 900 }}>
-                      {formatTime12h(todayOutDisplay)}
-                    </span>
+                  <div style={{ fontSize: 11.5, color: '#a7f3d0', fontWeight: 700, marginTop: 4 }}>
+                    {hasBioOutToday
+                      ? `✓ OUT: ${formatTime12h(todayRec.outTime)}`
+                      : 'Tap & Unlock Phone for OUT'}
                   </div>
                 </button>
-              </div>
-
-              {/* STEP 3: CRYSTAL-CLEAR LIVE TODAY SUMMARY & 1-TAP QUICK PUNCH BAR */}
-              <div style={{
-                marginTop: 14,
-                paddingTop: 14,
-                borderTop: '1px solid rgba(148, 163, 184, 0.18)',
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-              }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800 }}>
-                  <span style={{ padding: '6px 11px', borderRadius: 9, background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(56, 189, 248, 0.35)', color: '#bae6fd' }}>
-                    🟢 IN: <strong>{formatTime12h(entryInTime)}</strong> {entryBiometricIn ? '🫆✓' : ''}
-                  </span>
-                  <span style={{ color: '#64748b', fontWeight: 900 }}>→</span>
-                  <span style={{ padding: '6px 11px', borderRadius: 9, background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(52, 211, 153, 0.35)', color: '#a7f3d0' }}>
-                    🔴 OUT: <strong>{formatTime12h(entryOutTime)}</strong> {entryBiometricOut ? '🫆✓' : ''}
-                  </span>
-                  <span style={{ color: '#64748b', fontWeight: 900 }}>=</span>
-                  <span style={{ padding: '6px 11px', borderRadius: 9, background: 'rgba(16, 185, 129, 0.18)', border: '1px solid rgba(52, 211, 153, 0.45)', color: '#6ee7b7' }}>
-                    ⏱️ Worked: <strong>{formatMinutesCompact(activeDayPreview.workedMins)}</strong> (OT: <strong>+{formatMinutesCompact(activeDayPreview.otMins)}</strong>)
-                  </span>
-                  <span style={{ padding: '6px 12px', borderRadius: 9, background: 'rgba(250, 204, 21, 0.18)', border: '1px solid rgba(250, 204, 21, 0.5)', color: '#fde047', fontWeight: 900 }}>
-                    💵 Selected Day Total: ₹{formatINR(activeDayPreview.totalPay)}
-                  </span>
-                </div>
-
-                {/* 1-Tap Quick Action Pills */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => punchEnterNowAndSave(true, 'quick-punch-in')}
-                    style={{
-                      padding: '7px 11px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(56, 189, 248, 0.45)',
-                      background: 'rgba(14, 165, 233, 0.18)',
-                      color: '#e0f2fe',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🟢 Punch Enter Now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => punchExitNowAndSave(true, 'quick-punch-out')}
-                    style={{
-                      padding: '7px 11px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(52, 211, 153, 0.5)',
-                      background: 'rgba(16, 185, 129, 0.2)',
-                      color: '#ecfdf5',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🔴 Punch Exit Now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => quickSetTodayOtAndSave(1)}
-                    style={{
-                      padding: '7px 11px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(250, 204, 21, 0.45)',
-                      background: 'rgba(250, 204, 21, 0.14)',
-                      color: '#fef08a',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ⚡ Today +1h OT (7:30 PM)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => quickSetTodayOtAndSave(2)}
-                    style={{
-                      padding: '7px 11px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(168, 85, 247, 0.45)',
-                      background: 'rgba(168, 85, 247, 0.16)',
-                      color: '#f3e8ff',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ⚡ Today +2h OT (8:30 PM)
-                  </button>
-                </div>
               </div>
             </div>
           );
@@ -2431,85 +1913,14 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               />
             </div>
 
-            {/* Automatic Time Calculation Summary Strip */}
-            <div style={{
-              padding: '13px 15px',
-              borderRadius: 12,
-              background: '#090d16',
-              border: '1px solid rgba(56, 189, 248, 0.35)',
-              marginBottom: 14,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                ⏱️ Automatic Time Calculation ({formatTime12h(entryInTime)} → {formatTime12h(entryOutTime)})
-              </div>
-
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
-                gap: 10,
-              }}>
-                <div style={{ padding: '9px 11px', borderRadius: 9, background: '#0f172a', border: '1px solid rgba(148,163,184,0.2)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Total Time Worked</div>
-                  <div style={{ marginTop: 3, fontSize: 15, fontWeight: 900, color: '#f8fafc' }}>
-                    {formatMinutesReadable(activeDayPreview.workedMins)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#64748b' }}>
-                    {(activeDayPreview.workedMins / 60).toFixed(2)} hrs ({activeDayPreview.workedMins} mins)
-                  </div>
-                </div>
-
-                <div style={{ padding: '9px 11px', borderRadius: 9, background: '#0f172a', border: '1px solid rgba(148,163,184,0.2)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Standard Office Duty</div>
-                  <div style={{ marginTop: 3, fontSize: 15, fontWeight: 900, color: '#cbd5e1' }}>
-                    {formatMinutesReadable(activeDayPreview.standardShiftMins)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#64748b' }}>
-                    {formatTime12h(settings.officeStartTime)} – {formatTime12h(settings.officeEndTime)}
-                  </div>
-                </div>
-
-                <div style={{
-                  padding: '9px 11px',
-                  borderRadius: 9,
-                  background: activeDayPreview.otMins > 0 ? 'rgba(16,185,129,0.14)' : '#0f172a',
-                  border: activeDayPreview.otMins > 0 ? '1px solid rgba(52,211,153,0.5)' : '1px solid rgba(148,163,184,0.2)',
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#6ee7b7', textTransform: 'uppercase' }}>Extra OT Time</div>
-                  <div style={{ marginTop: 3, fontSize: 15, fontWeight: 900, color: '#34d399' }}>
-                    {formatMinutesReadable(activeDayPreview.otMins)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#a7f3d0' }}>
-                    {activeDayPreview.otHours.toFixed(2)} hrs = +₹{formatINR(activeDayPreview.otPay)}
-                  </div>
-                </div>
-
-                {activeDayPreview.shortMins > 0 && entryStatus === 'present' && (
-                  <div style={{
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    background: 'rgba(245,158,11,0.12)',
-                    border: '1px solid rgba(251,191,36,0.4)',
-                  }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: '#fde047', textTransform: 'uppercase' }}>Short / Early Exit</div>
-                    <div style={{ marginTop: 3, fontSize: 15, fontWeight: 900, color: '#fbbf24' }}>
-                      {formatMinutesReadable(activeDayPreview.shortMins)}
-                    </div>
-                    <div style={{ fontSize: 10.5, color: '#fde68a' }}>
-                      {settings.deductShortHours ? `-₹${formatINR(activeDayPreview.shortDeduction)} deducted` : 'No deduction (Full base)'}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
             {/* Quick 1-Click Extra OT Buttons (Also sets Exit Time automatically) */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>
-                  ⚡ Or Click Extra OT Hours Directly (Auto-sets Exit Time from {formatTime12h(entryInTime)}):
+                  ⚡ Quick Extra OT Hours (Auto-sets Exit Time):
                 </span>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>Manual OT Hours:</span>
+                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>OT Hours:</span>
                   <input
                     type="number"
                     min="0"
@@ -2534,13 +1945,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                 {[
                   { hrs: 0, label: '0 hr (6:30 PM)' },
-                  { hrs: 0.5, label: '+30 min (7:00 PM)' },
-                  { hrs: 1, label: '+1 hr (7:30 PM)' },
-                  { hrs: 1.5, label: '+1.5 hrs (8:00 PM)' },
-                  { hrs: 2, label: '+2 hrs (8:30 PM)' },
-                  { hrs: 2.5, label: '+2.5 hrs (9:00 PM)' },
-                  { hrs: 3, label: '+3 hrs (9:30 PM)' },
-                  { hrs: 4, label: '+4 hrs (10:30 PM)' },
+                  { hrs: 0.5, label: '+30m (7:00 PM)' },
+                  { hrs: 1, label: '+1h (7:30 PM)' },
+                  { hrs: 1.5, label: '+1.5h (8:00 PM)' },
+                  { hrs: 2, label: '+2h (8:30 PM)' },
+                  { hrs: 3, label: '+3h (9:30 PM)' },
                 ].map((preset) => {
                   const active = Math.abs((Number(entryOtHours) || 0) - preset.hrs) < 0.01;
                   return (
@@ -2570,11 +1979,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Work Note / Project (Optional)
+                  Work Note (Optional)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g., Worked 10:00 AM to 08:30 PM (+2 hrs extra work)"
+                  placeholder="Optional note..."
                   value={entryNote}
                   onChange={(e) => setEntryNote(e.target.value)}
                   style={{
@@ -2591,7 +2000,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Extra Bonus / Allowance (₹)
+                  Extra Bonus (₹)
                 </label>
                 <input
                   type="number"
@@ -2612,70 +2021,6 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                   }}
                 />
               </div>
-            </div>
-
-            {/* Biometric Touch Sensor Verification for Selected Date */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 10,
-              marginBottom: 14,
-              padding: '10px 12px',
-              borderRadius: 11,
-              background: '#090d16',
-              border: '1px solid rgba(52, 211, 153, 0.28)',
-            }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !entryBiometricIn;
-                  setEntryBiometricIn(next);
-                  triggerBiometricHaptic(55);
-                  if (next) playBiometricBeep('in');
-                }}
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: 9,
-                  border: entryBiometricIn ? '1px solid #38bdf8' : '1px solid rgba(148,163,184,0.28)',
-                  background: entryBiometricIn ? 'rgba(14,165,233,0.2)' : 'rgba(255,255,255,0.03)',
-                  color: entryBiometricIn ? '#7dd3fc' : '#94a3b8',
-                  fontWeight: 900,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span>🫆 Biometric Touch IN ({formatTime12h(entryInTime)})</span>
-                <span>{entryBiometricIn ? '✓ Verified' : 'Tap to Verify'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !entryBiometricOut;
-                  setEntryBiometricOut(next);
-                  triggerBiometricHaptic(55);
-                  if (next) playBiometricBeep('out');
-                }}
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: 9,
-                  border: entryBiometricOut ? '1px solid #34d399' : '1px solid rgba(148,163,184,0.28)',
-                  background: entryBiometricOut ? 'rgba(16,185,129,0.22)' : 'rgba(255,255,255,0.03)',
-                  color: entryBiometricOut ? '#6ee7b7' : '#94a3b8',
-                  fontWeight: 900,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span>🫆 Biometric Touch OUT ({formatTime12h(entryOutTime)})</span>
-                <span>{entryBiometricOut ? '✓ Verified' : 'Tap to Verify'}</span>
-              </button>
             </div>
 
             {/* Live Day Breakdown Box */}

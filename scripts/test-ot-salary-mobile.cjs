@@ -64,13 +64,13 @@ assert.match(otSalaryJsx, /quickSetTodayOtAndSave/);
 assert.match(otSalaryJsx, /shareSalarySummaryOnWhatsApp/);
 assert.match(otSalaryJsx, /downloadStandaloneMobileApp/);
 assert.match(otSalaryJsx, /syncWithPcNow/);
-assert.match(otSalaryJsx, /Mobile App \/ Sync/);
+assert.match(otSalaryJsx, /App \/ Sync/);
 assert.match(otSalaryJsx, /Today Punch/);
 assert.match(otSalaryJsx, /Month Days/);
 assert.match(otSalaryJsx, /Rules & App/);
 assert.match(otSalaryJsx, /OT-Salary-Mobile\.apk/);
 
-// 7. Biometric Touch Sensor (IN & OUT) & Native Android Biometric Bridge checks
+// 7. Biometric Touch Sensor (IN & OUT) & Native Android Real Phone Unlock Biometric Bridge checks
 const androidMainActivity = readText('android/app/src/main/java/com/pattan/presentator/MainActivity.java');
 const androidManifest = readText('android/app/src/main/AndroidManifest.xml');
 assert.match(androidManifest, /android\.permission\.USE_BIOMETRIC/);
@@ -78,6 +78,8 @@ assert.match(androidManifest, /android\.permission\.USE_FINGERPRINT/);
 assert.match(androidManifest, /android\.permission\.VIBRATE/);
 assert.match(androidMainActivity, /PattanBiometric/);
 assert.match(androidMainActivity, /BiometricPrompt/);
+assert.match(androidMainActivity, /DEVICE_CREDENTIAL/);
+assert.match(androidMainActivity, /createConfirmDeviceCredentialIntent/);
 assert.match(otSalaryJsx, /performBiometricPunch/);
 assert.match(otSalaryJsx, /Biometric Touch Sensor \(IN &amp; OUT\)/);
 assert.match(otSalaryJsx, /Touch Sensor — IN \(Enter\)/);
@@ -85,9 +87,9 @@ assert.match(otSalaryJsx, /Touch Sensor — OUT \(Exit \+ OT\)/);
 assert.match(otSalaryJsx, /biometricIn/);
 assert.match(otSalaryJsx, /biometricOut/);
 assert.match(otGeneratorJs, /performBioTouchPunch/);
+assert.match(otGeneratorJs, /requestMobileUnlockBiometric/);
 assert.match(otGeneratorJs, /bioTouchInBtn/);
 assert.match(otGeneratorJs, /bioTouchOutBtn/);
-assert.match(otGeneratorJs, /bioTouchAutoBtn/);
 
 // 8. Standalone Offline Mobile App HTML & Native Android APK checks
 assert.match(otGeneratorJs, /generateStandaloneOtMobileHtml/);

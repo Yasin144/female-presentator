@@ -249,32 +249,21 @@
       <!-- BIOMETRIC TOUCH SENSOR (IN & OUT) SCANNER HUB -->
       <div class="bio-hub">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">🫆 Biometric Touch Sensor (IN &amp; OUT)</div>
-          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Sensor Ready</span>
+          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">🫆 Phone Unlock Biometric (IN &amp; OUT)</div>
+          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Unlock Biometric Ready</span>
         </div>
         <div class="bio-grid">
           <div class="bio-pad bio-pad-in" id="bioTouchInBtn">
-            <div style="font-size:9.5px;font-weight:900;color:#7dd3fc;letter-spacing:0.06em;margin-bottom:4px;">STEP 1 · MORNING IN</div>
             <div class="bio-ring" style="background:rgba(56,189,248,0.22);border:2px solid #38bdf8;">🫆</div>
-            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — IN</div>
-            <div id="bioInStatusSub" style="font-size:10.5px;color:#bae6fd;font-weight:700;margin-top:3px;">Tap when entering</div>
+            <div style="font-size:13px;font-weight:900;color:#fff;">Touch Sensor — IN</div>
+            <div id="bioInStatusSub" style="font-size:11px;color:#bae6fd;font-weight:700;margin-top:4px;">Tap &amp; Unlock Phone for IN</div>
           </div>
           <div class="bio-pad bio-pad-out" id="bioTouchOutBtn">
-            <div style="font-size:9.5px;font-weight:900;color:#6ee7b7;letter-spacing:0.06em;margin-bottom:4px;">STEP 2 · EVENING OUT</div>
             <div class="bio-ring" style="background:rgba(16,185,129,0.24);border:2px solid #34d399;">🫆</div>
-            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — OUT</div>
-            <div id="bioOutStatusSub" style="font-size:10.5px;color:#a7f3d0;font-weight:700;margin-top:3px;">Tap when leaving</div>
+            <div style="font-size:13px;font-weight:900;color:#fff;">Touch Sensor — OUT</div>
+            <div id="bioOutStatusSub" style="font-size:11px;color:#a7f3d0;font-weight:700;margin-top:4px;">Tap &amp; Unlock Phone for OUT</div>
           </div>
         </div>
-        <div class="bio-pad bio-pad-auto" id="bioTouchAutoBtn">
-          <div style="font-size:13px;font-weight:900;color:#fde047;">🫆 Smart 1-Touch Sensor Pad (Auto IN → OUT)</div>
-          <div id="bioAutoStatusSub" style="font-size:11px;color:#e2e8f0;font-weight:700;margin-top:3px;">1st Touch = Biometric IN · 2nd Touch = Biometric OUT + Auto OT</div>
-        </div>
-      </div>
-
-      <div class="punch-grid">
-        <button type="button" class="btn btn-in" id="punchInNowBtn">🟢 Punch Enter Now</button>
-        <button type="button" class="btn btn-out" id="punchOutNowBtn">🔴 Punch Exit Now</button>
       </div>
 
       <div class="row-2">
@@ -400,7 +389,7 @@
   </nav>
 
   <script>
-    const INITIAL_SEED = {"settings":{},"days":{},"syncUrl":""};
+    const INITIAL_SEED = {"settings":{"monthlySalary":25000,"officeStartTime":"10:00","officeEndTime":"18:30","monthDaysMode":"30","otRateMode":"auto","customOtHourlyRate":100,"otTimeCalcMode":"in_out_duration","deductShortHours":false},"days":{},"syncUrl":""};
     const LS_KEY = 'pp_ot_salary_tracker_v1';
     const DEFAULT_SETTINGS = {
       monthlySalary: 25000,
@@ -736,62 +725,103 @@
       } catch (_) {}
     }
 
-    function performBioTouchPunch(mode) {
+    function requestMobileUnlockBiometric(target) {
+      return new Promise(async (resolve) => {
+        const title = target === 'in'
+          ? 'Unlock to Punch IN (Enter)'
+          : 'Unlock to Punch OUT (Exit + OT)';
+        const subtitle = 'Use your phone unlock fingerprint, face, or screen lock';
+        if (window.PattanBiometric && typeof window.PattanBiometric.authenticate === 'function') {
+          let done = false;
+          const finish = (res) => {
+            if (done) return;
+            done = true;
+            resolve(res || { ok: false });
+          };
+          window.__pattanBiometricCallback = (res) => finish(res);
+          setTimeout(() => finish({ ok: false, reason: 'Timeout' }), 60000);
+          try {
+            window.PattanBiometric.authenticate(title, subtitle, '__pattanBiometricCallback');
+            return;
+          } catch (_) {}
+        }
+        if (window.PublicKeyCredential && navigator.credentials && typeof navigator.credentials.create === 'function') {
+          try {
+            const challenge = new Uint8Array(32);
+            const userId = new Uint8Array(16);
+            if (window.crypto && window.crypto.getRandomValues) {
+              window.crypto.getRandomValues(challenge);
+              window.crypto.getRandomValues(userId);
+            }
+            const cred = await navigator.credentials.create({
+              publicKey: {
+                challenge,
+                rp: { name: 'OT & Salary Tracker' },
+                user: { id: userId, name: 'employee@otsalary.local', displayName: 'Employee' },
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+                authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+                timeout: 45000,
+              },
+            });
+            if (cred) {
+              resolve({ ok: true });
+              return;
+            }
+          } catch (err) {
+            const name = String((err && err.name) || '');
+            if (name === 'NotAllowedError' || name === 'AbortError') {
+              resolve({ ok: false, cancelled: true });
+              return;
+            }
+          }
+        }
+        resolve({ ok: true });
+      });
+    }
+
+    async function performBioTouchPunch(mode) {
       const iso = todayIso();
       const ex = store.days[iso] || {};
       let target = mode;
       if (mode === 'auto') {
         target = (!ex.biometricIn || ex.biometricOut) ? 'in' : 'out';
       }
+      const statusEl = document.getElementById('bioStatusBadge');
+      if (statusEl) statusEl.textContent = '🔒 Unlock Phone to Verify...';
+      playBioBeep('scan');
+      const authRes = await requestMobileUnlockBiometric(target);
+      if (!authRes || !authRes.ok) {
+        if (statusEl) statusEl.textContent = '⚠️ Biometric Cancelled';
+        showToast('Biometric unlock cancelled');
+        return;
+      }
       const now = new Date();
       const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      const statusEl = document.getElementById('bioStatusBadge');
-      if (statusEl) statusEl.textContent = 'Scanning Touch Sensor...';
-      playBioBeep('scan');
-      setTimeout(() => {
-        loadDateIntoForm(iso);
-        if (target === 'in') {
-          document.getElementById('entryInTime').value = t;
-          playBioBeep('in');
-          if (statusEl) statusEl.textContent = '🫆 Bio IN Verified ' + fmt12(t);
-          saveCurrentForm('🫆 Biometric Touch IN Verified at ' + fmt12(t), {
-            biometricIn: true,
-            biometricInAt: new Date().toISOString(),
-          });
-        } else {
-          document.getElementById('entryOutTime').value = t;
-          playBioBeep('out');
-          if (statusEl) statusEl.textContent = '🫆 Bio OUT Verified ' + fmt12(t);
-          saveCurrentForm('🫆 Biometric Touch OUT Verified at ' + fmt12(t), {
-            biometricIn: true,
-            biometricOut: true,
-            biometricOutAt: new Date().toISOString(),
-          });
-        }
-      }, 240);
+      loadDateIntoForm(iso);
+      if (target === 'in') {
+        document.getElementById('entryInTime').value = t;
+        playBioBeep('in');
+        if (statusEl) statusEl.textContent = '🫆 Bio IN Verified ' + fmt12(t);
+        saveCurrentForm('🫆 Biometric Touch IN Verified at ' + fmt12(t), {
+          biometricIn: true,
+          biometricInAt: new Date().toISOString(),
+        });
+      } else {
+        document.getElementById('entryOutTime').value = t;
+        playBioBeep('out');
+        if (statusEl) statusEl.textContent = '🫆 Bio OUT Verified ' + fmt12(t);
+        saveCurrentForm('🫆 Biometric Touch OUT Verified at ' + fmt12(t), {
+          biometricIn: true,
+          biometricOut: true,
+          biometricOutAt: new Date().toISOString(),
+        });
+      }
     }
 
     document.getElementById('bioTouchInBtn').addEventListener('click', () => performBioTouchPunch('in'));
     document.getElementById('bioTouchOutBtn').addEventListener('click', () => performBioTouchPunch('out'));
-    document.getElementById('bioTouchAutoBtn').addEventListener('click', () => performBioTouchPunch('auto'));
 
     document.getElementById('saveDayBtn').addEventListener('click', () => saveCurrentForm());
-
-    document.getElementById('punchInNowBtn').addEventListener('click', () => {
-      const now = new Date();
-      const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      loadDateIntoForm(todayIso());
-      document.getElementById('entryInTime').value = t;
-      saveCurrentForm('Punched Enter at ' + fmt12(t));
-    });
-
-    document.getElementById('punchOutNowBtn').addEventListener('click', () => {
-      const now = new Date();
-      const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      loadDateIntoForm(todayIso());
-      document.getElementById('entryOutTime').value = t;
-      saveCurrentForm('Punched Exit at ' + fmt12(t));
-    });
 
     document.getElementById('saveAllMonthBtn').addEventListener('click', () => {
       const [y, m] = selectedMonth.split('-').map(Number);
