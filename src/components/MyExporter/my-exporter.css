@@ -1452,7 +1452,7 @@
   color: #b7c8dc !important;
 }
 
-/* Filmora 15 3-Pane Docked Studio Workspace on Desktop (>= 1200px when Source Monitor is closed) */
+/* Filmora 15 3-Pane & 4-Pane Simultaneous Docked Studio Workspace on Desktop */
 @media (min-width: 1200px) {
   .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):not(:has(> .mx-center.mx-has-source-monitor)) {
     grid-template-columns: clamp(260px, 22vw, 320px) minmax(0, 1fr) min(325px, 27vw) !important;
@@ -1494,6 +1494,60 @@
   .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):not(:has(> .mx-center.mx-has-source-monitor)) > .mx-side-panel-tab-right {
     opacity: 0 !important;
     pointer-events: none !important;
+  }
+}
+
+/* Filmora 15 4-Pane Simultaneous Studio Dock when Source Monitor is Open on Widescreen (>= 1440px) */
+@media (min-width: 1440px) {
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) {
+    grid-template-columns: clamp(270px, 18vw, 320px) minmax(0, 1fr) minmax(0, 1fr) clamp(280px, 19vw, 330px) !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-library {
+    position: relative !important;
+    grid-column: 1 !important;
+    grid-row: 1 / 4 !important;
+    width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+    z-index: 20 !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-center > .mx-source-monitor {
+    grid-column: 2 !important;
+    grid-row: 1 / 4 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-center > .mx-viewer,
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-center > .mx-player-tools,
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-center > .mx-master-meter {
+    grid-column: 3 !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-inspector {
+    position: relative !important;
+    grid-column: 4 !important;
+    grid-row: 1 / 4 !important;
+    top: auto !important;
+    bottom: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+    display: flex !important;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 12px !important;
+    box-shadow: none !important;
+    z-index: 20 !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-side-panel-tab-left,
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) > .mx-side-panel-tab-right {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  .mx-page.mx-editor-studio .mx-workspace:is(.mx-side-panel-library, .mx-side-panel-inspector):has(> .mx-center.mx-has-source-monitor) .mx-source-heading {
+    padding-left: 0 !important;
   }
 }
 
@@ -1569,6 +1623,24 @@
   font-weight: 700 !important;
   letter-spacing: 0.1em !important;
 }
+.mx-page.mx-editor-studio .mx-viewer[data-program-clip]::after {
+  content: attr(data-program-clip);
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 6;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(11, 16, 25, 0.84);
+  border: 1px solid rgba(0, 229, 195, 0.22);
+  color: #5eead4;
+  font: 600 9.5px/1.2 Consolas, monospace;
+  pointer-events: none;
+}
 .mx-page.mx-editor-studio .mx-program-stage {
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
   border-radius: 4px;
@@ -1602,6 +1674,13 @@
   color: #5eead4 !important;
   font: 600 11px/1.2 Consolas, monospace !important;
   letter-spacing: 0.03em;
+}
+@media (min-width: 1400px) {
+  .mx-page.mx-editor-studio .mx-player-tools > span[data-smpte]::before {
+    content: attr(data-smpte) " · ";
+    color: #93c5fd;
+    opacity: 0.9;
+  }
 }
 .mx-page.mx-editor-studio .mx-workspace > .mx-center > .mx-master-meter {
   background: #10151e !important;
@@ -1648,6 +1727,264 @@
   color: #e4eef9 !important;
 }
 
+/* Filmora 15 Clip Inspector Property Sub-Tabs & Speed/Color Chips */
+.mx-page.mx-editor-studio .mx-scene-inspector > .mx-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mx-page.mx-editor-studio .mx-f15-clip-kind-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 229, 195, 0.14);
+  border: 1px solid rgba(0, 229, 195, 0.35);
+  color: #5ffbe2;
+  font: 700 9px/1.1 Consolas, monospace;
+  letter-spacing: 0.06em;
+}
+.mx-page.mx-editor-studio .mx-f15-inspector-subtabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: 6px;
+  background: #0b0f17;
+  border: 1px solid #232d40;
+}
+.mx-page.mx-editor-studio .mx-f15-subtab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #8fa3bd;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.mx-page.mx-editor-studio .mx-f15-subtab:hover {
+  color: #e2edf8;
+  background: rgba(255, 255, 255, 0.04);
+}
+.mx-page.mx-editor-studio .mx-f15-subtab.active {
+  background: rgba(0, 229, 195, 0.18);
+  border: 1px solid rgba(0, 229, 195, 0.45);
+  color: #5ffbe2;
+}
+.mx-page.mx-editor-studio .mx-f15-speed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.mx-page.mx-editor-studio .mx-scene-inspector details > .mx-f15-speed-chips {
+  margin: 8px 10px 4px;
+}
+.mx-page.mx-editor-studio .mx-f15-chip {
+  flex: 1 1 auto;
+  min-width: 40px;
+  min-height: 23px !important;
+  max-height: 24px !important;
+  height: 23px !important;
+  padding: 0 6px !important;
+  border: 1px solid #2e3b50 !important;
+  border-radius: 4px !important;
+  background: #131b27 !important;
+  color: #b8cae0 !important;
+  font: 600 10px/1 Consolas, "Segoe UI", sans-serif !important;
+  cursor: pointer;
+}
+.mx-page.mx-editor-studio .mx-f15-chip:hover:not(:disabled) {
+  border-color: #00e5c3 !important;
+  color: #ffffff !important;
+  background: #1b283a !important;
+}
+.mx-page.mx-editor-studio .mx-f15-chip.active {
+  border-color: #00e5c3 !important;
+  background: rgba(0, 229, 195, 0.2) !important;
+  color: #5ffbe2 !important;
+}
+
+/* Filmora 15 Topbar Layout Switcher & Ribbon Quick Pills */
+.mx-page.mx-editor-studio .mx-layout-dropdown-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.mx-page.mx-editor-studio .mx-f15-layout-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid #2d384c;
+  background: #161e2b;
+  color: #9cefe0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.mx-page.mx-editor-studio .mx-f15-layout-trigger:hover,
+.mx-page.mx-editor-studio .mx-f15-layout-trigger.active {
+  border-color: #00e5c3;
+  background: #1d293b;
+  color: #ffffff;
+}
+.mx-page.mx-editor-studio .mx-layout-picker-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 185px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid #2e3b52;
+  background: #131924;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+}
+.mx-page.mx-editor-studio .mx-layout-picker-popup > span {
+  padding: 7px 10px;
+  border-radius: 5px;
+  color: #cbd8e8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mx-page.mx-editor-studio .mx-layout-picker-popup > span:hover {
+  background: rgba(0, 229, 195, 0.12);
+  color: #5ffbe2;
+}
+.mx-page.mx-editor-studio .mx-layout-picker-popup > span.active {
+  background: rgba(0, 229, 195, 0.2);
+  color: #3dfce0;
+}
+.mx-page.mx-editor-studio .mx-f15-ribbon-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid #263144;
+}
+.mx-page.mx-editor-studio .mx-f15-ribbon-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #1a2231;
+  border: 1px solid #2a3548;
+  color: #9cb0c9;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.14s ease;
+}
+.mx-page.mx-editor-studio .mx-f15-ribbon-pill:hover {
+  border-color: #00e5c3;
+  color: #e6f4ff;
+  background: #212c3f;
+}
+.mx-page.mx-editor-studio .mx-f15-ribbon-pill.active {
+  background: rgba(0, 229, 195, 0.16);
+  border-color: #00e5c3;
+  color: #5ffbe2;
+}
+@media (max-width: 1320px) {
+  .mx-page.mx-editor-studio .mx-f15-ribbon-pills,
+  .mx-page.mx-editor-studio .mx-layout-dropdown-container {
+    display: none !important;
+  }
+}
+
+/* Filmora 15 Asset Browser View Toggle & Expanded Preset Previews */
+.mx-page.mx-editor-studio .mx-asset-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mx-page.mx-editor-studio .mx-f15-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 5px;
+  background: #0d121b;
+  border: 1px solid #263144;
+}
+.mx-page.mx-editor-studio .mx-f15-view-toggle > i {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-style: normal;
+  font-size: 11px;
+  color: #8ea2bc;
+  cursor: pointer;
+}
+.mx-page.mx-editor-studio .mx-f15-view-toggle > i.active {
+  background: rgba(0, 229, 195, 0.18);
+  color: #5ffbe2;
+}
+.mx-page.mx-editor-studio .mx-asset-grid.is-list {
+  grid-template-columns: 1fr !important;
+  gap: 6px !important;
+}
+.mx-page.mx-editor-studio .mx-asset-grid.is-list .mx-asset-card {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  align-items: center;
+}
+.mx-page.mx-editor-studio .mx-asset-grid.is-list .mx-asset-card > .mx-asset-card-actions {
+  grid-column: 1 / -1;
+}
+.mx-page.mx-editor-studio .mx-preset-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(8, 13, 21, 0.84);
+  border: 1px solid rgba(0, 229, 195, 0.35);
+  color: #5ffbe2;
+  font: 700 9px/1.3 Consolas, monospace;
+}
+.is-filters .preset-cyberpunk .mx-preset-art {
+  background: linear-gradient(145deg, #06b6d4 0%, #3b82f6 45%, #ec4899 100%);
+  filter: saturate(1.45) contrast(1.2);
+}
+.is-filters .preset-warm .mx-preset-art {
+  filter: sepia(0.35) saturate(1.4) brightness(1.05);
+}
+.is-filters .preset-cool .mx-preset-art {
+  filter: hue-rotate(165deg) saturate(1.15);
+}
+.is-filters .preset-vintage .mx-preset-art {
+  filter: sepia(0.55) contrast(0.92) brightness(0.96);
+}
+.is-filters .preset-noir .mx-preset-art {
+  filter: grayscale(1) contrast(1.45) brightness(0.9);
+}
+.is-transitions .preset-fast-dip .mx-preset-art > i { background: linear-gradient(90deg, #0d9488, #05080d); }
+.is-transitions .preset-dissolve .mx-preset-art > i { background: linear-gradient(90deg, #14b8a6, #6366f1); }
+.is-transitions .preset-cinema-fade .mx-preset-art > i { background: linear-gradient(90deg, #f59e0b, #090d16); }
+.is-transitions .preset-slow-fade .mx-preset-art > i { background: linear-gradient(90deg, #38bdf8, #020617); }
+.is-titles .preset-opener .mx-preset-art { background: linear-gradient(135deg, #0f172a, #1e293b); color: #38bdf8; letter-spacing: 0.08em; font-weight: 800; }
+.is-titles .preset-neon .mx-preset-art { background: #090d16; color: #2fe6de; text-shadow: 0 0 10px rgba(47, 230, 222, 0.7); }
+.is-titles .preset-callout .mx-preset-art { color: #fbbf24; }
+.is-titles .preset-news .mx-preset-art { background: linear-gradient(180deg, #1e1b4b, #31102f); color: #f8fafc; font-size: 12px; }
+
 /* Filmora 15 Magnetic Multi-Track Timeline */
 .mx-page.mx-editor-studio .mx-workspace > .mx-center > .mx-timeline {
   background: #10141d !important;
@@ -1658,17 +1995,35 @@
   border-bottom: 1px solid #263144 !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-.mx-page.mx-editor-studio.mx-editor-simple .mx-filmora-toolstrip > button {
+.mx-page.mx-editor-studio.mx-editor-simple .mx-filmora-toolstrip > button,
+.mx-page.mx-editor-studio .mx-filmora-toolstrip > .mx-f15-tool-chip {
+  flex: 0 0 auto !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  padding: 0 10px !important;
   background: #1f2838 !important;
   border: 1px solid #313e54 !important;
   border-radius: 5px !important;
   color: #d8e4f2 !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
 }
-.mx-page.mx-editor-studio.mx-editor-simple .mx-filmora-toolstrip > button:hover:not(:disabled) {
+.mx-page.mx-editor-studio.mx-editor-simple .mx-filmora-toolstrip > button:hover:not(:disabled),
+.mx-page.mx-editor-studio .mx-filmora-toolstrip > .mx-f15-tool-chip:hover {
   background: #283448 !important;
   border-color: #00e5c3 !important;
   color: #ffffff !important;
+}
+@media (max-width: 1320px) {
+  .mx-page.mx-editor-studio .mx-filmora-toolstrip > .mx-f15-tool-chip {
+    display: none !important;
+  }
 }
 .mx-page.mx-editor-studio .mx-filmora-toolstrip button.active {
   background: rgba(0, 229, 195, 0.18) !important;
@@ -1982,4 +2337,164 @@
   color: #8fa3bd !important;
   font: 600 9.5px/1.2 Consolas, monospace !important;
 }
+
+/* Filmora 15 Same-Row Detached Audio Lane & Waste Voice Cutter Bar */
+.mx-page.mx-editor-studio .mx-f15-waste-cutter-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-cutter-bar::-webkit-scrollbar {
+  display: none;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-bar-title {
+  flex: 0 0 auto;
+  color: #6ee7b7;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-right: 2px;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #172a2c;
+  border: 1px solid #2b5450;
+  color: #d1fae5;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill:hover {
+  background: #1f3c3e;
+  border-color: #00e5c3;
+  color: #ffffff;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill.active {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #fbbf24;
+  color: #fde68a;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill.preview {
+  background: #173347;
+  border-color: #38bdf8;
+  color: #bae6fd;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill.danger {
+  background: linear-gradient(180deg, #5c1f28 0%, #43151c 100%);
+  border-color: #f43f5e;
+  color: #ffe4e6;
+  font-weight: 700;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill.danger:hover {
+  background: linear-gradient(180deg, #752531 0%, #581b25 100%);
+  border-color: #fb7185;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-pill.ripple {
+  background: linear-gradient(180deg, #164e46 0%, #0f3631 100%);
+  border-color: #14b8a6;
+  color: #5ffbe2;
+  font-weight: 700;
+}
+
+/* Visual Split Seam & Silent Gap Indicator on Same Audio Row (Audio 1) */
+.mx-page.mx-editor-studio .mx-timeline .mx-audio-clip.is-segment {
+  box-shadow: inset 2px 0 0 rgba(110, 231, 183, 0.75), inset -2px 0 0 rgba(110, 231, 183, 0.75);
+}
+.mx-page.mx-editor-studio .mx-audio-silent-gap {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px dashed rgba(244, 63, 94, 0.55);
+  border-radius: 5px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(244, 63, 94, 0.08),
+    rgba(244, 63, 94, 0.08) 6px,
+    rgba(15, 23, 34, 0.45) 6px,
+    rgba(15, 23, 34, 0.45) 12px
+  );
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.mx-page.mx-editor-studio .mx-audio-silent-gap:hover {
+  border-color: #fb7185;
+  background: rgba(244, 63, 94, 0.18);
+}
+.mx-page.mx-editor-studio .mx-audio-silent-gap > span {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(12, 16, 24, 0.85);
+  color: #fda4af;
+  font: 600 9px/1.2 Consolas, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Inspector Waste Voice Cutter Guide & Controls */
+.mx-page.mx-editor-studio .mx-f15-waste-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #cbd8e8;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-guide > strong {
+  color: #5ffbe2;
+  font-size: 11px;
+}
+.mx-page.mx-editor-studio .mx-f15-waste-guide kbd {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #0b1018;
+  border: 1px solid #2b3950;
+  color: #6ee7b7;
+  font: 600 9.5px/1.1 Consolas, monospace;
+}
+.mx-page.mx-editor-studio .mx-audio-range-mode-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.mx-page.mx-editor-studio .mx-audio-range-mode-btns > button {
+  min-width: 0;
+  font-size: 11px !important;
+  padding: 6px 8px !important;
+}
+.mx-page.mx-editor-studio .mx-f15-split-audio-btn {
+  background: linear-gradient(180deg, #153c3a 0%, #102b2a 100%) !important;
+  border-color: #14b8a6 !important;
+  color: #5ffbe2 !important;
+  font-weight: 700 !important;
+}
+.mx-page.mx-editor-studio .mx-f15-ripple-cut-btn {
+  background: linear-gradient(180deg, #163d39 0%, #102c29 100%) !important;
+  border-color: #14b8a6 !important;
+  color: #6ee7b7 !important;
+  font-weight: 600 !important;
+}
+
+
 

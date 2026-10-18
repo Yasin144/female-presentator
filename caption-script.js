@@ -1725,6 +1725,16 @@ function bootCaptionStudio() {
             }
         }, { once: true });
 
+        sourceVideo.addEventListener('error', () => {
+            if (file.stagedPath && sourceVideo.dataset.stagedFallbackTried !== '1') {
+                sourceVideo.dataset.stagedFallbackTried = '1';
+                videoUrl = captionFilePathToUrl(file.stagedPath);
+                sourceVideo.src = videoUrl;
+                sourceVideo.load();
+            }
+        }, { once: true });
+
+        delete sourceVideo.dataset.stagedFallbackTried;
         sourceVideo.src = videoUrl;
         sourceVideo.playbackRate = captionPreviewSpeed;
         progressBlock.classList.remove('hidden');
@@ -1740,6 +1750,22 @@ function bootCaptionStudio() {
     if (queueNextBtn) {
         queueNextBtn.addEventListener('click', () => loadQueuedCaptionVideo(captionQueueIndex + 1));
     }
+
+    function stageQueuedCaptionFile(file) {
+        if (!file || typeof window.electronAPI?.stageCaptionSource !== 'function') return;
+        const rawPath = file.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+            ? window.electronAPI.getPathForFile(file)
+            : '');
+        if (!rawPath || /\.part\.mp4$/i.test(rawPath)) return;
+        if (!file.path) {
+            try { file.path = rawPath; } catch (_) {}
+        }
+        window.electronAPI.stageCaptionSource({ videoPath: rawPath }).then((res) => {
+            if (res && res.ok && res.stagedPath) {
+                try { file.stagedPath = res.stagedPath; } catch (_) {}
+            }
+        }).catch(() => {});
+    }
     
     function acceptCaptionVideoFiles(rawFiles) {
         if (captionLocalBusy()) return;
@@ -1752,6 +1778,7 @@ function bootCaptionStudio() {
         }
         if (syncSlider) syncSlider.value = '0';
         updateCaptionStyleValueLabels();
+        files.forEach(stageQueuedCaptionFile);
         captionVideoQueue = files.map(file => ({ file, status: 'ready', captions: [] }));
         captionQueueIndex = 0;
         loadQueuedCaptionVideo(0);
@@ -2017,8 +2044,10 @@ function bootCaptionStudio() {
 
     function isRetryableCaptionQueueError(error) {
         const message = String(error?.message || error || '');
-        if (/cancel|no recognizable|no captions|no.*speech|not found|no.*path|unavailable.*path|unsupported|invalid|permission|ENOSPC|no space|not installed|out of memory/i.test(message)) return false;
-        return /timeout|timed out|network|fetch|socket|ECONN|EPIPE|busy|temporar|no response|503|502|429|worker.*exit|server.*(closed|unavailable)/i.test(message);
+        const code = String(error?.code || '');
+        if (code === 'CAPTION_SOURCE_MISSING') return false;
+        if (/cancel|no recognizable|no captions|no.*speech|not found|no such file|error opening input|moved or deleted|source video file is missing|no.*path|unavailable.*path|unsupported|invalid|permission|ENOSPC|no space|not installed|out of memory/i.test(message)) return false;
+        return /timeout|timed out|network|fetch|socket|ECONN|EPIPE|busy|temporar|no response|\b(?:503|502|429)\b|worker.*exit|server.*(closed|unavailable)/i.test(message);
     }
 
     async function transcribeCaptionQueueFrom(startIndex = 0) {
@@ -4024,7 +4053,7 @@ function bootCaptionStudio() {
     function getCaptionSourcePath() {
         try {
             if (!activeFile) return "";
-            const sourcePath = activeFile.path || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+            const sourcePath = activeFile.path || activeFile.stagedPath || ((window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
                 ? (window.electronAPI.getPathForFile(activeFile) || "")
                 : "");
             if (/\.part\.mp4$/i.test(sourcePath)) {

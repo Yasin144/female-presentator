@@ -111,6 +111,94 @@ function ensureCaptionWorkDir(...segments) {
   return dir;
 }
 
+const stagedCaptionSourceMap = new Map();
+function computeStagedCaptionSourcePath(rawVideoPath) {
+  const normalized = path.resolve(String(rawVideoPath || '')).toLowerCase();
+  const hash = crypto.createHash('sha1').update(normalized).digest('hex').slice(0, 12);
+  const ext = path.extname(String(rawVideoPath || '')) || '.mp4';
+  const safeBase = path.basename(String(rawVideoPath || ''), ext).replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 72) || 'video';
+  return {
+    key: normalized,
+    stagedPath: path.join(ensureCaptionWorkDir('staged-sources'), `${safeBase}-${hash}${ext}`),
+    safeBase,
+    ext,
+  };
+}
+
+function stageCaptionSourceVideo(rawVideoPath) {
+  try {
+    if (!rawVideoPath || !fs.existsSync(rawVideoPath)) return '';
+    const stat = fs.statSync(rawVideoPath);
+    if (!stat.isFile() || stat.size <= 0) return '';
+    const { key, stagedPath } = computeStagedCaptionSourcePath(rawVideoPath);
+    if (fs.existsSync(stagedPath)) {
+      try {
+        const stagedStat = fs.statSync(stagedPath);
+        if (stagedStat.isFile() && stagedStat.size === stat.size) {
+          stagedCaptionSourceMap.set(key, stagedPath);
+          return stagedPath;
+        }
+        fs.unlinkSync(stagedPath);
+      } catch (_) {}
+    }
+    try {
+      // Zero-cost NTFS hardlink when on the same volume (e.g. D:\LESSONS -> D:\voice\caption-work)
+      fs.linkSync(rawVideoPath, stagedPath);
+    } catch (_) {
+      fs.copyFileSync(rawVideoPath, stagedPath);
+    }
+    stagedCaptionSourceMap.set(key, stagedPath);
+    // Opportunistically prune staged sources older than 12 hours
+    try {
+      const stagedDir = ensureCaptionWorkDir('staged-sources');
+      const cutoff = Date.now() - 12 * 3600 * 1000;
+      for (const name of fs.readdirSync(stagedDir)) {
+        const candidate = path.join(stagedDir, name);
+        if (candidate === stagedPath) continue;
+        try {
+          if (fs.statSync(candidate).mtimeMs < cutoff) fs.unlinkSync(candidate);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return stagedPath;
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveCaptionSourceVideo(rawVideoPath, sourceFileName = '') {
+  if (!rawVideoPath) return '';
+  if (fs.existsSync(rawVideoPath)) {
+    stageCaptionSourceVideo(rawVideoPath);
+    return rawVideoPath;
+  }
+  try {
+    const { key, stagedPath, safeBase, ext } = computeStagedCaptionSourcePath(rawVideoPath);
+    const mapped = stagedCaptionSourceMap.get(key);
+    if (mapped && fs.existsSync(mapped)) return mapped;
+    if (fs.existsSync(stagedPath)) {
+      stagedCaptionSourceMap.set(key, stagedPath);
+      return stagedPath;
+    }
+    const stagedDir = ensureCaptionWorkDir('staged-sources');
+    const prefix = `${safeBase}-`.toLowerCase();
+    for (const entry of fs.readdirSync(stagedDir)) {
+      if (entry.toLowerCase().startsWith(prefix) && entry.toLowerCase().endsWith(ext.toLowerCase())) {
+        const candidate = path.join(stagedDir, entry);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).size > 0) return candidate;
+      }
+    }
+    const fallbackName = path.basename(String(sourceFileName || rawVideoPath || ''));
+    if (fallbackName) {
+      const downloadsCandidate = path.join(os.homedir(), 'Downloads', fallbackName);
+      if (fs.existsSync(downloadsCandidate) && fs.statSync(downloadsCandidate).size > 0) {
+        return downloadsCandidate;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
 const groqKeyPath = path.join(ROOT, '.groq_api_key');
 if (fs.existsSync(groqKeyPath)) {
   try {
@@ -4478,14 +4566,21 @@ ipcMain.handle('cancel-transcribe-video', async (_event, opts) => {
 //   3. Falls back to HTTP server (port 8428) if Python unavailable
 //   4. Returns { ok, text, segments, words } to renderer
 ipcMain.handle('transcribe-video', async (event, opts) => {
-  const { videoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
+  const { videoPath: rawVideoPath, languageHint, contentMode = 'speech', engine = 'local', audioMode = 'original', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
   // The existing preload can query the loaded backend without sending audio
   // or credentials. A stale main refuses this pathless request harmlessly.
   if (opts?.capabilityProbe === true && opts.engine === 'groq' && opts.contentMode === 'speech') {
     return { ok: true, capabilityProbe: true, groqSpeechTimingRepairVersion: 1 };
   }
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
+  if (!fs.existsSync(videoPath)) {
+    return {
+      ok: false,
+      code: 'CAPTION_SOURCE_MISSING',
+      error: `Source video file was not found (${path.basename(String(rawVideoPath))}). It may have been moved or deleted from its folder.`,
+    };
+  }
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
     if (opts?.captionerVersion === 2) {
       activeCaptionTranscribeCancelRequested = true;
@@ -4567,12 +4662,12 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
       const diagnosticPath = path.join(ensureCaptionWorkDir('diagnostics'), 'local-caption-' + stamp
         + (details.transport === 'http' ? '-http' : '-primary') + '-failure.json');
       fs.writeFileSync(diagnosticPath, JSON.stringify({
-        engine: 'local', sourceVideo: videoPath, audioPath: transcriptionAudioPath,
+        engine: 'local', sourceVideo: rawVideoPath, audioPath: transcriptionAudioPath,
         error: error.message, code: error.code, timingIssue: error.timingIssue,
         ...details,
       }, null, 2), 'utf8');
       error.diagnosticPath = diagnosticPath;
-      console.error('[Caption] Local transcription failed:', path.basename(videoPath), error.message,
+      console.error('[Caption] Local transcription failed:', path.basename(rawVideoPath), error.message,
         error.timingIssue || '', 'Diagnostics:', diagnosticPath);
     } catch (diagnosticError) {
       console.warn('[Caption] Could not save Local failure diagnostics:', diagnosticError.message);
@@ -4590,7 +4685,7 @@ ipcMain.handle('transcribe-video', async (event, opts) => {
   activeCaptionSongController = new AbortController();
   try {
     // Step 1: Extract audio from video as 16kHz mono WAV
-    console.log('[Caption] Extracting audio from:', path.basename(videoPath));
+    console.log('[Caption] Extracting audio from:', path.basename(rawVideoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -5887,9 +5982,16 @@ async function transcribeCaptionWavWithGroq({ audioBuffer, apiKey, languageHint 
 }
 
 ipcMain.handle('transcribe-video-groq', async (event, opts) => {
-  const { videoPath, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
-  if (!fs.existsSync(videoPath)) return { ok: false, error: `Video file was not found: ${videoPath}` };
+  const { videoPath: rawVideoPath, languageHint = 'auto', contentMode = 'speech', transcriptionHints = '', apiKey: suppliedGroqApiKey = '' } = opts || {};
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
+  if (!fs.existsSync(videoPath)) {
+    return {
+      ok: false,
+      code: 'CAPTION_SOURCE_MISSING',
+      error: `Source video file was not found (${path.basename(String(rawVideoPath))}). It may have been moved or deleted from its folder.`,
+    };
+  }
   if (activeCaptionSongController || activeCaptionTranscribeProcess) {
     if (opts?.captionerVersion === 2) {
       activeCaptionTranscribeCancelRequested = true;
@@ -5923,7 +6025,7 @@ ipcMain.handle('transcribe-video-groq', async (event, opts) => {
   activeCaptionTranscribeCancelRequested = false;
   activeCaptionSongController = new AbortController();
   try {
-    console.log('[CaptionGroq] Extracting audio from:', path.basename(videoPath));
+    console.log('[CaptionGroq] Extracting audio from:', path.basename(rawVideoPath));
     await new Promise((resolve, reject) => {
       const proc = spawn(FFMPEG, [
         '-y', '-i', videoPath,
@@ -6537,9 +6639,22 @@ function findCaptionFFmpegPath() {
   throw new Error('FFmpeg not found. Install it via: winget install Gyan.FFmpeg.Essentials');
 }
 
+ipcMain.handle('stage-caption-source', async (_event, opts) => {
+  const rawVideoPath = opts?.videoPath;
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const stagedPath = stageCaptionSourceVideo(rawVideoPath);
+  if (!stagedPath) {
+    const resolved = resolveCaptionSourceVideo(rawVideoPath);
+    if (resolved) return { ok: true, stagedPath: resolved };
+    return { ok: false, error: 'Could not stage source video.' };
+  }
+  return { ok: true, stagedPath };
+});
+
 ipcMain.handle('probe-video-meta', async (event, opts) => {
-  const { videoPath } = opts || {};
-  if (!videoPath) return { ok: false, error: 'No video path provided.' };
+  const { videoPath: rawVideoPath } = opts || {};
+  if (!rawVideoPath) return { ok: false, error: 'No video path provided.' };
+  const videoPath = resolveCaptionSourceVideo(rawVideoPath) || rawVideoPath;
   try {
     const { execFileSync } = require('child_process');
     const FFMPEG = findCaptionFFmpegPath();
@@ -6568,6 +6683,21 @@ ipcMain.handle('burn-captions', async (event, opts) => {
   const { videoPath, sourceFileName, captions, fontSize = 28, position = 'bottom', assContent, emojiOverlays } = opts || {};
   if (!videoPath) return { ok: false, error: 'No video path provided.' };
   if (!assContent && (!captions || !captions.length)) return { ok: false, error: 'No captions or assContent provided.' };
+
+  const inputVideoPath = resolveCaptionSourceVideo(videoPath, sourceFileName);
+  if (!inputVideoPath || !fs.existsSync(inputVideoPath)) {
+    const displayName = path.basename(String(sourceFileName || videoPath || 'video.mp4'));
+    const missingMsg = `Source video file is missing (${displayName}). It was moved or deleted from its folder before caption export completed.`;
+    const burnLogPath = path.join(ensureCaptionWorkDir('logs'), 'caption-burn.log');
+    try {
+      fs.appendFileSync(
+        burnLogPath,
+        `[${new Date().toISOString()}] ${displayName}\nError: ${missingMsg} (expected at: ${videoPath})\n\n`,
+        'utf8'
+      );
+    } catch (_) {}
+    return { ok: false, code: 'CAPTION_SOURCE_MISSING', error: missingMsg };
+  }
 
   // ── Dynamic FFmpeg detection ─────────────────────────────────────────────────
   function findFFmpegPath() {
@@ -6687,7 +6817,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
       // Safely replace only the file name (ffmpeg.exe -> ffprobe.exe), not parent directory names
       const ffprobe = path.join(path.dirname(FFMPEG), path.basename(FFMPEG).replace('ffmpeg', 'ffprobe'));
       const probeOut = execSync(
-        `"${ffprobe}" -v error -select_streams v:0 -show_entries stream=bit_rate:format=duration,bit_rate -of json "${videoPath}"`,
+        `"${ffprobe}" -v error -select_streams v:0 -show_entries stream=bit_rate:format=duration,bit_rate -of json "${inputVideoPath}"`,
         { encoding: 'utf8', timeout: 10000 }
       ).trim();
       const probe = JSON.parse(probeOut || '{}');
@@ -6714,7 +6844,7 @@ ipcMain.handle('burn-captions', async (event, opts) => {
             '-pix_fmt', 'yuv420p',
           ];
       const proc = spawn(FFMPEG, [
-        '-y', '-i', videoPath,
+        '-y', '-i', inputVideoPath,
         ...emojiExport.inputArgs,
         ...emojiExport.videoArgs,
         '-map', '0:a?',
@@ -6752,8 +6882,22 @@ ipcMain.handle('burn-captions', async (event, opts) => {
         if (code === 0) {
           event.sender.send('burn-captions-progress', { videoPath, pct: 98, phase: 'finalizing' });
           resolve();
+        } else {
+          const displayName = path.basename(String(sourceFileName || videoPath || 'video.mp4'));
+          if (code === 4294967294 || /No such file or directory/i.test(stderr)) {
+            reject(Object.assign(
+              new Error(`Source video file is missing (${displayName}). It was moved or deleted from its folder before caption export completed.`),
+              { code: 'CAPTION_SOURCE_MISSING', rawStderr: stderr.slice(-500) }
+            ));
+            return;
+          }
+          const cleanStderr = stderr
+            .split(/\r?\n/)
+            .filter(line => line.trim() && !/Added subtitle file:/i.test(line))
+            .slice(-4)
+            .join(' ');
+          reject(new Error(`FFmpeg exit ${code} (${displayName}): ${(cleanStderr || stderr).slice(-260)}`));
         }
-        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-300)));
       });
     });
 
@@ -6786,11 +6930,11 @@ ipcMain.handle('burn-captions', async (event, opts) => {
     try {
       fs.appendFileSync(
         burnLogPath,
-        `[${new Date().toISOString()}] ${path.basename(videoPath)}\n${err.stack || err.message || String(err)}\n\n`,
+        `[${new Date().toISOString()}] ${path.basename(videoPath)}\n${err.rawStderr || err.stack || err.message || String(err)}\n\n`,
         'utf8'
       );
     } catch (_) {}
-    return { ok: false, error: err.message };
+    return { ok: false, ...(err.code ? { code: err.code } : {}), error: err.message };
   } finally {
     if (emojiWorkDir && path.dirname(path.resolve(emojiWorkDir)) === path.resolve(tmpDir)
         && path.basename(emojiWorkDir).startsWith('caption-emoji-')) {

@@ -375,6 +375,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   burnCaptions: (opts) =>
     ipcRenderer.invoke('burn-captions', opts),
 
+  stageCaptionSource: (opts) =>
+    ipcRenderer.invoke('stage-caption-source', opts),
+
   // Probe video dimensions/duration natively so caption export can match the
   // exact preview position and font scale without loading large videos in JS.
   probeVideoMeta: (opts) =>

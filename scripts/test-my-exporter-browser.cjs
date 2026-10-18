@@ -557,7 +557,8 @@ async function runEditingChecks(page, seed, errors) {
     const p = await saved(page); assert.equal(p.scenes.length, 4); assert.equal(p.audioTracks.length, 2);
     assert.deepEqual(p.captions, seed.captions); assert.deepEqual(p.textOverlays, seed.textOverlays);
     assert.ok(Math.abs(p.scenes[1].trimStart - 3) < .04); assert.equal(p.audioTracks[1].originSceneId, p.scenes[1].id);
-    assert.equal(await page.$$eval('.mx-audio-row', rows => rows.length), 2);
+    assert.equal(await page.$$eval('.mx-audio-row', rows => rows.length), 1);
+    assert.equal(await page.$$eval('.mx-audio-row .mx-audio-clip', clips => clips.length), 2);
     assert.ok(await page.$('.mx-titles-row .mx-title-clip'));
   });
   await check('quarter-speed edit retains the full linked sound and word timing', async () => {
@@ -1062,6 +1063,9 @@ async function runAudioRangeChecks(page, seed, errors) {
       assert.equal(pieces.length, 2); assert.equal(pieces[0].start, 2); assert.equal(pieces[0].duration, 1.125); assert.equal(pieces[0].trimStart, 1); assert.equal(pieces[0].speed, 2);
       assert.equal(pieces[1].start, 4.375); assert.equal(pieces[1].duration, .625); assert.equal(pieces[1].trimStart, 5.75); assert.equal(pieces[1].speed, 2);
       assert.equal(pieces[1].start - (pieces[0].start + pieces[0].duration), 1.25); assert.equal(pieces[1].start + pieces[1].duration, 5);
+      assert.equal(await page.$$eval('.mx-audio-row', rows => rows.length), 2, 'Cut audio segments must stay on the same Audio row instead of jumping to a new row.');
+      assert.equal(await page.$$eval('.mx-audio-row', rows => rows[0].querySelectorAll('.mx-audio-clip').length), 2);
+      assert.equal(await page.$$eval('.mx-audio-silent-gap', gaps => gaps.length), 1);
       unchangedOtherContent(after, before);
       assert.ok(await page.$eval('.mx-operation-status', footer => /gap/i.test(footer.textContent) && !/moved left|no empty space|closes the empty/i.test(footer.textContent)));
       await shortcut(page, 'z'); await settle(page); assert.deepEqual(editableAudio((await saved(page)).audioTracks), editableAudio(before.audioTracks)); unchangedOtherContent(await saved(page), before);

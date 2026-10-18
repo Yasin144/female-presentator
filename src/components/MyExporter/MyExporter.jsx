@@ -1607,12 +1607,9 @@ export default function MyExporter({ active = true }) {
   const selectAudioAtPointer = (event, track) => {
     if (audioDragRef.current || event.target.closest('.mx-audio-delete, .mx-trim-handle, .mx-audio-selection')) return;
     setSelectedTextId('');
-    const isAlreadySelected = selectedAudioId === track.id;
     setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setSelectedIds([]); openInspector('clip');
     const exactTime = audioTimeAtPointer(event, track);
-    if (isAlreadySelected || audioCutSelectionModeId === track.id) {
-      seekTimeline(exactTime);
-    }
+    seekTimeline(exactTime);
     if (projectBusyRef.current || trackStates.audioLocked || audioCutSelectionModeId !== track.id) return;
     const current = audioSelectionRef.current;
     if (current?.trackId === track.id && current.awaitingEnd) {
@@ -1767,15 +1764,16 @@ export default function MyExporter({ active = true }) {
     }
   };
 
-  const removeHighlightedAudio = () => {
+  const removeHighlightedAudio = (forceRipple = false) => {
     if (projectBusyRef.current || trackStates.audioLocked) return;
     if (!selectedAudio || audioSelection?.trackId !== selectedAudio.id || audioSelection.awaitingEnd) { setWarning('Select the audio range to remove first.'); return; }
     try {
-      const edit = editAudioSelection(projectData(), selectedAudio.id, audioSelection.start, audioSelection.end, { action: 'delete', ripple: false, idFactory: uid });
+      const useRipple = forceRipple === true;
+      const edit = editAudioSelection(projectData(), selectedAudio.id, audioSelection.start, audioSelection.end, { action: 'delete', ripple: useRipple, idFactory: uid });
       stopAudioSelectionPreview(); applyTimelineState(edit.project); setSelectedAudioId(edit.selectedId);
       updateAudioSelection(null); setAudioCutSelectionModeId('');
       edit.project.audioTracks.filter(track => edit.pieceIds.includes(track.id)).forEach(piece => loadWaveform(piece.id, piece.path, piece));
-      setProgress({ pct: 100, phase: `${edit.removedDuration.toFixed(3)} seconds removed. The silent gap and all other timeline positions are preserved.` });
+      setProgress({ pct: 100, phase: useRipple ? `${edit.removedDuration.toFixed(3)} seconds of waste voice removed and gap closed on the same Audio track.` : `${edit.removedDuration.toFixed(3)} seconds removed. The silent gap and all other timeline positions are preserved.` });
     } catch (error) { setWarning(error.message); }
   };
 
@@ -1866,7 +1864,11 @@ export default function MyExporter({ active = true }) {
 
   const beginAudioMove = (event, track) => {
     if (projectBusyRef.current) return;
-    if (audioCutSelectionModeId === track.id) { beginAudioRange(event, track); return; }
+    if (audioCutSelectionModeId === track.id || event.shiftKey) {
+      setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId('');
+      beginAudioRange(event, track);
+      return;
+    }
     if (event.button !== 0 || trackStates.audioLocked || event.target.closest('.mx-trim-handle,.mx-audio-selection,button')) return;
     event.preventDefault(); event.stopPropagation();
     const lane = event.currentTarget.closest('.mx-position-lane');
@@ -2063,17 +2065,31 @@ export default function MyExporter({ active = true }) {
   const razorCut = () => {
     if (projectBusyRef.current) return;
     try {
-      if (selectedAudio) {
+      const audioUnderPlayhead = audioTracks.find(track => playheadTime > Number(track.start) + 1e-4 && playheadTime < Number(track.start) + Number(track.duration) - 1e-4);
+      const targetAudio = selectedAudio
+        ? (playheadTime > Number(selectedAudio.start) + 1e-4 && playheadTime < Number(selectedAudio.start) + Number(selectedAudio.duration) - 1e-4 ? selectedAudio : (audioUnderPlayhead || selectedAudio))
+        : (!selected && !selectedCaptionId ? audioUnderPlayhead : null);
+      if (targetAudio) {
         if (trackStates.audioLocked) throw new Error('Unlock the audio track before splitting.');
-        const local = playheadTime - Number(selectedAudio.start);
-        if (local <= 0 || local >= selectedAudio.duration) throw new Error('Move the playhead inside the selected audio clip.');
-        const base = projectData(), start = Number(selectedAudio.start), end = start + Number(selectedAudio.duration);
-        const left = editAudioSelection(base, selectedAudio.id, start, playheadTime, { action: 'keep' }).project.audioTracks.find(track => track.id === selectedAudio.id);
-        const right = editAudioSelection(base, selectedAudio.id, playheadTime, end, { action: 'keep' }).project.audioTracks.find(track => track.id === selectedAudio.id);
+        const local = playheadTime - Number(targetAudio.start);
+        if (local <= 0 || local >= targetAudio.duration) throw new Error('Move the playhead inside the selected audio clip.');
+        const base = projectData(), start = Number(targetAudio.start), end = start + Number(targetAudio.duration);
+        const left = editAudioSelection(base, targetAudio.id, start, playheadTime, { action: 'keep' }).project.audioTracks.find(track => track.id === targetAudio.id);
+        const right = editAudioSelection(base, targetAudio.id, playheadTime, end, { action: 'keep' }).project.audioTracks.find(track => track.id === targetAudio.id);
         right.id = uid();
-        applyTimelineState({ ...base, audioTracks: audioTracks.flatMap(track => track.id === selectedAudio.id ? [left, right] : [track]) });
-        setSelectedAudioId(right.id); updateAudioSelection(null);
+        const hasPrecedingSplit = audioTracks.some(other => other.id !== targetAudio.id && Math.abs((Number(other.start) + Number(other.duration)) - start) < 0.05);
+        const nextSelectedAudioId = hasPrecedingSplit ? left.id : right.id;
+        applyTimelineState({ ...base, audioTracks: audioTracks.flatMap(track => track.id === targetAudio.id ? [left, right] : [track]) });
+        setSelectedAudioId(nextSelectedAudioId); updateAudioSelection(null);
         [left, right].forEach(track => loadWaveform(track.id, track.path, track));
+        setProgress({
+          pct: 100,
+          phase: hasPrecedingSplit
+            ? `Waste voice segment (${(playheadTime - start).toFixed(2)}s) isolated on the same Audio track — press Delete to remove it!`
+            : 'Audio split on the same Audio track. Move playhead to the end of the waste voice and press S (or ✂) again.',
+        });
+        setWarning('');
+        return;
       } else if (selectedCaptionId) {
         if (trackStates.captionsLocked) throw new Error('Unlock captions before splitting.');
         const cue = captions.find(item => item.id === selectedCaptionId);
@@ -2302,15 +2318,36 @@ export default function MyExporter({ active = true }) {
   }, [contextMenu]);
 
   const applyVisualPreset = preset => {
-    if (!selected) return;
+    if (!selected) { setWarning('Select a clip before applying a filter.'); return; }
     const values = {
       natural: { brightness: 0, contrast: 1, saturation: 1 },
       vivid: { brightness: 0.02, contrast: 1.12, saturation: 1.28 },
       cinematic: { brightness: -0.03, contrast: 1.18, saturation: 0.82 },
       soft: { brightness: 0.05, contrast: 0.92, saturation: 0.9 },
       mono: { brightness: 0, contrast: 1.08, saturation: 0 },
+      cyberpunk: { brightness: 0.03, contrast: 1.25, saturation: 1.45 },
+      warm: { brightness: 0.04, contrast: 1.06, saturation: 1.2 },
+      cool: { brightness: -0.01, contrast: 1.1, saturation: 0.88 },
+      vintage: { brightness: 0.02, contrast: 0.94, saturation: 0.72 },
+      noir: { brightness: -0.06, contrast: 1.38, saturation: 0 },
     }[preset];
-    patchScene(selected.id, values);
+    if (values) {
+      patchScene(selected.id, values);
+      setProgress({ pct: 100, phase: `Filmora 15 ${preset} LUT applied to ${selected.name}.` });
+    }
+  };
+
+  const applyTransitionPreset = preset => {
+    if (!selected) { setWarning('Select a clip before applying a transition.'); return; }
+    if (preset === 'none') {
+      patchScene(selected.id, { transition: 'none', transitionDuration: 0 });
+      setProgress({ pct: 100, phase: `Hard cut set on ${selected.name}.` });
+      return;
+    }
+    const durations = { 'fast-dip': 0.2, 'fade-black': 0.4, dissolve: 0.6, 'cinema-fade': 1.0, 'slow-fade': 1.4 };
+    const duration = durations[preset] ?? 0.4;
+    patchScene(selected.id, { transition: 'fade-black', transitionDuration: duration });
+    setProgress({ pct: 100, phase: `Transition (${duration}s) applied to ${selected.name}.` });
   };
 
   const splitScene = () => razorCut();
@@ -2487,25 +2524,27 @@ export default function MyExporter({ active = true }) {
       }
       if (event.key === 'F2' && selected) { event.preventDefault(); renameSelectedScene(); return; }
       if (event.key.toLowerCase() === 'n' && !event.ctrlKey) { event.preventDefault(); setSnapEnabled(value => !value); return; }
-      if (event.shiftKey && event.key === 'Delete' && selected) { event.preventDefault(); removeScene(selected.id, true); return; }
-      if (event.key === 'Delete' && selectedAudio && audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd) { event.preventDefault(); removeHighlightedAudio(); return; }
+      const isDeleteKey = event.key === 'Delete' || event.key === 'Backspace';
+      if (event.shiftKey && isDeleteKey && selected) { event.preventDefault(); removeScene(selected.id, true); return; }
+      if (isDeleteKey && selectedAudio && audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd) { event.preventDefault(); removeHighlightedAudio(event.shiftKey); return; }
       if (!event.ctrlKey && !event.altKey && selectedAudio && ['i','o'].includes(event.key.toLowerCase())) { event.preventDefault(); setAudioSelectionEdge(event.key.toLowerCase() === 'i' ? 'start' : 'end'); return; }
-      if (event.shiftKey && event.key === 'Delete' && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id, true); return; }
-      if (event.key === 'Delete' && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id); return; }
+      if (event.shiftKey && isDeleteKey && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id, true); return; }
+      if (isDeleteKey && selectedAudio) { event.preventDefault(); removeAudioTrack(selectedAudio.id); return; }
       
       // Delete Scenes
-      if (event.key === 'Delete' && selectedTextId) { event.preventDefault(); setTextOverlays(current => current.filter(item => item.id !== selectedTextId)); setSelectedTextId(''); return; }
-      if (event.key === 'Delete' && selectedCaptionId && !trackStates.captionsLocked) { event.preventDefault(); setCaptions(current => current.filter(item => item.id !== selectedCaptionId)); setSelectedCaptionId(''); return; }
-      if (event.key === 'Delete' && selectedIds.length > 0) {
+      if (isDeleteKey && selectedTextId) { event.preventDefault(); setTextOverlays(current => current.filter(item => item.id !== selectedTextId)); setSelectedTextId(''); return; }
+      if (isDeleteKey && selectedCaptionId && !trackStates.captionsLocked) { event.preventDefault(); setCaptions(current => current.filter(item => item.id !== selectedCaptionId)); setSelectedCaptionId(''); return; }
+      if (isDeleteKey && selectedIds.length > 0) {
         event.preventDefault();
         removeSelectedScenes();
         return;
       }
-      if (event.key === 'Delete' && selected) { event.preventDefault(); removeScene(selected.id); return; }
+      if (isDeleteKey && selected) { event.preventDefault(); removeScene(selected.id); return; }
       
       if (event.altKey && event.key === 'ArrowLeft' && selected) { event.preventDefault(); moveScene(selected.id, -1); return; }
       if (event.altKey && event.key === 'ArrowRight' && selected) { event.preventDefault(); moveScene(selected.id, 1); return; }
-      if (!event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); razorCut(); return; }
+      // S or Ctrl+B (Filmora 15 native split shortcut)
+      if ((!event.ctrlKey && event.key.toLowerCase() === 's') || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b')) { event.preventDefault(); razorCut(); return; }
 
     };
     window.addEventListener('keydown', onKeyDown);
@@ -2564,6 +2603,45 @@ export default function MyExporter({ active = true }) {
     else if (selectedAudio && !trackStates.audioLocked) { if (audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd) removeHighlightedAudio(); else removeAudioTrack(selectedAudio.id); }
     else if (selected && !trackStates.videoLocked) removeScene(selected.id);
   };
+  // Filmora 15 Same-Row Audio Track Packing:
+  // Non-overlapping audio segments (from splitting with Scissor/S, cutting waste voice, or sequential scenes)
+  // ALWAYS stay on the same horizontal Audio row (Audio 1). Only overlapping tracks (like background music) use Audio 2+.
+  const audioTrackLanes = useMemo(() => {
+    const lanes = [];
+    for (const track of audioTracks) {
+      const start = Number(track.start || 0);
+      const end = start + Number(track.duration || 0);
+      const overlapsLane = lane => lane.some(existing => {
+        const exStart = Number(existing.start || 0);
+        const exEnd = exStart + Number(existing.duration || 0);
+        return start < exEnd - 1e-4 && end > exStart + 1e-4;
+      });
+      const groupKey = track.originSceneId || track.detachedFromSceneId || track.reattachedToSceneId || track.path || '';
+      let targetLane = groupKey
+        ? lanes.find(lane => lane.some(item => (item.originSceneId || item.detachedFromSceneId || item.reattachedToSceneId || item.path || '') === groupKey) && !overlapsLane(lane))
+        : null;
+      if (!targetLane) targetLane = lanes.find(lane => !overlapsLane(lane));
+      if (targetLane) targetLane.push(track);
+      else lanes.push([track]);
+    }
+    return lanes.map(lane => [...lane].sort((a, b) => Number(a.start || 0) - Number(b.start || 0)));
+  }, [audioTracks]);
+
+  const closeAudioLaneGap = (laneTracks, fromTrack, gapDuration) => {
+    if (projectBusyRef.current || trackStates.audioLocked || !(gapDuration > 0)) return;
+    const threshold = Number(fromTrack.start) - 1e-4;
+    const laneIds = new Set(laneTracks.map(item => item.id));
+    const nextTracks = audioTracks.map(item => {
+      if (laneIds.has(item.id) && Number(item.start) >= threshold) {
+        return { ...item, start: Math.max(0, Number(item.start) - gapDuration), detachedFromSceneId: '', originSceneId: '', reattachedToSceneId: '', pastedAudio: true };
+      }
+      return item;
+    });
+    setAudioTracks(nextTracks);
+    commitTimelineHistory(scenes, nextTracks, captions);
+    setProgress({ pct: 100, phase: `Closed ${gapDuration.toFixed(2)}s silent gap on the same Audio track.` });
+  };
+
   const selectedEntry = entries.find(entry => entry.scene.id === selected?.id);
   const selectedSceneDetachedTrack = selected ? audioTracks.find(track => [track.detachedFromSceneId, track.originSceneId, track.reattachedToSceneId].includes(selected.id)) : null;
   const contextMenuScene = contextMenu?.type === 'video' ? (scenes.find(scene => scene.id === contextMenu.id) || selected) : null;
@@ -2590,19 +2668,58 @@ export default function MyExporter({ active = true }) {
   const addTitlePreset = preset => {
     if (projectBusyRef.current || !totalDuration) { setWarning('Add media before placing a title.'); return; }
     const base = { id: uid(), x: 50, y: 50, fontSize: 78, color: '#ffffff', fontFamily: 'Arial', shape: 'none', opacity: 1, depth: 0, start: Math.min(playheadTime, totalDuration - .1), end: Math.min(totalDuration, playheadTime + 4) };
-    const styles = { title: { text: 'Your title' }, 'lower-third': { text: 'Name / description', y: 82, fontSize: 48, shape: 'box' }, chapter: { text: '01  New chapter', y: 30, fontSize: 70 }, quote: { text: 'A thought to remember', fontFamily: 'Georgia', fontSize: 56 } };
-    const title = { ...base, ...styles[preset] }; setTextOverlays(current => [...current, title]); setSelectedTextId(title.id); setSelectedId(''); openInspector('text');
+    const styles = {
+      title: { text: 'Your title' },
+      'lower-third': { text: 'Name / description', y: 82, fontSize: 48, shape: 'box' },
+      chapter: { text: '01  New chapter', y: 30, fontSize: 70 },
+      quote: { text: 'A thought to remember', fontFamily: 'Georgia', fontSize: 56 },
+      opener: { text: 'CINEMA OPENER', y: 46, fontSize: 92, depth: 6, shape: 'pill' },
+      neon: { text: 'NEON CYBER', y: 50, fontSize: 84, color: '#2fe6de', depth: 8, shape: 'box' },
+      callout: { text: '➜ Key Feature', x: 72, y: 28, fontSize: 52, color: '#fbbf24', shape: 'badge' },
+      news: { text: 'BREAKING UPDATE · LIVE', y: 88, fontSize: 44, color: '#ffffff', shape: 'pill' }
+    };
+    const title = { ...base, ...(styles[preset] || styles.title) }; setTextOverlays(current => [...current, title]); setSelectedTextId(title.id); setSelectedId(''); openInspector('text');
   };
   const addStickerPreset = preset => {
     if (projectBusyRef.current || !totalDuration) { setWarning('Add media before placing a sticker.'); return; }
-    const sticker = { id: uid(), text: ({ star: '★', check: '✓', arrow: '➜', heart: '♥' })[preset], x: 80, y: 20, fontSize: 120, opacity: 1, color: '#ffdc82', fontFamily: 'Segoe UI', shape: 'none', depth: 0, start: Math.min(playheadTime, totalDuration - .1), end: Math.min(totalDuration, playheadTime + 3) };
+    const icons = { star: '★', check: '✓', arrow: '➜', heart: '♥', fire: '🔥', sparkle: '✨', bolt: '⚡', crown: '👑' };
+    const sticker = { id: uid(), text: icons[preset] || '★', x: 80, y: 20, fontSize: 120, opacity: 1, color: '#ffdc82', fontFamily: 'Segoe UI', shape: 'none', depth: 0, start: Math.min(playheadTime, totalDuration - .1), end: Math.min(totalDuration, playheadTime + 3) };
     setTextOverlays(current => [...current, sticker]); setSelectedTextId(sticker.id); setSelectedId(''); setSelectedAudioId(''); setSelectedCaptionId(''); openInspector('text');
   };
   const applyTemplate = preset => {
     if (projectBusyRef.current) return;
-    setSettings(current => ({ ...current, resolution: '1080p', aspectRatio: preset === 'vertical' ? '9:16' : '16:9', fps: 30, quality: 'balanced' }));
+    const presetMap = {
+      lesson: { resolution: '1080p', aspectRatio: '16:9', fps: 30, quality: 'balanced' },
+      vertical: { resolution: 'vertical', aspectRatio: '9:16', fps: 30, quality: 'balanced' },
+      slideshow: { resolution: '1080p', aspectRatio: '16:9', fps: 30, quality: 'balanced' },
+      youtube4k: { resolution: '4k', aspectRatio: '16:9', fps: 60, quality: 'high' },
+      square: { resolution: 'square', aspectRatio: '1:1', fps: 30, quality: 'balanced' },
+      cinema24: { resolution: '1440p', aspectRatio: '16:9', fps: 24, quality: 'high' },
+    };
+    setSettings(current => ({ ...current, ...(presetMap[preset] || presetMap.lesson) }));
     if (preset === 'slideshow') setScenes(current => current.map(scene => scene.kind === 'image' ? { ...scene, transition: 'fade-black', transitionDuration: .4 } : scene));
+    if (preset === 'cinema24') setScenes(current => current.map(scene => ({ ...scene, contrast: 1.16, saturation: 0.86 })));
     setProgress({ pct: 100, phase: `${preset} template applied. Your clips, captions and fonts were preserved.` });
+  };
+  const formatSmpte = (seconds = 0, fps = 30) => {
+    const safe = Math.max(0, Number(seconds) || 0);
+    const rate = Math.max(1, Number(fps) || 30);
+    const hrs = Math.floor(safe / 3600);
+    const mins = Math.floor((safe % 3600) / 60);
+    const secs = Math.floor(safe % 60);
+    const frames = Math.floor((safe % 1) * rate);
+    return [hrs, mins, secs, frames].map(v => String(v).padStart(2, '0')).join(':');
+  };
+  const captureProgramSnapshot = () => {
+    if (!programScene) { setWarning('Load a clip into the Program Monitor before taking a snapshot.'); return; }
+    addMarker();
+    setProgress({ pct: 100, phase: `📷 Snapshot marker captured at ${formatSmpte(playheadTime, settings.fps)} (${programScene.name}).` });
+  };
+  const selectLayoutMode = mode => {
+    setLayoutMode(mode);
+    setLayoutPickerOpen(false);
+    try { localStorage.setItem('mx-layout-mode', mode); } catch (_) {}
+    setProgress({ pct: 100, phase: `Filmora 15 ${mode.toUpperCase()} studio workspace activated.` });
   };
   const addAsset = asset => {
     if (asset.kind === 'audio') { if (projectBusyRef.current || trackStates.audioLocked) return; const track = { ...asset, id: uid(), libraryId: asset.id, start: playheadTime, duration: Number(asset.duration) / Number(asset.speed || 1), originSceneId: '', detachedFromSceneId: '', reattachedToSceneId: '', pastedAudio: true, volume: asset.volume ?? 1 }; setAudioTracks(current => [...current, track]); setSelectedAudioId(track.id); setSelectedId(''); loadWaveform(track.id, track.path, track); }
@@ -2642,13 +2759,32 @@ export default function MyExporter({ active = true }) {
       <header className="mx-editor-topbar" data-format={`${settings.aspectRatio} · ${settings.resolution || '1080p'} · ${settings.fps}fps`}>
         <div className="mx-editor-brand"><b>F15</b><strong>My Exporter</strong><span>FILMORA 15 STUDIO</span></div>
         <input className="mx-editor-project-name" aria-label="Project name" value={projectName} disabled={exporterBusy} onChange={event => setProjectName(event.target.value)} />
-        <div className="mx-editor-project-actions"><button onClick={newProject} disabled={exporterBusy}>New</button><button onClick={() => projectInput.current?.click()} disabled={exporterBusy}>Open</button><button onClick={saveProject} disabled={exporterBusy}>Save</button><button title="Undo (Ctrl+Z)" disabled={exporterBusy || historyIndexRef.current < 1} onClick={() => restoreHistory(-1)}>↶</button><button title="Redo (Ctrl+Y)" disabled={exporterBusy || historyIndexRef.current >= historyRef.current.length - 1} onClick={() => restoreHistory(1)}>↷</button></div>
+        <div className="mx-editor-project-actions">
+          <button onClick={newProject} disabled={exporterBusy}>New</button>
+          <button onClick={() => projectInput.current?.click()} disabled={exporterBusy}>Open</button>
+          <button onClick={saveProject} disabled={exporterBusy}>Save</button>
+          <button title="Undo (Ctrl+Z)" disabled={exporterBusy || historyIndexRef.current < 1} onClick={() => restoreHistory(-1)}>↶</button>
+          <button title="Redo (Ctrl+Y)" disabled={exporterBusy || historyIndexRef.current >= historyRef.current.length - 1} onClick={() => restoreHistory(1)}>↷</button>
+          <div className="mx-layout-dropdown-container">
+            <span role="button" tabIndex={0} className={`mx-f15-layout-trigger ${layoutPickerOpen ? 'active' : ''}`} title="Switch Filmora 15 Workspace Layout" onClick={() => setLayoutPickerOpen(value => !value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLayoutPickerOpen(v => !v); } }}>⊞ Layout: {layoutMode} ▾</span>
+            {layoutPickerOpen && <div className="mx-layout-picker-popup">
+              {[['default', 'Default Studio (4-Pane)'], ['classic', 'Classic NLE'], ['short', 'Short Video (9:16)'], ['timeline', 'Wide Timeline']].map(([modeId, modeLabel]) => (
+                <span key={modeId} role="button" tabIndex={0} className={layoutMode === modeId ? 'active' : ''} onClick={() => selectLayoutMode(modeId)}>{modeLabel}</span>
+              ))}
+            </div>}
+          </div>
+        </div>
         <div className="mx-export-dropdown-container"><button className="mx-editor-export" onClick={() => setExportDropdownOpen(value => !value)} disabled={!scenes.length || exporterBusy}>Export ▾</button>{exportDropdownOpen && <div className="mx-export-dropdown-menu"><button onClick={() => { setExportDropdownOpen(false); exportVideo(); }}>Export with current captions</button><button onClick={() => { setExportDropdownOpen(false); exportVideo(null, false, true); }}>Export without captions</button><button onClick={() => { setExportDropdownOpen(false); generateCaptionsAndExport(); }}>Generate captions & export</button><button onClick={() => { setExportDropdownOpen(false); openInspector('export'); }}>Export settings</button></div>}</div>
       </header>
       <nav className="mx-editor-navigation" aria-label="Editor tools">
         {visibleAssetTabs.map(tab => <button key={tab} data-nav-tab={tab.toLowerCase()} className={openSidePanel === 'library' && assetTab === tab ? 'active' : ''} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}
         <button data-nav-tab="captions" className={openSidePanel === 'inspector' && inspectorTab === 'captions' ? 'active' : ''} onClick={() => openInspector('captions')}>Captions</button>
         <details className="mx-editor-menu" data-nav-tab="effects"><summary>Effects ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>{effectAssetTabs.map(tab => <button key={tab} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }}>{tab}</button>)}</div></details>
+        <div className="mx-f15-ribbon-pills" aria-label="Filmora 15 Quick Categories">
+          {effectAssetTabs.map(tab => (
+            <span key={tab} role="button" tabIndex={0} className={`mx-f15-ribbon-pill ${openSidePanel === 'library' && assetTab === tab ? 'active' : ''}`} onClick={() => { setAssetTab(tab); setOpenSidePanel('library'); }} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAssetTab(tab); setOpenSidePanel('library'); } }}>{tab}</span>
+          ))}
+        </div>
         <span /><button aria-label="Help & Demos" data-nav-tab="help" className="mx-editor-help-button" onClick={() => openHelp('media')}>? Help & Demos</button><button data-nav-tab="inspector" className={openSidePanel === 'inspector' && inspectorTab === 'clip' ? 'active' : ''} onClick={() => openSidePanel === 'inspector' && inspectorTab === 'clip' ? setOpenSidePanel('library') : openInspector('clip')}>Clip settings</button>
       </nav>
       {workspaceTabs.length > 1 && <div className="mx-project-tabs"><strong>Projects</strong>{workspaceTabs.map(tab => <button key={tab.id} className={tab.id === activeWorkspaceId ? 'active' : ''} disabled={exporterBusy} onClick={() => switchWorkspace(tab.id)}>{tab.id === activeWorkspaceId ? projectName : tab.name}</button>)}<button disabled={exporterBusy} onClick={addWorkspace}>+ Project</button><span>{autosaveState} · {settings.aspectRatio} · {settings.fps} fps</span></div>}
@@ -2662,14 +2798,14 @@ export default function MyExporter({ active = true }) {
             disabled={exporterBusy} onImport={pickMedia} onImportAudio={pickAudioTracks} onPreview={asset => { setIsPreviewPlaying(false); setSourceAsset(asset); }} onAdd={addAsset}
             onAddAll={addAutoAllScenes} autoAddDisabled={trackStates.videoLocked || trackStates.audioLocked || trackStates.captionsLocked}
             onRemove={asset => { setMediaLibrary(current => current.filter(item => item.id !== asset.id)); if (sourceAsset?.id === asset.id) setSourceAsset(null); }}
-            onApplyFilter={applyVisualPreset} onApplyTransition={preset => selected ? patchScene(selected.id, { transition: preset, transitionDuration: .4 }) : setWarning('Select a clip before applying a transition.')}
+            onApplyFilter={applyVisualPreset} onApplyTransition={applyTransitionPreset}
             onAddTitle={addTitlePreset} onAddSticker={addStickerPreset} onApplyTemplate={applyTemplate} onHelp={openHelp} />
           <details className="mx-audio-box"><summary>Background music</summary><button onClick={() => musicInput.current?.click()} disabled={exporterBusy}>{music ? 'Replace music' : '+ Add music'}</button>{music && <div><strong>{music.name}</strong><button onClick={() => setMusic(null)} disabled={exporterBusy}>Remove</button></div>}<label>Music volume<input aria-label="Music volume" type="range" min="0" max="1" step=".01" value={settings.musicVolume} onChange={event => setSettings(value => ({ ...value, musicVolume: Number(event.target.value) }))} /></label></details>
         </aside>
 
         <main className={`mx-center${sourceAsset ? ' mx-has-source-monitor' : ''}`}>
           {sourceAsset && <SourceMonitor asset={sourceAsset} onInsert={addAsset} onClose={() => setSourceAsset(null)} disabled={exporterBusy || Boolean(helpTopic)} onHelp={openHelp} />}
-          <div ref={previewViewport} className={`mx-viewer ${previewLarge ? 'mx-viewer-large' : ''}`}>
+          <div ref={previewViewport} className={`mx-viewer ${previewLarge ? 'mx-viewer-large' : ''}`} data-program-clip={programScene ? `${programScene.name} · ${settings.aspectRatio} · ${settings.fps}fps` : 'No clip loaded'}>
             {isPreviewFullscreen && <button className="mx-exit-fullscreen" onClick={togglePreviewFullscreen}>← Exit fullscreen (Esc)</button>}
             <div ref={viewer} className="mx-program-stage" style={{ width: canvasSize.width, height: canvasSize.height }}>
               {active && programScene && !programScene.disabled && programScene.kind !== 'gap' ? programScene.kind === 'image'
@@ -2706,6 +2842,7 @@ export default function MyExporter({ active = true }) {
             <button title="Previous frame" onClick={() => seekTimeline(playheadTime - 1 / Number(settings.fps || 30), true)}>◀|</button>
             <button className="mx-play-button" onClick={togglePreviewPlayback} disabled={!programScene || exporterBusy}>{isPreviewPlaying ? '❚❚ Pause' : '▶ Play'}</button>
             <button title="Next frame" onClick={() => seekTimeline(playheadTime + 1 / Number(settings.fps || 30), true)}>|▶</button>
+            <button title="Filmora 15 Snapshot — Capture frame marker" onClick={captureProgramSnapshot} disabled={!programScene || exporterBusy}>📷 Snapshot</button>
             <button onClick={togglePreviewFullscreen}>Fullscreen</button>
             <details className="mx-editor-menu"><summary>Preview options ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>
               <HelpHint label="Preview controls" topic="timeline-playback" onHelp={openHelp} />
@@ -2713,7 +2850,7 @@ export default function MyExporter({ active = true }) {
               <button onClick={() => { setPreviewLarge(value => !value); window.setTimeout(updatePreviewFrame, 50); }}>{previewLarge ? 'Normal preview' : 'Larger preview'}</button>
               <button onClick={() => setSafeGuides(value => !value)}>{safeGuides ? 'Hide guides' : 'Show guides'}</button>
             </div></details>
-          </div><span>{formatTime(playheadTime)} / {formatTime(totalDuration)}</span></div>
+          </div><span data-smpte={formatSmpte(playheadTime, settings.fps)}>{formatTime(playheadTime)} / {formatTime(totalDuration)}</span></div>
           <div className="mx-master-meter mx-master-mix-status"><strong>MASTER MIX</strong><span>{trackStates.audioMuted ? 'Added audio muted' : `${audioTracks.filter(track => !track.muted && playheadTime >= track.start && playheadTime < track.start + track.duration).length} active audio tracks${music ? ' + music' : ''}`} · {isPreviewPlaying ? programWaiting ? 'Loading source' : 'Playing' : 'Paused'}</span><span>{formatTime(playheadTime)} / {formatTime(totalDuration)}</span></div>
           <section className="mx-timeline" ref={timelineRef}>
             <div className="mx-filmora-toolstrip">
@@ -2738,6 +2875,8 @@ export default function MyExporter({ active = true }) {
                   🔗 Reattach
                 </button>
               )}
+              <span role="button" tabIndex={0} className="mx-f15-tool-chip" title="Add timeline marker at playhead (M)" onClick={addMarker}>◆ Marker</span>
+              <span role="button" tabIndex={0} className="mx-f15-tool-chip" title="Open Color Grading & LUTs" onClick={() => { setAssetTab('Filters'); setOpenSidePanel('library'); }}>🎨 Color</span>
               <details className="mx-editor-menu"><summary>More tools ▾</summary><div className="mx-editor-menu-items" onClick={closeEditorMenu}>
                 <HelpHint label="Timeline editing" topic="timeline" onHelp={openHelp} />
                 <button onClick={() => selectedAudio ? copySelectedAudio() : copyScene()} disabled={exporterBusy || (!selected && !selectedAudio)}>Copy</button>
@@ -2774,26 +2913,69 @@ export default function MyExporter({ active = true }) {
                 <div className="mx-track-label"><strong>Images</strong><button className="mx-track-size" title="Enlarge or reduce Images track" onClick={() => setExpandedTimelineTrack(value => value === 'images' ? '' : 'images')}>{expandedTimelineTrack === 'images' ? '▾' : '▴'}</button><span>▧</span></div>
                 <div className="mx-position-lane mx-video-lane mx-image-lane">{scenes.map((scene, index) => { if (scene.kind !== 'image') return null; const sceneDuration = Number(scene.duration || 0); return <button key={scene.id} draggable={!trackStates.videoLocked} title="Image scene · click to select · right-click for options" className={`mx-clip mx-image-clip ${selectedIds.includes(scene.id) ? 'active' : ''}`} style={{ left: `${totalDuration ? sceneTimelineOffset(scene.id) / totalDuration * 100 : 0}%`, width: `${totalDuration ? sceneDuration / totalDuration * 100 : 100}%` }} onClick={event => { selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); selectScene(scene.id, event.ctrlKey || event.metaKey); setPlayheadTime(sceneTimelineOffset(scene.id)); setContextMenu({ type: 'video', id: scene.id, name: scene.name, x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 380) }); }}><img src={fileUrl(scene.path)} alt="" /><span>{index + 1}</span><strong>{scene.name}</strong><small>{formatTime(sceneDuration)}</small></button>; })}</div>
               </div>
-              <div className="mx-track-row mx-audio-group-row"><div className="mx-track-label"><strong>Audio mix</strong><button onClick={() => setTrackStates(value => ({ ...value, audioMuted: !value.audioMuted }))}>{trackStates.audioMuted ? '🔇' : '🔊'}</button><button onClick={() => setTrackStates(value => ({ ...value, audioLocked: !value.audioLocked }))}>{trackStates.audioLocked ? '🔒' : '🔓'}</button></div><div className="mx-position-lane"><small>{audioTracks.length ? 'Each sound has its own lane. Overlapping tracks play together.' : 'Import audio or detach a video’s sound to start mixing.'}</small></div></div>
-              {audioTracks.map((track, index) => <div className="mx-track-row mx-audio-row" key={track.id}>
-                <div className="mx-track-label"><strong title={track.name}>Audio {index + 1}</strong></div>
-                <div className="mx-position-lane"><div role="button" tabIndex="0" data-audio-id={track.id}
-                  className={`mx-audio-clip ${selectedAudioId === track.id ? 'active' : ''} ${audioCutSelectionModeId === track.id ? 'cut-selecting' : ''}`}
-                  style={{ left: `${totalDuration ? track.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? track.duration / totalDuration * 100 : 0}%` }}
-                  onPointerDown={event => beginAudioMove(event, track)} onClick={event => selectAudioAtPointer(event, track)} onDoubleClick={() => openInspector('clip')}
-                  onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 390), id: track.id, name: track.name, type: 'audio' }); }}>
-                  <span className="mx-trim-handle left" title="Drag to trim audio start" onPointerDown={event => beginAudioTrim(event, track, 'left')} />
-                  {audioSelection?.trackId === track.id && <span className={`mx-audio-selection ${audioSelection.awaitingEnd ? 'awaiting-end' : ''}`}
-                    style={{ left: `${(audioSelection.start - Number(track.start)) / Number(track.duration) * 100}%`, width: `${(audioSelection.end - audioSelection.start) / Number(track.duration) * 100}%` }}
-                    onPointerDown={event => audioCutSelectionModeId === track.id ? beginAudioRange(event, track) : beginAudioSelectionHandle(event, track, 'move')}>
-                    {!audioSelection.awaitingEnd && <><button className="mx-range-handle start" aria-label="Audio range start" title="Adjust selection In" onPointerDown={event => beginAudioSelectionHandle(event, track, 'start')} /><button className="mx-range-handle end" aria-label="Audio range end" title="Adjust selection Out" onPointerDown={event => beginAudioSelectionHandle(event, track, 'end')} /></>}
-                    <b>{audioSelection.awaitingEnd ? 'IN — CLICK OUT' : `${(audioSelection.end - audioSelection.start).toFixed(3)}s`}</b>
-                  </span>}
-                  <div className="mx-waveform" aria-hidden="true">{track.waveform?.map((peak, peakIndex) => <i key={peakIndex} style={{ height: `${Math.max(8, peak * 100)}%` }} />)}</div>
-                  <strong>{track.name}</strong><small>{audioCutSelectionModeId === track.id ? 'SELECT RANGE: drag or click In, then Out' : track.waveformLoading ? 'Building waveform…' : `${Number(track.trimStart || 0).toFixed(3)} → ${(Number(track.trimStart || 0) + Number(track.duration) * Number(track.speed || 1)).toFixed(3)}s source`}</small>
-                  <button className="mx-audio-delete" title="Delete this entire audio piece" onClick={event => { event.stopPropagation(); removeAudioTrack(track.id); }}>Delete</button>
-                  <span className="mx-trim-handle right" title="Drag to trim audio end" onPointerDown={event => beginAudioTrim(event, track, 'right')} />
-                </div></div>
+              <div className="mx-track-row mx-audio-group-row">
+                <div className="mx-track-label"><strong>Audio mix</strong><button onClick={() => setTrackStates(value => ({ ...value, audioMuted: !value.audioMuted }))}>{trackStates.audioMuted ? '🔇' : '🔊'}</button><button onClick={() => setTrackStates(value => ({ ...value, audioLocked: !value.audioLocked }))}>{trackStates.audioLocked ? '🔒' : '🔓'}</button></div>
+                <div className="mx-position-lane">
+                  {selectedAudio && !trackStates.audioLocked ? (
+                    <div className="mx-f15-waste-cutter-bar" onPointerDown={e => e.stopPropagation()}>
+                      <span className="mx-f15-waste-bar-title">♫ Filmora 15 Waste Voice Cutter (Same Row):</span>
+                      <span role="button" tabIndex={0} className="mx-f15-waste-pill" title="Split audio clip at playhead on the same Audio row (S or Ctrl+B)" onClick={razorCut}>✂ Split Audio (S)</span>
+                      <span role="button" tabIndex={0} className={`mx-f15-waste-pill ${audioCutSelectionModeId === selectedAudio.id ? 'active' : ''}`} title="Drag across waste voice on waveform, or click Start then End" onClick={() => beginCutPositionSelection(selectedAudio.id)}>🎯 Highlight Waste</span>
+                      <span role="button" tabIndex={0} className="mx-f15-waste-pill" title="Mark waste voice START (In) at current playhead (I)" onClick={() => setAudioSelectionEdge('start')}>[I] Set Start</span>
+                      <span role="button" tabIndex={0} className="mx-f15-waste-pill" title="Mark waste voice END (Out) at current playhead (O)" onClick={() => setAudioSelectionEdge('end')}>[O] Set End</span>
+                      {audioSelection?.trackId === selectedAudio.id && !audioSelection.awaitingEnd && <>
+                        <span role="button" tabIndex={0} className="mx-f15-waste-pill preview" title="Listen to the highlighted waste voice range" onClick={audioRangePreviewing ? stopAudioSelectionPreview : previewAudioSelection}>{audioRangePreviewing ? '⏹ Stop' : '▶ Hear Waste'}</span>
+                        <span role="button" tabIndex={0} className="mx-f15-waste-pill danger" title="Cut highlighted waste voice and leave a silent gap on Audio 1 (keeps video lip-sync)" onClick={() => removeHighlightedAudio(false)}>🗑 Cut Waste (Keep Sync)</span>
+                        <span role="button" tabIndex={0} className="mx-f15-waste-pill ripple" title="Cut highlighted waste voice and pull remaining audio left to close gap" onClick={() => removeHighlightedAudio(true)}>⏮ Cut & Close Gap</span>
+                      </>}
+                    </div>
+                  ) : (
+                    <small>{audioTracks.length ? 'Splits & waste-voice cuts stay on the same Audio row (Filmora 15). Overlapping tracks play together.' : 'Import audio or detach a video’s sound (Ctrl+Alt+D) to start editing.'}</small>
+                  )}
+                </div>
+              </div>
+              {audioTrackLanes.map((laneTracks, laneIndex) => <div className={`mx-track-row mx-audio-row ${expandedTimelineTrack === `audio-${laneIndex}` ? 'track-expanded' : ''}`} key={laneTracks[0]?.id || `audio-lane-${laneIndex}`}>
+                <div className="mx-track-label">
+                  <strong title={laneTracks.map(t => t.name).join(' · ')}>Audio {laneIndex + 1}</strong>
+                  <button className="mx-track-size" title={`Enlarge or reduce Audio ${laneIndex + 1} waveform track`} onClick={() => setExpandedTimelineTrack(value => value === `audio-${laneIndex}` ? '' : `audio-${laneIndex}`)}>{expandedTimelineTrack === `audio-${laneIndex}` ? '▾' : '▴'}</button>
+                </div>
+                <div className="mx-position-lane">
+                  {laneTracks.map((track, segIndex) => {
+                    const prevTrack = segIndex > 0 ? laneTracks[segIndex - 1] : null;
+                    const prevEnd = prevTrack ? Number(prevTrack.start) + Number(prevTrack.duration) : 0;
+                    const gapDuration = prevTrack ? Number(track.start) - prevEnd : 0;
+                    return <React.Fragment key={track.id}>
+                      {gapDuration > 0.02 && totalDuration > 0 && (
+                        <div
+                          className="mx-audio-silent-gap"
+                          style={{ left: `${prevEnd / totalDuration * 100}%`, width: `${gapDuration / totalDuration * 100}%` }}
+                          title={`Silent gap (${gapDuration.toFixed(2)}s) where waste voice was cut · Click to close gap`}
+                          onPointerDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); closeAudioLaneGap(laneTracks, track, gapDuration); }}
+                        >
+                          <span>🔇 {gapDuration.toFixed(2)}s gap</span>
+                        </div>
+                      )}
+                      <div role="button" tabIndex="0" data-audio-id={track.id}
+                        className={`mx-audio-clip ${selectedAudioId === track.id ? 'active' : ''} ${audioCutSelectionModeId === track.id ? 'cut-selecting' : ''} ${laneTracks.length > 1 ? 'is-segment' : ''}`}
+                        style={{ left: `${totalDuration ? track.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? track.duration / totalDuration * 100 : 0}%` }}
+                        onPointerDown={event => beginAudioMove(event, track)} onClick={event => selectAudioAtPointer(event, track)} onDoubleClick={() => openInspector('clip')}
+                        onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setSelectedAudioId(track.id); setSelectedId(''); setSelectedCaptionId(''); setContextMenu({ x: Math.min(event.clientX, window.innerWidth - 255), y: Math.min(event.clientY, window.innerHeight - 390), id: track.id, name: track.name, type: 'audio' }); }}>
+                        <span className="mx-trim-handle left" title="Drag to trim audio start" onPointerDown={event => beginAudioTrim(event, track, 'left')} />
+                        {audioSelection?.trackId === track.id && <span className={`mx-audio-selection ${audioSelection.awaitingEnd ? 'awaiting-end' : ''}`}
+                          style={{ left: `${(audioSelection.start - Number(track.start)) / Number(track.duration) * 100}%`, width: `${(audioSelection.end - audioSelection.start) / Number(track.duration) * 100}%` }}
+                          onPointerDown={event => audioCutSelectionModeId === track.id ? beginAudioRange(event, track) : beginAudioSelectionHandle(event, track, 'move')}>
+                          {!audioSelection.awaitingEnd && <><button className="mx-range-handle start" aria-label="Audio range start" title="Adjust selection In" onPointerDown={event => beginAudioSelectionHandle(event, track, 'start')} /><button className="mx-range-handle end" aria-label="Audio range end" title="Adjust selection Out" onPointerDown={event => beginAudioSelectionHandle(event, track, 'end')} /></>}
+                          <b>{audioSelection.awaitingEnd ? 'IN — CLICK OUT' : `${(audioSelection.end - audioSelection.start).toFixed(3)}s`}</b>
+                        </span>}
+                        <div className="mx-waveform" aria-hidden="true">{track.waveform?.map((peak, peakIndex) => <i key={peakIndex} style={{ height: `${Math.max(8, peak * 100)}%` }} />)}</div>
+                        <strong>{laneTracks.length > 1 ? `Part ${segIndex + 1} · ${track.name}` : track.name}</strong><small>{audioCutSelectionModeId === track.id ? 'SELECT RANGE: drag or click In, then Out' : track.waveformLoading ? 'Building waveform…' : `${Number(track.trimStart || 0).toFixed(3)} → ${(Number(track.trimStart || 0) + Number(track.duration) * Number(track.speed || 1)).toFixed(3)}s source`}</small>
+                        <button className="mx-audio-delete" title="Delete this audio segment (leaves silent gap so video stays in sync)" onClick={event => { event.stopPropagation(); removeAudioTrack(track.id); }}>Delete</button>
+                        <span className="mx-trim-handle right" title="Drag to trim audio end" onPointerDown={event => beginAudioTrim(event, track, 'right')} />
+                      </div>
+                    </React.Fragment>;
+                  })}
+                </div>
               </div>)}
               <div className="mx-track-row mx-titles-row"><div className="mx-track-label"><strong>Titles</strong></div><div className="mx-position-lane">{textOverlays.map(item => <button key={item.id} className={`mx-caption-clip mx-title-clip ${selectedTextId === item.id ? 'active' : ''}`} title={item.text} style={{ left: `${totalDuration ? item.start / totalDuration * 100 : 0}%`, width: `${totalDuration ? (item.end - item.start) / totalDuration * 100 : 0}%` }} onClick={event => { event.stopPropagation(); setSelectedTextId(item.id); setSelectedAudioId(''); setSelectedCaptionId(''); setSelectedId(''); seekTimeline(item.start, true); openInspector('text'); }}>{item.text}</button>)}</div></div>
               <div className={`mx-track-row ${expandedTimelineTrack === 'captions' ? 'track-expanded' : ''}`}>
@@ -2822,13 +3004,13 @@ export default function MyExporter({ active = true }) {
           <fieldset className="mx-inspector-controls" disabled={exporterBusy}>
           <section className="mx-inspector-page" data-inspector-page="clip" hidden={inspectorTab !== 'clip'}>
           {selectedAudio && <section className="mx-scene-inspector"><div className="mx-panel-title">Audio · {selectedAudio.name}</div><label>Volume<input aria-label="Audio volume" type="range" min="0" max="1" step=".01" value={selectedAudio.volume ?? 1} onChange={event => patchAudioTrack(selectedAudio.id, { volume: Number(event.target.value) })} /></label><label>Speed<input aria-label="Audio speed" type="number" min=".25" max="4" step=".05" value={selectedAudio.speed || 1} onChange={event => patchAudioTrack(selectedAudio.id, { speed: Math.max(.25, Math.min(4, Number(event.target.value))) })} /></label><label>Fade in (seconds)<input aria-label="Audio fade in" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeIn || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeIn: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label>Fade out (seconds)<input aria-label="Audio fade out" type="number" min="0" max={selectedAudio.duration} step=".1" value={selectedAudio.fadeOut || 0} onChange={event => patchAudioTrack(selectedAudio.id, { fadeOut: Math.max(0, Math.min(selectedAudio.duration, Number(event.target.value))) })} /></label><label className="mx-check"><input type="checkbox" checked={Boolean(selectedAudio.muted)} onChange={event => patchAudioTrack(selectedAudio.id, { muted: event.target.checked })} /> Mute this track</label></section>}
-          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked} audioLocked={trackStates.audioLocked} detachedAudioTrack={selectedSceneDetachedTrack} onDetachAudio={detachSelectedAudio} onSelectDetachedAudio={trackId => { setSelectedAudioId(trackId); setSelectedId(''); setSelectedCaptionId(''); openInspector('clip'); }} onReattachAudio={reattachSelectedAudio} onHelp={openHelp}
+          {!selectedAudio && <SceneInspector scene={selected} transform={selectedTransform} localTime={selectedLocalTime} duration={selectedEntry?.outputDuration || 0} disabled={exporterBusy || trackStates.videoLocked} audioLocked={trackStates.audioLocked} detachedAudioTrack={selectedSceneDetachedTrack} onDetachAudio={detachSelectedAudio} onSelectDetachedAudio={trackId => { setSelectedAudioId(trackId); setSelectedId(''); setSelectedCaptionId(''); openInspector('clip'); }} onReattachAudio={reattachSelectedAudio} onApplyFilter={applyVisualPreset} onHelp={openHelp}
             onChange={changeSceneProperty} onAddKeyframe={() => addKeyframe()} onDeleteKeyframe={index => patchScene(selected.id, { keyframes: selected.keyframes.filter((_, i) => i !== index) })} onSeekKeyframe={time => seekTimeline(selectedEntry.start + time, true)} onTrimChange={patch => patchScene(selected.id, patch)} />}
           {selectedAudio && <>
             <AudioRangeEditor track={selectedAudio} selection={audioSelection} selecting={audioCutSelectionModeId === selectedAudio.id}
               disabled={exporterBusy || trackStates.audioLocked} previewing={audioRangePreviewing} onChange={changeAudioRange}
               onSelect={() => beginCutPositionSelection(selectedAudio.id)} onEdge={setAudioSelectionEdge}
-              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={removeHighlightedAudio} onReattach={() => reattachSelectedAudio(selectedAudio.id)} onHelp={openHelp} />
+              onPreview={previewAudioSelection} onStop={stopAudioSelectionPreview} onRemove={() => removeHighlightedAudio(false)} onRippleRemove={() => removeHighlightedAudio(true)} onSplitAtPlayhead={razorCut} onReattach={() => reattachSelectedAudio(selectedAudio.id)} onHelp={openHelp} />
             <audio ref={audioSelectionPreview} className="mx-cut-preview" src={fileUrl(selectedAudio.path)} preload="metadata" hidden />
             <details className="mx-audio-advanced"><summary>More audio edits</summary>
               <div className="mx-audio-extra-actions">
