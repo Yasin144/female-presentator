@@ -378,6 +378,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stageCaptionSource: (opts) =>
     ipcRenderer.invoke('stage-caption-source', opts),
 
+  loadOtSalaryData: () =>
+    ipcRenderer.invoke('load-ot-salary-data'),
+
+  saveOtSalaryData: (payload) =>
+    ipcRenderer.invoke('save-ot-salary-data', payload),
+
   // Probe video dimensions/duration natively so caption export can match the
   // exact preview position and font scale without loading large videos in JS.
   probeVideoMeta: (opts) =>

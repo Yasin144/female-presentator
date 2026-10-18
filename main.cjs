@@ -6957,6 +6957,36 @@ ipcMain.handle('open-file', async (event, filePath) => {
   }
 });
 
+// ─── IPC: Persistent OT & Salary Daily Calculations Storage ─────────────────
+const otSalaryFilePath = path.join(ROOT, 'ot-salary-data.json');
+
+ipcMain.handle('load-ot-salary-data', async () => {
+  try {
+    if (fs.existsSync(otSalaryFilePath)) {
+      const raw = fs.readFileSync(otSalaryFilePath, 'utf8');
+      const data = JSON.parse(raw);
+      return { ok: true, data, filePath: otSalaryFilePath };
+    }
+    return { ok: true, data: null, filePath: otSalaryFilePath };
+  } catch (err) {
+    console.warn('[OT Salary] Failed to load data:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('save-ot-salary-data', async (event, payload) => {
+  try {
+    const serialized = JSON.stringify(payload || {}, null, 2);
+    const tmpPath = `${otSalaryFilePath}.tmp`;
+    fs.writeFileSync(tmpPath, serialized, 'utf8');
+    fs.renameSync(tmpPath, otSalaryFilePath);
+    return { ok: true, filePath: otSalaryFilePath, savedAt: new Date().toISOString() };
+  } catch (err) {
+    console.error('[OT Salary] Failed to save data:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
   ipcMain.handle('generate-mobile-link', async () => {
     console.log('[Mobile Tunnel] Explicit NEW link requested via IPC...');
     const previousUrl = lastSentMobileUrl;

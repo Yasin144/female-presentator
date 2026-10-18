@@ -7,6 +7,7 @@ import VideoResizer from './components/VideoResizer/VideoResizer';
 import KittenShorts from './components/KittenShorts/KittenShorts';
 import './components/KittenShorts/kitten-shorts.css';
 import Captioner2 from './components/Captioner2/Captioner2';
+import OtSalary from './components/OtSalary/OtSalary';
 import StudioIcon from './components/StudioIcon';
 import StudioHome, { HOME_MODULES, HOME_HELPERS } from './components/StudioHome';
 import StudioPreferences from './components/StudioPreferences';
@@ -16,7 +17,7 @@ const CaptionBurner = lazy(() => import('./caption/CaptionBurner'));
 
 const LS_KEY   = 'pp-input-style-v1';
 const DEFAULTS = { lineHeight: 2.1, fontSize: 0.98, letterSpacing: 0.01 };
-const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'kitten-shorts', 'captioner-2']);
+const ACTIVE_MODULES = new Set(['home', 'presentator', 'quotes', 'exporter', 'resizer', 'kitten-shorts', 'captioner-2', 'ot-salary']);
 const normalizeModule = value => ACTIVE_MODULES.has(value) ? value : 'home';
 const STUDIO_MODULES = [
   { id: 'presentator', label: 'Presentator', detail: 'Lessons & PDF presentations' },
@@ -25,6 +26,7 @@ const STUDIO_MODULES = [
   { id: 'exporter', label: 'My Exporter', detail: 'Edit, caption & export videos' },
   { id: 'resizer', label: 'Video Resizer', detail: 'A perfect fit for every platform' },
   { id: 'kitten-shorts', label: 'Kitten Shorts Voiceover', detail: 'Make a funny, timed YouTube Short' },
+  { id: 'ot-salary', label: 'OT & Salary Tracker', detail: 'Daily office salary & extra OT hours calculator' },
 ];
 
 class CaptionErrorBoundary extends React.Component {
@@ -760,6 +762,9 @@ function App() {
         </div>
         <div className="studio-module" data-workspace="captioner-2" style={{ display: (!captionOpen && currentModule === 'captioner-2') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
           <ModuleErrorBoundary moduleName="Captioner 2"><Captioner2 onClose={backToHome} /></ModuleErrorBoundary>
+        </div>
+        <div className="studio-module" data-workspace="ot-salary" style={{ display: (!captionOpen && currentModule === 'ot-salary') ? 'block' : 'none', height: '100vh', paddingTop: '50px', boxSizing: 'border-box', overflow: 'auto' }}>
+          <ModuleErrorBoundary moduleName="OT & Salary Tracker"><OtSalary onClose={backToHome} /></ModuleErrorBoundary>
         </div>
       </div>
 
