@@ -930,6 +930,48 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes("overscrollBehavior: 'contain'"), true);
       assert.equal(javaParserSrc.includes('next.length() < 10000'), true);
     });
+
+    it('prevents 2.5s periodic layout jumping and supports 10-13 Salary / 18-21 OT credit cycles plus patanyasin144@gmail.com Change Mobile isolation', () => {
+      const baseTs = new Date('2026-10-19T18:30:00+05:30').getTime();
+      const tx1 = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.phonepe.app',
+        title: 'PhonePe',
+        body: 'Paid ₹250 to Cafe Bahar via UPI. UTR: 412398765432. Avl Bal: Rs. 15420.50',
+        timestampMs: baseTs,
+      });
+      assert.ok(tx1);
+
+      const firstPass = reconcileAndMergeTransactions({}, [tx1], 'android-notif');
+      assert.equal(firstPass.addedCount, 1);
+
+      // Second pass with identical transaction (same ID) -> 0 added, 0 updated (no false-positive toast)
+      const secondPass = reconcileAndMergeTransactions(firstPass.nextMap, [tx1], 'android-notif');
+      assert.equal(secondPass.addedCount, 0);
+      assert.equal(secondPass.updatedCount, 0);
+
+      // Third pass with different ID but same refId and identical fields -> 0 added, 0 updated (fixes Step 2a jumping bug)
+      const txSameRefDifferentId = {
+        ...tx1,
+        id: 'tx_alt_id_same_utr',
+      };
+      const thirdPass = reconcileAndMergeTransactions(firstPass.nextMap, [txSameRefDifferentId], 'android-notif');
+      assert.equal(thirdPass.addedCount, 0);
+      assert.equal(thirdPass.updatedCount, 0);
+
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      assert.equal(otSalarySrc.includes("OWNER_MASTER_EMAIL = 'patanyasin144@gmail.com'"), true);
+      assert.equal(otSalarySrc.includes('salaryCreditStartDay: 10'), true);
+      assert.equal(otSalarySrc.includes('salaryCreditEndDay: 13'), true);
+      assert.equal(otSalarySrc.includes('otCreditStartDay: 18'), true);
+      assert.equal(otSalarySrc.includes('otCreditEndDay: 21'), true);
+      assert.equal(otSalarySrc.includes('buildOwnerMasterTransactionsSeed'), true);
+      assert.equal(otSalarySrc.includes('showChangeMobileModal'), true);
+      assert.equal(otSalarySrc.includes("overflowAnchor: 'none'"), true);
+    });
   });
 });
+
 

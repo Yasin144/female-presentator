@@ -771,6 +771,71 @@ public final class MobileTransactionParser {
         }
     }
 
+    private static String sanitizeEmailKey(String email) {
+        if (email == null) return "default";
+        String clean = email.trim().toLowerCase().replaceAll("[^a-z0-9._@-]", "_");
+        return clean.isEmpty() ? "default" : clean;
+    }
+
+    public static String getSavedProfileVaultJson(Context context, String email) {
+        if (context == null) return "{}";
+        try {
+            String keySuffix = sanitizeEmailKey(email);
+            String prefKey = "pattan_profile_vault_enc_" + keySuffix;
+            String fileName = "pattan_profile_vault_" + keySuffix + ".enc";
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String enc = prefs.getString(prefKey, "");
+            if (enc != null && !enc.isEmpty()) {
+                String plain = decryptJsonString(enc, "{}");
+                if (!"{}".equals(plain)) return plain;
+            }
+            String fileEnc = readNoBackupEncryptedFile(context, fileName);
+            if (fileEnc != null && !fileEnc.isEmpty()) {
+                return decryptJsonString(fileEnc, "{}");
+            }
+            return "{}";
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    public static boolean saveProfileVaultJson(Context context, String email, String plainJson) {
+        if (context == null || plainJson == null) return false;
+        try {
+            String keySuffix = sanitizeEmailKey(email);
+            String prefKey = "pattan_profile_vault_enc_" + keySuffix;
+            String fileName = "pattan_profile_vault_" + keySuffix + ".enc";
+            JSONObject incomingVault = new JSONObject(plainJson);
+
+            // Preserve all existing transactions in this profile vault additively (never delete transactions)
+            String existingPlain = getSavedProfileVaultJson(context, email);
+            if (existingPlain != null && !existingPlain.isEmpty() && !"{}".equals(existingPlain)) {
+                try {
+                    JSONObject existingVault = new JSONObject(existingPlain);
+                    JSONObject mergedExpenses = new JSONObject();
+                    JSONObject exExp = existingVault.optJSONObject("expenses");
+                    if (exExp != null) {
+                        mergeCleanJsonIntoMap(mergedExpenses, exExp.toString());
+                    }
+                    JSONObject inExp = incomingVault.optJSONObject("expenses");
+                    if (inExp != null) {
+                        mergeCleanJsonIntoMap(mergedExpenses, inExp.toString());
+                    }
+                    incomingVault.put("expenses", mergedExpenses);
+                } catch (Exception ignored) {}
+            }
+
+            String encrypted = encryptJsonString(incomingVault.toString());
+            if (encrypted.isEmpty()) return false;
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            prefs.edit().putString(prefKey, encrypted).apply();
+            writeNoBackupEncryptedFile(context, fileName, encrypted);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public static JSONObject extractAndSaveStandaloneBalance(
         Context context,
         String senderOrPkg,

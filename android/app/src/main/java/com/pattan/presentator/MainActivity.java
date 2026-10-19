@@ -417,6 +417,44 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String getProfileVaultJson(final String email) {
+            try {
+                return MobileTransactionParser.getSavedProfileVaultJson(getApplicationContext(), email);
+            } catch (Exception ignored) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean saveProfileVaultJson(final String email, final String plainJson) {
+            try {
+                return MobileTransactionParser.saveProfileVaultJson(getApplicationContext(), email, plainJson);
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean shareVaultToEmail(final String email, final String subject, final String bodyText) {
+            runOnUiThread(() -> {
+                try {
+                    String targetEmail = (email != null && !email.trim().isEmpty()) ? email.trim() : "patanyasin144@gmail.com";
+                    Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                    sendIntent.setType("text/plain");
+                    sendIntent.putExtra(Intent.EXTRA_EMAIL, new String[]{targetEmail});
+                    sendIntent.putExtra(Intent.EXTRA_SUBJECT, subject != null ? subject : "Yasin OT & Expense Master Vault Sync (" + targetEmail + ")");
+                    sendIntent.putExtra(Intent.EXTRA_TEXT, bodyText != null ? bodyText : "");
+                    Intent chooser = Intent.createChooser(sendIntent, "Sync / Backup Vault to " + targetEmail);
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(chooser);
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Vault saved locally for " + email, Toast.LENGTH_SHORT).show();
+                }
+            });
+            return true;
+        }
+
+        @JavascriptInterface
         public boolean openUpiAppForBalanceCheck(final String appKey) {
             runOnUiThread(() -> {
                 try {

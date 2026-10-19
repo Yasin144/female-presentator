@@ -464,13 +464,26 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
         : byId.merchant && !byId.merchant.startsWith('UPI /') && !byId.merchant.startsWith('Bank /')
           ? byId.merchant
           : incoming.merchant || byId.merchant;
+      const prevPersonalNote = String(byId.personalNote || '');
+      const prevNote = String(byId.note || '');
+      const prevOriginalRemark = String(byId.originalRemark || '');
+      const prevMerchant = String(byId.merchant || '');
+      const prevBalance =
+        byId.accountBalance !== null && byId.accountBalance !== undefined && Number.isFinite(Number(byId.accountBalance))
+          ? Number(byId.accountBalance)
+          : null;
+      const nextBalance =
+        mergedBalance !== null && mergedBalance !== undefined && Number.isFinite(Number(mergedBalance))
+          ? Number(mergedBalance)
+          : null;
+      const prevMask = String(byId.accountMask || '');
       if (
-        mergedPersonalNote !== (byId.personalNote || '') ||
-        mergedNote !== byId.note ||
-        mergedOriginalRemark !== byId.originalRemark ||
-        bestMerchant !== byId.merchant ||
-        mergedBalance !== byId.accountBalance ||
-        mergedMask !== (byId.accountMask || '')
+        mergedPersonalNote !== prevPersonalNote ||
+        mergedNote !== prevNote ||
+        mergedOriginalRemark !== prevOriginalRemark ||
+        bestMerchant !== prevMerchant ||
+        nextBalance !== prevBalance ||
+        mergedMask !== prevMask
       ) {
         nextMap[incoming.id] = {
           ...byId,
@@ -479,7 +492,7 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
           personalNote: mergedPersonalNote,
           note: mergedNote,
           noteReviewed: Boolean(byId.noteReviewed || mergedPersonalNote || mergedNote),
-          accountBalance: mergedBalance,
+          accountBalance: nextBalance,
           accountMask: mergedMask,
           updatedAt: byId.updatedAt || nowIso,
           updatedAtMs: Math.max(Number(byId.updatedAtMs) || 0, nowMs),
@@ -547,20 +560,47 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
         : matchedExisting.merchant && !matchedExisting.merchant.startsWith('UPI /')
           ? matchedExisting.merchant
           : incoming.merchant || matchedExisting.merchant;
-      nextMap[matchedExisting.id] = {
-        ...matchedExisting,
-        merchant: bestMerchant,
-        originalRemark: mergedRemark,
-        personalNote: mergedPersonalNote,
-        note: mergedNote,
-        noteReviewed: Boolean(matchedExisting.noteReviewed || mergedPersonalNote || mergedNote),
-        refId: matchedExisting.refId || incoming.refId,
-        accountBalance: mergedBalance,
-        accountMask: mergedMask,
-        updatedAt: matchedExisting.updatedAt || nowIso,
-        updatedAtMs: Math.max(Number(matchedExisting.updatedAtMs) || 0, nowMs),
-      };
-      mergedCount += 1;
+      const prevPersonalNote = String(matchedExisting.personalNote || '');
+      const prevNote = String(matchedExisting.note || '');
+      const prevRemark = String(matchedExisting.originalRemark || '');
+      const prevMerchant = String(matchedExisting.merchant || '');
+      const prevRefId = String(matchedExisting.refId || '');
+      const nextRefId = String(matchedExisting.refId || incoming.refId || '');
+      const prevBalance =
+        matchedExisting.accountBalance !== null &&
+        matchedExisting.accountBalance !== undefined &&
+        Number.isFinite(Number(matchedExisting.accountBalance))
+          ? Number(matchedExisting.accountBalance)
+          : null;
+      const nextBalance =
+        mergedBalance !== null && mergedBalance !== undefined && Number.isFinite(Number(mergedBalance))
+          ? Number(mergedBalance)
+          : null;
+      const prevMask = String(matchedExisting.accountMask || '');
+      if (
+        mergedPersonalNote !== prevPersonalNote ||
+        mergedNote !== prevNote ||
+        mergedRemark !== prevRemark ||
+        bestMerchant !== prevMerchant ||
+        nextRefId !== prevRefId ||
+        nextBalance !== prevBalance ||
+        mergedMask !== prevMask
+      ) {
+        nextMap[matchedExisting.id] = {
+          ...matchedExisting,
+          merchant: bestMerchant,
+          originalRemark: mergedRemark,
+          personalNote: mergedPersonalNote,
+          note: mergedNote,
+          noteReviewed: Boolean(matchedExisting.noteReviewed || mergedPersonalNote || mergedNote),
+          refId: nextRefId,
+          accountBalance: nextBalance,
+          accountMask: mergedMask,
+          updatedAt: matchedExisting.updatedAt || nowIso,
+          updatedAtMs: Math.max(Number(matchedExisting.updatedAtMs) || 0, nowMs),
+        };
+        mergedCount += 1;
+      }
       continue;
     }
 

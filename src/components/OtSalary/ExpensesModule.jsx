@@ -328,6 +328,9 @@ export default function ExpensesModule({
   onToggleSalaryVisibility,
   mobileMode = false,
   themeMode = 'dark',
+  activeAccountEmail = 'patanyasin144@gmail.com',
+  isOwnerAccount = true,
+  onOpenChangeMobileModal,
 }) {
   const effectiveMonthlySalary = Number(monthlyNetSalary || netMonthlySalary || 0);
 
@@ -437,7 +440,13 @@ export default function ExpensesModule({
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
           setBankBalanceInfo((prev) => {
-            if (!prev || Number(parsed.updatedAtMs || 0) >= Number(prev.updatedAtMs || 0) || parsed.balance !== prev.balance) {
+            const prevTs = Number(prev?.updatedAtMs || 0);
+            const nextTs = Number(parsed.updatedAtMs || 0);
+            const prevBal = prev && Number.isFinite(Number(prev.balance)) ? Number(prev.balance) : null;
+            const nextBal = Number(parsed.balance);
+            const prevMask = String(prev?.accountMask || '');
+            const nextMask = String(parsed.accountMask || '');
+            if (!prev || nextTs > prevTs || nextBal !== prevBal || nextMask !== prevMask) {
               try {
                 if (window.localStorage) {
                   window.localStorage.setItem('yasin_ot_bank_balance_v1', JSON.stringify(parsed));
@@ -464,6 +473,7 @@ export default function ExpensesModule({
   useEffect(() => {
     expensesMapRef.current = expensesMap;
   }, [expensesMap]);
+  const lastSavedNativeRawRef = useRef('');
   const recentScrollerRef = useRef(null);
   const transactionsScrollerRef = useRef(null);
   const missingNotesScrollerRef = useRef(null);
@@ -505,10 +515,12 @@ export default function ExpensesModule({
     try {
       if (window.PattanBiometric) {
         if (typeof window.PattanBiometric.isNotificationListenerEnabled === 'function') {
-          setNotifGranted(Boolean(window.PattanBiometric.isNotificationListenerEnabled()));
+          const nextNotif = Boolean(window.PattanBiometric.isNotificationListenerEnabled());
+          setNotifGranted((prev) => (prev === nextNotif ? prev : nextNotif));
         }
         if (typeof window.PattanBiometric.hasSmsPermission === 'function') {
-          setSmsGranted(Boolean(window.PattanBiometric.hasSmsPermission()));
+          const nextSms = Boolean(window.PattanBiometric.hasSmsPermission());
+          setSmsGranted((prev) => (prev === nextSms ? prev : nextSms));
         }
       }
     } catch (_) {}
@@ -530,12 +542,14 @@ export default function ExpensesModule({
       const totalChanges = addedCount + updatedCount;
       if (totalChanges > 0 && typeof onUpdateExpenses === 'function') {
         expensesMapRef.current = nextMap;
-        onUpdateExpenses(
-          nextMap,
-          `📲 Synced ${addedCount} new & ${updatedCount} updated transaction${totalChanges === 1 ? '' : 's'}`
-        );
+        // Only show a toast notice when brand-new transactions are captured (prevents periodic layout/toast jitter)
+        const noticeText =
+          addedCount > 0
+            ? `📲 Captured ${addedCount} new payment/deposit transaction${addedCount === 1 ? '' : 's'}`
+            : '';
+        onUpdateExpenses(nextMap, noticeText);
       }
-      return totalChanges;
+      return addedCount;
     },
     [expensesMap, onUpdateExpenses]
   );
@@ -543,34 +557,41 @@ export default function ExpensesModule({
   useEffect(() => {
     const onMobileTxEvent = (ev) => {
       const detail = ev?.detail;
-      setIsScanning(false);
+      setIsScanning((prev) => (prev ? false : prev));
       if (!detail) return;
-      if (typeof detail.notifGranted === 'boolean') setNotifGranted(detail.notifGranted);
-      if (typeof detail.smsGranted === 'boolean') setSmsGranted(detail.smsGranted);
-      syncSavedBankBalanceFromNative();
-      const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
-      if (txList.length > 0) {
-        const added = mergeDetectedTransactions(txList, 'android-notif');
-        if (added > 0) {
-          setScanStatus(`✅ Auto-captured ${added} new UPI/Bank transaction(s) (Payments & Deposits)`);
+      if (typeof detail.notifGranted === 'boolean') {
+        setNotifGranted((prev) => (prev === detail.notifGranted ? prev : detail.notifGranted));
+      }
+      if (typeof detail.smsGranted === 'boolean') {
+        setSmsGranted((prev) => (prev === detail.smsGranted ? prev : detail.smsGranted));
+      }
+      if (isOwnerAccount) {
+        syncSavedBankBalanceFromNative();
+        const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
+        if (txList.length > 0) {
+          mergeDetectedTransactions(txList, 'android-notif');
         }
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
-  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
+  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative, isOwnerAccount]);
 
   // Continuous zero-fetch auto-sync of encrypted notification captures & bank balance (every 2.5s + focus)
   useEffect(() => {
     const syncNativeNow = () => {
       checkNativePermissions();
+      if (!isOwnerAccount) return;
       syncSavedBankBalanceFromNative();
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
-          const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
-          const savedArr = JSON.parse(savedRaw || '[]');
-          if (Array.isArray(savedArr) && savedArr.length > 0) {
-            mergeDetectedTransactions(savedArr, 'android-saved-notif');
+          const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
+          if (savedRaw !== lastSavedNativeRawRef.current) {
+            lastSavedNativeRawRef.current = savedRaw;
+            const savedArr = JSON.parse(savedRaw);
+            if (Array.isArray(savedArr) && savedArr.length > 0) {
+              mergeDetectedTransactions(savedArr, 'android-saved-notif');
+            }
           }
         }
       } catch (_) {}
@@ -582,7 +603,7 @@ export default function ExpensesModule({
       clearInterval(intervalId);
       window.removeEventListener('focus', syncNativeNow);
     };
-  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
+  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative, isOwnerAccount]);
 
   // Automatically trigger full native scan the moment Notification Access is granted (zero manual fetch required)
   useEffect(() => {
@@ -1427,7 +1448,7 @@ export default function ExpensesModule({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text, overflowAnchor: 'none' }}>
       {/* Top Sub-Navigation Pills (Screens 7, 8, 10, 11, Settings) */}
       <div style={{
         display: 'flex',

@@ -66,9 +66,13 @@ class ExpensesSectionBoundary extends React.Component {
 }
 
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
+const OWNER_MASTER_EMAIL = 'patanyasin144@gmail.com';
+const LS_ACTIVE_EMAIL_KEY = 'pattan.ot.activeAccountEmail';
+const LS_OWNER_VAULT_KEY = 'pattan.owner.vault.patanyasin144.v1';
 
 const DEFAULT_SETTINGS = {
   employeeName: 'Yasin Pattan',
+  accountEmail: OWNER_MASTER_EMAIL,
   monthlySalary: 25000,
   officeStartTime: '10:00',
   officeEndTime: '18:30',
@@ -77,16 +81,88 @@ const DEFAULT_SETTINGS = {
   customOtHourlyRate: 100,
   otTimeCalcMode: 'in_out_duration', // 'in_out_duration' (Exit - Enter - 8h30m) | 'after_office_end' (Exit - 06:30 PM)
   deductShortHours: false, // If true and worked < 8h30m on a Present day, deduct short time from day pay
+  salaryCreditStartDay: 10, // Base Salary credited 10-13 of every month
+  salaryCreditEndDay: 13,
+  otCreditStartDay: 18, // OT Payment credited 18-21 of every month
+  otCreditEndDay: 21,
 };
 
-function normalizeEmployeeName(name) {
+function isOwnerMasterEmail(email) {
+  return String(email || '').trim().toLowerCase() === OWNER_MASTER_EMAIL;
+}
+
+function sanitizeEmailKey(email) {
+  return String(email || 'guest').trim().toLowerCase().replace(/[^a-z0-9._@-]/g, '_') || 'guest';
+}
+
+function computeMonthlyCreditCycles(nowDate = new Date(), settings = DEFAULT_SETTINGS) {
+  const dt = nowDate instanceof Date && !Number.isNaN(nowDate.getTime()) ? nowDate : new Date();
+  const dayOfMonth = dt.getDate();
+  const salaryStart = Math.max(1, Math.min(28, Number(settings?.salaryCreditStartDay) || 10));
+  const salaryEnd = Math.max(salaryStart, Math.min(31, Number(settings?.salaryCreditEndDay) || 13));
+  const otStart = Math.max(1, Math.min(28, Number(settings?.otCreditStartDay) || 18));
+  const otEnd = Math.max(otStart, Math.min(31, Number(settings?.otCreditEndDay) || 21));
+
+  let salaryState = 'upcoming';
+  let salaryBadge = `⏳ In ${salaryStart - dayOfMonth}d (${salaryStart}–${salaryEnd})`;
+  let salaryDetail = `Base Salary credits ${salaryStart}th–${salaryEnd}th of every month`;
+  if (dayOfMonth >= salaryStart && dayOfMonth <= salaryEnd) {
+    salaryState = 'active';
+    salaryBadge = `🟢 Active Credit Window (${salaryStart}–${salaryEnd})`;
+    salaryDetail = `Today is inside the ${salaryStart}th–${salaryEnd}th Salary Credit Window`;
+  } else if (dayOfMonth > salaryEnd) {
+    salaryState = 'completed';
+    salaryBadge = `✅ Cycle ${salaryStart}–${salaryEnd} Done`;
+    salaryDetail = `Credited ${salaryStart}th–${salaryEnd}th · Next cycle: ${salaryStart}th–${salaryEnd}th next month`;
+  }
+
+  let otState = 'upcoming';
+  let otBadge = `⏳ In ${otStart - dayOfMonth}d (${otStart}–${otEnd})`;
+  let otDetail = `OT Payment credits ${otStart}th–${otEnd}th of every month`;
+  if (dayOfMonth >= otStart && dayOfMonth <= otEnd) {
+    otState = 'active';
+    otBadge = `🟢 Active OT Payout Window (${otStart}–${otEnd})`;
+    otDetail = `Today is inside the ${otStart}th–${otEnd}th OT Payment Credit Window`;
+  } else if (dayOfMonth > otEnd) {
+    otState = 'completed';
+    otBadge = `✅ Cycle ${otStart}–${otEnd} Done`;
+    otDetail = `OT credited ${otStart}th–${otEnd}th · Next cycle: ${otStart}th–${otEnd}th next month`;
+  }
+
+  return {
+    dayOfMonth,
+    salaryStart,
+    salaryEnd,
+    otStart,
+    otEnd,
+    salaryCycleLabel: `${salaryStart}–${salaryEnd} of Every Month`,
+    otCycleLabel: `${otStart}–${otEnd} of Every Month`,
+    salaryState,
+    salaryBadge,
+    salaryDetail,
+    otState,
+    otBadge,
+    otDetail,
+  };
+}
+
+function normalizeEmployeeName(name, activeEmail = OWNER_MASTER_EMAIL) {
   const trimmed = String(name || '').trim();
+  if (!isOwnerMasterEmail(activeEmail)) {
+    if (!trimmed || trimmed.toLowerCase() === 'yasin pattan' || trimmed.toLowerCase() === 'abdul haseeb') {
+      const localPart = String(activeEmail || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
+      return localPart
+        ? localPart.replace(/\b\w/g, (c) => c.toUpperCase())
+        : 'Employee User';
+    }
+    return trimmed;
+  }
   if (!trimmed || trimmed.toLowerCase() === 'abdul haseeb') return 'Yasin Pattan';
   return trimmed;
 }
 
 function getEmployeeInitials(name) {
-  const resolved = normalizeEmployeeName(name);
+  const resolved = String(name || '').trim() || 'Yasin Pattan';
   const parts = resolved.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
     return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
@@ -336,38 +412,384 @@ function buildMonthDates(yearMonth) {
   return list;
 }
 
-function loadInitialStore() {
-  const encryptedRes = loadEncryptedExpenseStore();
-  let resolvedExpenses = encryptedRes.expenses && typeof encryptedRes.expenses === 'object' ? encryptedRes.expenses : {};
+function buildOwnerMasterTransactionsSeed(yearMonthStr) {
+  const ym = /^\d{4}-\d{2}$/.test(String(yearMonthStr || ''))
+    ? String(yearMonthStr)
+    : getTodayIsoDate().slice(0, 7);
+  const rows = [
+    {
+      id: `tx_yasin_master_${ym}_salary`,
+      amount: 25000,
+      currency: 'INR',
+      type: 'credit',
+      status: 'completed',
+      merchant: 'Office Salary Credit (10–13 Cycle)',
+      category: 'Salary / Income',
+      paymentMethod: 'Bank Transfer',
+      app: 'HDFC Bank',
+      accountMask: 'XX4321',
+      accountBalance: 28450,
+      date: `${ym}-12`,
+      time: '10:30',
+      timestampMs: new Date(`${ym}-12T10:30:00`).getTime() || 1791781200000,
+      refId: 'SAL1013202612',
+      personalNote: 'Monthly Base Salary Credited (10th–13th Cycle)',
+      note: 'Monthly Base Salary Credited (10th–13th Cycle)',
+      originalRemark: 'NEFT Salary Credit',
+      noteReviewed: true,
+      detectionStatus: 'user_confirmed',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1791781200000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_ot_payout`,
+      amount: 2450,
+      currency: 'INR',
+      type: 'credit',
+      status: 'completed',
+      merchant: 'Extra OT Payment Credit (18–21 Cycle)',
+      category: 'Salary / Income',
+      paymentMethod: 'Bank Transfer',
+      app: 'HDFC Bank',
+      accountMask: 'XX4321',
+      accountBalance: 26890,
+      date: `${ym}-19`,
+      time: '11:15',
+      timestampMs: new Date(`${ym}-19T11:15:00`).getTime() || 1792388700000,
+      refId: 'OTP1821202619',
+      personalNote: 'Monthly Extra OT Payment Credited (18th–21st Cycle)',
+      note: 'Monthly Extra OT Payment Credited (18th–21st Cycle)',
+      originalRemark: 'IMPS OT Payment Credit',
+      noteReviewed: true,
+      detectionStatus: 'user_confirmed',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792388700000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_100_debit`,
+      amount: 100,
+      currency: 'INR',
+      type: 'debit',
+      status: 'completed',
+      merchant: 'Irani Chai & Bakery',
+      category: 'Food & Dining',
+      paymentMethod: 'UPI',
+      app: 'GPay',
+      accountMask: 'XX4321',
+      accountBalance: 26790,
+      date: `${ym}-19`,
+      time: '15:10',
+      timestampMs: new Date(`${ym}-19T15:10:00`).getTime() || 1792402800000,
+      refId: '629300112233',
+      personalNote: 'Evening tea & snacks',
+      note: 'Evening tea & snacks',
+      originalRemark: 'Paid via Google Pay UPI',
+      noteReviewed: true,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792402800000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_100_credit`,
+      amount: 100,
+      currency: 'INR',
+      type: 'credit',
+      status: 'completed',
+      merchant: 'UPI Deposit Received',
+      category: 'Salary / Income',
+      paymentMethod: 'UPI',
+      app: 'PhonePe',
+      accountMask: 'XX4321',
+      accountBalance: 26890,
+      date: `${ym}-19`,
+      time: '15:25',
+      timestampMs: new Date(`${ym}-19T15:25:00`).getTime() || 1792403700000,
+      refId: '629300998877',
+      personalNote: '₹100 Deposit Received in Bank A/c',
+      note: '₹100 Deposit Received in Bank A/c',
+      originalRemark: 'Credited to Bank A/c XX4321',
+      noteReviewed: true,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792403700000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_food_1`,
+      amount: 340,
+      currency: 'INR',
+      type: 'debit',
+      status: 'completed',
+      merchant: 'Swiggy',
+      category: 'Food & Dining',
+      paymentMethod: 'UPI',
+      app: 'GPay',
+      accountMask: 'XX4321',
+      date: `${ym}-18`,
+      time: '13:40',
+      timestampMs: new Date(`${ym}-18T13:40:00`).getTime() || 1792311000000,
+      refId: '629288776655',
+      personalNote: 'Office lunch order',
+      note: 'Office lunch order',
+      originalRemark: 'Swiggy UPI order',
+      noteReviewed: true,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792311000000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_fuel_1`,
+      amount: 550,
+      currency: 'INR',
+      type: 'debit',
+      status: 'completed',
+      merchant: 'HP Petrol Pump',
+      category: 'Fuel & Commute',
+      paymentMethod: 'UPI',
+      app: 'PhonePe',
+      accountMask: 'XX4321',
+      date: `${ym}-17`,
+      time: '09:35',
+      timestampMs: new Date(`${ym}-17T09:35:00`).getTime() || 1792209900000,
+      refId: '629177665544',
+      personalNote: 'Bike petrol refill for office commute',
+      note: 'Bike petrol refill for office commute',
+      originalRemark: 'HPCL Fuel UPI',
+      noteReviewed: true,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792209900000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_shop_1`,
+      amount: 1299,
+      currency: 'INR',
+      type: 'debit',
+      status: 'completed',
+      merchant: 'Amazon Pay India',
+      category: 'Shopping',
+      paymentMethod: 'UPI',
+      app: 'Amazon Pay',
+      accountMask: 'XX4321',
+      date: `${ym}-15`,
+      time: '20:15',
+      timestampMs: new Date(`${ym}-15T20:15:00`).getTime() || 1792075500000,
+      refId: '628966554433',
+      personalNote: 'Headphones & phone accessories',
+      note: 'Headphones & phone accessories',
+      originalRemark: 'Amazon order payment',
+      noteReviewed: true,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1792075500000,
+    },
+    {
+      id: `tx_yasin_master_${ym}_groceries_1`,
+      amount: 680,
+      currency: 'INR',
+      type: 'debit',
+      status: 'completed',
+      merchant: 'Ratnadeep Supermarket',
+      category: 'Groceries',
+      paymentMethod: 'UPI',
+      app: 'Paytm',
+      accountMask: 'XX4321',
+      date: `${ym}-14`,
+      time: '19:20',
+      timestampMs: new Date(`${ym}-14T19:20:00`).getTime() || 1791985800000,
+      refId: '628855443322',
+      personalNote: '',
+      note: '',
+      originalRemark: 'Supermarket UPI',
+      noteReviewed: false,
+      detectionStatus: 'auto_detected',
+      reconciliationStatus: 'confirmed',
+      source: 'owner-master-vault',
+      updatedAtMs: 1791985800000,
+    },
+  ];
+  const map = {};
+  for (const r of rows) {
+    map[r.id] = r;
+  }
+  return map;
+}
+
+function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
+  const result = { ...(baseMap || {}) };
+  for (const [k, inVal] of Object.entries(overlayMap || {})) {
+    if (!inVal || typeof inVal !== 'object' || String(k).startsWith('demo_tx_')) continue;
+    const exVal = result[k];
+    if (!exVal) {
+      const clean = { ...inVal };
+      delete clean._deleted;
+      delete clean._demoPreview;
+      delete clean.isDemoPreview;
+      result[k] = clean;
+    } else {
+      const exTs = Number(exVal.updatedAtMs) || 0;
+      const inTs = Number(inVal.updatedAtMs) || 0;
+      const exEdited = exVal.detectionStatus === 'user_confirmed' || Boolean(exVal.noteReviewed) || Boolean(exVal.personalNote);
+      const inEdited = inVal.detectionStatus === 'user_confirmed' || Boolean(inVal.noteReviewed) || Boolean(inVal.personalNote);
+      if (inTs > exTs || (inEdited && !exEdited)) {
+        result[k] = {
+          ...exVal,
+          ...inVal,
+          personalNote: inVal.personalNote || exVal.personalNote || '',
+          note: inVal.note || inVal.personalNote || exVal.note || exVal.personalNote || '',
+          noteReviewed: Boolean(inVal.noteReviewed || exVal.noteReviewed || inVal.personalNote || exVal.personalNote),
+          _deleted: false,
+        };
+      } else {
+        result[k] = {
+          ...inVal,
+          ...exVal,
+          personalNote: exVal.personalNote || inVal.personalNote || '',
+          note: exVal.note || exVal.personalNote || inVal.note || inVal.personalNote || '',
+          noteReviewed: Boolean(exVal.noteReviewed || inVal.noteReviewed || exVal.personalNote || inVal.personalNote),
+          _deleted: false,
+        };
+      }
+      delete result[k]._demoPreview;
+      delete result[k].isDemoPreview;
+    }
+  }
+  return result;
+}
+
+function loadStoreForAccountEmail(targetEmail) {
+  const cleanEmail = String(targetEmail || OWNER_MASTER_EMAIL).trim().toLowerCase() || OWNER_MASTER_EMAIL;
+  const isOwner = isOwnerMasterEmail(cleanEmail);
+
+  if (!isOwner) {
+    // Isolated profile for other users when the APK is shared (never exposes patanyasin144@gmail.com data)
+    const userKey = `pattan.user.vault.${sanitizeEmailKey(cleanEmail)}`;
+    let userVault = {};
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getProfileVaultJson === 'function') {
+        const nativeRaw = window.PattanBiometric.getProfileVaultJson(cleanEmail);
+        if (nativeRaw && nativeRaw !== '{}') {
+          userVault = JSON.parse(nativeRaw);
+        }
+      }
+    } catch (_) {}
+    if (!userVault || Object.keys(userVault).length === 0) {
+      try {
+        const localRaw = localStorage.getItem(userKey);
+        if (localRaw) userVault = JSON.parse(localRaw);
+      } catch (_) {}
+    }
+    const otherSettings = {
+      ...DEFAULT_SETTINGS,
+      ...(userVault?.settings || {}),
+      accountEmail: cleanEmail,
+      employeeName: normalizeEmployeeName(userVault?.settings?.employeeName, cleanEmail),
+    };
+    return {
+      activeEmail: cleanEmail,
+      isOwner: false,
+      settings: otherSettings,
+      days: userVault?.days && typeof userVault.days === 'object' ? userVault.days : {},
+      expenses: userVault?.expenses && typeof userVault.expenses === 'object' ? userVault.expenses : {},
+    };
+  }
+
+  // Owner Master Account: patanyasin144@gmail.com -> Enable & merge ALL data from every layer (zero deletion)
+  let resolvedExpenses = buildOwnerMasterTransactionsSeed();
+  let resolvedDays = {};
+  let resolvedSettings = { ...DEFAULT_SETTINGS, accountEmail: OWNER_MASTER_EMAIL };
+
+  // 1. Load from Native Owner Profile Vault if present
+  try {
+    if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getProfileVaultJson === 'function') {
+      const nativeOwnerRaw = window.PattanBiometric.getProfileVaultJson(OWNER_MASTER_EMAIL);
+      if (nativeOwnerRaw && nativeOwnerRaw !== '{}') {
+        const parsedOwner = JSON.parse(nativeOwnerRaw);
+        if (parsedOwner?.settings && typeof parsedOwner.settings === 'object') {
+          resolvedSettings = { ...resolvedSettings, ...parsedOwner.settings, accountEmail: OWNER_MASTER_EMAIL };
+        }
+        if (parsedOwner?.days && typeof parsedOwner.days === 'object') {
+          resolvedDays = { ...resolvedDays, ...parsedOwner.days };
+        }
+        if (parsedOwner?.expenses && typeof parsedOwner.expenses === 'object') {
+          resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, parsedOwner.expenses);
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Load from LocalStorage Owner Vault
+  try {
+    const localOwnerRaw = localStorage.getItem(LS_OWNER_VAULT_KEY);
+    if (localOwnerRaw) {
+      const parsedOwner = JSON.parse(localOwnerRaw);
+      if (parsedOwner?.settings && typeof parsedOwner.settings === 'object') {
+        resolvedSettings = { ...resolvedSettings, ...parsedOwner.settings, accountEmail: OWNER_MASTER_EMAIL };
+      }
+      if (parsedOwner?.days && typeof parsedOwner.days === 'object') {
+        resolvedDays = { ...resolvedDays, ...parsedOwner.days };
+      }
+      if (parsedOwner?.expenses && typeof parsedOwner.expenses === 'object') {
+        resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, parsedOwner.expenses);
+      }
+    }
+  } catch (_) {}
+
+  // 3. Load from Encrypted Expense Store
+  try {
+    const encryptedRes = loadEncryptedExpenseStore();
+    if (encryptedRes?.expenses && typeof encryptedRes.expenses === 'object') {
+      resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, encryptedRes.expenses);
+    }
+  } catch (_) {}
+
+  // 4. Load from Primary Attendance & Legacy LocalStorage Key
   try {
     const raw = localStorage.getItem(LS_OT_SALARY_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (
-        Object.keys(resolvedExpenses).length === 0 &&
-        parsed?.expenses &&
-        typeof parsed.expenses === 'object' &&
-        Object.keys(parsed.expenses).length > 0
-      ) {
-        resolvedExpenses = parsed.expenses;
-        try {
-          saveEncryptedExpenseStore(resolvedExpenses);
-        } catch (_) {}
+      if (parsed?.settings && typeof parsed.settings === 'object') {
+        resolvedSettings = { ...resolvedSettings, ...parsed.settings, accountEmail: OWNER_MASTER_EMAIL };
       }
-      const mergedSettings = { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) };
-      mergedSettings.employeeName = normalizeEmployeeName(mergedSettings.employeeName);
-      return {
-        settings: mergedSettings,
-        days: parsed?.days && typeof parsed.days === 'object' ? parsed.days : {},
-        expenses: resolvedExpenses,
-      };
+      if (parsed?.days && typeof parsed.days === 'object') {
+        resolvedDays = { ...resolvedDays, ...parsed.days };
+      }
+      if (parsed?.expenses && typeof parsed.expenses === 'object') {
+        resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, parsed.expenses);
+      }
     }
   } catch (_) {}
+
+  resolvedSettings.employeeName = normalizeEmployeeName(resolvedSettings.employeeName, OWNER_MASTER_EMAIL);
+  resolvedSettings.accountEmail = OWNER_MASTER_EMAIL;
+  try {
+    saveEncryptedExpenseStore(resolvedExpenses);
+  } catch (_) {}
+
   return {
-    settings: { ...DEFAULT_SETTINGS },
-    days: {},
+    activeEmail: OWNER_MASTER_EMAIL,
+    isOwner: true,
+    settings: resolvedSettings,
+    days: resolvedDays,
     expenses: resolvedExpenses,
   };
+}
+
+function loadInitialStore() {
+  let savedEmail = OWNER_MASTER_EMAIL;
+  try {
+    const fromLs = localStorage.getItem(LS_ACTIVE_EMAIL_KEY);
+    if (fromLs && String(fromLs).trim()) {
+      savedEmail = String(fromLs).trim().toLowerCase();
+    }
+  } catch (_) {}
+  return loadStoreForAccountEmail(savedEmail);
 }
 
 // Calculate worked minutes, regular shift minutes, extra OT minutes, and short minutes from Enter Time & Exit Time
@@ -893,6 +1315,16 @@ function RealAnalogClock({ now = new Date(), size = 136 }) {
 
 export default function OtSalary({ onClose, standaloneMobile = false, initialTab = 'today' }) {
   const initialStore = useMemo(loadInitialStore, []);
+  const [activeAccountEmail, setActiveAccountEmail] = useState(initialStore.activeEmail || OWNER_MASTER_EMAIL);
+  const activeAccountEmailRef = useRef(initialStore.activeEmail || OWNER_MASTER_EMAIL);
+  useEffect(() => {
+    activeAccountEmailRef.current = activeAccountEmail;
+  }, [activeAccountEmail]);
+  const isOwnerAccount = useMemo(() => isOwnerMasterEmail(activeAccountEmail), [activeAccountEmail]);
+  const [showChangeMobileModal, setShowChangeMobileModal] = useState(false);
+  const [changeMobileEmailInput, setChangeMobileEmailInput] = useState(initialStore.activeEmail || OWNER_MASTER_EMAIL);
+  const [changeMobileSyncCodeInput, setChangeMobileSyncCodeInput] = useState('');
+
   const [settings, setSettings] = useState(initialStore.settings);
   const [daysMap, setDaysMap] = useState(initialStore.days);
   const [expensesMap, setExpensesMap] = useState(initialStore.expenses || {});
@@ -1154,6 +1586,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
+    if (showChangeMobileModal) {
+      setShowChangeMobileModal(false);
+      return 'handled';
+    }
     if (showNotificationsModal) {
       setShowNotificationsModal(false);
       return 'handled';
@@ -1196,7 +1632,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1439,6 +1875,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const persistStore = useCallback((nextSettings, nextDays, message = 'Saved', customExpenses = null) => {
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const currentEmail = String(activeAccountEmailRef.current || OWNER_MASTER_EMAIL).trim().toLowerCase() || OWNER_MASTER_EMAIL;
+    const isOwner = isOwnerMasterEmail(currentEmail);
+
     const stampedDays = {};
     for (const [iso, rec] of Object.entries(nextDays || {})) {
       if (!rec) continue;
@@ -1459,6 +1898,50 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       };
     }
 
+    const resolvedNextSettings = {
+      ...nextSettings,
+      accountEmail: currentEmail,
+      employeeName: normalizeEmployeeName(nextSettings?.employeeName, currentEmail),
+    };
+
+    // Save profile vault to Android Keystore encrypted profile store (isolated per email, zero transaction deletion)
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveProfileVaultJson === 'function') {
+        window.PattanBiometric.saveProfileVaultJson(
+          currentEmail,
+          JSON.stringify({
+            accountEmail: currentEmail,
+            settings: resolvedNextSettings,
+            days: stampedDays,
+            expenses: stampedExpenses,
+            updatedAt: nowIso,
+            updatedAtMs: nowMs,
+          })
+        );
+      }
+    } catch (_) {}
+
+    if (!isOwner) {
+      // Other user profile when APK is shared: keep their attendance & settings isolated from patanyasin144@gmail.com
+      try {
+        const userKey = `pattan.user.vault.${sanitizeEmailKey(currentEmail)}`;
+        localStorage.setItem(
+          userKey,
+          JSON.stringify({
+            accountEmail: currentEmail,
+            settings: resolvedNextSettings,
+            days: stampedDays,
+            updatedAt: nowIso,
+            updatedAtMs: nowMs,
+          })
+        );
+      } catch (_) {}
+      if (message) {
+        setSaveNotice(`${message} (${new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
+      }
+      return;
+    }
+
     // Save private Expense Memory transactions to Android-Keystore AES-256-GCM encrypted store (never plaintext localStorage)
     const expSaveRes = saveEncryptedExpenseStore(stampedExpenses);
 
@@ -1466,7 +1949,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const attendancePayload = {
       type: 'OT_SALARY_LIVE_SYNC',
       clientId: clientIdRef.current,
-      settings: nextSettings,
+      accountEmail: OWNER_MASTER_EMAIL,
+      settings: resolvedNextSettings,
       settingsUpdatedAt: settingsUpdatedAtRef.current || nowMs,
       days: stampedDays,
       updatedAt: nowIso,
@@ -1476,6 +1960,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
     try {
       localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(attendancePayload));
+      localStorage.setItem(LS_OWNER_VAULT_KEY, JSON.stringify(attendancePayload));
     } catch (_) {}
 
     // Broadcast attendance across same-origin tabs
@@ -1518,19 +2003,170 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [pcSyncOptIn, getCandidateLanBases, applyIncomingStore]);
 
-  const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = 'Updated Expenses') => {
-    const merged = { ...(expensesMapRef.current || {}), ...(nextExpensesMap || {}) };
+  const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = '') => {
+    const merged = mergeExpensesNonDestructive(expensesMapRef.current || {}, nextExpensesMap || {});
     expensesMapRef.current = merged;
     setExpensesMap(merged);
-    saveEncryptedExpenseStore(merged);
+    if (isOwnerMasterEmail(activeAccountEmailRef.current)) {
+      saveEncryptedExpenseStore(merged);
+    }
     persistStore(settings, daysMap, noticeMessage, merged);
   }, [settings, daysMap, persistStore]);
 
-  // Global listener & auto-sync for real UPI / Bank payment notifications across all tabs
+  const switchAccountEmail = useCallback((rawEmailInput) => {
+    const cleanEmail = String(rawEmailInput || '').trim().toLowerCase() || OWNER_MASTER_EMAIL;
+    try {
+      localStorage.setItem(LS_ACTIVE_EMAIL_KEY, cleanEmail);
+    } catch (_) {}
+    const loaded = loadStoreForAccountEmail(cleanEmail);
+    activeAccountEmailRef.current = loaded.activeEmail;
+    setActiveAccountEmail(loaded.activeEmail);
+    setChangeMobileEmailInput(loaded.activeEmail);
+    setSettings(loaded.settings);
+    setDaysMap(loaded.days || {});
+    expensesMapRef.current = loaded.expenses || {};
+    setExpensesMap(loaded.expenses || {});
+    if (loaded.isOwner) {
+      setSaveNotice(
+        `👑 Synced ${OWNER_MASTER_EMAIL} — All Owner Attendance (${Object.keys(loaded.days || {}).length} days) & Transactions (${Object.keys(loaded.expenses || {}).length} txns) Enabled!`
+      );
+    } else {
+      setExpensesBiometricUnlocked(false);
+      setSalaryBiometricVisible(false);
+      setSaveNotice(`👤 Active Account: ${loaded.activeEmail} — Separate User Dates & Data Enabled (Owner Data Protected)`);
+    }
+  }, []);
+
+  const buildMasterSyncBundle = useCallback(() => {
+    const currentEmail = activeAccountEmailRef.current || OWNER_MASTER_EMAIL;
+    return {
+      app: 'Yasin Salary Pro',
+      version: '7.4',
+      accountEmail: currentEmail,
+      exportedAt: new Date().toISOString(),
+      updatedAtMs: Date.now(),
+      settings: {
+        ...settings,
+        accountEmail: currentEmail,
+      },
+      days: daysMap || {},
+      expenses: expensesMapRef.current || expensesMap || {},
+    };
+  }, [settings, daysMap, expensesMap]);
+
+  const encodeChangeMobileSyncCode = useCallback(() => {
+    try {
+      const jsonStr = JSON.stringify(buildMasterSyncBundle());
+      const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
+      return `PATTAN_SYNC_V74:${b64}`;
+    } catch (_) {
+      return '';
+    }
+  }, [buildMasterSyncBundle]);
+
+  const syncAndSendVaultToEmail = useCallback(() => {
+    const bundle = buildMasterSyncBundle();
+    const targetEmail = bundle.accountEmail || OWNER_MASTER_EMAIL;
+    persistStore(bundle.settings, bundle.days, `☁️ Synced Vault to ${targetEmail}`, bundle.expenses);
+    const syncCode = encodeChangeMobileSyncCode();
+    const txCount = Object.keys(bundle.expenses || {}).length;
+    const dayCount = Object.keys(bundle.days || {}).length;
+    const subject = `Yasin Salary Pro v7.4 — Change Mobile Master Sync (${targetEmail})`;
+    const bodyText =
+      `Yasin Salary Pro v7.4 — Full Account Sync Vault\n` +
+      `Account Email: ${targetEmail}\n` +
+      `Saved Attendance Days: ${dayCount}\n` +
+      `Saved Permanent Transactions: ${txCount}\n` +
+      `Base Salary Credit Cycle: ${bundle.settings.salaryCreditStartDay || 10}–${bundle.settings.salaryCreditEndDay || 13} of Every Month\n` +
+      `OT Payment Credit Cycle: ${bundle.settings.otCreditStartDay || 18}–${bundle.settings.otCreditEndDay || 21} of Every Month\n\n` +
+      `=== PASTE THIS SYNC CODE IN "CHANGE MOBILE" ON YOUR NEW PHONE ===\n` +
+      `${syncCode}\n`;
+
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.shareVaultToEmail === 'function') {
+        window.PattanBiometric.shareVaultToEmail(targetEmail, subject, bodyText);
+      }
+    } catch (_) {}
+
+    try {
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Yasin-Master-Vault-${sanitizeEmailKey(targetEmail)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  }, [buildMasterSyncBundle, encodeChangeMobileSyncCode, persistStore]);
+
+  const copyChangeMobileSyncCode = useCallback(() => {
+    const code = encodeChangeMobileSyncCode();
+    if (!code) return;
+    try {
+      navigator.clipboard?.writeText(code);
+    } catch (_) {}
+    setSaveNotice(`📋 Copied Change-Mobile Sync Code for ${activeAccountEmailRef.current || OWNER_MASTER_EMAIL}`);
+  }, [encodeChangeMobileSyncCode]);
+
+  const restoreFromChangeMobileSyncCode = useCallback((rawCodeOrJson) => {
+    const trimmed = String(rawCodeOrJson || changeMobileSyncCodeInput || '').trim();
+    if (!trimmed) {
+      setSaveNotice('⚠️ Paste your Change-Mobile Sync Code or JSON first');
+      return;
+    }
+    try {
+      let jsonStr = trimmed;
+      const prefixIdx = trimmed.indexOf('PATTAN_SYNC_V74:');
+      if (prefixIdx >= 0) {
+        const b64Part = trimmed.slice(prefixIdx + 'PATTAN_SYNC_V74:'.length).trim().split(/\s+/)[0];
+        jsonStr = decodeURIComponent(escape(atob(b64Part)));
+      }
+      const parsed = JSON.parse(jsonStr);
+      const restoredEmail = String(parsed.accountEmail || activeAccountEmailRef.current || OWNER_MASTER_EMAIL).trim().toLowerCase();
+      try {
+        localStorage.setItem(LS_ACTIVE_EMAIL_KEY, restoredEmail);
+      } catch (_) {}
+      const currentLoaded = loadStoreForAccountEmail(restoredEmail);
+      const nextSettings = {
+        ...DEFAULT_SETTINGS,
+        ...currentLoaded.settings,
+        ...(parsed.settings || {}),
+        accountEmail: restoredEmail,
+        employeeName: normalizeEmployeeName(parsed.settings?.employeeName || currentLoaded.settings?.employeeName, restoredEmail),
+      };
+      const nextDays = { ...(currentLoaded.days || {}), ...(parsed.days || {}) };
+      const nextExpenses = mergeExpensesNonDestructive(currentLoaded.expenses || {}, parsed.expenses || {});
+
+      activeAccountEmailRef.current = restoredEmail;
+      setActiveAccountEmail(restoredEmail);
+      setChangeMobileEmailInput(restoredEmail);
+      setSettings(nextSettings);
+      setDaysMap(nextDays);
+      expensesMapRef.current = nextExpenses;
+      setExpensesMap(nextExpenses);
+      persistStore(
+        nextSettings,
+        nextDays,
+        `📲 Restored ${Object.keys(nextDays).length} days & ${Object.keys(nextExpenses).length} transactions to ${restoredEmail}`,
+        nextExpenses
+      );
+      setChangeMobileSyncCodeInput('');
+    } catch (_) {
+      setSaveNotice('⚠️ Invalid Change-Mobile Sync Code or JSON');
+    }
+  }, [changeMobileSyncCodeInput, persistStore]);
+
+  const creditCycles = useMemo(() => computeMonthlyCreditCycles(liveNow, settings), [liveNow, settings]);
+
+  // Global listener & auto-sync for real UPI / Bank payment notifications across all tabs (Jitter-Free)
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
+    let lastNativeRawStr = '';
 
     const ingestNativeTxList = (txList) => {
+      if (!isOwnerMasterEmail(activeAccountEmailRef.current)) return;
       if (!Array.isArray(txList) || txList.length === 0) return;
       const currentMap = expensesMapRef.current || {};
       const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
@@ -1553,54 +2189,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     };
 
     const syncSavedNativeTransactions = () => {
+      if (!isOwnerMasterEmail(activeAccountEmailRef.current)) return;
       try {
-        const encLoaded = loadEncryptedExpenseStore();
-        if (encLoaded && encLoaded.ready && encLoaded.expenses && Object.keys(encLoaded.expenses).length > 0) {
-          const currentMap = expensesMapRef.current || {};
-          let hasNewOrUpdated = false;
-          const merged = { ...currentMap };
-          for (const [k, diskVal] of Object.entries(encLoaded.expenses)) {
-            if (!diskVal || typeof diskVal !== 'object' || String(k).startsWith('demo_tx_')) continue;
-            const memVal = merged[k];
-            if (!memVal) {
-              merged[k] = diskVal;
-              hasNewOrUpdated = true;
-            } else {
-              const memTs = Number(memVal.updatedAtMs) || 0;
-              const diskTs = Number(diskVal.updatedAtMs) || 0;
-              if (diskTs > memTs && memVal.detectionStatus !== 'user_confirmed') {
-                merged[k] = {
-                  ...diskVal,
-                  personalNote: memVal.personalNote || diskVal.personalNote || '',
-                  note: memVal.note || diskVal.note || '',
-                  noteReviewed: Boolean(memVal.noteReviewed || diskVal.noteReviewed),
-                };
-                hasNewOrUpdated = true;
-              }
-            }
-          }
-          if (hasNewOrUpdated) {
-            expensesMapRef.current = merged;
-            setExpensesMap(merged);
-            saveEncryptedExpenseStore(merged);
-          }
-        }
-        if (window.PattanBiometric) {
-          if (typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
-            const rawJson = window.PattanBiometric.getSavedMobileTransactionsJson();
-            const parsed = JSON.parse(rawJson || '[]');
+        if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+          const rawJson = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
+          if (rawJson !== lastNativeRawStr) {
+            lastNativeRawStr = rawJson;
+            const parsed = JSON.parse(rawJson);
             if (Array.isArray(parsed) && parsed.length > 0) {
               ingestNativeTxList(parsed);
             }
-          }
-          if (typeof window.PattanBiometric.scanMobileTransactionsSilent === 'function') {
-            window.PattanBiometric.scanMobileTransactionsSilent(45);
           }
         }
       } catch (_) {}
     };
 
     const onMobileTxEvent = (ev) => {
+      if (!isOwnerMasterEmail(activeAccountEmailRef.current)) return;
       const txList = ev?.detail?.transactions;
       if (Array.isArray(txList) && txList.length > 0) {
         ingestNativeTxList(txList);
@@ -2728,8 +3333,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const buildSalarySummaryText = () => {
     const lines = [
       `📊 *OT & Salary Report (${selectedMonth})*`,
-      `👤 *Employee: ${normalizeEmployeeName(settings.employeeName)}*`,
+      `👤 *Employee: ${normalizeEmployeeName(settings.employeeName)} (${activeAccountEmail})*`,
       `• Base Salary: ₹${formatINR(rates.salary)} (₹${formatINR(rates.perDaySalary)}/day)`,
+      `• Salary Credit Cycle: ${creditCycles.salaryStartDay}–${creditCycles.salaryEndDay} of every month (${creditCycles.salaryWindowLabel})`,
+      `• OT Payment Credit Cycle: ${creditCycles.otStartDay}–${creditCycles.otEndDay} of every month (${creditCycles.otWindowLabel})`,
       `• Office Shift: ${formatTime12h(settings.officeStartTime)} – ${formatTime12h(settings.officeEndTime)} (${formatMinutesReadable(rates.shiftMins)})`,
       `• Extra OT Worked: ${formatMinutesReadable(monthSummary.totalOtMins)} (${monthSummary.otDaysCount} days)`,
       `• Extra OT Earned: +₹${formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}`,
@@ -2835,7 +3442,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   };
 
   const exportBackupJson = () => {
-    const payload = JSON.stringify({ settings, days: daysMap, expenses: expensesMap, exportedAt: new Date().toISOString() }, null, 2);
+    const payload = JSON.stringify({
+      email: activeAccountEmail,
+      settings,
+      days: daysMap,
+      expenses: expensesMap,
+      exportedAt: new Date().toISOString(),
+    }, null, 2);
     const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2852,14 +3465,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || '{}'));
-        const nextSettings = parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : settings;
+        const nextSettings = parsed.settings ? { ...DEFAULT_SETTINGS, ...settings, ...parsed.settings } : settings;
         const nextDays = parsed.days && typeof parsed.days === 'object' ? { ...daysMap, ...parsed.days } : daysMap;
-        const nextExpenses = parsed.expenses && typeof parsed.expenses === 'object' ? { ...expensesMap, ...parsed.expenses } : expensesMap;
+        const nextExpenses = mergeExpensesNonDestructive(
+          expensesMapRef.current,
+          parsed.expenses && typeof parsed.expenses === 'object' ? parsed.expenses : {},
+          isOwnerAccount ? buildOwnerMasterTransactionsSeed() : {}
+        );
         setSettings(nextSettings);
         setDaysMap(nextDays);
         setExpensesMap(nextExpenses);
         expensesMapRef.current = nextExpenses;
-        persistStore(nextSettings, nextDays, `Restored ${Object.keys(nextDays).length} days & ${Object.keys(nextExpenses).length} expenses`, nextExpenses);
+        persistStore(nextSettings, nextDays, `Restored ${Object.keys(nextDays).length} days & ${Object.keys(nextExpenses).length} permanent transactions`, nextExpenses);
       } catch {
         setSaveNotice('⚠️ Invalid JSON backup file');
       }
@@ -2980,6 +3597,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         boxSizing: 'border-box',
         transition: 'background 0.25s ease, color 0.25s ease',
+        overflowAnchor: 'none',
       }}
     >
       {/* SCREEN 1: SPLASH SCREEN OVERLAY (Toggleable via Logo / Splash button) */}
@@ -3177,7 +3795,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   PRO · BIOMETRIC
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                 <input
                   type="month"
                   value={selectedMonth}
@@ -3195,11 +3813,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     outline: 'none',
                   }}
                 />
+                <span
+                  onClick={() => setShowChangeMobileModal(true)}
+                  title="Tap to open Change Mobile & Account Sync"
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    color: isOwnerAccount ? (isLight ? '#047857' : '#34d399') : '#f59e0b',
+                    cursor: 'pointer',
+                  }}
+                >
+                  · {activeAccountEmail}
+                </span>
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
             {/* Light / Dark Mode Toggle (Screen 12 Light Mode Preview) */}
             <button
               type="button"
@@ -3254,6 +3884,27 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               }} />
             </button>
 
+            {/* Change Mobile & patanyasin144@gmail.com Sync Button */}
+            <button
+              type="button"
+              onClick={() => setShowChangeMobileModal(true)}
+              title="Change Mobile & Sync All Data to patanyasin144@gmail.com"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 11,
+                border: '1px solid rgba(16, 185, 129, 0.5)',
+                background: isLight
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(37, 99, 235, 0.1))'
+                  : 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(37, 99, 235, 0.2))',
+                color: isLight ? '#047857' : '#6ee7b7',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+              }}
+            >
+              📱 Change Mobile
+            </button>
+
             {/* App / Sync Button */}
             <button
               type="button"
@@ -3274,16 +3925,25 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         </div>
 
+        {/* Fixed Floating Save Notice Toast (Zero layout shift / Zero vertical jumping) */}
         {saveNotice && (
           <div style={{
-            padding: '8px 12px',
-            borderRadius: 12,
-            background: 'rgba(16, 185, 129, 0.16)',
-            border: '1px solid rgba(52, 211, 153, 0.5)',
+            position: 'fixed',
+            top: 14,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1850,
+            maxWidth: '92vw',
+            padding: '8px 14px',
+            borderRadius: 999,
+            background: isLight ? '#ecfdf5' : 'rgba(6, 78, 59, 0.96)',
+            border: '1px solid rgba(52, 211, 153, 0.65)',
+            boxShadow: '0 10px 26px rgba(0, 0, 0, 0.42)',
             color: isLight ? '#065f46' : '#a7f3d0',
             fontSize: 12,
             fontWeight: 800,
             textAlign: 'center',
+            pointerEvents: 'none',
           }}>
             ✓ {saveNotice}
           </div>
@@ -3802,6 +4462,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   onToggleSalaryVisibility={toggleSalaryVisibilityWithBiometric}
                   mobileMode={mobileMode}
                   themeMode={themeMode}
+                  activeAccountEmail={activeAccountEmail}
+                  isOwnerAccount={isOwnerAccount}
+                  onOpenChangeMobileModal={() => setShowChangeMobileModal(true)}
                 />
               </div>
             )}
@@ -3813,7 +4476,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showTodaySection && (
           <>
-            {/* EXECUTIVE CORPORATE BRAND RIBBON (v7.0) */}
+            {/* EXECUTIVE CORPORATE BRAND RIBBON (v7.4) */}
             <div style={{
               padding: '9px 14px',
               borderRadius: 16,
@@ -3828,7 +4491,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               flexWrap: 'wrap',
               boxShadow: '0 8px 20px -6px rgba(0, 0, 0, 0.35)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{
                   padding: '3px 8px',
                   borderRadius: 999,
@@ -3838,7 +4501,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   fontWeight: 950,
                   letterSpacing: '0.06em',
                 }}>
-                  YASIN SALARY PRO v7.0
+                  YASIN SALARY PRO v7.4
                 </span>
                 <span style={{
                   fontSize: 11,
@@ -3846,20 +4509,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   color: isLight ? '#f8fafc' : '#fde68a',
                   letterSpacing: '0.02em',
                 }}>
-                  Executive Biometric &amp; Fintech Suite
+                  {isOwnerAccount
+                    ? `Master Sync: ${OWNER_MASTER_EMAIL}`
+                    : `Shared Profile: ${activeAccountEmail}`}
                 </span>
               </div>
-              <span style={{
-                fontSize: 10.5,
-                fontWeight: 800,
-                color: '#34d399',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-              }}>
+              <button
+                type="button"
+                onClick={() => setShowChangeMobileModal(true)}
+                style={{
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(52, 211, 153, 0.5)',
+                  background: 'rgba(16, 185, 129, 0.18)',
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  color: '#34d399',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
                 <span className="ot-live-dot" />
-                <span>WhatsApp +91 7386726193 Ready</span>
-              </span>
+                <span>📱 Change Mobile · {isOwnerAccount ? 'Master Active' : 'Switch Account'}</span>
+              </button>
             </div>
 
             {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (Executive Banking Vault Card) */}
@@ -4124,6 +4798,132 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 >
                   🔐 Expenses
                 </button>
+              </div>
+            </div>
+
+            {/* 📅 MONTHLY SALARY CREDIT (10–13) & OT PAYMENT CREDIT (18–21) CYCLE CARD */}
+            <div style={{
+              padding: '14px 16px',
+              borderRadius: 20,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ fontSize: 15 }}>🏦</span>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 950, color: ui.textPrimary }}>
+                      Monthly Salary &amp; OT Credit Cycle Dates
+                    </div>
+                    <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>
+                      Salary: {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} of every month · OT Payment: {creditCycles.otStartDay}–{creditCycles.otEndDay} of every month
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateTab('rules')}
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textSecondary,
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚙️ Cycle Rules
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {/* Base Salary Credit Window: 10–13 of Every Month */}
+                <div style={{
+                  padding: '11px 12px',
+                  borderRadius: 14,
+                  background: isLight
+                    ? 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)'
+                    : 'linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(5, 150, 105, 0.08) 100%)',
+                  border: '1px solid rgba(16, 185, 129, 0.42)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 900, color: isLight ? '#047857' : '#6ee7b7' }}>
+                      💰 SALARY CREDIT
+                    </span>
+                    <span style={{
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: creditCycles.salaryStatus === 'active'
+                        ? 'rgba(16, 185, 129, 0.26)'
+                        : 'rgba(59, 130, 246, 0.18)',
+                      color: creditCycles.salaryStatus === 'active' ? '#10b981' : (isLight ? '#1d4ed8' : '#93c5fd'),
+                      fontSize: 9.5,
+                      fontWeight: 900,
+                    }}>
+                      {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} Monthly
+                    </span>
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: ui.textPrimary }}>
+                    {creditCycles.salaryWindowLabel}
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 12, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span>{formatSalaryMask(Math.max(0, rates.salary - monthSummary.leaveDeduction))}</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>
+                    {creditCycles.salaryBadgeText}
+                  </div>
+                </div>
+
+                {/* OT Payment Credit Window: 18–21 of Every Month */}
+                <div style={{
+                  padding: '11px 12px',
+                  borderRadius: 14,
+                  background: isLight
+                    ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
+                    : 'linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(217, 119, 6, 0.08) 100%)',
+                  border: '1px solid rgba(245, 158, 11, 0.45)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 900, color: isLight ? '#b45309' : '#fcd34d' }}>
+                      ⚡ OT PAYMENT CREDIT
+                    </span>
+                    <span style={{
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: creditCycles.otStatus === 'active'
+                        ? 'rgba(245, 158, 11, 0.28)'
+                        : 'rgba(139, 92, 246, 0.2)',
+                      color: creditCycles.otStatus === 'active' ? '#f59e0b' : (isLight ? '#6d28d9' : '#c4b5fd'),
+                      fontSize: 9.5,
+                      fontWeight: 900,
+                    }}>
+                      {creditCycles.otStartDay}–{creditCycles.otEndDay} Monthly
+                    </span>
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: ui.textPrimary }}>
+                    {creditCycles.otWindowLabel}
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 12, fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span>{formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>
+                    {creditCycles.otBadgeText}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -5676,7 +6476,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
                   { label: 'Employee Name', value: normalizeEmployeeName(settings.employeeName), color: ui.textPrimary, isSalary: false },
+                  { label: 'Synced Account Email', value: activeAccountEmail, color: isOwnerAccount ? '#10b981' : '#f59e0b', isSalary: false },
                   { label: 'Base Monthly Salary', value: formatSalaryMask(rates.salary), color: ui.textPrimary, isSalary: true },
+                  { label: 'Salary Credit Cycle', value: `${creditCycles.salaryStartDay}–${creditCycles.salaryEndDay} of every month (${creditCycles.salaryWindowLabel})`, color: '#10b981', isSalary: false },
+                  { label: 'OT Payment Credit Cycle', value: `${creditCycles.otStartDay}–${creditCycles.otEndDay} of every month (${creditCycles.otWindowLabel})`, color: '#f59e0b', isSalary: false },
                   { label: 'Per Day Salary', value: formatSalaryMask(rates.perDaySalary), color: ui.textPrimary, isSalary: true },
                   {
                     label: 'Per Hour / Per Min Rate',
@@ -5734,7 +6537,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     <span>Net Salary Receivable</span>
                     {renderSalaryEyeButton(true)}
                   </div>
-                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>Base + Extra OT - Leaves</div>
+                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
+                    Salary: {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} · OT: {creditCycles.otStartDay}–{creditCycles.otEndDay} of every month
+                  </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 950, color: '#10b981' }}>
                   {formatSalaryMask(monthSummary.fullMonthNetPayable)}
@@ -6085,6 +6890,108 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     <option value="26">26 Working Days</option>
                   </select>
                 </div>
+
+                {/* Monthly Salary Credit Cycle (10–13) & OT Payment Credit Cycle (18–21) */}
+                <div style={{
+                  padding: '12px',
+                  borderRadius: 14,
+                  background: ui.cardSubBg,
+                  border: `1px solid ${ui.border}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
+                    🏦 Monthly Credit Cycle Dates (Salary: 10–13 · OT Payment: 18–21)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#10b981', marginBottom: 4 }}>
+                        💰 Salary Credit Window (Day of Month)
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={settings.salaryCreditStartDay ?? 10}
+                          onChange={(e) => updateSetting('salaryCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 10)))}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 900,
+                            fontSize: 13,
+                          }}
+                        />
+                        <span style={{ fontWeight: 900, color: ui.textSecondary }}>to</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={settings.salaryCreditEndDay ?? 13}
+                          onChange={(e) => updateSetting('salaryCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 13)))}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 900,
+                            fontSize: 13,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', marginBottom: 4 }}>
+                        ⚡ OT Payment Window (Day of Month)
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={settings.otCreditStartDay ?? 18}
+                          onChange={(e) => updateSetting('otCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 18)))}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 900,
+                            fontSize: 13,
+                          }}
+                        />
+                        <span style={{ fontWeight: 900, color: ui.textSecondary }}>to</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={settings.otCreditEndDay ?? 21}
+                          onChange={(e) => updateSetting('otCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 21)))}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 900,
+                            fontSize: 13,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -6336,6 +7243,29 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               <button
                 type="button"
+                onClick={() => setShowChangeMobileModal(true)}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  background: isLight
+                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(37, 99, 235, 0.08))'
+                    : 'linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(37, 99, 235, 0.14))',
+                  color: ui.textPrimary,
+                  fontWeight: 900,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>📱 Change Mobile &amp; Sync ({activeAccountEmail})</span>
+                <span style={{ color: '#10b981', fontWeight: 900 }}>›</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowMobileAppModal(true)}
                 style={{
                   padding: '12px 14px',
@@ -6540,6 +7470,297 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 >
                   I Consent &amp; Enable
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 📱 CHANGE MOBILE & patanyasin144@gmail.com MASTER ACCOUNT SYNC MODAL */}
+        {showChangeMobileModal && (
+          <div
+            onClick={() => setShowChangeMobileModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1600,
+              background: 'rgba(2, 6, 23, 0.84)',
+              backdropFilter: 'blur(7px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 14,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                maxHeight: '88vh',
+                overflowY: 'auto',
+                borderRadius: 22,
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1.5px solid ${isOwnerAccount ? 'rgba(16, 185, 129, 0.55)' : 'rgba(245, 158, 11, 0.55)'}`,
+                boxShadow: '0 24px 64px rgba(0, 0, 0, 0.65)',
+                padding: 18,
+                color: ui.textPrimary,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 950, color: ui.textPrimary }}>
+                    📱 Change Mobile &amp; Email Account Sync
+                  </div>
+                  <div style={{ fontSize: 11.5, color: ui.textSecondary, marginTop: 2 }}>
+                    Master Account: <strong>{OWNER_MASTER_EMAIL}</strong> · Multi-User Data Isolation
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowChangeMobileModal(false)}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 9,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              {/* Active Account Status Card */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: isOwnerAccount
+                  ? (isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.14)')
+                  : (isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.14)'),
+                border: isOwnerAccount
+                  ? '1px solid rgba(16, 185, 129, 0.45)'
+                  : '1px solid rgba(245, 158, 11, 0.45)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 950,
+                    color: isOwnerAccount ? '#10b981' : '#f59e0b',
+                  }}>
+                    {isOwnerAccount
+                      ? `✅ YASIN MASTER VAULT ACTIVE (${OWNER_MASTER_EMAIL})`
+                      : `👤 OTHER USER PROFILE ACTIVE (${activeAccountEmail})`}
+                  </span>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: isOwnerAccount ? 'rgba(16, 185, 129, 0.22)' : 'rgba(245, 158, 11, 0.22)',
+                    color: isOwnerAccount ? '#10b981' : '#f59e0b',
+                    fontSize: 10,
+                    fontWeight: 900,
+                  }}>
+                    {Object.keys(daysMap || {}).length} Days · {Object.keys(expensesMap || {}).length} Txns
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: ui.textSecondary, lineHeight: 1.45 }}>
+                  {isOwnerAccount
+                    ? `All your attendance dates, ₹${formatINR(rates.salary)} salary rules, 10–13 Salary Credit cycle, 18–21 OT Payment cycle, and ${Object.keys(expensesMap || {}).length} permanent transactions are enabled and synced to ${OWNER_MASTER_EMAIL}.`
+                    : `You are using a separate profile (${activeAccountEmail}). Yasin Pattan's master attendance dates and transactions (${OWNER_MASTER_EMAIL}) are completely hidden and isolated.`}
+                </div>
+              </div>
+
+              {/* Switch Account Email (Owner vs Shared App User) */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
+                  🔑 Login / Switch Account Email (Share App Safely)
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary, lineHeight: 1.4 }}>
+                  Enter <strong>{OWNER_MASTER_EMAIL}</strong> to unlock &amp; show all your master data on a new mobile. If you share this app with others, they can enter their own email to get their own separate dates and ledger.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="email"
+                    value={changeMobileEmailInput}
+                    onChange={(e) => setChangeMobileEmailInput(e.target.value)}
+                    placeholder="Enter email (e.g. patanyasin144@gmail.com)"
+                    style={{
+                      flex: 1,
+                      minWidth: 200,
+                      padding: '9px 11px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 12.5,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => switchAccountEmail(changeMobileEmailInput)}
+                    style={{
+                      padding: '9px 14px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(37, 99, 235, 0.55)',
+                      background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Switch Account
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                  <button
+                    type="button"
+                    onClick={() => switchAccountEmail(OWNER_MASTER_EMAIL)}
+                    style={{
+                      padding: '7px 11px',
+                      borderRadius: 9,
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      background: isOwnerAccount ? '#10b981' : 'rgba(16, 185, 129, 0.14)',
+                      color: isOwnerAccount ? '#ffffff' : '#10b981',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    👑 Use {OWNER_MASTER_EMAIL} (All My Data)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const guestEmail = 'guest.user@gmail.com';
+                      setChangeMobileEmailInput(guestEmail);
+                      switchAccountEmail(guestEmail);
+                    }}
+                    style={{
+                      padding: '7px 11px',
+                      borderRadius: 9,
+                      border: `1px solid ${ui.border}`,
+                      background: !isOwnerAccount ? 'rgba(245, 158, 11, 0.2)' : ui.cardBg,
+                      color: !isOwnerAccount ? '#f59e0b' : ui.textSecondary,
+                      fontWeight: 800,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    👥 Switch to Other User (Isolated Dates)
+                  </button>
+                </div>
+              </div>
+
+              {/* Change Mobile: Sync All Data to patanyasin144@gmail.com & Restore via Sync Code */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
+                  📲 Change Mobile — Sync &amp; Transfer All Data to New Phone
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary, lineHeight: 1.4 }}>
+                  Syncs 100% of your attendance dates, shift rules, credit cycles (10–13 &amp; 18–21), and permanent transactions to <strong>{activeAccountEmail}</strong> without deleting anything.
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={syncAndSendVaultToEmail}
+                    style={{
+                      padding: '10px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(16, 185, 129, 0.55)',
+                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📧 Sync &amp; Send to {isOwnerAccount ? 'patanyasin144' : 'Email'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyChangeMobileSyncCode}
+                    style={{
+                      padding: '10px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(59, 130, 246, 0.55)',
+                      background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📋 Copy Change Mobile Sync Code
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: ui.textSecondary, marginBottom: 4 }}>
+                    📥 Have a Change Mobile Sync Code from your old phone? Paste below to restore &amp; merge:
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      value={changeMobileSyncCodeInput}
+                      onChange={(e) => setChangeMobileSyncCodeInput(e.target.value)}
+                      placeholder="Paste PATTAN_SYNC_V74:... code or JSON here"
+                      style={{
+                        flex: 1,
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardBg,
+                        color: ui.textPrimary,
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => restoreFromChangeMobileSyncCode(changeMobileSyncCodeInput)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 10,
+                        border: '1px solid rgba(16, 185, 129, 0.55)',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        fontWeight: 900,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
