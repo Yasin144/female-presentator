@@ -137,8 +137,8 @@ export function migrateAndNormalizeExpenseRecord(tx) {
 
   const originalMerchant = String(tx.originalMerchant || tx.merchant || '').trim();
   const merchant = String(tx.merchant || originalMerchant || 'Payment').trim();
-  const originalRemark = String(tx.originalRemark ?? '').trim();
-  const note = String(tx.note ?? originalRemark ?? '').trim();
+  const originalRemark = String(tx.originalRemark ?? tx.paymentRemark ?? '').trim();
+  const note = String(tx.personalNote ?? tx.note ?? originalRemark ?? '').trim();
   const tags = Array.isArray(tx.tags)
     ? tx.tags.map((t) => String(t).trim()).filter(Boolean)
     : [];
@@ -154,7 +154,9 @@ export function migrateAndNormalizeExpenseRecord(tx) {
     merchant,
     originalMerchant: originalMerchant || merchant,
     originalRemark,
+    paymentRemark: originalRemark,
     note,
+    personalNote: note,
     noteReviewed: Boolean(tx.noteReviewed || note.length > 0),
     category: String(tx.category || (type === 'credit' ? 'income' : type === 'refund' ? 'refund' : type === 'transfer' ? 'transfer' : 'food')),
     subcategory: String(tx.subcategory || ''),
@@ -166,7 +168,7 @@ export function migrateAndNormalizeExpenseRecord(tx) {
     time: timeHHMM,
     timestampMs: ts,
     source,
-    rawText: sanitizeRawFinancialSnippet(tx.rawText || ''),
+    rawText: '',
     duplicateOfId: tx.duplicateOfId ? String(tx.duplicateOfId) : '',
     createdAt: String(tx.createdAt || tx.updatedAt || new Date(ts).toISOString()),
     updatedAt: String(tx.updatedAt || new Date(nowMs).toISOString()),
@@ -185,7 +187,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
 
   // Ignore pure OTP / PIN / verification messages
   const hasOtpWord = /(?:^|\W)(otp|one time password|verification code|upi pin|never share your pin)(?:\W|$)/i.test(lower);
-  const hasCompletionWord = /(debited|credited|paid|sent\s|received|spent|withdrawn|transferred|deducted|trf to|refund|reversed|reversal|failed|declined)/i.test(lower);
+  const hasCompletionWord = /(debited|credited|paid|sent\s|received|spent|withdrawn|transferred|deducted|trf to|refund|reversed|reversal|failed|declined|pending|processing|payment of)/i.test(lower);
   if (hasOtpWord && !hasCompletionWord) return null;
 
   // Ignore promotional / loan spam
@@ -225,7 +227,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   const isRefund = /(refund|reversed|reversal|cashback)/i.test(lower);
   const isSelfTransfer = /(self transfer|to self|own account|between your accounts)/i.test(lower);
   const isCredit = /(credited|received|deposited|added to your|upi\/cr\/)/i.test(lower);
-  const isDebit = /(debited|spent|paid|sent|withdrawn|deducted|trf to|upi\/dr\/)/i.test(lower);
+  const isDebit = /(debited|spent|paid|sent|withdrawn|deducted|trf to|upi\/dr\/|payment of)/i.test(lower);
 
   let type = 'debit';
   if (isSelfTransfer) type = 'transfer';
@@ -250,7 +252,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   // 5. Merchant / Recipient
   let merchant = '';
   let merchantUncertain = false;
-  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|refund\s+from|at|towards|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|\.|,|\n|$))/i.exec(text);
+  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|refund\s+from|at|towards|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:is\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|\.|,|\n|$))/i.exec(text);
   if (mMerch) {
     merchant = mMerch[1].replace(/^(mr\.?|mrs\.?|ms\.?|m\/s)\s+/i, '').trim();
   } else if (slashMerchant) {
@@ -339,11 +341,20 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     time: timeHHMM,
     timestampMs: fallbackTimestampMs,
     source: sourceType,
-    rawText: sanitizeRawFinancialSnippet(text),
+    rawText: '',
     createdAt: new Date(fallbackTimestampMs).toISOString(),
     updatedAt: new Date().toISOString(),
     updatedAtMs: Date.now(),
   });
+}
+
+export function parseFinancialSmsOrNotification(input, fallbackTimestampMs = Date.now(), sourceType = 'android-notif') {
+  if (input && typeof input === 'object') {
+    const combinedText = [input.title || '', input.body || '', input.rawText || ''].filter(Boolean).join(' · ');
+    const ts = Number(input.timestampMs || fallbackTimestampMs || Date.now());
+    return parseSmsOrUpiTextJs(combinedText, ts, input.sourceType || sourceType);
+  }
+  return parseSmsOrUpiTextJs(input, fallbackTimestampMs, sourceType);
 }
 
 /**
@@ -478,16 +489,31 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
     nextMap,
     addedCount,
     mergedCount,
+    updatedCount: mergedCount,
     duplicateFlaggedCount,
   };
 }
 
+function toTransactionArray(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) return input;
+  if (typeof input === 'object') return Object.values(input);
+  return [];
+}
+
 /**
  * Phase 6 — Smart Note & Category Suggestions based on user's past history for the same merchant.
+ * Supports both (merchantName, transactions) and (expensesMap, merchantName) signatures.
  */
-export function suggestNotesAndCategoryForMerchant(merchantName, allTransactions = []) {
+export function suggestNotesAndCategoryForMerchant(arg1, arg2 = []) {
+  const isFirstString = typeof arg1 === 'string';
+  const merchantName = isFirstString ? arg1 : (typeof arg2 === 'string' ? arg2 : '');
+  const allTransactions = toTransactionArray(isFirstString ? arg2 : arg1);
+
   const clean = String(merchantName || '').trim().toLowerCase();
-  if (!clean) return { suggestedNotes: [], suggestedCategory: null };
+  if (!clean) {
+    return { suggestedNotes: [], suggestedCategory: null, notes: [], category: null };
+  }
 
   const noteFreq = {};
   let bestCategory = null;
@@ -496,9 +522,9 @@ export function suggestNotesAndCategoryForMerchant(merchantName, allTransactions
     if (!tx || tx._deleted) continue;
     const m = String(tx.merchant || '').trim().toLowerCase();
     if (!m) continue;
-    if (m === clean || (clean.length >= 4 && m.includes(clean))) {
+    if (m === clean || (clean.length >= 3 && (m.includes(clean) || clean.includes(m)))) {
       if (tx.category && !bestCategory) bestCategory = tx.category;
-      const n = String(tx.note || '').trim();
+      const n = String(tx.personalNote || tx.note || '').trim();
       if (n) {
         noteFreq[n] = (noteFreq[n] || 0) + 1;
       }
@@ -507,23 +533,42 @@ export function suggestNotesAndCategoryForMerchant(merchantName, allTransactions
 
   const suggestedNotes = Object.entries(noteFreq)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
+    .slice(0, 4)
     .map(([noteText]) => noteText);
 
   return {
     suggestedNotes,
     suggestedCategory: bestCategory,
+    notes: suggestedNotes,
+    category: bestCategory,
   };
 }
 
 /**
  * Phase 8 — Comprehensive Analytics Calculator.
- * Separates Gross Expenses, Refunds, Self-Transfers, Failed/Reversed payments, and Possible Duplicates.
+ * Accepts either an Array or an Object map of transactions, and either an options object or (selectedMonth, todayIso) args.
  */
-export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = '', todayIso = getLocalIsoDate(), monthlyNetSalary = 25000 } = {}) {
-  const activeAll = (allTransactions || [])
+export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {}, maybeTodayIso = undefined) {
+  const txArray = toTransactionArray(allTransactions);
+  const activeAll = txArray
     .filter((tx) => tx && typeof tx === 'object' && !tx._deleted && Number(tx.amount) > 0)
-    .map(migrateAndNormalizeExpenseRecord);
+    .map(migrateAndNormalizeExpenseRecord)
+    .sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
+
+  let selectedMonth = '';
+  let todayIso = getLocalIsoDate();
+  let monthlyNetSalary = 25000;
+
+  if (typeof optionsOrMonth === 'string') {
+    selectedMonth = optionsOrMonth;
+    if (typeof maybeTodayIso === 'string' && maybeTodayIso) {
+      todayIso = maybeTodayIso;
+    }
+  } else if (optionsOrMonth && typeof optionsOrMonth === 'object') {
+    selectedMonth = optionsOrMonth.selectedMonth || '';
+    todayIso = optionsOrMonth.todayIso || getLocalIsoDate();
+    monthlyNetSalary = Number(optionsOrMonth.monthlyNetSalary) || 25000;
+  }
 
   const monthPrefix = selectedMonth || todayIso.slice(0, 7);
 
@@ -569,7 +614,11 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
   const byPaymentMethod = {};
   const byApp = {};
   const byDay = {};
+  const byMerchant = {};
   const refundHistory = [];
+  const monthActiveList = [];
+  const missingNotesList = [];
+  const uncertainOrDuplicatesList = [];
 
   for (const tx of activeAll) {
     const amt = Number(tx.amount) || 0;
@@ -607,11 +656,13 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
 
     if (isPossibleDuplicate) {
       duplicatePendingCount += 1;
+      uncertainOrDuplicatesList.push(tx);
       continue;
     }
 
     if (tx.reconciliationStatus === 'needs_review') {
       needsReviewCount += 1;
+      uncertainOrDuplicatesList.push(tx);
     }
 
     if (isFailedOrReversed) {
@@ -620,11 +671,17 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
       continue;
     }
 
+    monthActiveList.push(tx);
+
     // Count valid transactions in this month
     monthTxCount += 1;
-    const hasNote = Boolean((tx.note && tx.note.trim()) || tx.noteReviewed);
-    if (hasNote) withNoteCount += 1;
-    else missingNotesCount += 1;
+    const hasNote = Boolean((tx.personalNote && tx.personalNote.trim()) || (tx.note && tx.note.trim()) || tx.noteReviewed);
+    if (hasNote) {
+      withNoteCount += 1;
+    } else {
+      missingNotesCount += 1;
+      missingNotesList.push(tx);
+    }
 
     if (tx.type === 'transfer') {
       selfTransfersTotal += amt;
@@ -644,6 +701,11 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
       if (!byCategory[cat]) byCategory[cat] = { count: 0, amount: 0 };
       byCategory[cat].count += 1;
       byCategory[cat].amount += amt;
+
+      const mKey = tx.merchant || 'Merchant';
+      if (!byMerchant[mKey]) byMerchant[mKey] = { name: mKey, count: 0, total: 0 };
+      byMerchant[mKey].count += 1;
+      byMerchant[mKey].total += amt;
 
       if (!byDay[tx.date]) byDay[tx.date] = { date: tx.date, spent: 0, received: 0, count: 0 };
       byDay[tx.date].spent += amt;
@@ -678,15 +740,48 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
   const remainingSalary = Math.max(0, Number(((Number(monthlyNetSalary) || 0) - netSpending).toFixed(2)));
   const noteCompletionPct = monthTxCount > 0 ? Math.round((withNoteCount / monthTxCount) * 100) : 100;
 
+  const categoryBreakdown = Object.entries(byCategory)
+    .map(([category, info]) => ({
+      category,
+      count: info.count,
+      total: Number(info.amount.toFixed(2)),
+      sharePct: grossExpenses > 0 ? (info.amount / grossExpenses) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const paymentMethodBreakdown = Object.entries(byPaymentMethod)
+    .map(([method, info]) => ({
+      method,
+      count: info.count,
+      total: Number(info.spent.toFixed(2)),
+      sharePct: grossExpenses > 0 ? (info.spent / grossExpenses) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const topMerchant = Object.values(byMerchant).sort((a, b) => b.total - a.total)[0] || null;
+  const prevMonthComparison = prevMonthNetSpend > 0
+    ? {
+        prevTotal: prevMonthNetSpend,
+        diff: Number((netSpending - prevMonthNetSpend).toFixed(2)),
+        pctChange: periodComparisonPct || 0,
+      }
+    : null;
+
   return {
     grossExpenses: Number(grossExpenses.toFixed(2)),
+    grossSpent: Number(grossExpenses.toFixed(2)),
     refundsTotal: Number(refundsTotal.toFixed(2)),
+    totalRefunds: Number(refundsTotal.toFixed(2)),
     netSpending,
+    netSpent: netSpending,
     incomeTotal: Number(incomeTotal.toFixed(2)),
+    totalIncome: Number(incomeTotal.toFixed(2)),
+    totalReceived: Number(incomeTotal.toFixed(2)),
     selfTransfersTotal: Number(selfTransfersTotal.toFixed(2)),
     failedOrReversedTotal: Number(failedOrReversedTotal.toFixed(2)),
     duplicatePendingCount,
     needsReviewCount,
+    totalCount: monthTxCount,
     monthTxCount,
     monthExpenseCount,
     monthIncomeCount,
@@ -703,23 +798,37 @@ export function computeExpenseAnalytics(allTransactions = [], { selectedMonth = 
     noteCompletionPct,
     prevMonthNetSpend,
     periodComparisonPct,
+    spendChangePct: periodComparisonPct,
+    prevMonthComparison,
     remainingSalary,
     byCategory,
     byPaymentMethod,
     byApp,
     byDay,
     refundHistory,
+    monthActiveList,
+    monthTxList: monthActiveList,
+    categoryBreakdown,
+    paymentMethodBreakdown,
+    missingNotesList,
+    uncertainOrDuplicatesList,
+    topMerchant,
   };
 }
 
 /**
  * Phase 8 — Natural-Language Question & Answer Engine over real local transaction records.
  */
-export function answerNaturalLanguageFinanceQuery(query, allTransactions = [], todayIso = getLocalIsoDate()) {
+export function answerNaturalLanguageFinanceQuery(query, allTransactions = [], monthOrToday = getLocalIsoDate(), maybeTodayIso = undefined) {
   const q = String(query || '').trim().toLowerCase();
-  const monthPrefix = todayIso.slice(0, 7);
-  const stats = computeExpenseAnalytics(allTransactions, { selectedMonth: monthPrefix, todayIso });
-  const active = (allTransactions || [])
+  const txArray = toTransactionArray(allTransactions);
+  const todayIso = maybeTodayIso
+    ? maybeTodayIso
+    : (String(monthOrToday || '').length === 10 ? monthOrToday : getLocalIsoDate());
+  const monthPrefix = String(monthOrToday || '').length === 7 ? monthOrToday : todayIso.slice(0, 7);
+
+  const stats = computeExpenseAnalytics(txArray, { selectedMonth: monthPrefix, todayIso });
+  const active = txArray
     .filter((tx) => tx && !tx._deleted && tx.status !== 'failed' && tx.status !== 'reversed' && tx.reconciliationStatus !== 'possible_duplicate')
     .map(migrateAndNormalizeExpenseRecord);
 
@@ -756,7 +865,7 @@ export function answerNaturalLanguageFinanceQuery(query, allTransactions = [], t
       (tx) =>
         tx.date.startsWith(monthPrefix) &&
         tx.type === 'debit' &&
-        (tx.category === 'food' || /(food|tea|coffee|lunch|dinner|snack|swiggy|zomato|bakery|restaurant)/i.test(`${tx.note} ${tx.merchant}`))
+        (tx.category === 'food' || String(tx.category || '').toLowerCase().includes('food') || /(food|tea|coffee|lunch|dinner|snack|swiggy|zomato|bakery|restaurant)/i.test(`${tx.note} ${tx.merchant}`))
     );
     const sum = matches.reduce((acc, t) => acc + t.amount, 0);
     return {
@@ -827,6 +936,7 @@ function escapeCsvCell(val) {
  * Phase 8 & 12 — RFC-4180 compliant CSV Exporter with full disclosure of fields.
  */
 export function formatTransactionsCsv(transactions = [], analytics = null) {
+  const txList = toTransactionArray(transactions);
   const headers = [
     'Tx ID',
     'Date',
@@ -850,7 +960,7 @@ export function formatTransactionsCsv(transactions = [], analytics = null) {
 
   const rows = [headers.map(escapeCsvCell).join(',')];
 
-  for (const rawTx of transactions) {
+  for (const rawTx of txList) {
     const tx = migrateAndNormalizeExpenseRecord(rawTx);
     if (!tx || tx._deleted) continue;
     rows.push(

@@ -704,7 +704,6 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     }
 
     const CLIENT_ID = 'mob_' + Math.random().toString(36).slice(2, 10);
-    const CLOUD_RELAY_URL = 'https://ntfy.sh/pattan_ot_salary_live_sync_yasin144_v2';
 
     function mergeIncomingData(incoming) {
       if (!incoming || typeof incoming !== 'object') return false;
@@ -733,25 +732,11 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
           }
         }
       }
-      if (incoming.expenses && typeof incoming.expenses === 'object') {
-        if (!store.expenses) store.expenses = {};
-        for (const [txId, inExp] of Object.entries(incoming.expenses)) {
-          if (!inExp || typeof inExp !== 'object') continue;
-          const exExp = store.expenses[txId];
-          if (inExp.deleted) {
-            if (exExp) { delete store.expenses[txId]; changed = true; }
-            continue;
-          }
-          const inTs = Number(inExp.updatedAtMs || inExp.timestampMs || 1);
-          const exTs = exExp ? Number(exExp.updatedAtMs || exExp.timestampMs || 0) : -1;
-          if (!exExp || inTs >= exTs) {
-            store.expenses[txId] = Object.assign({}, exExp || {}, inExp);
-            changed = true;
-          }
-        }
-      }
       if (changed) {
-        localStorage.setItem(LS_KEY, JSON.stringify(store));
+        localStorage.setItem(LS_KEY, JSON.stringify({
+          settings: store.settings,
+          days: store.days,
+        }));
         renderAll();
       }
       return changed;
@@ -768,40 +753,40 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       if (window.location.origin && window.location.origin.startsWith('http') && !window.Capacitor) {
         set.add(window.location.origin);
       }
-      set.add('http://10.149.161.101:5173');
-      set.add('http://10.149.161.101:8433');
-      set.add('http://192.168.29.161:5173');
-      set.add('http://192.168.29.161:8433');
       return Array.from(set);
     }
 
-    function saveStore(msg) {
+    function saveStore(msg, allowExplicitSync = false) {
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
       store.clientId = CLIENT_ID;
       store.updatedAt = nowIso;
       store.updatedAtMs = nowMs;
       store.settingsUpdatedAt = store.settingsUpdatedAt || nowMs;
-      localStorage.setItem(LS_KEY, JSON.stringify(store));
-      if (msg) showToast(msg + ' · ⚡ Live Synced');
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        settings: store.settings,
+        days: store.days,
+      }));
+      if (msg) showToast(msg);
 
-      const jsonBody = JSON.stringify(store);
-      for (const base of getSyncBases()) {
-        const url = base + '/api/ot-salary-sync';
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: jsonBody,
-        }).then(r => r.ok ? r.json() : null).then(j => {
-          if (j && j.data) mergeIncomingData(j.data);
-        }).catch(() => {});
-        if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
-          try { window.PattanBiometric.syncHttpPost(url, jsonBody); } catch (_) {}
+      if (allowExplicitSync) {
+        const jsonBody = JSON.stringify({
+          clientId: CLIENT_ID,
+          settings: store.settings,
+          days: store.days,
+          updatedAt: nowIso,
+          updatedAtMs: nowMs,
+        });
+        for (const base of getSyncBases()) {
+          const url = base + '/api/ot-salary-sync';
+          fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: jsonBody,
+          }).then(r => r.ok ? r.json() : null).then(j => {
+            if (j && j.data) mergeIncomingData(j.data);
+          }).catch(() => {});
         }
-      }
-      fetch(CLOUD_RELAY_URL, { method: 'POST', body: jsonBody }).catch(() => {});
-      if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
-        try { window.PattanBiometric.syncHttpPost(CLOUD_RELAY_URL, jsonBody); } catch (_) {}
       }
       renderAll();
     }
@@ -1529,6 +1514,20 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
           biometricOut: true,
           biometricOutAt: new Date().toISOString(),
         });
+        const savedDayRecord = store.days[iso];
+        if (savedDayRecord && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          try {
+            window.dispatchEvent(new CustomEvent('pattan:ot-punch-out-saved', {
+              detail: {
+                date: iso,
+                record: savedDayRecord,
+                settings: store.settings,
+                rates: getRates(),
+                calculation: calcDay(savedDayRecord),
+              },
+            }));
+          } catch (_) {}
+        }
       }
     }
 
@@ -1654,25 +1653,8 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     document.getElementById('syncNowBtn').addEventListener('click', () => {
       const base = (document.getElementById('syncServerUrl').value || '').trim().replace(/\\/+$/, '');
       if (base) localStorage.setItem('pattan.ot.syncServerUrl', base);
-      saveStore('Syncing now with Web & PC...');
+      saveStore('Syncing attendance with PC...', true);
     });
-
-    if (typeof EventSource !== 'undefined') {
-      try {
-        const es = new EventSource(CLOUD_RELAY_URL + '/sse');
-        es.onmessage = (ev) => {
-          try {
-            const outer = JSON.parse(ev.data);
-            if (outer && outer.event === 'message' && typeof outer.message === 'string') {
-              const payload = JSON.parse(outer.message);
-              if (payload && payload.type === 'OT_SALARY_LIVE_SYNC' && payload.data) {
-                mergeIncomingData(payload.data);
-              }
-            }
-          } catch (_) {}
-        };
-      } catch (_) {}
-    }
 
     function tickLiveClock() {
       const now = new Date();

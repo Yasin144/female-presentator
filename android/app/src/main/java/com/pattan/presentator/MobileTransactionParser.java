@@ -2,8 +2,6 @@ package com.pattan.presentator;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.database.Cursor;
-import android.net.Uri;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -14,8 +12,12 @@ import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,8 +30,35 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class MobileTransactionParser {
     private static final String PREF_NAME = "pattan_expenses_native_store";
     private static final String KEY_TXNS_ENC = "captured_transactions_enc_v2";
+    private static final String KEY_EXPENSE_STORE_MAP_ENC = "expense_memory_store_map_enc_v1";
     private static final String KEY_TXNS_LEGACY = "captured_transactions_json";
     private static final String KEYSTORE_ALIAS = "PattanExpenseMemoryAesKey";
+
+    public static final Set<String> ALLOWED_PAYMENT_PACKAGES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "com.google.android.apps.nbu.paisa.user",
+        "com.phonepe.app",
+        "net.one97.paytm",
+        "in.org.npci.upiapp",
+        "in.amazon.mShop.android.shopping",
+        "com.dreamplug.androidapp",
+        "com.whatsapp",
+        "com.csam.icici.bank.imobile",
+        "com.snapwork.hdfc",
+        "com.sbi.lotusintouch",
+        "com.sbi.SBIFreedomPlus",
+        "com.axis.mobile",
+        "com.msf.kbank.mobile",
+        "com.infrasofttech.CentralBank",
+        "com.infrasoft.uboi",
+        "com.canarabank.mobility",
+        "com.Version1",
+        "com.bob.world",
+        "com.idfcfirstbank.optimus",
+        "com.indusind.indie",
+        "com.rblbank.mobank",
+        "com.yesbank",
+        "com.federalbank.fedmobile"
+    )));
 
     private static final Pattern AMOUNT_PATTERN_PREFIX = Pattern.compile(
         "(?i)(?:₹|rs\\.?|inr|amt)\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
@@ -52,6 +81,12 @@ public final class MobileTransactionParser {
 
     private MobileTransactionParser() {}
 
+    public static boolean isAllowedPaymentPackage(String packageName) {
+        if (packageName == null) return false;
+        String clean = packageName.trim();
+        return !clean.isEmpty() && ALLOWED_PAYMENT_PACKAGES.contains(clean);
+    }
+
     public static JSONObject parseSmsOrNotification(
         String senderOrPkg,
         String title,
@@ -60,6 +95,11 @@ public final class MobileTransactionParser {
         String sourceType
     ) {
         try {
+            // When called from notification listener, enforce package allow-list
+            if ("mobile-notification".equalsIgnoreCase(sourceType) && !isAllowedPaymentPackage(senderOrPkg)) {
+                return null;
+            }
+
             String fullText = ((title != null ? title + " " : "") + (body != null ? body : "")).trim();
             if (fullText.length() < 6) return null;
 
@@ -110,7 +150,7 @@ public final class MobileTransactionParser {
                 status = "failed";
             } else if (lower.contains("reversed") || lower.contains("reversal")) {
                 status = "reversed";
-            } else if (lower.contains("pending") || lower.contains("processing")) {
+            } else if (lower.contains("pending") || lower.contains("processing") || lower.contains("initiated") || lower.contains("requested")) {
                 status = "pending";
             }
 
@@ -232,6 +272,7 @@ public final class MobileTransactionParser {
             tx.put("merchant", merchant);
             tx.put("originalMerchant", merchant);
             tx.put("originalRemark", originalRemark);
+            tx.put("paymentRemark", originalRemark);
             tx.put("note", originalRemark);
             tx.put("category", category);
             tx.put("app", app);
@@ -240,23 +281,14 @@ public final class MobileTransactionParser {
             tx.put("date", dateIso);
             tx.put("time", timeHHMM);
             tx.put("timestampMs", ts);
-            tx.put("source", sourceType != null ? sourceType : "mobile-sms");
-            tx.put("rawText", sanitizeSourceSnippet(fullText));
+            tx.put("source", sourceType != null ? sourceType : "mobile-notification");
+            // Privacy requirement: never persist full raw notification text
+            tx.put("rawText", "");
             tx.put("updatedAtMs", ts);
             return tx;
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    private static String sanitizeSourceSnippet(String raw) {
-        if (raw == null) return "";
-        // Mask long account/card digit sequences except keep last 4 digits for user recognition
-        String masked = raw.replaceAll("\\b([0-9]{4,12})([0-9]{4})\\b", "XX$2");
-        if (masked.length() > 220) {
-            masked = masked.substring(0, 220) + "...";
-        }
-        return masked;
     }
 
     private static SecretKey getOrCreateAesKey() throws Exception {
@@ -280,7 +312,7 @@ public final class MobileTransactionParser {
         return kg.generateKey();
     }
 
-    private static String encryptJsonString(String plainText) {
+    public static String encryptJsonString(String plainText) {
         if (plainText == null) return "";
         try {
             SecretKey key = getOrCreateAesKey();
@@ -290,16 +322,16 @@ public final class MobileTransactionParser {
             byte[] cipherBytes = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             return Base64.encodeToString(iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(cipherBytes, Base64.NO_WRAP);
         } catch (Exception ignored) {
-            return plainText;
+            // Fail closed: never return plaintext if Android Keystore encryption fails
+            return "";
         }
     }
 
-    private static String decryptJsonString(String stored) {
-        if (stored == null || stored.isEmpty()) return "[]";
-        if (stored.trim().startsWith("[")) return stored;
+    public static String decryptJsonString(String stored, String fallbackEmpty) {
+        if (stored == null || stored.isEmpty()) return fallbackEmpty;
         try {
             int sep = stored.indexOf(':');
-            if (sep <= 0) return "[]";
+            if (sep <= 0) return fallbackEmpty;
             byte[] iv = Base64.decode(stored.substring(0, sep), Base64.NO_WRAP);
             byte[] cipherBytes = Base64.decode(stored.substring(sep + 1), Base64.NO_WRAP);
             SecretKey key = getOrCreateAesKey();
@@ -308,13 +340,60 @@ public final class MobileTransactionParser {
             byte[] plain = cipher.doFinal(cipherBytes);
             return new String(plain, StandardCharsets.UTF_8);
         } catch (Exception ignored) {
-            return "[]";
+            return fallbackEmpty;
+        }
+    }
+
+    public static String loadEncryptedExpenseStoreJson(Context context) {
+        if (context == null) return "{}";
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String encMap = prefs.getString(KEY_EXPENSE_STORE_MAP_ENC, "");
+            if (encMap != null && !encMap.isEmpty()) {
+                return decryptJsonString(encMap, "{}");
+            }
+            // Migrate any captured notification array into the encrypted map if present
+            JSONArray captured = getSavedCapturedTransactions(context);
+            if (captured.length() > 0) {
+                JSONObject migrated = new JSONObject();
+                for (int i = 0; i < captured.length(); i++) {
+                    JSONObject item = captured.optJSONObject(i);
+                    if (item == null) continue;
+                    String id = item.optString("id", "");
+                    if (!id.isEmpty()) {
+                        item.put("rawText", "");
+                        migrated.put(id, item);
+                    }
+                }
+                saveEncryptedExpenseStoreJson(context, migrated.toString());
+                return migrated.toString();
+            }
+            return "{}";
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    public static boolean saveEncryptedExpenseStoreJson(Context context, String plainJson) {
+        if (context == null || plainJson == null) return false;
+        try {
+            String encrypted = encryptJsonString(plainJson);
+            if (encrypted.isEmpty()) return false;
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            prefs.edit()
+                .putString(KEY_EXPENSE_STORE_MAP_ENC, encrypted)
+                .remove(KEY_TXNS_LEGACY)
+                .apply();
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
     public static void saveCapturedTransaction(Context context, JSONObject tx) {
         if (context == null || tx == null) return;
         try {
+            tx.put("rawText", "");
             JSONArray arr = getSavedCapturedTransactions(context);
             String id = tx.optString("id", "");
             String refId = tx.optString("refId", "");
@@ -323,6 +402,7 @@ public final class MobileTransactionParser {
             for (int i = 0; i < arr.length() && next.length() < 500; i++) {
                 JSONObject item = arr.optJSONObject(i);
                 if (item == null) continue;
+                item.put("rawText", "");
                 boolean sameId = !id.isEmpty() && id.equals(item.optString("id", ""));
                 boolean sameRef = !refId.isEmpty() && refId.equals(item.optString("refId", ""))
                     && Math.abs(tx.optDouble("amount", 0) - item.optDouble("amount", 0)) < 0.01;
@@ -337,11 +417,22 @@ public final class MobileTransactionParser {
                 }
                 next.put(item);
             }
-            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-            prefs.edit()
-                .putString(KEY_TXNS_ENC, encryptJsonString(next.toString()))
-                .remove(KEY_TXNS_LEGACY)
-                .apply();
+            String encrypted = encryptJsonString(next.toString());
+            if (!encrypted.isEmpty()) {
+                SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                prefs.edit()
+                    .putString(KEY_TXNS_ENC, encrypted)
+                    .remove(KEY_TXNS_LEGACY)
+                    .apply();
+            }
+
+            // Also merge into the encrypted Expense Memory map
+            String currentMapJson = loadEncryptedExpenseStoreJson(context);
+            JSONObject mapObj = new JSONObject(currentMapJson != null && !currentMapJson.isEmpty() ? currentMapJson : "{}");
+            if (!id.isEmpty()) {
+                mapObj.put(id, tx);
+                saveEncryptedExpenseStoreJson(context, mapObj.toString());
+            }
         } catch (Exception ignored) {}
     }
 
@@ -351,17 +442,9 @@ public final class MobileTransactionParser {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             String enc = prefs.getString(KEY_TXNS_ENC, "");
             if (enc != null && !enc.isEmpty()) {
-                return new JSONArray(decryptJsonString(enc));
+                return new JSONArray(decryptJsonString(enc, "[]"));
             }
-            String legacy = prefs.getString(KEY_TXNS_LEGACY, "[]");
-            JSONArray arr = new JSONArray(legacy);
-            if (arr.length() > 0) {
-                prefs.edit()
-                    .putString(KEY_TXNS_ENC, encryptJsonString(arr.toString()))
-                    .remove(KEY_TXNS_LEGACY)
-                    .apply();
-            }
-            return arr;
+            return new JSONArray();
         } catch (Exception ignored) {
             return new JSONArray();
         }
@@ -371,42 +454,12 @@ public final class MobileTransactionParser {
         if (context == null) return;
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-            prefs.edit().remove(KEY_TXNS_ENC).remove(KEY_TXNS_LEGACY).apply();
+            prefs.edit()
+                .remove(KEY_TXNS_ENC)
+                .remove(KEY_EXPENSE_STORE_MAP_ENC)
+                .remove(KEY_TXNS_LEGACY)
+                .apply();
         } catch (Exception ignored) {}
-    }
-
-    public static JSONArray scanSmsInbox(Context context, int daysBack) {
-        JSONArray results = new JSONArray();
-        if (context == null) return results;
-        Cursor cursor = null;
-        try {
-            long cutoffMs = System.currentTimeMillis() - (Math.max(1, daysBack) * 86400000L);
-            Uri uri = Uri.parse("content://sms/inbox");
-            String[] projection = new String[]{"_id", "address", "body", "date"};
-            String selection = "date >= ?";
-            String[] selectionArgs = new String[]{String.valueOf(cutoffMs)};
-            cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, "date DESC LIMIT 600");
-            if (cursor != null) {
-                int addrIdx = cursor.getColumnIndex("address");
-                int bodyIdx = cursor.getColumnIndex("body");
-                int dateIdx = cursor.getColumnIndex("date");
-                while (cursor.moveToNext()) {
-                    String address = addrIdx >= 0 ? cursor.getString(addrIdx) : "";
-                    String body = bodyIdx >= 0 ? cursor.getString(bodyIdx) : "";
-                    long dateMs = dateIdx >= 0 ? cursor.getLong(dateIdx) : System.currentTimeMillis();
-                    JSONObject parsed = parseSmsOrNotification(address, "", body, dateMs, "mobile-sms");
-                    if (parsed != null) {
-                        results.put(parsed);
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (cursor != null) {
-                try { cursor.close(); } catch (Exception ignored) {}
-            }
-        }
-        return results;
     }
 
     private static double parseDoubleSafe(String raw) {
@@ -492,7 +545,7 @@ public final class MobileTransactionParser {
         if (s.contains("pnb")) return "PNB Bank";
         if (s.contains("bob") || s.contains("baroda")) return "Bank of Baroda";
         if (s.contains("upi")) return "UPI";
-        return "Bank SMS";
+        return "Bank Notice";
     }
 
     private static String detectCategory(String merchant, String note, String fullText, String type) {

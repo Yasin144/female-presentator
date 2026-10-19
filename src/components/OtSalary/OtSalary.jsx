@@ -1,6 +1,67 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
+import {
+  loadEncryptedExpenseStore,
+  saveEncryptedExpenseStore,
+} from '../../../frontend/expense-memory.js';
+import {
+  WHATSAPP_FIXED_RECIPIENT_DISPLAY,
+  initAfterOutWhatsAppListener,
+  loadWhatsAppAutoSendState,
+  setWhatsAppAutoSendEnabled,
+  configureNativeWhatsAppRelay,
+  retryFailedDailyStatement,
+  resendDailyStatementWithConfirmation,
+} from '../../../frontend/ot-whatsapp-after-out.js';
+
+class ExpensesSectionBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          padding: 18,
+          borderRadius: 18,
+          background: '#111827',
+          border: '1px solid rgba(239,68,68,0.4)',
+          color: '#f8fafc',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#f87171' }}>
+            Expense Memory encountered a display issue
+          </div>
+          <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 6 }}>
+            {String(this.state.error?.message || this.state.error)}
+          </div>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            style={{
+              marginTop: 10,
+              padding: '8px 14px',
+              borderRadius: 10,
+              border: 'none',
+              background: '#2563eb',
+              color: '#fff',
+              fontWeight: 800,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Retry Expense Memory
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
 
@@ -258,6 +319,7 @@ function buildMonthDates(yearMonth) {
 }
 
 function loadInitialStore() {
+  const encryptedRes = loadEncryptedExpenseStore();
   try {
     const raw = localStorage.getItem(LS_OT_SALARY_KEY);
     if (raw) {
@@ -265,14 +327,14 @@ function loadInitialStore() {
       return {
         settings: { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) },
         days: parsed?.days && typeof parsed.days === 'object' ? parsed.days : {},
-        expenses: parsed?.expenses && typeof parsed.expenses === 'object' ? parsed.expenses : {},
+        expenses: encryptedRes.expenses || {},
       };
     }
   } catch (_) {}
   return {
     settings: { ...DEFAULT_SETTINGS },
     days: {},
-    expenses: {},
+    expenses: encryptedRes.expenses || {},
   };
 }
 
@@ -802,8 +864,38 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [pcSyncIpInput, setPcSyncIpInput] = useState(() => {
     try { return localStorage.getItem('pattan.ot.syncServerUrl') || ''; } catch (_) { return ''; }
   });
+  const [pcSyncOptIn, setPcSyncOptIn] = useState(() => {
+    try { return localStorage.getItem('pattan.ot.pcSyncOptIn') === 'true'; } catch (_) { return false; }
+  });
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('');
+
+  // Feature B — After-OUT Automatic WhatsApp Statement state
+  const [waState, setWaState] = useState(() => loadWhatsAppAutoSendState());
+  const [showWaConsentModal, setShowWaConsentModal] = useState(false);
+  const [waRelayUrlInput, setWaRelayUrlInput] = useState(() => {
+    const s = loadWhatsAppAutoSendState();
+    return s.relayEndpointUrl || '';
+  });
+  const [waRelayTokenInput, setWaRelayTokenInput] = useState('');
+  const [waBusy, setWaBusy] = useState(false);
+
+  useEffect(() => {
+    const cleanupListener = initAfterOutWhatsAppListener();
+    const onWaStatusChange = (ev) => {
+      if (ev?.detail) {
+        setWaState(ev.detail);
+      } else {
+        setWaState(loadWhatsAppAutoSendState());
+      }
+    };
+    window.addEventListener('pattan:ot-whatsapp-status-changed', onWaStatusChange);
+    return () => {
+      cleanupListener();
+      window.removeEventListener('pattan:ot-whatsapp-status-changed', onWaStatusChange);
+    };
+  }, []);
+
   const mobileConnectInfo = useMemo(() => ({
     otUrl: mobileOtUrl || wifiOtUrl || (typeof window !== 'undefined' ? `${window.location.origin}/ot` : ''),
     qrDataUrl: '',
@@ -884,6 +976,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, []);
 
   const goBackStep = useCallback(() => {
+    if (showWaConsentModal) {
+      setShowWaConsentModal(false);
+      return 'handled';
+    }
     if (showMobileAppModal) {
       setShowMobileAppModal(false);
       return 'handled';
@@ -916,7 +1012,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1026,39 +1122,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }
   const lastAppliedSyncMsRef = useRef(0);
 
+  // Only return explicit user-configured sync URLs when pcSyncOptIn is enabled (no hardcoded LAN IPs or public topics)
   const getCandidateLanBases = useCallback(() => {
+    if (!pcSyncOptIn) return [];
     const bases = new Set();
-    try {
-      const origin = window.location.origin;
-      const isCapacitorLocal =
-        window.Capacitor ||
-        origin.startsWith('capacitor://') ||
-        (origin.startsWith('https://localhost') && !window.location.port);
-      if (!isCapacitorLocal && origin.startsWith('http')) {
-        bases.add('');
-      }
-    } catch (_) {}
     try {
       const savedBase = (pcSyncIpInput || localStorage.getItem('pattan.ot.syncServerUrl') || '').trim().replace(/\/+$/, '');
       if (savedBase) {
         if (/^https?:\/\//i.test(savedBase)) {
           bases.add(savedBase);
         } else if (savedBase.includes(':')) {
-          bases.add(`http://${savedBase}`);
-        } else {
-          bases.add(`http://${savedBase}:5173`);
-          bases.add(`http://${savedBase}:8433`);
+          bases.add(`https://${savedBase}`);
         }
       }
     } catch (_) {}
-    bases.add('http://10.149.161.101:5173');
-    bases.add('http://10.149.161.101:8433');
-    bases.add('http://192.168.29.161:5173');
-    bases.add('http://192.168.29.161:8433');
     return Array.from(bases);
-  }, [pcSyncIpInput]);
+  }, [pcSyncIpInput, pcSyncOptIn]);
 
-  const applyIncomingStore = useCallback((data, fromCloudRelay = false) => {
+  const applyIncomingStore = useCallback((data) => {
     if (!data || typeof data !== 'object') return;
     if (data.clientId && data.clientId === clientIdRef.current) return;
 
@@ -1080,41 +1161,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
     }
 
-    const inExpenses = data.expenses && typeof data.expenses === 'object' ? data.expenses : {};
-    if (Object.keys(inExpenses).length > 0) {
-      setExpensesMap((prevExp) => {
-        let expChanged = false;
-        const mergedExp = { ...prevExp };
-        for (const [txId, inTx] of Object.entries(inExpenses)) {
-          if (!inTx || typeof inTx !== 'object') continue;
-          const exTx = mergedExp[txId];
-          const inTxTs = Number(inTx.updatedAtMs || Date.parse(inTx.updatedAt || '') || inTx.timestampMs || incomingTs || 1);
-          const exTxTs = exTx ? Number(exTx.updatedAtMs || Date.parse(exTx.updatedAt || '') || exTx.timestampMs || 0) : -1;
-          if (!exTx || inTxTs >= exTxTs) {
-            if (inTx._deleted) {
-              if (mergedExp[txId] && !mergedExp[txId]._deleted) {
-                mergedExp[txId] = { ...exTx, ...inTx };
-                expChanged = true;
-              }
-            } else {
-              const combinedTx = { ...exTx, ...inTx };
-              if (JSON.stringify(exTx) !== JSON.stringify(combinedTx)) {
-                mergedExp[txId] = combinedTx;
-                expChanged = true;
-              }
-            }
-          }
-        }
-        if (expChanged) {
-          expensesMapRef.current = mergedExp;
-        }
-        return expChanged ? mergedExp : prevExp;
-      });
-    }
-
     const inDays = data.days && typeof data.days === 'object' ? data.days : {};
     setDaysMap((prev) => {
-      let changed = Boolean(nextSettingsSnapshot) || Object.keys(inExpenses).length > 0;
+      let changed = Boolean(nextSettingsSnapshot);
       const mergedDays = { ...prev };
       for (const [iso, inRec] of Object.entries(inDays)) {
         if (!inRec || typeof inRec !== 'object') continue;
@@ -1143,35 +1192,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             settings: nextSettingsSnapshot || currentRaw.settings || DEFAULT_SETTINGS,
             settingsUpdatedAt: settingsUpdatedAtRef.current || Date.now(),
             days: mergedDays,
-            expenses: expensesMapRef.current || currentRaw.expenses || {},
             updatedAt: new Date().toISOString(),
             updatedAtMs: Date.now(),
           };
           localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(toSave));
-          if (fromCloudRelay) {
-            const isWebServer = window.location.origin.startsWith('http') && !window.Capacitor;
-            if (isWebServer) {
-              fetch('/api/ot-salary-sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(toSave),
-              }).catch(() => {});
-            }
-            if (window.electronAPI && typeof window.electronAPI.saveOtSalaryData === 'function') {
-              window.electronAPI.saveOtSalaryData(toSave).catch(() => {});
-            }
-          }
         } catch (_) {}
       }
       return changed ? mergedDays : prev;
     });
   }, []);
 
-  // Load from disk / sync server on mount + subscribe to live mobile/desktop updates (LAN + SSE + Cloud Relay + BroadcastChannel)
+  // Local IPC + Same-Origin BroadcastChannel (Remote sync is strictly disabled by default unless pcSyncOptIn is true)
   useEffect(() => {
     let mounted = true;
-    const CLOUD_TOPIC = 'pattan_ot_salary_live_sync_yasin144_v2';
-    const CLOUD_BASE = `https://ntfy.sh/${CLOUD_TOPIC}`;
 
     // 1. Electron desktop IPC
     if (window.electronAPI && typeof window.electronAPI.loadOtSalaryData === 'function') {
@@ -1180,14 +1213,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         if (res.filePath) setDiskPath(res.filePath);
         if (res.wifiOtUrl) setWifiOtUrl(res.wifiOtUrl);
         if (res.mobileOtUrl) setMobileOtUrl(res.mobileOtUrl);
-        if (res.data) applyIncomingStore(res.data, false);
+        if (res.data) applyIncomingStore(res.data);
       }).catch(() => {});
     }
 
     let unsubscribeElectron = null;
     if (window.electronAPI && typeof window.electronAPI.onOtSalaryUpdated === 'function') {
       unsubscribeElectron = window.electronAPI.onOtSalaryUpdated((updatedData) => {
-        if (mounted) applyIncomingStore(updatedData, false);
+        if (mounted) applyIncomingStore(updatedData);
       });
     }
 
@@ -1197,7 +1230,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       if (typeof BroadcastChannel !== 'undefined') {
         bc = new BroadcastChannel('pattan_ot_salary_live_channel');
         bc.onmessage = (ev) => {
-          if (mounted && ev?.data) applyIncomingStore(ev.data, false);
+          if (mounted && ev?.data) applyIncomingStore(ev.data);
         };
       }
     } catch (_) {}
@@ -1205,116 +1238,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const onStorage = (ev) => {
       if (ev.key === LS_OT_SALARY_KEY && ev.newValue && mounted) {
         try {
-          applyIncomingStore(JSON.parse(ev.newValue), false);
+          applyIncomingStore(JSON.parse(ev.newValue));
         } catch (_) {}
       }
     };
     window.addEventListener('storage', onStorage);
 
-    // 3. Native Android syncHttpPost response listener
-    const onNativeSyncResp = (ev) => {
-      if (!mounted || !ev?.detail) return;
-      const d = ev.detail;
-      if (d && (d.ok || d.success) && d.data) {
-        applyIncomingStore(d.data, false);
-      }
-    };
-    window.addEventListener('pattan-native-sync-response', onNativeSyncResp);
-
-    // 4. Pull latest state from LAN server & Cloud Relay immediately on mount & periodically
-    const pullLatestFromServers = async () => {
-      if (!mounted) return;
-      const bases = getCandidateLanBases();
-      for (const base of bases) {
-        try {
-          const res = await fetch(`${base}/api/ot-salary-sync`, { cache: 'no-store' });
-          if (res.ok) {
-            const json = await res.json();
-            if (json && (json.ok || json.success) && json.data && mounted) {
-              applyIncomingStore(json.data, false);
-              break;
-            }
-          }
-        } catch (_) {}
-      }
-    };
-
-    const pullLatestFromCloudRelay = async (sinceWindow = '24h') => {
-      if (!mounted) return;
-      try {
-        const res = await fetch(`${CLOUD_BASE}/json?poll=1&since=${sinceWindow}`, { cache: 'no-store' });
-        if (!res.ok) return;
-        const text = await res.text();
-        const lines = text.trim().split('\n').filter(Boolean);
-        for (const line of lines) {
-          try {
-            const envelope = JSON.parse(line);
-            if (envelope && envelope.event === 'message' && envelope.message) {
-              const inner = JSON.parse(envelope.message);
-              const storeData = inner && inner.data ? inner.data : inner;
-              if (storeData && (storeData.days || storeData.settings || storeData.expenses) && mounted) {
-                applyIncomingStore(storeData, true);
-              }
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    };
-
-    pullLatestFromServers();
-    pullLatestFromCloudRelay('24h');
-
-    // 5. Real-Time Server-Sent Events (Local LAN SSE + Global Cloud Relay SSE)
-    let localSse = null;
-    try {
-      if (window.location.origin.startsWith('http') && !window.Capacitor) {
-        localSse = new EventSource('/api/ot-salary-events');
-        localSse.onmessage = (ev) => {
-          try {
-            const parsed = JSON.parse(ev.data || '{}');
-            if (parsed && parsed.data && mounted) {
-              applyIncomingStore(parsed.data, false);
-            }
-          } catch (_) {}
-        };
-      }
-    } catch (_) {}
-
-    let cloudSse = null;
-    try {
-      if (typeof EventSource !== 'undefined') {
-        cloudSse = new EventSource(`${CLOUD_BASE}/sse`);
-        cloudSse.onmessage = (ev) => {
-          try {
-            const envelope = JSON.parse(ev.data || '{}');
-            const rawMsg = envelope.message || ev.data;
-            const inner = typeof rawMsg === 'string' ? JSON.parse(rawMsg) : rawMsg;
-            const storeData = inner && inner.data ? inner.data : inner;
-            if (storeData && (storeData.days || storeData.settings || storeData.expenses) && mounted) {
-              applyIncomingStore(storeData, true);
-            }
-          } catch (_) {}
-        };
-      }
-    } catch (_) {}
-
-    // 6. Fast 2.5s background poll so any change on Mobile immediately reflects on Web even if SSE reconnects
-    const fastPollTimer = setInterval(() => {
-      pullLatestFromServers();
-      pullLatestFromCloudRelay('15s');
-    }, 2500);
-
     return () => {
       mounted = false;
-      clearInterval(fastPollTimer);
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('pattan-native-sync-response', onNativeSyncResp);
       if (typeof unsubscribeElectron === 'function') unsubscribeElectron();
       try { if (bc) bc.close(); } catch (_) {}
-      try { if (localSse) localSse.close(); } catch (_) {}
-      try { if (cloudSse) cloudSse.close(); } catch (_) {}
     };
-  }, [applyIncomingStore, getCandidateLanBases]);
+  }, [applyIncomingStore]);
 
   const persistStore = useCallback((nextSettings, nextDays, message = 'Saved', customExpenses = null) => {
     const nowMs = Date.now();
@@ -1338,76 +1274,65 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         updatedAtMs: Number(tx.updatedAtMs || Date.parse(tx.updatedAt || '') || tx.timestampMs || nowMs),
       };
     }
-    const payload = {
+
+    // Save private Expense Memory transactions to Android-Keystore AES-256-GCM encrypted store (never plaintext localStorage)
+    const expSaveRes = saveEncryptedExpenseStore(stampedExpenses);
+
+    // Salary & Attendance payload (excludes private Expense Memory transactions from plaintext localStorage & network sync)
+    const attendancePayload = {
       type: 'OT_SALARY_LIVE_SYNC',
       clientId: clientIdRef.current,
       settings: nextSettings,
       settingsUpdatedAt: settingsUpdatedAtRef.current || nowMs,
       days: stampedDays,
-      expenses: stampedExpenses,
       updatedAt: nowIso,
       updatedAtMs: nowMs,
     };
     lastAppliedSyncMsRef.current = nowMs;
 
     try {
-      localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(payload));
+      localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(attendancePayload));
     } catch (_) {}
 
-    // Broadcast across tabs
+    // Broadcast attendance across same-origin tabs
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         const bc = new BroadcastChannel('pattan_ot_salary_live_channel');
-        bc.postMessage(payload);
+        bc.postMessage(attendancePayload);
         bc.close();
       }
     } catch (_) {}
 
     // Save via Electron IPC if in desktop shell
     if (window.electronAPI && typeof window.electronAPI.saveOtSalaryData === 'function') {
-      window.electronAPI.saveOtSalaryData(payload).then((res) => {
+      window.electronAPI.saveOtSalaryData(attendancePayload).then((res) => {
         if (res?.filePath) setDiskPath(res.filePath);
       }).catch(() => {});
     }
 
-    // Immediately push to Local LAN / Web Server endpoints AND Global HTTPS Cloud Relay
-    const jsonBody = JSON.stringify(payload);
-    const lanBases = getCandidateLanBases();
-    for (const base of lanBases) {
-      const url = `${base}/api/ot-salary-sync`;
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: jsonBody,
-      }).then((res) => res.ok ? res.json() : null).then((json) => {
-        if (json && (json.ok || json.success) && json.data) {
-          applyIncomingStore(json.data, false);
-        }
-      }).catch(() => {});
-
-      if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function' && base.startsWith('http')) {
-        try {
-          window.PattanBiometric.syncHttpPost(url, jsonBody);
-        } catch (_) {}
+    // Only push attendance to user-configured PC sync endpoint when pcSyncOptIn is explicitly enabled
+    if (pcSyncOptIn) {
+      const jsonBody = JSON.stringify(attendancePayload);
+      const lanBases = getCandidateLanBases();
+      for (const base of lanBases) {
+        const url = `${base}/api/ot-salary-sync`;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: jsonBody,
+        }).then((res) => res.ok ? res.json() : null).then((json) => {
+          if (json && (json.ok || json.success) && json.data) {
+            applyIncomingStore(json.data);
+          }
+        }).catch(() => {});
       }
     }
 
-    // Push to Global Real-Time HTTPS Cloud Relay (works over 4G/5G Mobile Data & Wi-Fi)
-    const cloudUrl = 'https://ntfy.sh/pattan_ot_salary_live_sync_yasin144_v2';
-    fetch(cloudUrl, {
-      method: 'POST',
-      body: jsonBody,
-    }).catch(() => {});
-    if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
-      try {
-        window.PattanBiometric.syncHttpPost(cloudUrl, jsonBody);
-      } catch (_) {}
-    }
-
     if (message) {
-      setSaveNotice(`${message} · ⚡ Live Synced (${new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
+      const storageWarn = customExpenses !== null && !expSaveRes.ok ? ` · ⚠️ ${expSaveRes.reason}` : '';
+      setSaveNotice(`${message}${storageWarn} (${new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
     }
-  }, [getCandidateLanBases, applyIncomingStore]);
+  }, [pcSyncOptIn, getCandidateLanBases, applyIncomingStore]);
 
   const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = 'Updated Expenses') => {
     expensesMapRef.current = nextExpensesMap;
@@ -1945,35 +1870,43 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const existing = daysMap[todayIso];
     const inTime = existing?.inTime || entryInTime || settings.officeStartTime || '10:00';
     const status = existing?.status || 'present';
-    const inM = parseTimeMinutes(inTime, 10 * 60);
-    const outM = parseTimeMinutes(nowHHMM, 18 * 60 + 30);
-    const worked = outM >= inM ? outM - inM : (24 * 60 - inM) + outM;
-    const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
+    const timing = calculateWorkTiming({
+      inTime,
+      outTime: nowHHMM,
+      status,
+      officeStartTime: settings.officeStartTime,
+      officeEndTime: settings.officeEndTime,
+      otTimeCalcMode: settings.otTimeCalcMode,
+    });
+    const worked = timing.workedMins;
+    const otMins = timing.otMins;
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const savedDayRecord = {
+      ...existing,
+      date: todayIso,
+      status,
+      inTime,
+      outTime: nowHHMM,
+      workedMins: worked,
+      otHours: Number((otMins / 60).toFixed(4)),
+      note: existing?.note || '',
+      extraAllowance,
+      biometricIn: Boolean(existing?.biometricIn || isBiometric),
+      biometricOut: isBiometric ? true : Boolean(existing?.biometricOut),
+      biometricInAt: existing?.biometricInAt || (isBiometric ? nowIso : null),
+      biometricOutAt: isBiometric ? nowIso : (existing?.biometricOutAt || null),
+      biometricOutMethod: isBiometric ? methodUsed : (existing?.biometricOutMethod || ''),
+      savedAt: nowIso,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
+    };
     const nextDays = {
       ...daysMap,
-      [todayIso]: {
-        ...existing,
-        date: todayIso,
-        status,
-        inTime,
-        outTime: nowHHMM,
-        workedMins: worked,
-        otHours: Number((otMins / 60).toFixed(4)),
-        note: existing?.note || '',
-        extraAllowance,
-        biometricIn: Boolean(existing?.biometricIn || isBiometric),
-        biometricOut: isBiometric ? true : Boolean(existing?.biometricOut),
-        biometricInAt: existing?.biometricInAt || (isBiometric ? nowIso : null),
-        biometricOutAt: isBiometric ? nowIso : (existing?.biometricOutAt || null),
-        biometricOutMethod: isBiometric ? methodUsed : (existing?.biometricOutMethod || ''),
-        savedAt: nowIso,
-        updatedAt: nowIso,
-        updatedAtMs: nowMs,
-      },
+      [todayIso]: savedDayRecord,
     };
+    const existingCalcDayResult = computeDayEarnings(savedDayRecord);
     setSelectedDate(todayIso);
     setSelectedMonth(todayIso.slice(0, 7));
     setEntryInTime(inTime);
@@ -1991,7 +1924,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
         : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
     );
-    return { todayIso, inTime, nowHHMM, otMins, worked };
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('pattan:ot-punch-out-saved', {
+          detail: {
+            date: todayIso,
+            record: savedDayRecord,
+            settings,
+            rates,
+            calculation: existingCalcDayResult,
+          },
+        }));
+      } catch (_) {}
+    }
+
+    return { todayIso, inTime, nowHHMM, otMins, worked, calculation: existingCalcDayResult };
   };
 
   // Biometric Touch Sensor Handler (Always triggers real Mobile Unlock Biometric for IN or OUT)
@@ -2143,7 +2091,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   };
 
   const downloadStandaloneMobileApp = () => {
-    const htmlContent = generateStandaloneOtMobileHtml({ settings, days: daysMap, expenses: expensesMap });
+    const htmlContent = generateStandaloneOtMobileHtml({ settings, days: daysMap, expenses: {} });
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2151,13 +2099,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     a.download = `OT-Salary-Mobile-App.html`;
     a.click();
     URL.revokeObjectURL(url);
-    setSaveNotice('📱 Downloaded OT-Salary-Mobile-App.html (Send to phone via WhatsApp/Telegram)');
+    setSaveNotice('📱 Downloaded OT-Salary-Mobile-App.html');
     setTimeout(() => setSaveNotice(''), 4000);
   };
 
   const syncWithPcNow = async () => {
+    if (!pcSyncOptIn) {
+      setSyncStatusText('⚠️ Enable PC Sync consent first to sync attendance with your PC.');
+      return;
+    }
     setSyncBusy(true);
-    setSyncStatusText('Syncing with PC...');
+    setSyncStatusText('Syncing attendance with PC...');
     try {
       const rawIp = pcSyncIpInput.trim();
       const candidateBases = [];
@@ -2179,7 +2131,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings, days: daysMap, expenses: expensesMap }),
+            body: JSON.stringify({ settings, days: daysMap }),
           });
           if (res.ok) {
             const json = await res.json();
@@ -2196,11 +2148,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       if (syncedPayload) {
         if (syncedPayload.settings) setSettings((prev) => ({ ...prev, ...syncedPayload.settings }));
         if (syncedPayload.days) setDaysMap(syncedPayload.days);
-        if (syncedPayload.expenses) setExpensesMap(syncedPayload.expenses);
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(syncedPayload));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            settings: syncedPayload.settings || settings,
+            days: syncedPayload.days || daysMap,
+          }));
         } catch {}
-        setSyncStatusText(`✓ Synced ${Object.keys(syncedPayload.days || {}).length} days & ${Object.keys(syncedPayload.expenses || {}).length} expenses with PC`);
+        setSyncStatusText(`✓ Synced ${Object.keys(syncedPayload.days || {}).length} attendance days with PC (Expense Memory stays private on-device)`);
       } else {
         setSyncStatusText('⚠️ Could not sync with PC. Check Wi-Fi / IP.');
       }
@@ -2683,16 +2637,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             SCREENS 7, 8, 9, 10, 11: EXPENSE MEMORY MODULE
            =================================================================== */}
         {showExpensesSection && (
-          <ExpensesModule
-            expensesMap={expensesMap}
-            onUpdateExpenses={handleUpdateExpenses}
-            selectedMonth={selectedMonth}
-            onChangeMonth={(m) => setSelectedMonth(m)}
-            netMonthlySalary={monthSummary.fullMonthNetPayable}
-            baseMonthlySalary={rates.salary}
-            mobileMode={mobileMode}
-            themeMode={themeMode}
-          />
+          <ExpensesSectionBoundary>
+            <ExpensesModule
+              expensesMap={expensesMap}
+              onUpdateExpenses={handleUpdateExpenses}
+              selectedMonth={selectedMonth}
+              onChangeMonth={(m) => setSelectedMonth(m)}
+              netMonthlySalary={monthSummary.fullMonthNetPayable}
+              baseMonthlySalary={rates.salary}
+              mobileMode={mobileMode}
+              themeMode={themeMode}
+            />
+          </ExpensesSectionBoundary>
         )}
 
         {/* ===================================================================
@@ -3008,6 +2964,53 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <span style={{ display: 'none' }}>Touch Sensor — OUT (Exit + OT)</span>
                 </button>
               </div>
+
+              {/* After-OUT WhatsApp Statement Status Strip */}
+              {(waState.enabled || waState.lastStatus !== 'idle') && (
+                <div style={{
+                  marginTop: 12,
+                  padding: '9px 12px',
+                  borderRadius: 12,
+                  background: waState.lastStatus === 'failed'
+                    ? 'rgba(244, 63, 94, 0.12)'
+                    : 'rgba(16, 185, 129, 0.12)',
+                  border: waState.lastStatus === 'failed'
+                    ? '1px solid rgba(244, 63, 94, 0.4)'
+                    : '1px solid rgba(52, 211, 153, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: ui.textPrimary }}>
+                    💬 WhatsApp Statement ({waState.recipientDisplay}):{' '}
+                    <span style={{
+                      color: waState.lastStatus === 'failed' ? '#f43f5e' : '#10b981',
+                    }}>
+                      {waState.lastStatusLabel || (waState.enabled ? 'Auto-Send Active' : 'OFF')}
+                    </span>
+                  </div>
+                  {(waState.lastStatus === 'failed' || waState.pendingQueueCount > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => retryFailedDailyStatement()}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(244, 63, 94, 0.5)',
+                        background: '#f43f5e',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Retry Send
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Quick OT Presets + Open Manual Day Editor (Screen 3) */}
               <div style={{
@@ -3961,6 +3964,237 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             </div>
 
+            {/* Feature B: After-OUT Automatic WhatsApp Statement Card */}
+            <div style={{
+              padding: '16px 18px',
+              borderRadius: 22,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 14.5, fontWeight: 900, color: ui.textPrimary }}>
+                    Automatically send WhatsApp statement after OUT
+                  </div>
+                  <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
+                    Official WhatsApp Cloud API · Fixed Recipient: <strong>{waState.recipientDisplay || '+91 7386726193'}</strong>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(waState.enabled)}
+                  onClick={() => {
+                    if (waState.enabled) {
+                      const next = setWhatsAppAutoSendEnabled(false, false);
+                      setWaState(next);
+                      setSaveNotice('WhatsApp auto-send after OUT turned OFF');
+                    } else {
+                      setShowWaConsentModal(true);
+                    }
+                  }}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 999,
+                    border: waState.enabled ? '1px solid #10b981' : `1px solid ${ui.border}`,
+                    background: waState.enabled ? '#10b981' : ui.cardSubBg,
+                    color: waState.enabled ? '#ffffff' : ui.textSecondary,
+                    fontWeight: 900,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  {waState.enabled ? 'ON ✓' : 'OFF'}
+                </button>
+              </div>
+
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+                fontSize: 11.5,
+                color: ui.textSecondary,
+                lineHeight: 1.45,
+              }}>
+                <div>
+                  <strong>Last Send Status:</strong>{' '}
+                  <span style={{
+                    fontWeight: 800,
+                    color: waState.lastStatus === 'failed'
+                      ? '#f43f5e'
+                      : waState.lastStatus === 'idle'
+                        ? ui.textSecondary
+                        : '#10b981',
+                  }}>
+                    {waState.lastStatusLabel || 'Not sent yet'}
+                  </span>
+                </div>
+                {waState.lastDateSent && (
+                  <div style={{ marginTop: 3 }}>
+                    <strong>Last Sent Date:</strong> {waState.lastDateSent}{' '}
+                    {waState.lastMessageId ? `(ID: ${waState.lastMessageId})` : ''}
+                  </div>
+                )}
+                {waState.lastError && (
+                  <div style={{ marginTop: 3, color: '#f43f5e', fontWeight: 700 }}>
+                    ⚠️ {waState.lastError}
+                  </div>
+                )}
+              </div>
+
+              {/* Retry & Guarded Resend Actions */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await retryFailedDailyStatement();
+                    if (res.ok) {
+                      setSaveNotice(`✓ WhatsApp statement ${res.status}`);
+                    } else {
+                      setSaveNotice(`⚠️ Retry: ${res.error || res.reason || 'Failed'}`);
+                    }
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔄 Retry Failed / Queued ({waState.pendingQueueCount || 0})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const todayIso = getTodayIsoDate();
+                    const rec = daysMap[todayIso] || {
+                      date: todayIso,
+                      status: entryStatus,
+                      inTime: entryInTime,
+                      outTime: entryOutTime,
+                      extraAllowance: entryBonus,
+                    };
+                    const calc = computeDayEarnings(rec);
+                    const confirmed = window.confirm(
+                      `Resend daily attendance & pay statement for ${todayIso} to +91 7386726193?`
+                    );
+                    if (!confirmed) return;
+                    const res = await resendDailyStatementWithConfirmation({
+                      date: todayIso,
+                      record: rec,
+                      settings,
+                      rates,
+                      calculation: calc,
+                      userConfirmed: true,
+                    });
+                    if (res.ok) {
+                      setSaveNotice(`✓ Resent daily statement (${res.status})`);
+                    } else {
+                      setSaveNotice(`⚠️ ${res.error || 'Could not resend statement'}`);
+                    }
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(59, 130, 246, 0.45)',
+                    background: 'rgba(37, 99, 235, 0.12)',
+                    color: isLight ? '#1d4ed8' : '#93c5fd',
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📤 Resend Today&apos;s Statement
+                </button>
+              </div>
+
+              {/* Server Relay Endpoint Configuration (No embedded Meta tokens in APK) */}
+              <div style={{
+                marginTop: 4,
+                paddingTop: 10,
+                borderTop: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: ui.textSecondary }}>
+                  🔐 Cloud API Relay Server (Holds WABA token server-side; never embedded in APK)
+                </div>
+                <input
+                  type="url"
+                  value={waRelayUrlInput}
+                  onChange={(e) => setWaRelayUrlInput(e.target.value)}
+                  placeholder="https://your-relay.example.com/api/whatsapp/daily-ot-statement"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '9px 11px',
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="password"
+                    value={waRelayTokenInput}
+                    onChange={(e) => setWaRelayTokenInput(e.target.value)}
+                    placeholder="Per-device relay auth token (stored in Android Keystore)"
+                    style={{
+                      flex: 1,
+                      boxSizing: 'border-box',
+                      padding: '9px 11px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = configureNativeWhatsAppRelay({
+                        endpointUrl: waRelayUrlInput,
+                        clientToken: waRelayTokenInput,
+                      });
+                      setWaState(next);
+                      setWaRelayTokenInput('');
+                      setSaveNotice('Saved WhatsApp Relay Server configuration');
+                    }}
+                    style={{
+                      padding: '9px 14px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      background: '#10b981',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Save Relay
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* App & Data Section (Screen 6 Bottom Card) */}
             <div style={{
               padding: '16px 18px',
@@ -4047,6 +4281,110 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span>🗑️ Clear All Data</span>
                 <span>›</span>
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Explicit Consent Modal for After-OUT Automatic WhatsApp Statement */}
+        {showWaConsentModal && (
+          <div
+            onClick={() => setShowWaConsentModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1500,
+              background: 'rgba(2, 6, 23, 0.82)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 420,
+                borderRadius: 22,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                padding: 20,
+                color: ui.textPrimary,
+                boxShadow: '0 24px 60px rgba(0,0,0,0.65)',
+              }}
+            >
+              <div style={{ fontSize: 17, fontWeight: 950, marginBottom: 8 }}>
+                Confirm Automatic WhatsApp Statement
+              </div>
+              <p style={{ fontSize: 12.5, color: ui.textSecondary, lineHeight: 1.55, margin: '0 0 12px' }}>
+                When enabled, each time you complete a <strong>Biometric OUT</strong> punch, your daily attendance &amp; pay summary will leave this device and be sent automatically via the official WhatsApp Business Platform Cloud API to the fixed recipient:
+              </p>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(52, 211, 153, 0.45)',
+                color: '#10b981',
+                fontWeight: 900,
+                fontSize: 14,
+                textAlign: 'center',
+                marginBottom: 12,
+              }}>
+                📞 +91 7386726193 (Template: daily_ot_statement)
+              </div>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+                fontSize: 11.5,
+                color: ui.textSecondary,
+                lineHeight: 1.5,
+                marginBottom: 16,
+              }}>
+                <div><strong>Fields sent:</strong> Date, Status, IN Time, OUT Time, Worked Duration, OT Duration, Base Pay, OT Pay, Allowance, and Total Day Pay.</div>
+                <div style={{ marginTop: 4 }}><strong>Privacy guarantee:</strong> Personal work notes, Expense Memory transactions, and bank/UPI notifications are <strong>never</strong> included.</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowWaConsentModal(false)}
+                  style={{
+                    padding: '11px',
+                    borderRadius: 12,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textSecondary,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = setWhatsAppAutoSendEnabled(true, true);
+                    setWaState(next);
+                    setShowWaConsentModal(false);
+                    setSaveNotice('✓ Enabled automatic WhatsApp statement after OUT (+91 7386726193)');
+                  }}
+                  style={{
+                    padding: '11px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(16, 185, 129, 0.6)',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  I Consent &amp; Enable
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -4153,7 +4491,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   📱 OT &amp; Salary Tracker — Mobile App &amp; Live Sync
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#94a3b8' }}>
-                  Use the OT &amp; Salary Tracker on your Android / iPhone — either with live Wi-Fi sync or 100% offline anywhere.
+                  Use the OT &amp; Salary Tracker on your Android / iPhone — either with opt-in local Wi-Fi sync or 100% offline anywhere.
                 </p>
               </div>
               <button
@@ -4185,7 +4523,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 ⭐ Option 1: Install Native Android APK or 100% Offline Mobile App (Works Everywhere Without Wi-Fi)
               </div>
               <p style={{ margin: '0 0 10px', fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
-                Download <strong>OT-Salary-Mobile.apk</strong> to install the native Android app on your phone, or download <strong>OT-Salary-Mobile-App.html</strong> pre-loaded with all your current saved days &amp; ₹{formatINR(rates.salary)} settings. Both work 100% offline at your office!
+                Download <strong>OT-Salary-Mobile.apk</strong> to install the native Android app on your phone, or download <strong>OT-Salary-Mobile-App.html</strong> pre-loaded with your current saved attendance days &amp; ₹{formatINR(rates.salary)} settings. Both work 100% offline at your office!
               </p>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <a
@@ -4264,7 +4602,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               )}
               <div>
                 <div style={{ fontSize: 13, fontWeight: 900, color: '#7dd3fc', marginBottom: 4 }}>
-                  📡 Option 2: Open Live Mobile Web App (Installable PWA + Auto-Sync)
+                  📡 Option 2: Open Live Mobile Web App (Installable PWA)
                 </div>
                 <p style={{ margin: '0 0 8px', fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
                   Open this link on your phone while on the same Wi-Fi, then tap <strong>&quot;Add to Home Screen&quot;</strong> to install the OT &amp; Salary app icon on your phone:
@@ -4308,16 +4646,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             </div>
 
-            {/* Option 3: Two-Way PC Sync & Backup/Restore JSON */}
+            {/* Option 3: Opt-In Two-Way PC Sync & Backup/Restore JSON */}
             <div style={{
               padding: 16,
               borderRadius: 14,
               background: '#090d16',
               border: '1px solid rgba(148, 163, 184, 0.25)',
             }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#fde047', marginBottom: 6 }}>
-                🔄 Two-Way Phone ↔ PC Sync &amp; Backup
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: '#fde047' }}>
+                  🔄 Opt-In Two-Way Phone ↔ PC Attendance Sync &amp; Local Backup
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 800, color: '#e2e8f0', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={pcSyncOptIn}
+                    onChange={(e) => {
+                      const next = Boolean(e.target.checked);
+                      setPcSyncOptIn(next);
+                      try { localStorage.setItem('pattan.ot.pcSyncOptIn', next ? 'true' : 'false'); } catch (_) {}
+                    }}
+                  />
+                  <span>Enable PC Sync</span>
+                </label>
               </div>
+              <p style={{ margin: '0 0 10px', fontSize: 11.5, color: '#94a3b8', lineHeight: 1.45 }}>
+                <strong>Privacy disclosure:</strong> PC Sync is disabled by default. When enabled, only your attendance dates, shift IN/OUT times, and salary rule settings are synced with your PC over local Wi-Fi. Private Expense Memory transactions never leave this device.
+              </p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 <input
                   type="text"
@@ -4338,16 +4693,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <button
                   type="button"
                   onClick={syncWithPcNow}
-                  disabled={syncBusy}
+                  disabled={syncBusy || !pcSyncOptIn}
                   style={{
                     padding: '8px 14px',
                     borderRadius: 8,
                     border: '1px solid rgba(52,211,153,0.5)',
-                    background: 'rgba(16,185,129,0.2)',
-                    color: '#6ee7b7',
+                    background: pcSyncOptIn ? 'rgba(16,185,129,0.2)' : 'rgba(148,163,184,0.1)',
+                    color: pcSyncOptIn ? '#6ee7b7' : '#64748b',
                     fontWeight: 900,
                     fontSize: 12.5,
-                    cursor: 'pointer',
+                    cursor: pcSyncOptIn ? 'pointer' : 'not-allowed',
                   }}
                 >
                   {syncBusy ? 'Syncing...' : '🔄 Sync Now with PC'}

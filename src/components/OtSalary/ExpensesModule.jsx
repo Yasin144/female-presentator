@@ -10,7 +10,10 @@ import {
   computeExpenseAnalytics,
   answerNaturalLanguageFinanceQuery,
   formatTransactionsCsv,
-} from './expenseMemoryEngine.js';
+  ALLOWED_PAYMENT_PACKAGES,
+  buildDemoPreviewTransactions,
+  getExpenseStorageStatus,
+} from '../../../frontend/expense-memory.js';
 
 const formatINR = (num) => {
   const n = Number(num) || 0;
@@ -311,14 +314,18 @@ export default function ExpensesModule({
   selectedMonth,
   onChangeMonth,
   monthlyNetSalary = 0,
+  netMonthlySalary = 0,
   mobileMode = false,
   themeMode = 'dark',
 }) {
+  const effectiveMonthlySalary = Number(monthlyNetSalary || netMonthlySalary || 0);
+
   // Sub-screens matching Screens 7, 8, 9, 10, 11:
   // 'overview' (Screen 7) | 'transactions' (Screen 8) | 'insights' (Screen 10) | 'missing-notes' (Screen 11) | 'settings'
   const [subTab, setSubTab] = useState('overview');
   const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Trends'
   const [missingFilterWindow, setMissingFilterWindow] = useState('all'); // 'all' | 'today' | 'week'
+  const [demoPreviewMode, setDemoPreviewMode] = useState(false);
 
   // Detailed Transaction Viewer (Screen 9)
   const [selectedTxId, setSelectedTxId] = useState(null);
@@ -333,7 +340,7 @@ export default function ExpensesModule({
   const [formMerchant, setFormMerchant] = useState('');
   const [formNote, setFormNote] = useState('');
   const [formPaymentRemark, setFormPaymentRemark] = useState('');
-  const [formCategory, setFormCategory] = useState('Food & Dining');
+  const [formCategory, setFormCategory] = useState('food');
   const [formPaymentMethod, setFormPaymentMethod] = useState('UPI');
   const [formApp, setFormApp] = useState('GPay');
   const [formDate, setFormDate] = useState(getTodayIso);
@@ -345,23 +352,24 @@ export default function ExpensesModule({
 
   // Search & Filter states (Screen 8)
   const [searchQuery, setSearchQuery] = useState('');
-  const [methodPillFilter, setMethodPillFilter] = useState('All'); // 'All' | 'UPI' | 'Bank' | 'Card' | 'Wallet'
+  const [methodPillFilter, setMethodPillFilter] = useState('All'); // 'All' | 'Money Out' | 'Money In' | 'UPI' | 'Bank' | 'Card' | 'Wallet'
   const [filterCategory, setFilterCategory] = useState('all');
 
   // Natural Language Assistant Query
   const [nlQuery, setNlQuery] = useState('');
   const [nlResponse, setNlResponse] = useState(null);
 
-  // SMS / Receipt Paste Modal
+  // Receipt Paste Modal
   const [showSmsPasteModal, setShowSmsPasteModal] = useState(false);
   const [smsPasteText, setSmsPasteText] = useState('');
 
   // Native Permission & Scan Status
   const [scanStatus, setScanStatus] = useState('');
   const [isScanning, setIsScanning] = useState(false);
-  const [smsGranted, setSmsGranted] = useState(false);
   const [notifGranted, setNotifGranted] = useState(false);
   const [undoBanner, setUndoBanner] = useState(null);
+
+  const storageStatus = useMemo(() => getExpenseStorageStatus(), [notifGranted, expensesMap]);
 
   const isLight = themeMode === 'light';
   const palette = useMemo(() => (
@@ -397,9 +405,6 @@ export default function ExpensesModule({
   const checkNativePermissions = useCallback(() => {
     try {
       if (window.PattanBiometric) {
-        if (typeof window.PattanBiometric.isSmsPermissionGranted === 'function') {
-          setSmsGranted(Boolean(window.PattanBiometric.isSmsPermissionGranted()));
-        }
         if (typeof window.PattanBiometric.isNotificationListenerEnabled === 'function') {
           setNotifGranted(Boolean(window.PattanBiometric.isNotificationListenerEnabled()));
         }
@@ -413,6 +418,7 @@ export default function ExpensesModule({
 
   const mergeDetectedTransactions = useCallback(
     (incomingList, sourceLabel = 'mobile-auto') => {
+      if (demoPreviewMode) return 0;
       if (!Array.isArray(incomingList) || incomingList.length === 0) return 0;
       const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
         expensesMap || {},
@@ -428,7 +434,7 @@ export default function ExpensesModule({
       }
       return totalChanges;
     },
-    [expensesMap, onUpdateExpenses]
+    [expensesMap, onUpdateExpenses, demoPreviewMode]
   );
 
   useEffect(() => {
@@ -436,55 +442,54 @@ export default function ExpensesModule({
       const detail = ev?.detail;
       setIsScanning(false);
       if (!detail) return;
-      if (typeof detail.smsGranted === 'boolean') setSmsGranted(detail.smsGranted);
       if (typeof detail.notifGranted === 'boolean') setNotifGranted(detail.notifGranted);
       const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
       if (txList.length > 0) {
-        const added = mergeDetectedTransactions(txList, 'android-sms-notif');
+        const added = mergeDetectedTransactions(txList, 'android-notif');
         setScanStatus(
           added > 0
-            ? `✅ Auto-detected ${added} new transaction(s) from your phone`
-            : `✅ Checked ${txList.length} mobile payment alert(s) — up to date`
+            ? `✅ Auto-captured ${added} new transaction(s) from allow-listed payment notifications`
+            : `✅ Checked ${txList.length} payment notification(s) — statement up to date`
         );
-      } else if (!detail.smsGranted) {
-        setScanStatus('ℹ️ Allow SMS or Notification access in Settings to auto-detect bank & UPI alerts.');
+      } else if (!detail.notifGranted) {
+        setScanStatus('ℹ️ Enable Notification Access in Settings to auto-capture allow-listed UPI/Bank notifications.');
       } else {
-        setScanStatus('ℹ️ Scanned SMS inbox — no new payment alerts found.');
+        setScanStatus('ℹ️ Checked allow-listed payment notifications — no new transactions found.');
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
   }, [mergeDetectedTransactions]);
 
-  // Silent scan on mount
+  // Silent sync of encrypted notification captures on mount
   useEffect(() => {
     try {
-      if (window.PattanBiometric) {
-        if (typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
-          const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
-          const savedArr = JSON.parse(savedRaw || '[]');
-          if (Array.isArray(savedArr) && savedArr.length > 0) {
-            mergeDetectedTransactions(savedArr, 'android-saved-notif');
-          }
-        }
-        if (
-          typeof window.PattanBiometric.isSmsPermissionGranted === 'function' &&
-          window.PattanBiometric.isSmsPermissionGranted() &&
-          typeof window.PattanBiometric.scanMobileTransactionsSilent === 'function'
-        ) {
-          window.PattanBiometric.scanMobileTransactionsSilent(90);
+      if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+        const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+        const savedArr = JSON.parse(savedRaw || '[]');
+        if (Array.isArray(savedArr) && savedArr.length > 0) {
+          mergeDetectedTransactions(savedArr, 'android-saved-notif');
         }
       }
     } catch (_) {}
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const triggerMobileTransactionScan = (daysBack = 90) => {
+  const triggerMobileTransactionScan = () => {
     setIsScanning(true);
     checkNativePermissions();
     try {
-      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
-        setScanStatus('🔍 Scanning mobile Bank SMS & UPI notifications...');
-        window.PattanBiometric.scanMobileTransactions(daysBack);
+      if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+        const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+        const savedArr = JSON.parse(savedRaw || '[]');
+        const added = mergeDetectedTransactions(savedArr, 'android-saved-notif');
+        setIsScanning(false);
+        setScanStatus(
+          added > 0
+            ? `✅ Synced ${added} new payment notification(s)`
+            : notifGranted
+              ? '✅ Notification capture is active for allow-listed UPI & banking apps.'
+              : 'ℹ️ Enable Notification Listener access in Settings or paste a payment receipt.'
+        );
         return;
       }
     } catch (_) {}
@@ -494,17 +499,29 @@ export default function ExpensesModule({
 
   const todayIso = getTodayIso();
 
+  const effectiveExpensesSource = useMemo(() => {
+    if (demoPreviewMode) {
+      const demoList = buildDemoPreviewTransactions(todayIso);
+      const demoMap = {};
+      for (const item of demoList) {
+        demoMap[item.id] = item;
+      }
+      return demoMap;
+    }
+    return expensesMap || {};
+  }, [demoPreviewMode, expensesMap, todayIso]);
+
   const analytics = useMemo(
-    () => computeExpenseAnalytics(expensesMap, selectedMonth, todayIso),
-    [expensesMap, selectedMonth, todayIso]
+    () => computeExpenseAnalytics(effectiveExpensesSource, { selectedMonth, todayIso, monthlyNetSalary: effectiveMonthlySalary }),
+    [effectiveExpensesSource, selectedMonth, todayIso, effectiveMonthlySalary]
   );
 
   // Sync detail drafts when a transaction is opened in Screen 9
   const selectedTx = useMemo(() => {
     if (!selectedTxId) return null;
-    const raw = (expensesMap || {})[selectedTxId];
+    const raw = (effectiveExpensesSource || {})[selectedTxId];
     return raw ? migrateAndNormalizeExpenseRecord(raw) : null;
-  }, [selectedTxId, expensesMap]);
+  }, [selectedTxId, effectiveExpensesSource]);
 
   useEffect(() => {
     if (selectedTx) {
@@ -527,9 +544,9 @@ export default function ExpensesModule({
     const othersTotal = Math.max(0, analytics.grossExpenses - foodTotal - transportTotal - shoppingTotal);
 
     return [
-      { id: 'Food & Dining', label: 'Food', amount: foodTotal, color: '#eab308' },
-      { id: 'Fuel & Commute', label: 'Transport', amount: transportTotal, color: '#3b82f6' },
-      { id: 'Shopping', label: 'Shopping', amount: shoppingTotal, color: '#10b981' },
+      { id: 'food', label: 'Food', amount: foodTotal, color: '#eab308' },
+      { id: 'fuel', label: 'Transport', amount: transportTotal, color: '#3b82f6' },
+      { id: 'shopping', label: 'Shopping', amount: shoppingTotal, color: '#10b981' },
       { id: 'all', label: 'Others', amount: othersTotal, color: '#a855f7' },
     ];
   }, [analytics]);
@@ -570,10 +587,12 @@ export default function ExpensesModule({
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return analytics.monthActiveList.filter((tx) => {
-      if (filterCategory !== 'all' && tx.category !== filterCategory) return false;
+      if (filterCategory !== 'all' && tx.category !== filterCategory && !String(tx.category || '').toLowerCase().includes(String(filterCategory).toLowerCase())) return false;
       if (methodPillFilter !== 'All') {
+        if (methodPillFilter === 'Money Out' && tx.type !== 'debit') return false;
+        if (methodPillFilter === 'Money In' && tx.type !== 'credit' && tx.type !== 'refund') return false;
         const mStr = `${tx.paymentMethod || ''} ${tx.app || ''}`.toLowerCase();
-        if (methodPillFilter === 'UPI' && !mStr.includes('upi') && !['gpay', 'phonepe', 'paytm', 'bhim'].some((a) => mStr.includes(a))) return false;
+        if (methodPillFilter === 'UPI' && !mStr.includes('upi') && !['gpay', 'google pay', 'phonepe', 'paytm', 'bhim'].some((a) => mStr.includes(a))) return false;
         if (methodPillFilter === 'Bank' && !mStr.includes('bank') && !mStr.includes('neft') && !mStr.includes('imps')) return false;
         if (methodPillFilter === 'Card' && !mStr.includes('card')) return false;
         if (methodPillFilter === 'Wallet' && !mStr.includes('wallet') && !mStr.includes('cash')) return false;
@@ -797,7 +816,26 @@ export default function ExpensesModule({
     setScanStatus('✅ Your CSV report is ready.');
   };
 
-  const remainingSalary = monthlyNetSalary - analytics.netSpending + analytics.totalIncome;
+  const remainingSalary = Math.max(0, effectiveMonthlySalary - analytics.netSpending + analytics.totalIncome);
+
+  const handleConfirmReviewItem = (txId) => {
+    if (demoPreviewMode) return;
+    const existing = (expensesMap || {})[txId];
+    if (!existing) return;
+    const nowMs = Date.now();
+    const updated = migrateAndNormalizeExpenseRecord({
+      ...existing,
+      status: 'completed',
+      reconciliationStatus: 'confirmed',
+      duplicateOfId: '',
+      updatedAt: new Date(nowMs).toISOString(),
+      updatedAtMs: nowMs,
+    });
+    const nextMap = { ...(expensesMap || {}), [txId]: updated };
+    if (typeof onUpdateExpenses === 'function') {
+      onUpdateExpenses(nextMap, `✅ Confirmed ₹${formatINR(updated.amount)} (${updated.merchant})`);
+    }
+  };
 
   // ── SCREEN 9: DETAILED TRANSACTION VIEWER ─────────────────────────────────
   if (selectedTx) {
@@ -937,7 +975,7 @@ export default function ExpensesModule({
               alignItems: 'center',
               gap: 5,
             }}>
-              ● Success
+              ● {selectedTx.reconciliationStatus === 'needs_review' ? 'Needs Review' : 'Success'}
             </span>
           </div>
         </div>
@@ -1040,7 +1078,7 @@ export default function ExpensesModule({
           { id: 'transactions', label: `Transactions (${analytics.totalCount})` },
           { id: 'insights', label: 'Insights' },
           { id: 'missing-notes', label: `Missing Notes (${analytics.missingNotesCount})` },
-          { id: 'settings', label: 'Auto-Detect & CSV' },
+          { id: 'settings', label: 'Privacy & CSV' },
         ].map((tab) => {
           const active = subTab === tab.id;
           return (
@@ -1067,6 +1105,57 @@ export default function ExpensesModule({
           );
         })}
       </div>
+
+      {/* Demo Preview Mode Banner (Clearly separated from real statement) */}
+      {demoPreviewMode && (
+        <div style={{
+          padding: '10px 14px',
+          borderRadius: 14,
+          background: 'rgba(245, 158, 11, 0.16)',
+          border: '1px solid rgba(245, 158, 11, 0.45)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 10,
+          fontSize: 12,
+          fontWeight: 800,
+          color: isLight ? '#92400e' : '#fde68a',
+        }}>
+          <span>🧪 Demo Preview Mode — Showing sample rows only (never saved to your real statement).</span>
+          <button
+            type="button"
+            onClick={() => setDemoPreviewMode(false)}
+            style={{
+              padding: '5px 10px',
+              borderRadius: 8,
+              border: 'none',
+              background: '#d97706',
+              color: '#fff',
+              fontWeight: 900,
+              fontSize: 11,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Exit Demo
+          </button>
+        </div>
+      )}
+
+      {/* Storage Privacy Setup Required Banner if Native Encrypted Store is missing on Android */}
+      {storageStatus.setupRequired && (
+        <div style={{
+          padding: '12px 14px',
+          borderRadius: 14,
+          background: 'rgba(239, 68, 68, 0.14)',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          fontSize: 12,
+          fontWeight: 700,
+          color: isLight ? '#991b1b' : '#fecaca',
+        }}>
+          🔒 <strong>Encrypted On-Device Storage Setup Required:</strong> {storageStatus.reason} Transactions are not written to plaintext localStorage.
+        </div>
+      )}
 
       {/* Status / Undo Toast Banner */}
       {(scanStatus || undoBanner) && (
@@ -1166,6 +1255,8 @@ export default function ExpensesModule({
               }}>
                 <span>{analytics.totalCount} Transactions</span>
                 <span>·</span>
+                <span>In: ₹{formatINRShort(analytics.totalIncome)}</span>
+                <span>·</span>
                 <span>Salary Left: ₹{formatINRShort(remainingSalary)}</span>
               </div>
             </div>
@@ -1233,7 +1324,7 @@ export default function ExpensesModule({
             ))}
           </div>
 
-          {/* Fast Action Bar: + Add Spend, Auto-Scan SMS, Paste SMS */}
+          {/* Fast Action Bar: + Add Spend, Sync Alerts, Paste Receipt */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <button
               type="button"
@@ -1250,11 +1341,11 @@ export default function ExpensesModule({
                 boxShadow: '0 8px 20px rgba(37, 99, 235, 0.3)',
               }}
             >
-              ➕ Add Spend
+              ➕ Add Entry
             </button>
             <button
               type="button"
-              onClick={() => triggerMobileTransactionScan(90)}
+              onClick={() => triggerMobileTransactionScan()}
               style={{
                 padding: '11px 10px',
                 borderRadius: 14,
@@ -1266,7 +1357,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              {isScanning ? '⏳ Scanning...' : '📲 Scan SMS'}
+              {isScanning ? '⏳ Syncing...' : '📲 Sync Alerts'}
             </button>
             <button
               type="button"
@@ -1282,9 +1373,86 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              📋 Paste SMS
+              📋 Paste Alert
             </button>
           </div>
+
+          {/* Review-Needed Section for Ambiguous / Pending / Possible-Duplicate Notices */}
+          {analytics.uncertainOrDuplicatesList && analytics.uncertainOrDuplicatesList.length > 0 && (
+            <div style={{
+              background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.12)',
+              borderRadius: 18,
+              border: '1px solid rgba(245, 158, 11, 0.4)',
+              padding: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: isLight ? '#92400e' : '#fcd34d' }}>
+                ⚠️ Review Needed ({analytics.uncertainOrDuplicatesList.length}) — Not counted until confirmed
+              </div>
+              {analytics.uncertainOrDuplicatesList.slice(0, 4).map((tx) => (
+                <div
+                  key={tx.id}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    background: palette.surface,
+                    border: `1px solid ${palette.border}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>
+                      ₹{formatINRShort(tx.amount)} · {tx.merchant || tx.app}
+                    </div>
+                    <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 2 }}>
+                      {tx.reconciliationStatus === 'possible_duplicate'
+                        ? 'Possible overlapping UPI/bank notification'
+                        : `Status: ${tx.status || 'Needs review'}`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmReviewItem(tx.id)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: '#10b981',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTransaction(tx.id)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(239,68,68,0.4)',
+                        background: 'transparent',
+                        color: '#f87171',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Recent Payments (Auto Detected) List (Screen 7) */}
           <div style={{
@@ -1316,8 +1484,27 @@ export default function ExpensesModule({
             {analytics.monthActiveList.length === 0 ? (
               <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
-                <div style={{ fontWeight: 800, color: palette.text }}>Your money story starts here.</div>
-                <div style={{ marginTop: 4 }}>Tap <strong>📲 Scan SMS</strong> or <strong>➕ Add Spend</strong> to record your first payment &amp; memory note.</div>
+                <div style={{ fontWeight: 800, color: palette.text }}>Your personal statement is empty for {selectedMonth}.</div>
+                <div style={{ marginTop: 4 }}>
+                  Tap <strong>➕ Add Entry</strong>, <strong>📋 Paste Alert</strong>, or enable Notification Access in <strong>Privacy &amp; CSV</strong>.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDemoPreviewMode(true)}
+                  style={{
+                    marginTop: 12,
+                    padding: '8px 14px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: '#60a5fa',
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🧪 Preview Demo Statement (Isolated)
+                </button>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1425,7 +1612,7 @@ export default function ExpensesModule({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 Search transactions, notes, merchants..."
+            placeholder="🔍 Search transactions, notes, merchants, ref ID..."
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -1440,9 +1627,9 @@ export default function ExpensesModule({
             }}
           />
 
-          {/* Method Filter Pills: All | UPI | Bank | Card | Wallet (Screen 8) */}
+          {/* Filter Pills: All | Money Out | Money In | UPI | Bank | Card | Wallet (Screen 8) */}
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {['All', 'UPI', 'Bank', 'Card', 'Wallet'].map((pill) => {
+            {['All', 'Money Out', 'Money In', 'UPI', 'Bank', 'Card', 'Wallet'].map((pill) => {
               const active = methodPillFilter === pill;
               return (
                 <button
@@ -1865,7 +2052,7 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          SETTINGS, AUTO-DETECTION & EXPORT
+          SETTINGS, PRIVACY, AUTO-DETECTION & EXPORT
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'settings' && (
         <div style={{
@@ -1878,42 +2065,32 @@ export default function ExpensesModule({
           gap: 12,
         }}>
           <div style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
-            📲 Smart Transaction Detection &amp; Export
-          </div>
-          <div style={{
-            padding: '12px 14px',
-            borderRadius: 14,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>Bank &amp; UPI SMS Inbox Scanner</div>
-              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
-                {smsGranted ? '🟢 Permission Granted · Auto-detecting debits & credits' : 'Scan phone SMS for bank & UPI alerts'}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => triggerMobileTransactionScan(90)}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 10,
-                border: 'none',
-                background: '#2563eb',
-                color: '#fff',
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Scan SMS
-            </button>
+            🔒 Private Expense Memory &amp; CSV Export
           </div>
 
+          {/* Encrypted On-Device Storage Status Card */}
+          <div style={{
+            padding: '12px 14px',
+            borderRadius: 14,
+            background: storageStatus.setupRequired ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+            border: storageStatus.setupRequired ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(16,185,129,0.35)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: storageStatus.setupRequired ? '#f87171' : '#34d399' }}>
+              {storageStatus.encrypted
+                ? '🛡️ Android-Keystore AES-256-GCM Encrypted Storage Active'
+                : storageStatus.setupRequired
+                  ? '⚠️ Native Encrypted Storage Setup Required'
+                  : '🖥️ Local Desktop Preview Mode'}
+            </div>
+            <div style={{ fontSize: 11.5, color: palette.textSub, lineHeight: 1.45 }}>
+              {storageStatus.reason} Production transactions are never written to plaintext localStorage, Android device backup is disabled (<code>allowBackup=false</code>), and no expense history is ever sent over the network.
+            </div>
+          </div>
+
+          {/* Explicit Notification Listener Allow-List Card */}
           <div style={{
             padding: '12px 14px',
             borderRadius: 14,
@@ -1925,9 +2102,14 @@ export default function ExpensesModule({
             gap: 10,
           }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>Live UPI App Notification Listener</div>
-              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
-                {notifGranted ? '🟢 Active for GPay, PhonePe, Paytm' : 'Captures instant payment alerts'}
+              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>Allow-Listed Payment Notification Capture</div>
+              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2, lineHeight: 1.4 }}>
+                {notifGranted
+                  ? '🟢 Active — Capturing high-confidence completed transactions only'
+                  : 'Requires explicit Android Notification Listener consent'}
+              </div>
+              <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 4, lineHeight: 1.4 }}>
+                Allowed apps: {ALLOWED_PAYMENT_PACKAGES.map((p) => p.appLabel).join(', ')}. Unknown apps are ignored, raw notification bodies are never stored, and Android may not expose every payment (manual add/edit is always available).
               </div>
             </div>
             <button
@@ -1936,7 +2118,7 @@ export default function ExpensesModule({
                 if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
                   window.PattanBiometric.openNotificationListenerSettings();
                 } else {
-                  setScanStatus('ℹ️ Open inside the Android APK to configure Notification Access.');
+                  setScanStatus('ℹ️ Open inside the Android APK to grant Notification Listener access.');
                 }
               }}
               style={{
@@ -1948,9 +2130,45 @@ export default function ExpensesModule({
                 fontWeight: 800,
                 fontSize: 12,
                 cursor: 'pointer',
+                flexShrink: 0,
               }}
             >
               Configure
+            </button>
+          </div>
+
+          {/* Isolated Demo Preview Toggle */}
+          <div style={{
+            padding: '12px 14px',
+            borderRadius: 14,
+            background: palette.surfaceAlt,
+            border: `1px solid ${palette.border}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>Demo Preview Mode (Isolated)</div>
+              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
+                Preview sample UI data without mixing demo rows into your real statement.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDemoPreviewMode((prev) => !prev)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 10,
+                border: 'none',
+                background: demoPreviewMode ? '#d97706' : palette.surface,
+                color: demoPreviewMode ? '#fff' : palette.text,
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              {demoPreviewMode ? 'Exit Demo' : 'Preview Demo'}
             </button>
           </div>
 
@@ -1969,7 +2187,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              📥 Export Expenses CSV
+              📥 Export Statement CSV
             </button>
             <button
               type="button"
@@ -1985,7 +2203,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              📩 Paste Receipt / SMS
+              📩 Paste Payment Alert
             </button>
           </div>
         </div>
@@ -2038,6 +2256,36 @@ export default function ExpensesModule({
               </button>
             </div>
 
+            {/* Direction Pills: Money Out | Money In | Refund */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {[
+                { id: 'debit', label: '💸 Money Out' },
+                { id: 'credit', label: '💰 Money In' },
+                { id: 'refund', label: '↩️ Refund' },
+              ].map((dir) => {
+                const active = formType === dir.id;
+                return (
+                  <button
+                    key={dir.id}
+                    type="button"
+                    onClick={() => setFormType(dir.id)}
+                    style={{
+                      padding: '8px',
+                      borderRadius: 10,
+                      border: active ? 'none' : `1px solid ${palette.border}`,
+                      background: active ? '#2563eb' : palette.surfaceAlt,
+                      color: active ? '#fff' : palette.textSub,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {dir.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Amount (₹) *</label>
@@ -2081,9 +2329,10 @@ export default function ExpensesModule({
                     fontWeight: 800,
                   }}
                 >
-                  <option value="Google Pay">Google Pay</option>
+                  <option value="GPay">Google Pay</option>
                   <option value="PhonePe">PhonePe</option>
                   <option value="Paytm">Paytm</option>
+                  <option value="BHIM UPI">BHIM UPI</option>
                   <option value="Amazon">Amazon Pay</option>
                   <option value="Swiggy">Swiggy</option>
                   <option value="HDFC Bank">HDFC Bank</option>

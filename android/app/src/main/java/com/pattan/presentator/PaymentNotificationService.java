@@ -15,8 +15,13 @@ public class PaymentNotificationService extends NotificationListenerService {
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null) return;
         try {
-            String pkg = sbn.getPackageName() != null ? sbn.getPackageName() : "";
-            if (pkg.equals(getPackageName())) return;
+            String pkg = sbn.getPackageName() != null ? sbn.getPackageName().trim() : "";
+            if (pkg.isEmpty() || pkg.equals(getPackageName())) return;
+
+            // Strict allow-list: ignore any notification from non-payment/non-banking packages
+            if (!MobileTransactionParser.isAllowedPaymentPackage(pkg)) {
+                return;
+            }
 
             Notification notification = sbn.getNotification();
             if (notification == null || notification.extras == null) return;

@@ -1,22 +1,19 @@
 package com.pattan.presentator;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.database.ContentObserver;
 import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
@@ -48,11 +45,9 @@ import java.util.Set;
 
 public class MainActivity extends BridgeActivity {
     private static final int REQ_DEVICE_CREDENTIAL = 9421;
-    private static final int REQ_SMS_PERMISSION = 9422;
+    private static final String WA_PREF_NAME = "pattan_wa_secure_relay";
     private String pendingBioActionType = "in";
-    private int pendingScanDaysBack = 60;
     private long lastRootBackPressMs = 0L;
-    private ContentObserver smsObserver = null;
 
     private final BroadcastReceiver paymentNotifReceiver = new BroadcastReceiver() {
         @Override
@@ -79,6 +74,7 @@ public class MainActivity extends BridgeActivity {
             wv.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
             wv.clearCache(true);
             wv.addJavascriptInterface(new PattanBiometricBridge(), "PattanBiometric");
+            wv.addJavascriptInterface(new PattanSecureWhatsAppBridge(), "PattanSecureWhatsApp");
             wv.reload();
         }
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -95,7 +91,6 @@ public class MainActivity extends BridgeActivity {
                 registerReceiver(paymentNotifReceiver, filter);
             }
         } catch (Exception ignored) {}
-        registerSmsObserverIfPermitted();
         handleIncomingSharedReceiptIntent(getIntent());
     }
 
@@ -137,17 +132,7 @@ public class MainActivity extends BridgeActivity {
         try {
             unregisterReceiver(paymentNotifReceiver);
         } catch (Exception ignored) {}
-        try {
-            if (smsObserver != null) {
-                getContentResolver().unregisterContentObserver(smsObserver);
-            }
-        } catch (Exception ignored) {}
         super.onDestroy();
-    }
-
-    private boolean hasReadSmsPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
-        return checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean isNotifListenerEnabledInternal() {
@@ -159,21 +144,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void registerSmsObserverIfPermitted() {
-        if (!hasReadSmsPermission() || smsObserver != null) return;
-        try {
-            smsObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
-                @Override
-                public void onChange(boolean selfChange) {
-                    super.onChange(selfChange);
-                    performMobileTransactionScanAsync(7);
-                }
-            };
-            getContentResolver().registerContentObserver(Uri.parse("content://sms"), true, smsObserver);
-        } catch (Exception ignored) {}
-    }
-
-    private void performMobileTransactionScanAsync(final int daysBack) {
+    private void performMobileTransactionScanAsync() {
         new Thread(() -> {
             try {
                 JSONArray combined = new JSONArray();
@@ -189,18 +160,6 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
 
-                if (hasReadSmsPermission()) {
-                    JSONArray smsArr = MobileTransactionParser.scanSmsInbox(getApplicationContext(), daysBack);
-                    for (int i = 0; i < smsArr.length(); i++) {
-                        JSONObject item = smsArr.optJSONObject(i);
-                        if (item == null) continue;
-                        String id = item.optString("id", "");
-                        if (!id.isEmpty() && seenIds.add(id)) {
-                            combined.put(item);
-                        }
-                    }
-                }
-
                 dispatchMobileTransactionsToJs(true, combined, "");
             } catch (Exception ex) {
                 dispatchMobileTransactionsToJs(false, new JSONArray(), String.valueOf(ex.getMessage()));
@@ -213,7 +172,7 @@ public class MainActivity extends BridgeActivity {
         try {
             JSONObject payload = new JSONObject();
             payload.put("ok", ok);
-            payload.put("smsGranted", hasReadSmsPermission());
+            payload.put("smsGranted", false);
             payload.put("notifGranted", isNotifListenerEnabledInternal());
             payload.put("transactions", transactions != null ? transactions : new JSONArray());
             payload.put("error", error != null ? error : "");
@@ -270,20 +229,6 @@ public class MainActivity extends BridgeActivity {
                 sendBiometricEventToJs(pendingBioActionType, true, false, "android-device-unlock", "");
             } else {
                 sendBiometricEventToJs(pendingBioActionType, false, false, "canceled", "Phone unlock was cancelled");
-            }
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_SMS_PERMISSION) {
-            if (hasReadSmsPermission()) {
-                registerSmsObserverIfPermitted();
-                performMobileTransactionScanAsync(pendingScanDaysBack);
-            } else {
-                // Still return any notification-captured transactions even if SMS was declined
-                performMobileTransactionScanAsync(pendingScanDaysBack);
             }
         }
     }
@@ -358,7 +303,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public boolean isSmsPermissionGranted() {
-            return hasReadSmsPermission();
+            return false;
         }
 
         @JavascriptInterface
@@ -378,30 +323,23 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String loadEncryptedExpenseStoreJson() {
+            return MobileTransactionParser.loadEncryptedExpenseStoreJson(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public boolean saveEncryptedExpenseStoreJson(final String plainJson) {
+            return MobileTransactionParser.saveEncryptedExpenseStoreJson(getApplicationContext(), plainJson);
+        }
+
+        @JavascriptInterface
         public void scanMobileTransactions(final int daysBack) {
-            pendingScanDaysBack = daysBack > 0 ? daysBack : 60;
-            runOnUiThread(() -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasReadSmsPermission()) {
-                    try {
-                        requestPermissions(
-                            new String[]{Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS},
-                            REQ_SMS_PERMISSION
-                        );
-                        return;
-                    } catch (Exception ignored) {}
-                }
-                registerSmsObserverIfPermitted();
-                performMobileTransactionScanAsync(pendingScanDaysBack);
-            });
+            performMobileTransactionScanAsync();
         }
 
         @JavascriptInterface
         public void scanMobileTransactionsSilent(final int daysBack) {
-            int safeDays = daysBack > 0 ? daysBack : 60;
-            if (hasReadSmsPermission()) {
-                registerSmsObserverIfPermitted();
-            }
-            performMobileTransactionScanAsync(safeDays);
+            performMobileTransactionScanAsync();
         }
 
         @JavascriptInterface
@@ -468,46 +406,6 @@ public class MainActivity extends BridgeActivity {
             triggerNativeVibrate(durationMs);
         }
 
-        @JavascriptInterface
-        public void syncHttpPost(final String urlStr, final String jsonBody) {
-            new Thread(() -> {
-                HttpURLConnection conn = null;
-                try {
-                    URL url = new URL(urlStr);
-                    conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setConnectTimeout(3500);
-                    conn.setReadTimeout(4500);
-                    conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                    byte[] bytes = (jsonBody != null ? jsonBody : "{}").getBytes(StandardCharsets.UTF_8);
-                    try (OutputStream os = conn.getOutputStream()) {
-                        os.write(bytes);
-                        os.flush();
-                    }
-                    int code = conn.getResponseCode();
-                    if (code >= 200 && code < 300 && urlStr.contains("/api/ot-salary-sync")) {
-                        InputStream is = conn.getInputStream();
-                        StringBuilder sb = new StringBuilder();
-                        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            while ((line = br.readLine()) != null) {
-                                sb.append(line);
-                            }
-                        }
-                        final String respJson = sb.toString();
-                        if (bridge != null && bridge.getWebView() != null && !respJson.isEmpty()) {
-                            final String js = "window.dispatchEvent(new CustomEvent('pattan-native-sync-response', { detail: " + respJson + " }));";
-                            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(js, null));
-                        }
-                    }
-                } catch (Exception ignored) {
-                } finally {
-                    if (conn != null) conn.disconnect();
-                }
-            }).start();
-        }
-
         @SuppressWarnings("deprecation")
         @JavascriptInterface
         public void authenticate(final String actionType, final String title, final String subtitle) {
@@ -515,7 +413,6 @@ public class MainActivity extends BridgeActivity {
                 pendingBioActionType = actionType != null ? actionType : "in";
                 final String safeTitle = title != null && !title.isEmpty() ? title : "Unlock to Punch Attendance";
                 final String safeSub = subtitle != null && !subtitle.isEmpty() ? subtitle : "Use your phone fingerprint, face, or screen unlock";
-
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     try {
@@ -553,7 +450,6 @@ public class MainActivity extends BridgeActivity {
                                 @Override
                                 public void onAuthenticationError(int errorCode, CharSequence errString) {
                                     super.onAuthenticationError(errorCode, errString);
-                                    // If BiometricPrompt reports no biometrics or unavailable, try Keyguard screen lock
                                     if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS
                                             || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT
                                             || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE) {
@@ -580,6 +476,137 @@ public class MainActivity extends BridgeActivity {
                     sendBiometricEventToJs(actionType, false, false, "no-lock", "Please enable Fingerprint or Screen Lock on your phone");
                 }
             });
+        }
+    }
+
+    public final class PattanSecureWhatsAppBridge {
+        @JavascriptInterface
+        public String getConfig() {
+            try {
+                SharedPreferences prefs = getSharedPreferences(WA_PREF_NAME, Context.MODE_PRIVATE);
+                boolean enabled = prefs.getBoolean("enabled", false);
+                boolean consent = prefs.getBoolean("consent", false);
+                String endpointEnc = prefs.getString("endpoint_enc", "");
+                String tokenEnc = prefs.getString("token_enc", "");
+                String endpointUrl = MobileTransactionParser.decryptJsonString(endpointEnc, "");
+                String token = MobileTransactionParser.decryptJsonString(tokenEnc, "");
+
+                JSONObject cfg = new JSONObject();
+                cfg.put("enabled", enabled && consent);
+                cfg.put("consentAccepted", consent);
+                cfg.put("endpointUrl", endpointUrl);
+                cfg.put("hasToken", !token.isEmpty());
+                cfg.put("recipient", "917386726193");
+                return cfg.toString();
+            } catch (Exception ignored) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean setEnabled(final boolean enabled, final boolean consentAccepted) {
+            try {
+                SharedPreferences prefs = getSharedPreferences(WA_PREF_NAME, Context.MODE_PRIVATE);
+                prefs.edit()
+                    .putBoolean("enabled", enabled && consentAccepted)
+                    .putBoolean("consent", consentAccepted)
+                    .apply();
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean configureRelay(final String endpointUrl, final String clientToken) {
+            try {
+                SharedPreferences prefs = getSharedPreferences(WA_PREF_NAME, Context.MODE_PRIVATE);
+                SharedPreferences.Editor ed = prefs.edit();
+                if (endpointUrl != null) {
+                    ed.putString("endpoint_enc", MobileTransactionParser.encryptJsonString(endpointUrl.trim()));
+                }
+                if (clientToken != null && !clientToken.trim().isEmpty()) {
+                    ed.putString("token_enc", MobileTransactionParser.encryptJsonString(clientToken.trim()));
+                }
+                ed.apply();
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public String sendStatementJson(final String requestJson) {
+            HttpURLConnection conn = null;
+            try {
+                SharedPreferences prefs = getSharedPreferences(WA_PREF_NAME, Context.MODE_PRIVATE);
+                String endpointUrl = MobileTransactionParser.decryptJsonString(prefs.getString("endpoint_enc", ""), "");
+                String token = MobileTransactionParser.decryptJsonString(prefs.getString("token_enc", ""), "");
+
+                if (endpointUrl == null || endpointUrl.trim().isEmpty()) {
+                    JSONObject err = new JSONObject();
+                    err.put("ok", false);
+                    err.put("statusCode", 0);
+                    err.put("error", "WhatsApp Cloud API relay URL is not configured");
+                    return err.toString();
+                }
+
+                JSONObject outerObj = new JSONObject(requestJson != null ? requestJson : "{}");
+                JSONObject reqObj = (outerObj.has("request") && outerObj.optJSONObject("request") != null)
+                    ? outerObj.optJSONObject("request")
+                    : outerObj;
+                String idempotencyKey = reqObj.optString("idempotencyKey", "");
+
+                URL url = new URL(endpointUrl.trim());
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(8000);
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                if (!idempotencyKey.isEmpty()) {
+                    conn.setRequestProperty("Idempotency-Key", idempotencyKey);
+                }
+                if (token != null && !token.isEmpty()) {
+                    conn.setRequestProperty("Authorization", "Bearer " + token);
+                }
+
+                byte[] bytes = reqObj.toString().getBytes(StandardCharsets.UTF_8);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(bytes);
+                    os.flush();
+                }
+
+                int code = conn.getResponseCode();
+                InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+                StringBuilder sb = new StringBuilder();
+                if (is != null) {
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            sb.append(line);
+                        }
+                    }
+                }
+                JSONObject respJson = sb.length() > 0 ? new JSONObject(sb.toString()) : new JSONObject();
+                respJson.put("statusCode", code);
+                if (!respJson.has("ok")) {
+                    respJson.put("ok", code >= 200 && code < 300);
+                }
+                return respJson.toString();
+            } catch (Exception ex) {
+                try {
+                    JSONObject err = new JSONObject();
+                    err.put("ok", false);
+                    err.put("statusCode", 0);
+                    err.put("error", ex.getMessage() != null ? ex.getMessage() : "Network error");
+                    return err.toString();
+                } catch (Exception ignored) {
+                    return "{\"ok\":false,\"statusCode\":0,\"error\":\"Network error\"}";
+                }
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
         }
     }
 
