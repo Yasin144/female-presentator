@@ -1,0 +1,68 @@
+{
+  "settings": {
+    "monthlySalary": 25000,
+    "officeStartTime": "10:00",
+    "officeEndTime": "18:30",
+    "monthDaysMode": "30",
+    "otRateMode": "auto",
+    "customOtHourlyRate": 100,
+    "otTimeCalcMode": "in_out_duration",
+    "deductShortHours": false
+  },
+  "days": {
+    "2026-10-19": {
+      "date": "2026-10-19",
+      "status": "present",
+      "inTime": "00:52",
+      "outTime": "00:53",
+      "workedMins": 1,
+      "otHours": 0,
+      "note": "",
+      "extraAllowance": 0,
+      "biometricIn": true,
+      "biometricOut": true,
+      "biometricInAt": "2026-10-18T19:22:50.360Z",
+      "biometricInMethod": "android-hardware-biometric",
+      "savedAt": "2026-10-18T19:23:17.345Z",
+      "updatedAt": "2026-10-18T19:23:17.345Z",
+      "updatedAtMs": 1792351397345,
+      "biometricOutAt": "2026-10-18T19:23:17.345Z",
+      "biometricOutMethod": "android-hardware-biometric"
+    },
+    "2026-10-01": {
+      "date": "2026-10-01",
+      "status": "present",
+      "inTime": "10:00",
+      "outTime": "18:30",
+      "otHours": 0,
+      "extraAllowance": 0,
+      "note": "",
+      "workedMins": 510,
+      "basePaySnapshot": 833.33,
+      "otPaySnapshot": 0,
+      "totalPaySnapshot": 833.33,
+      "savedAt": "2026-10-18T19:24:14.244Z",
+      "updatedAt": "2026-10-18T19:24:14.244Z",
+      "updatedAtMs": 1792351454244,
+      "biometricIn": false,
+      "biometricOut": false
+    },
+    "2026-10-18": {
+      "date": "2026-10-18",
+      "status": "ot_only",
+      "inTime": "10:00",
+      "outTime": "18:30",
+      "otHours": 8.5,
+      "extraAllowance": 0,
+      "note": "",
+      "workedMins": 510,
+      "basePaySnapshot": 0,
+      "otPaySnapshot": 833.33,
+      "totalPaySnapshot": 833.33,
+      "savedAt": "2026-10-18T19:24:42.414Z",
+      "updatedAt": "2026-10-18T19:24:42.414Z",
+      "updatedAtMs": 1792351482414
+    }
+  },
+  "updatedAt": "2026-10-18T19:24:41.274Z"
+}

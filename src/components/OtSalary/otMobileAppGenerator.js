@@ -424,80 +424,105 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       </div>
     </section>
 
-    <!-- TAB EXPENSES: AUTO MOBILE TRANSACTIONS & NOTES LEDGER -->
+    <!-- TAB EXPENSES: EXPENSE MEMORY — FRIENDLY MONEY HOME & TRANSACTION LEDGER -->
     <section id="tab-expenses" class="card" style="display:none;border-color:rgba(244,63,94,0.45);">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
         <div>
-          <div style="font-size:10px;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#fda4af;">💸 SMART MOBILE EXPENSE &amp; TRANSACTION TRACKER</div>
-          <div style="font-size:16px;font-weight:900;color:#fff;margin-top:2px;">Every Spend, Note &amp; Transaction Count</div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#fda4af;">💸 EXPENSE MEMORY • PERSONAL FINANCE ASSISTANT</div>
+          <div style="font-size:16px;font-weight:900;color:#fff;margin-top:2px;">Let's check your money.</div>
         </div>
-        <button type="button" class="chip active" id="expScanMobileBtn" style="border-color:#fbbf24;background:rgba(245,158,11,0.22);color:#fef3c7;">📲 Auto-Scan Mobile SMS</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="chip active" id="expScanMobileBtn" style="border-color:#fbbf24;background:rgba(245,158,11,0.22);color:#fef3c7;">📲 Auto-Scan Mobile SMS</button>
+          <button type="button" class="chip" id="expExportCsvBtn" style="border-color:rgba(56,189,248,0.45);color:#7dd3fc;">📥 Export CSV</button>
+        </div>
       </div>
 
-      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px;">
         <div class="kpi" style="border-color:rgba(244,63,94,0.45);background:rgba(244,63,94,0.1);">
-          <div class="kpi-label" style="color:#fda4af;">💸 Total Spent</div>
-          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalSpent">₹0.00</div>
+          <div class="kpi-label" style="color:#fda4af;">💸 Net Spending</div>
+          <div class="kpi-val" style="color:#fff;font-size:15px;" id="expKpiTotalSpent">₹0.00</div>
           <div class="kpi-sub" id="expKpiTodaySpent" style="color:#fecdd3;">Today: ₹0.00</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
+          <div class="kpi-label" style="color:#6ee7b7;">💰 Received</div>
+          <div class="kpi-val" style="color:#34d399;font-size:15px;" id="expKpiTotalRecv">₹0.00</div>
+          <div class="kpi-sub" id="expKpiRefundSub" style="color:#a7f3d0;">Refunds: ₹0.00</div>
         </div>
         <div class="kpi" style="border-color:rgba(56,189,248,0.45);background:rgba(14,165,233,0.1);">
           <div class="kpi-label" style="color:#7dd3fc;">🔢 Transactions</div>
-          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalCount">0 Done</div>
+          <div class="kpi-val" style="color:#fff;font-size:15px;" id="expKpiTotalCount">0 Done</div>
           <div class="kpi-sub" id="expKpiTodayCount" style="color:#bae6fd;">Today: 0 txns</div>
         </div>
-        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
-          <div class="kpi-label" style="color:#6ee7b7;">🏦 Balance Left</div>
-          <div class="kpi-val" style="color:#34d399;font-size:16px;" id="expKpiBalanceLeft">₹25,000.00</div>
-          <div class="kpi-sub" style="color:#a7f3d0;">After Expenses</div>
+        <div class="kpi" style="border-color:rgba(250,204,21,0.45);background:rgba(250,204,21,0.1);">
+          <div class="kpi-label" style="color:#fde047;">📝 Missing Notes</div>
+          <div class="kpi-val" style="color:#facc15;font-size:15px;" id="expKpiMissingCount">0</div>
+          <div class="kpi-sub" id="expKpiBalanceLeft" style="color:#fef08a;">Bal: ₹25,000.00</div>
         </div>
       </div>
 
       <div style="padding:12px;border-radius:14px;background:rgba(2,6,23,0.75);border:1px solid rgba(52,211,153,0.4);margin-bottom:12px;">
-        <div style="font-size:12.5px;font-weight:900;color:#ecfdf5;margin-bottom:8px;">✍️ Record Spend &amp; Note (Or Pay via UPI App)</div>
+        <div style="font-size:12.5px;font-weight:900;color:#ecfdf5;margin-bottom:8px;">✍️ Quick-Add Transaction &amp; Personal Memory Note</div>
         <div class="row-2">
           <div>
             <label class="lbl" style="color:#fda4af;">Amount (₹) *</label>
             <input type="number" id="expQuickAmt" placeholder="e.g. 120" min="1" step="any" />
           </div>
           <div>
-            <label class="lbl" style="color:#fde047;">What was this spend for? (Note) *</label>
+            <label class="lbl" style="color:#fde047;">What was this for? (Personal Note) *</label>
             <input type="text" id="expQuickNote" placeholder="e.g. Tea &amp; Snacks, Petrol..." />
           </div>
         </div>
         <div class="chips" id="expQuickNoteChips" style="margin-bottom:10px;">
-          <button type="button" class="chip" data-note="Tea & Snacks" data-cat="Food & Tea">☕ Tea &amp; Snacks</button>
-          <button type="button" class="chip" data-note="Lunch / Dinner" data-cat="Food & Tea">🍱 Lunch / Dinner</button>
-          <button type="button" class="chip" data-note="Petrol / Fuel" data-cat="Fuel & Travel">⛽ Petrol / Fuel</button>
+          <button type="button" class="chip" data-note="Tea & Snacks" data-cat="Food & Dining">☕ Tea &amp; Snacks</button>
+          <button type="button" class="chip" data-note="Lunch / Dinner" data-cat="Food & Dining">🍱 Lunch / Dinner</button>
+          <button type="button" class="chip" data-note="Petrol / Fuel" data-cat="Fuel & Commute">⛽ Petrol / Fuel</button>
           <button type="button" class="chip" data-note="Groceries & Milk" data-cat="Groceries">🛒 Groceries</button>
-          <button type="button" class="chip" data-note="Mobile Recharge" data-cat="Bills & Recharge">📱 Recharge</button>
-          <button type="button" class="chip" data-note="Sent to Family" data-cat="Family & Transfer">👨‍👩‍👧 Family</button>
+          <button type="button" class="chip" data-note="Mobile Recharge" data-cat="Utilities & Recharge">📱 Recharge</button>
+          <button type="button" class="chip" data-note="Sent to Family" data-cat="Family & Friends">👨‍👩‍👧 Family</button>
         </div>
         <div class="row-2">
           <div>
-            <label class="lbl">Paid To (Merchant / Person)</label>
+            <label class="lbl">Paid To / From (Merchant / Person)</label>
             <input type="text" id="expQuickMerchant" placeholder="e.g. Bakery, Friend..." />
           </div>
           <div>
-            <label class="lbl">Payment App</label>
-            <select id="expQuickApp">
-              <option value="GPay">Google Pay (GPay)</option>
-              <option value="PhonePe">PhonePe</option>
-              <option value="Paytm">Paytm</option>
-              <option value="UPI">BHIM / UPI</option>
-              <option value="Cash">Cash</option>
-              <option value="Bank / Card">Bank / Card</option>
-            </select>
+            <label class="lbl">Type &amp; Payment Method</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <select id="expQuickType">
+                <option value="debit">💸 Expense</option>
+                <option value="credit">💰 Income</option>
+                <option value="refund">↩️ Refund</option>
+                <option value="transfer">🔄 Self-Transfer</option>
+              </select>
+              <select id="expQuickApp">
+                <option value="GPay">GPay (UPI)</option>
+                <option value="PhonePe">PhonePe (UPI)</option>
+                <option value="Paytm">Paytm (UPI)</option>
+                <option value="UPI">BHIM / UPI</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank / Card">Card / Bank</option>
+              </select>
+            </div>
           </div>
         </div>
-        <div class="row-2" style="margin-bottom:0;">
-          <button type="button" class="btn btn-out" id="expAddNowBtn">💾 Save Spend &amp; Note</button>
-          <button type="button" class="btn btn-in" id="expUpiPayBtn">🚀 Pay in UPI App + Save Note</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          <button type="button" class="btn btn-out" id="expAddNowBtn" style="flex:1;">💾 Save Transaction &amp; Memory Note</button>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.18);display:flex;gap:6px;align-items:center;">
+          <input type="text" id="expPasteSmsInput" placeholder="📩 Paste bank SMS or UPI receipt text here to auto-extract..." style="flex:1;font-size:11.5px;padding:7px 10px;" />
+          <button type="button" class="chip active" id="expParseSmsBtn" style="white-space:nowrap;">⚡ Extract SMS</button>
         </div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
         <div style="font-size:13.5px;font-weight:900;color:#fff;" id="expListHeaderTitle">📋 Mobile Transactions &amp; Notes (0)</div>
-        <button type="button" class="chip" id="expEnableNotifBtn" style="font-size:10.5px;">🔔 Enable Live App Alerts</button>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button type="button" class="chip" id="expFilterMissingBtn" style="font-size:10.5px;">📝 Missing Notes Only</button>
+          <button type="button" class="chip" id="expEnableNotifBtn" style="font-size:10.5px;">🔔 Enable Live App Alerts</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <input type="text" id="expSearchInput" placeholder="🔍 Search merchant, personal note, category, amount, or UPI ref..." style="font-size:12px;padding:7px 10px;" />
       </div>
       <div id="expTransactionsList"></div>
     </section>
@@ -905,55 +930,83 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         '<div>• <strong>Leave Deductions:</strong> - ₹' + fmtINR(leaveDed) + ' (' + leaveDays + ' leave, ' + halfDays + ' half)</div>' +
         '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:18px;font-weight:900;color:#facc15;">Final Net Salary: ₹' + fmtINR(netPayable) + '</div>';
 
-      // Render Expenses KPIs & Ledger
+      // Render Expense Memory KPIs & Ledger
       const allExp = Object.values(store.expenses || {}).filter(e => e && !e.deleted && Number(e.amount) > 0);
       const monthExp = allExp.filter(e => String(e.date || '').slice(0, 7) === selectedMonth);
       monthExp.sort((a, b) => Number(b.timestampMs || 0) - Number(a.timestampMs || 0));
       const tIso = todayIso();
-      let expTotalSpent = 0, expTotalRecv = 0, expTodaySpent = 0, expTodayCount = 0;
+      let expGrossSpent = 0, expRefunds = 0, expTotalRecv = 0, expTodaySpent = 0, expTodayCount = 0, expMissingCount = 0;
       for (const tx of monthExp) {
+        if (tx.status === 'failed') continue;
         const amt = Number(tx.amount) || 0;
-        const isCredit = tx.type === 'credit';
-        if (isCredit) expTotalRecv += amt;
-        else expTotalSpent += amt;
+        const txType = tx.type || 'debit';
+        if (txType === 'credit') expTotalRecv += amt;
+        else if (txType === 'refund') expRefunds += amt;
+        else if (txType !== 'transfer') expGrossSpent += amt;
         if (tx.date === tIso) {
           expTodayCount++;
-          if (!isCredit) expTodaySpent += amt;
+          if (txType === 'debit') expTodaySpent += amt;
         }
+        const hasPersonalNote = String(tx.personalNote || tx.note || '').trim().length > 0;
+        if (!hasPersonalNote && !tx.noteReviewed) expMissingCount++;
       }
+      const expNetSpent = Math.max(0, expGrossSpent - expRefunds);
       const badgeEl = document.getElementById('topModExpBadge');
       if (badgeEl) badgeEl.textContent = String(monthExp.length);
       const totSpentEl = document.getElementById('expKpiTotalSpent');
-      if (totSpentEl) totSpentEl.textContent = '₹' + fmtINR(expTotalSpent);
+      if (totSpentEl) totSpentEl.textContent = '₹' + fmtINR(expNetSpent);
       const todSpentEl = document.getElementById('expKpiTodaySpent');
       if (todSpentEl) todSpentEl.textContent = 'Today: ₹' + fmtINR(expTodaySpent);
+      const totRecvEl = document.getElementById('expKpiTotalRecv');
+      if (totRecvEl) totRecvEl.textContent = '₹' + fmtINR(expTotalRecv);
+      const refSubEl = document.getElementById('expKpiRefundSub');
+      if (refSubEl) refSubEl.textContent = 'Refunds: ₹' + fmtINR(expRefunds);
       const totCntEl = document.getElementById('expKpiTotalCount');
       if (totCntEl) totCntEl.textContent = monthExp.length + ' Done';
       const todCntEl = document.getElementById('expKpiTodayCount');
       if (todCntEl) todCntEl.textContent = 'Today: ' + expTodayCount + ' txns';
+      const missCntEl = document.getElementById('expKpiMissingCount');
+      if (missCntEl) missCntEl.textContent = String(expMissingCount);
       const balLeftEl = document.getElementById('expKpiBalanceLeft');
-      if (balLeftEl) balLeftEl.textContent = '₹' + fmtINR(netPayable - expTotalSpent + expTotalRecv);
+      if (balLeftEl) balLeftEl.textContent = 'Bal: ₹' + fmtINR(netPayable - expNetSpent + expTotalRecv);
+
+      const searchQ = String((document.getElementById('expSearchInput') && document.getElementById('expSearchInput').value) || '').trim().toLowerCase();
+      const filteredExp = monthExp.filter(tx => {
+        if (window._expOnlyMissingNotes) {
+          const hasNote = String(tx.personalNote || tx.note || '').trim().length > 0;
+          if (hasNote || tx.noteReviewed) return false;
+        }
+        if (!searchQ) return true;
+        const hay = [tx.merchant, tx.personalNote, tx.note, tx.paymentRemark, tx.category, tx.app, tx.refId, String(tx.amount)].join(' ').toLowerCase();
+        return hay.includes(searchQ);
+      });
       const hdrTitleEl = document.getElementById('expListHeaderTitle');
-      if (hdrTitleEl) hdrTitleEl.textContent = '📋 Mobile Transactions & Notes (' + monthExp.length + ')';
+      if (hdrTitleEl) hdrTitleEl.textContent = '📋 Mobile Transactions & Notes (' + filteredExp.length + ')';
 
       const expListEl = document.getElementById('expTransactionsList');
       if (expListEl) {
-        if (monthExp.length === 0) {
-          expListEl.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:12.5px;">No transactions recorded for ' + selectedMonth + ' yet. Tap <strong>📲 Auto-Scan Mobile SMS</strong> or record a spend &amp; note above!</div>';
+        if (filteredExp.length === 0) {
+          expListEl.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:12.5px;">' +
+            (monthExp.length === 0
+              ? 'Your money story starts here. Tap <strong>📲 Auto-Scan Mobile SMS</strong> or record a transaction above!'
+              : (window._expOnlyMissingNotes ? "You're all caught up! Every tracked transaction has a note." : 'Nothing matched your search. Try a different keyword or date.')) +
+            '</div>';
         } else {
-          expListEl.innerHTML = monthExp.map(tx => {
-            const isCredit = tx.type === 'credit';
-            const safeNote = String(tx.note || '').replace(/"/g, '&quot;');
+          expListEl.innerHTML = filteredExp.map(tx => {
+            const txType = tx.type || 'debit';
+            const isCredit = txType === 'credit' || txType === 'refund';
+            const safeNote = String(tx.personalNote || tx.note || '').replace(/"/g, '&quot;');
+            const remarkBadge = tx.paymentRemark ? '<span style="font-size:10px;color:#cbd5e1;background:rgba(148,163,184,0.16);padding:1px 6px;border-radius:6px;margin-left:4px;">UPI: ' + String(tx.paymentRemark).replace(/</g, '&lt;') + '</span>' : '';
             return '<div class="day-card" style="border-color:' + (isCredit ? 'rgba(52,211,153,0.4)' : 'rgba(244,63,94,0.35)') + ';">' +
               '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
                 '<div>' +
-                  '<div style="font-size:13px;font-weight:900;color:#fff;">' + (tx.merchant || 'Mobile Payment') + ' <span style="font-size:10.5px;color:#38bdf8;">[' + (tx.app || 'UPI') + ']</span></div>' +
-                  '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + (tx.date || '') + ' · ' + fmt12(tx.time || '12:00') + (tx.refId ? ' · Ref ' + tx.refId : '') + '</div>' +
+                  '<div style="font-size:13px;font-weight:900;color:#fff;">' + (tx.merchant || 'Mobile Payment') + ' <span style="font-size:10.5px;color:#38bdf8;">[' + (tx.app || 'UPI') + ' · ' + (tx.category || 'General') + ']</span>' + remarkBadge + '</div>' +
+                  '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + (tx.date || '') + ' · ' + fmt12(tx.time || '12:00') + (tx.refId ? ' · Ref ' + tx.refId : '') + (tx.accountMask ? ' · ' + tx.accountMask : '') + '</div>' +
                 '</div>' +
-                '<div style="font-size:15px;font-weight:900;color:' + (isCredit ? '#34d399' : '#fda4af') + ';">' + (isCredit ? '+ ₹' : '- ₹') + fmtINR(tx.amount) + '</div>' +
+                '<div style="font-size:15px;font-weight:900;color:' + (isCredit ? '#34d399' : (txType === 'transfer' ? '#93c5fd' : '#fda4af')) + ';">' + (isCredit ? '+ ₹' : (txType === 'transfer' ? '⇄ ₹' : '- ₹')) + fmtINR(tx.amount) + '</div>' +
               '</div>' +
               '<div style="margin-top:7px;display:flex;gap:6px;align-items:center;">' +
-                '<input type="text" value="' + safeNote + '" placeholder="Add note: what was this spend for?..." onchange="window._updateExpNote(\\'' + tx.id + '\\', this.value)" style="padding:6px 9px;font-size:12px;border-color:rgba(250,204,21,0.4);" />' +
+                '<input type="text" value="' + safeNote + '" placeholder="Add personal memory note: what was this for?..." onchange="window._updateExpNote(\\'' + tx.id + '\\', this.value)" style="padding:6px 9px;font-size:12px;border-color:rgba(250,204,21,0.4);" />' +
               '</div>' +
             '</div>';
           }).join('');
@@ -1015,20 +1068,25 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
     window._updateExpNote = function(txId, newNote) {
       if (!store.expenses || !store.expenses[txId]) return;
       const nowMs = Date.now();
-      store.expenses[txId].note = String(newNote || '').trim();
+      const trimmed = String(newNote || '').trim();
+      store.expenses[txId].note = trimmed;
+      store.expenses[txId].personalNote = trimmed;
+      store.expenses[txId].noteReviewed = true;
       store.expenses[txId].updatedAtMs = nowMs;
       store.expenses[txId].updatedAt = new Date(nowMs).toISOString();
-      saveStore('Saved transaction note');
+      saveStore('Saved personal memory note');
     };
 
-    function addExpenseEntry(launchUpi) {
+    let selectedQuickCat = 'General';
+    function addExpenseEntry() {
       const amtEl = document.getElementById('expQuickAmt');
       const noteEl = document.getElementById('expQuickNote');
       const merchEl = document.getElementById('expQuickMerchant');
       const appEl = document.getElementById('expQuickApp');
+      const typeEl = document.getElementById('expQuickType');
       const amt = Number(amtEl && amtEl.value);
       if (!Number.isFinite(amt) || amt <= 0) {
-        showToast('Enter a valid spend amount in ₹');
+        showToast('Enter a valid amount in ₹');
         return;
       }
       const now = new Date();
@@ -1038,42 +1096,124 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       const noteStr = String((noteEl && noteEl.value) || '').trim();
       const merchStr = String((merchEl && merchEl.value) || '').trim() || (noteStr || 'Expense Spend');
       const appStr = (appEl && appEl.value) || 'GPay';
+      const typeStr = (typeEl && typeEl.value) || 'debit';
       const id = 'tx_manual_' + nowMs + '_' + Math.random().toString(36).slice(2, 6);
       if (!store.expenses) store.expenses = {};
       store.expenses[id] = {
         id,
         amount: Number(amt.toFixed(2)),
-        type: 'debit',
+        currency: 'INR',
+        type: typeStr,
         merchant: merchStr,
         note: noteStr,
-        category: 'General',
+        personalNote: noteStr,
+        category: selectedQuickCat || 'General',
         app: appStr,
+        paymentMethod: appStr === 'Cash' ? 'Cash' : (appStr === 'Bank / Card' ? 'Card' : 'UPI'),
         date: dateStr,
         time: timeStr,
         timestampMs: nowMs,
         updatedAtMs: nowMs,
         source: 'manual',
+        status: 'completed',
+        detectionStatus: 'user_confirmed',
+        noteReviewed: Boolean(noteStr),
       };
       if (amtEl) amtEl.value = '';
       if (noteEl) noteEl.value = '';
       if (merchEl) merchEl.value = '';
+      selectedQuickCat = 'General';
       saveStore('Recorded ₹' + fmtINR(amt) + (noteStr ? ' (' + noteStr + ')' : ''));
-      if (launchUpi && window.PattanBiometric && typeof window.PattanBiometric.launchUpiPayment === 'function') {
-        try { window.PattanBiometric.launchUpiPayment('', merchStr, String(amt), noteStr); } catch (_) {}
-      }
     }
 
     const expAddNowBtn = document.getElementById('expAddNowBtn');
-    const expUpiPayBtn = document.getElementById('expUpiPayBtn');
-    if (expAddNowBtn) expAddNowBtn.addEventListener('click', () => addExpenseEntry(false));
-    if (expUpiPayBtn) expUpiPayBtn.addEventListener('click', () => addExpenseEntry(true));
+    if (expAddNowBtn) expAddNowBtn.addEventListener('click', () => addExpenseEntry());
 
     document.querySelectorAll('#expQuickNoteChips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
         const nEl = document.getElementById('expQuickNote');
         if (nEl) nEl.value = btn.dataset.note || '';
+        if (btn.dataset.cat) selectedQuickCat = btn.dataset.cat;
       });
     });
+
+    const expSearchEl = document.getElementById('expSearchInput');
+    if (expSearchEl) expSearchEl.addEventListener('input', () => renderAll());
+
+    const expFilterMissingBtn = document.getElementById('expFilterMissingBtn');
+    if (expFilterMissingBtn) {
+      expFilterMissingBtn.addEventListener('click', () => {
+        window._expOnlyMissingNotes = !window._expOnlyMissingNotes;
+        expFilterMissingBtn.classList.toggle('active', Boolean(window._expOnlyMissingNotes));
+        renderAll();
+      });
+    }
+
+    const expParseSmsBtn = document.getElementById('expParseSmsBtn');
+    if (expParseSmsBtn) {
+      expParseSmsBtn.addEventListener('click', () => {
+        const inp = document.getElementById('expPasteSmsInput');
+        const raw = String((inp && inp.value) || '').trim();
+        if (!raw) { showToast('Paste a bank SMS or UPI receipt message first'); return; }
+        if (/\\b(otp|one time password|verification code|cvv|mpin)\\b/i.test(raw) && !/(?:debited|credited|paid|sent|spent)/i.test(raw)) {
+          showToast('Ignored non-transaction OTP / verification message');
+          return;
+        }
+        const amtM = raw.match(/(?:rs\\.?|inr|₹|amt|amount|paid|debited|credited|sent|received)\\s*(?:of\\s*)?(?:rs\\.?|inr|₹)?\\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)/i);
+        const amt = amtM ? parseFloat(amtM[1].replace(/,/g, '')) : 0;
+        if (!amt || amt <= 0) { showToast('Could not detect a valid ₹ amount in that message'); return; }
+        const lower = raw.toLowerCase();
+        const isRefund = /\\b(refund|refunded|cashback|reversal)\\b/i.test(lower);
+        const isCredit = !isRefund && /\\b(credited|received|deposited)\\b/i.test(lower);
+        const merchM = raw.match(/(?:paid to|sent to|to vpa|at|towards|from)\\s+([A-Za-z0-9][A-Za-z0-9 .&@_\\-/]{1,34})/i);
+        const refM = raw.match(/(?:upi\\s*ref(?:\\s*no\\.?|\\s*id)?|utr|rrn|txn\\s*id)\\s*[:\\-#]?\\s*([A-Za-z0-9]{6,22})/i);
+        const now = new Date();
+        const nowMs = now.getTime();
+        const id = 'tx_sms_' + (refM ? refM[1] : nowMs);
+        if (!store.expenses) store.expenses = {};
+        store.expenses[id] = {
+          id,
+          amount: Number(amt.toFixed(2)),
+          currency: 'INR',
+          type: isRefund ? 'refund' : (isCredit ? 'credit' : 'debit'),
+          merchant: merchM ? merchM[1].trim() : 'Bank / UPI Alert',
+          note: '',
+          personalNote: '',
+          paymentRemark: '',
+          category: 'General',
+          app: 'UPI',
+          paymentMethod: 'UPI',
+          refId: refM ? refM[1] : '',
+          date: todayIso(),
+          time: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
+          timestampMs: nowMs,
+          updatedAtMs: nowMs,
+          source: 'sms_paste',
+          status: 'completed',
+        };
+        if (inp) inp.value = '';
+        saveStore('Extracted ₹' + fmtINR(amt) + ' from SMS/receipt');
+      });
+    }
+
+    const expExportCsvBtn = document.getElementById('expExportCsvBtn');
+    if (expExportCsvBtn) {
+      expExportCsvBtn.addEventListener('click', () => {
+        const list = Object.values(store.expenses || {}).filter(e => e && !e.deleted && Number(e.amount) > 0);
+        if (list.length === 0) { showToast('No transactions to export yet'); return; }
+        const rows = [['Date','Time','Type','Amount (INR)','Merchant','Category','Payment Method','App','Personal Note','Payment Remark','UPI Ref'].join(',')];
+        list.forEach(tx => {
+          const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+          rows.push([tx.date, tx.time, tx.type, tx.amount, tx.merchant, tx.category, tx.paymentMethod || tx.app, tx.app, tx.personalNote || tx.note, tx.paymentRemark, tx.refId].map(esc).join(','));
+        });
+        const blob = new Blob([rows.join('\\n')], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'Expense-Memory-' + selectedMonth + '.csv';
+        a.click();
+        showToast('Your report is ready.');
+      });
+    }
 
     function runMobileSmsScan() {
       if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
