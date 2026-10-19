@@ -92,6 +92,40 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception ignored) {}
         registerSmsObserverIfPermitted();
+        handleIncomingSharedReceiptIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingSharedReceiptIntent(intent);
+    }
+
+    private void handleIncomingSharedReceiptIntent(Intent intent) {
+        if (intent == null) return;
+        try {
+            if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
+                String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+                if (sharedText != null && !sharedText.trim().isEmpty()) {
+                    JSONObject parsed = MobileTransactionParser.parseSmsOrNotification(
+                        "shared-receipt",
+                        "Shared Receipt",
+                        sharedText.trim(),
+                        System.currentTimeMillis(),
+                        "receipt-share"
+                    );
+                    if (parsed != null) {
+                        MobileTransactionParser.saveCapturedTransaction(getApplicationContext(), parsed);
+                        JSONArray arr = new JSONArray();
+                        arr.put(parsed);
+                        if (bridge != null && bridge.getWebView() != null) {
+                            bridge.getWebView().postDelayed(() -> dispatchMobileTransactionsToJs(true, arr, ""), 800);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -355,6 +389,25 @@ public class MainActivity extends BridgeActivity {
                 registerSmsObserverIfPermitted();
                 performMobileTransactionScanAsync(pendingScanDaysBack);
             });
+        }
+
+        @JavascriptInterface
+        public void scanMobileTransactionsSilent(final int daysBack) {
+            int safeDays = daysBack > 0 ? daysBack : 60;
+            if (hasReadSmsPermission()) {
+                registerSmsObserverIfPermitted();
+            }
+            performMobileTransactionScanAsync(safeDays);
+        }
+
+        @JavascriptInterface
+        public boolean clearSavedMobileTransactions() {
+            try {
+                MobileTransactionParser.clearAllSavedTransactions(getApplicationContext());
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
         }
 
         @JavascriptInterface

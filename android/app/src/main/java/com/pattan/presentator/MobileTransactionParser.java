@@ -4,10 +4,15 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -15,9 +20,16 @@ import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
 public final class MobileTransactionParser {
     private static final String PREF_NAME = "pattan_expenses_native_store";
-    private static final String KEY_TXNS = "captured_transactions_json";
+    private static final String KEY_TXNS_ENC = "captured_transactions_enc_v2";
+    private static final String KEY_TXNS_LEGACY = "captured_transactions_json";
+    private static final String KEYSTORE_ALIAS = "PattanExpenseMemoryAesKey";
 
     private static final Pattern AMOUNT_PATTERN_PREFIX = Pattern.compile(
         "(?i)(?:₹|rs\\.?|inr|amt)\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
@@ -53,12 +65,18 @@ public final class MobileTransactionParser {
 
             String lower = fullText.toLowerCase(Locale.ROOT);
 
-            // Ignore pure OTP / verification messages that are not real completed transactions
-            boolean hasOtpWord = lower.contains("otp") || lower.contains("one time password") || lower.contains("verification code");
+            // Never parse or store OTPs, PIN prompts, or password messages
+            boolean hasOtpWord = lower.contains("otp")
+                || lower.contains("one time password")
+                || lower.contains("verification code")
+                || lower.contains("upi pin")
+                || lower.contains("never share your pin");
             boolean hasCompletionWord = lower.contains("debited") || lower.contains("credited")
                 || lower.contains("paid") || lower.contains("sent ")
                 || lower.contains("received") || lower.contains("spent")
-                || lower.contains("withdrawn") || lower.contains("transferred");
+                || lower.contains("withdrawn") || lower.contains("transferred")
+                || lower.contains("refund") || lower.contains("reversed")
+                || lower.contains("failed") || lower.contains("declined");
 
             if (hasOtpWord && !hasCompletionWord) return null;
 
@@ -86,20 +104,36 @@ public final class MobileTransactionParser {
             }
             if (amount <= 0.0 || amount > 100000000.0) return null;
 
-            // 2. Determine Debit (Spent) vs Credit (Received)
-            String type = "debit";
+            // 2. Determine Transaction Status (completed, failed, reversed, pending)
+            String status = "completed";
+            if (lower.contains("failed") || lower.contains("declined") || lower.contains("unsuccessful") || lower.contains("could not be processed")) {
+                status = "failed";
+            } else if (lower.contains("reversed") || lower.contains("reversal")) {
+                status = "reversed";
+            } else if (lower.contains("pending") || lower.contains("processing")) {
+                status = "pending";
+            }
+
+            // 3. Determine Type: debit (expense), credit (income), refund, transfer
+            boolean isRefund = lower.contains("refund") || lower.contains("reversed") || lower.contains("reversal") || lower.contains("cashback");
+            boolean isSelfTransfer = lower.contains("self transfer") || lower.contains("to self") || lower.contains("own account") || lower.contains("between your accounts");
             boolean isCredit = lower.contains("credited") || lower.contains("received")
-                || lower.contains("deposited") || lower.contains("refund")
-                || lower.contains("added to your") || lower.contains("upi/cr/");
+                || lower.contains("deposited") || lower.contains("added to your") || lower.contains("upi/cr/");
             boolean isDebit = lower.contains("debited") || lower.contains("spent")
                 || lower.contains("paid") || lower.contains("sent")
                 || lower.contains("withdrawn") || lower.contains("deducted")
                 || lower.contains("trf to") || lower.contains("upi/dr/");
-            if (isCredit && !isDebit) {
+
+            String type = "debit";
+            if (isSelfTransfer) {
+                type = "transfer";
+            } else if (isRefund) {
+                type = "refund";
+            } else if (isCredit && !isDebit) {
                 type = "credit";
             }
 
-            // 3. Extract UPI Slash Info (UPI/<Ref>/<Payee>/<Note>)
+            // 4. Extract UPI Slash Info (UPI/<Ref>/<Payee>/<Remark>)
             String refId = "";
             String upiSlashMerchant = "";
             String upiSlashNote = "";
@@ -117,8 +151,9 @@ public final class MobileTransactionParser {
                 }
             }
 
-            // 4. Extract Merchant / Payee
+            // 5. Extract Merchant / Payee
             String merchant = "";
+            boolean merchantUncertain = false;
             Matcher mMerch = MERCHANT_PATTERN.matcher(fullText);
             if (mMerch.find()) {
                 merchant = cleanMerchantName(mMerch.group(1));
@@ -130,37 +165,44 @@ public final class MobileTransactionParser {
                 String cleanTitle = title.trim();
                 if (!cleanTitle.equalsIgnoreCase("Google Pay")
                     && !cleanTitle.equalsIgnoreCase("PhonePe")
-                    && !cleanTitle.equalsIgnoreCase("Paytm")) {
+                    && !cleanTitle.equalsIgnoreCase("Paytm")
+                    && !cleanTitle.equalsIgnoreCase("BHIM")) {
                     merchant = cleanMerchantName(cleanTitle);
                 }
             }
             if (merchant.isEmpty()) {
-                merchant = type.equals("credit") ? "Bank / UPI Credit" : "UPI / Merchant Spend";
+                merchantUncertain = true;
+                if ("refund".equals(type)) merchant = "Refund / Reversal";
+                else if ("transfer".equals(type)) merchant = "Self Account Transfer";
+                else if ("credit".equals(type)) merchant = "Bank / UPI Credit";
+                else merchant = "UPI / Merchant Payment";
             }
 
-            // 5. Extract Transaction Note / Remark written during the transaction
-            String note = "";
+            // 6. Extract Original Payment Remark (never fabricated if missing!)
+            String originalRemark = "";
             Matcher mNote = NOTE_EXPLICIT_PATTERN.matcher(fullText);
             if (mNote.find()) {
-                note = cleanNoteText(mNote.group(1));
+                originalRemark = cleanNoteText(mNote.group(1));
             }
-            if (note.isEmpty() && !upiSlashNote.isEmpty()) {
+            if (originalRemark.isEmpty() && !upiSlashNote.isEmpty()) {
                 String candidate = cleanNoteText(upiSlashNote);
                 if (!candidate.equalsIgnoreCase("upi")
                     && !candidate.equalsIgnoreCase("na")
                     && !candidate.equalsIgnoreCase("nil")
+                    && !candidate.equalsIgnoreCase("payment")
                     && !candidate.matches("^[0-9]+$")) {
-                    note = candidate;
+                    originalRemark = candidate;
                 }
             }
 
-            // 6. Identify Payment App / Bank Channel
+            // 7. Identify Payment Method & App
             String app = detectPaymentApp(senderOrPkg, fullText);
+            String paymentMethod = detectPaymentMethod(app, fullText);
 
-            // 7. Auto-detect Category
-            String category = detectCategory(merchant, note, fullText, type);
+            // 8. Auto-detect Category
+            String category = detectCategory(merchant, originalRemark, fullText, type);
 
-            // 8. Format Date & Time
+            // 9. Format Date & Time
             long ts = timestampMs > 0 ? timestampMs : System.currentTimeMillis();
             Date dt = new Date(ts);
             SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
@@ -171,25 +213,35 @@ public final class MobileTransactionParser {
             String dateIso = isoFmt.format(dt);
             String timeHHMM = timeFmt.format(dt);
 
-            // Deterministic ID so re-scanning never duplicates the same transaction
+            // Deterministic ID using reference ID when available, or 2-minute bucket + amount + source
             String uniqueKey = !refId.isEmpty()
                 ? "mob_ref_" + refId + "_" + Math.round(amount)
-                : "mob_ts_" + (ts / 60000L) + "_" + Math.round(amount * 100);
+                : "mob_ts_" + (ts / 120000L) + "_" + Math.round(amount * 100);
+
+            String reconciliationStatus = (merchantUncertain || !"completed".equals(status))
+                ? "needs_review"
+                : "auto_detected";
 
             JSONObject tx = new JSONObject();
             tx.put("id", uniqueKey);
+            tx.put("currency", "INR");
             tx.put("amount", amount);
             tx.put("type", type);
+            tx.put("status", status);
+            tx.put("reconciliationStatus", reconciliationStatus);
             tx.put("merchant", merchant);
-            tx.put("note", note);
+            tx.put("originalMerchant", merchant);
+            tx.put("originalRemark", originalRemark);
+            tx.put("note", originalRemark);
             tx.put("category", category);
             tx.put("app", app);
+            tx.put("paymentMethod", paymentMethod);
             tx.put("refId", refId);
             tx.put("date", dateIso);
             tx.put("time", timeHHMM);
             tx.put("timestampMs", ts);
             tx.put("source", sourceType != null ? sourceType : "mobile-sms");
-            tx.put("rawText", fullText.length() > 280 ? fullText.substring(0, 280) : fullText);
+            tx.put("rawText", sanitizeSourceSnippet(fullText));
             tx.put("updatedAtMs", ts);
             return tx;
         } catch (Exception ignored) {
@@ -197,28 +249,99 @@ public final class MobileTransactionParser {
         }
     }
 
+    private static String sanitizeSourceSnippet(String raw) {
+        if (raw == null) return "";
+        // Mask long account/card digit sequences except keep last 4 digits for user recognition
+        String masked = raw.replaceAll("\\b([0-9]{4,12})([0-9]{4})\\b", "XX$2");
+        if (masked.length() > 220) {
+            masked = masked.substring(0, 220) + "...";
+        }
+        return masked;
+    }
+
+    private static SecretKey getOrCreateAesKey() throws Exception {
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        if (ks.containsAlias(KEYSTORE_ALIAS)) {
+            KeyStore.Entry entry = ks.getEntry(KEYSTORE_ALIAS, null);
+            if (entry instanceof KeyStore.SecretKeyEntry) {
+                return ((KeyStore.SecretKeyEntry) entry).getSecretKey();
+            }
+        }
+        KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        kg.init(new KeyGenParameterSpec.Builder(
+            KEYSTORE_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .build());
+        return kg.generateKey();
+    }
+
+    private static String encryptJsonString(String plainText) {
+        if (plainText == null) return "";
+        try {
+            SecretKey key = getOrCreateAesKey();
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key);
+            byte[] iv = cipher.getIV();
+            byte[] cipherBytes = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+            return Base64.encodeToString(iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(cipherBytes, Base64.NO_WRAP);
+        } catch (Exception ignored) {
+            return plainText;
+        }
+    }
+
+    private static String decryptJsonString(String stored) {
+        if (stored == null || stored.isEmpty()) return "[]";
+        if (stored.trim().startsWith("[")) return stored;
+        try {
+            int sep = stored.indexOf(':');
+            if (sep <= 0) return "[]";
+            byte[] iv = Base64.decode(stored.substring(0, sep), Base64.NO_WRAP);
+            byte[] cipherBytes = Base64.decode(stored.substring(sep + 1), Base64.NO_WRAP);
+            SecretKey key = getOrCreateAesKey();
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
+            byte[] plain = cipher.doFinal(cipherBytes);
+            return new String(plain, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            return "[]";
+        }
+    }
+
     public static void saveCapturedTransaction(Context context, JSONObject tx) {
         if (context == null || tx == null) return;
         try {
-            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-            String existingRaw = prefs.getString(KEY_TXNS, "[]");
-            JSONArray arr = new JSONArray(existingRaw);
+            JSONArray arr = getSavedCapturedTransactions(context);
             String id = tx.optString("id", "");
+            String refId = tx.optString("refId", "");
             JSONArray next = new JSONArray();
             next.put(tx);
-            for (int i = 0; i < arr.length() && next.length() < 400; i++) {
+            for (int i = 0; i < arr.length() && next.length() < 500; i++) {
                 JSONObject item = arr.optJSONObject(i);
                 if (item == null) continue;
-                if (!id.isEmpty() && id.equals(item.optString("id", ""))) {
-                    // Preserve user's custom note if already present
+                boolean sameId = !id.isEmpty() && id.equals(item.optString("id", ""));
+                boolean sameRef = !refId.isEmpty() && refId.equals(item.optString("refId", ""))
+                    && Math.abs(tx.optDouble("amount", 0) - item.optDouble("amount", 0)) < 0.01;
+                if (sameId || sameRef) {
                     if (tx.optString("note", "").isEmpty() && !item.optString("note", "").isEmpty()) {
                         tx.put("note", item.optString("note", ""));
+                    }
+                    if (tx.optString("originalRemark", "").isEmpty() && !item.optString("originalRemark", "").isEmpty()) {
+                        tx.put("originalRemark", item.optString("originalRemark", ""));
                     }
                     continue;
                 }
                 next.put(item);
             }
-            prefs.edit().putString(KEY_TXNS, next.toString()).apply();
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            prefs.edit()
+                .putString(KEY_TXNS_ENC, encryptJsonString(next.toString()))
+                .remove(KEY_TXNS_LEGACY)
+                .apply();
         } catch (Exception ignored) {}
     }
 
@@ -226,10 +349,30 @@ public final class MobileTransactionParser {
         if (context == null) return new JSONArray();
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-            return new JSONArray(prefs.getString(KEY_TXNS, "[]"));
+            String enc = prefs.getString(KEY_TXNS_ENC, "");
+            if (enc != null && !enc.isEmpty()) {
+                return new JSONArray(decryptJsonString(enc));
+            }
+            String legacy = prefs.getString(KEY_TXNS_LEGACY, "[]");
+            JSONArray arr = new JSONArray(legacy);
+            if (arr.length() > 0) {
+                prefs.edit()
+                    .putString(KEY_TXNS_ENC, encryptJsonString(arr.toString()))
+                    .remove(KEY_TXNS_LEGACY)
+                    .apply();
+            }
+            return arr;
         } catch (Exception ignored) {
             return new JSONArray();
         }
+    }
+
+    public static void clearAllSavedTransactions(Context context) {
+        if (context == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            prefs.edit().remove(KEY_TXNS_ENC).remove(KEY_TXNS_LEGACY).apply();
+        } catch (Exception ignored) {}
     }
 
     public static JSONArray scanSmsInbox(Context context, int daysBack) {
@@ -302,6 +445,23 @@ public final class MobileTransactionParser {
         return cleaned;
     }
 
+    private static String detectPaymentMethod(String app, String fullText) {
+        String lower = (fullText != null ? fullText : "").toLowerCase(Locale.ROOT);
+        if (lower.contains("credit card") || lower.contains("debit card") || lower.contains("pos ") || lower.contains("card ending")) {
+            return "Card";
+        }
+        if (lower.contains("atm") || lower.contains("cash withdrawal")) {
+            return "Cash / ATM";
+        }
+        if (lower.contains("neft") || lower.contains("imps") || lower.contains("rtgs")) {
+            return "Bank Transfer";
+        }
+        if (app.contains("GPay") || app.contains("PhonePe") || app.contains("Paytm") || app.contains("BHIM") || lower.contains("upi") || lower.contains("vpa")) {
+            return "UPI";
+        }
+        return "Bank Account";
+    }
+
     private static String detectPaymentApp(String senderOrPkg, String fullText) {
         String s = ((senderOrPkg != null ? senderOrPkg : "") + " " + (fullText != null ? fullText : "")).toLowerCase(Locale.ROOT);
         if (s.contains("nbu.paisa") || s.contains("google pay") || s.contains("gpay") || s.contains("okaxis") || s.contains("okhdfcbank") || s.contains("okicici") || s.contains("oksbi")) {
@@ -336,6 +496,8 @@ public final class MobileTransactionParser {
     }
 
     private static String detectCategory(String merchant, String note, String fullText, String type) {
+        if ("transfer".equalsIgnoreCase(type)) return "transfer";
+        if ("refund".equalsIgnoreCase(type)) return "refund";
         if ("credit".equalsIgnoreCase(type)) {
             String c = (merchant + " " + note + " " + fullText).toLowerCase(Locale.ROOT);
             if (c.contains("salary") || c.contains("payroll")) return "salary";

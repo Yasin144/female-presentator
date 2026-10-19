@@ -122,21 +122,22 @@ assert.match(otGeneratorJs, /OT, SALARY &amp; EXPENSES PRO/);
 assert.match(otGeneratorJs, /OT_SALARY_LIVE_SYNC/);
 assert.match(otGeneratorJs, /mergeIncomingData/);
 
-// 9. Expenses Module & Mobile Transaction / Note Auto-Extraction checks
+// 9. Expenses Module (Expense Memory) & Mobile Transaction / Note Auto-Extraction checks
 assert.match(otSalaryJsx, /ExpensesModule/);
 assert.match(otSalaryJsx, /EXPENSES/);
 assert.match(expensesModuleJsx, /pattan-mobile-transactions/);
 assert.match(expensesModuleJsx, /parseSmsOrUpiTextJs/);
 assert.match(expensesModuleJsx, /triggerMobileTransactionScan/);
-assert.match(expensesModuleJsx, /launchUpiPayment/);
-assert.match(expensesModuleJsx, /Total Transactions Done/);
+assert.match(expensesModuleJsx, /reconcileAndMergeTransactions/);
+assert.match(expensesModuleJsx, /answerNaturalLanguageFinanceQuery/);
 assert.match(expensesModuleJsx, /remainingSalary/);
 assert.match(mobileTxParserJava, /scanSmsInbox/);
 assert.match(mobileTxParserJava, /saveCapturedTransaction/);
+assert.match(mobileTxParserJava, /AndroidKeyStore/);
 assert.match(paymentNotifServiceJava, /NotificationListenerService/);
 assert.match(paymentNotifServiceJava, /ACTION_MOBILE_TXN/);
 assert.match(androidMainActivity, /scanMobileTransactions/);
-assert.match(androidMainActivity, /launchUpiPayment/);
+assert.match(androidMainActivity, /clearSavedMobileTransactions/);
 assert.match(androidMainActivity, /openNotificationListenerSettings/);
 assert.match(otGeneratorJs, /tab-expenses/);
 assert.match(otGeneratorJs, /expScanMobileBtn/);
