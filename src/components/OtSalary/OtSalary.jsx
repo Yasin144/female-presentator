@@ -2229,7 +2229,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   textTransform: 'uppercase',
                   color: '#fde047',
                 }}>
-                  EXECUTIVE ATTENDANCE, PAYROLL &amp; EXPENSES
+                  EXECUTIVE ATTENDANCE, PAYROLL &amp; EXPENSE MEMORY v3.0
                 </span>
                 <span style={{
                   padding: '2px 7px',
@@ -2241,7 +2241,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   fontWeight: 900,
                   letterSpacing: '0.06em',
                 }}>
-                  ● LIVE SYNC
+                  ● LIVE SYNC · v3.0
                 </span>
               </div>
               <div style={{
@@ -2254,10 +2254,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 lineHeight: 1.15,
                 marginTop: 2,
               }}>
-                OT &amp; SALARY PRO
+                OT &amp; SALARY PRO + EXPENSE MEMORY
               </div>
               <div style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700, marginTop: 2 }}>
-                Biometric OT &amp; Mobile Expenses Studio · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
+                Smart Transaction Detection · Personal Finance Assistant · Biometric OT · ₹{formatINR(rates.perDaySalary)}/day
               </div>
             </div>
           </div>
@@ -2377,11 +2377,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             style={{
               padding: mobileMode ? '11px 10px' : '12px 16px',
               borderRadius: 13,
-              border: mobileTab === 'expenses' ? '1.5px solid rgba(244, 114, 182, 0.8)' : '1px solid rgba(244, 114, 182, 0.25)',
+              border: mobileTab === 'expenses' ? '1.5px solid rgba(244, 114, 182, 0.8)' : '1px solid rgba(244, 114, 182, 0.4)',
               background: mobileTab === 'expenses'
-                ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.32), rgba(139, 92, 246, 0.28))'
-                : 'rgba(236, 72, 153, 0.06)',
-              color: mobileTab === 'expenses' ? '#fdf2f8' : '#f9a8d4',
+                ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.35), rgba(139, 92, 246, 0.3))'
+                : 'rgba(236, 72, 153, 0.12)',
+              color: mobileTab === 'expenses' ? '#fdf2f8' : '#fbcfe8',
               fontWeight: 950,
               fontSize: mobileMode ? 12.5 : 14,
               cursor: 'pointer',
@@ -2391,12 +2391,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               gap: 8,
             }}
           >
-            <span>💸 EXPENSES</span>
+            <span>💸 EXPENSE MEMORY</span>
             <span style={{
               padding: '2px 7px',
               borderRadius: 999,
-              background: 'rgba(244, 63, 94, 0.25)',
-              border: '1px solid rgba(251, 113, 133, 0.45)',
+              background: 'rgba(244, 63, 94, 0.28)',
+              border: '1px solid rgba(251, 113, 133, 0.5)',
               color: '#fecdd3',
               fontSize: 10.5,
               fontWeight: 900,
@@ -2554,8 +2554,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
-        {/* EXPENSES MODULE (MOBILE TRANSACTION & NOTE TRACKER) */}
-        {showExpensesSection && (
+        {/* EXPENSES MODULE (EXPENSE MEMORY — SHOWN ON EXPENSES TAB AND DIRECTLY ON HOME / TODAY VIEW) */}
+        {(showExpensesSection || showTodaySection) && (
           <ExpensesModule
             expensesMap={expensesMap}
             onUpdateExpenses={handleUpdateExpenses}

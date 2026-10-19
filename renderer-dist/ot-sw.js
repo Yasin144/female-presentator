@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pattan-ot-salary-mobile-v2';
+const CACHE_NAME = 'pattan-ot-salary-mobile-v4';
 const CORE_URLS = [
   '/ot',
   '/?app=ot',
@@ -28,7 +28,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return;
 
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-store' })
       .then((res) => {
         if (res && res.status === 200) {
           const clone = res.clone();
@@ -39,3 +39,4 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(req).then((cached) => cached || caches.match('/ot')))
   );
 });
+

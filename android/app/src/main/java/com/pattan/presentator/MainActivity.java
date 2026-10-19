@@ -75,7 +75,11 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         bridge.setWebViewClient(new RecoveringWebViewClient());
         if (bridge != null && bridge.getWebView() != null) {
-            bridge.getWebView().addJavascriptInterface(new PattanBiometricBridge(), "PattanBiometric");
+            WebView wv = bridge.getWebView();
+            wv.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+            wv.clearCache(true);
+            wv.addJavascriptInterface(new PattanBiometricBridge(), "PattanBiometric");
+            wv.reload();
         }
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
