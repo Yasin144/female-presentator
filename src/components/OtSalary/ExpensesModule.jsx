@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -459,6 +459,15 @@ export default function ExpensesModule({
   const [smsGranted, setSmsGranted] = useState(false);
   const [undoBanner, setUndoBanner] = useState(null);
 
+  // Refs for bulletproof state freshness & intelligent inner scrollers
+  const expensesMapRef = useRef(expensesMap);
+  useEffect(() => {
+    expensesMapRef.current = expensesMap;
+  }, [expensesMap]);
+  const recentScrollerRef = useRef(null);
+  const transactionsScrollerRef = useRef(null);
+  const missingNotesScrollerRef = useRef(null);
+
   const storageStatus = useMemo(() => getExpenseStorageStatus(), [notifGranted, expensesMap]);
 
   const isLight = themeMode === 'light';
@@ -512,13 +521,15 @@ export default function ExpensesModule({
   const mergeDetectedTransactions = useCallback(
     (incomingList, sourceLabel = 'mobile-auto') => {
       if (!Array.isArray(incomingList) || incomingList.length === 0) return 0;
+      const latestMap = expensesMapRef.current || expensesMap || {};
       const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
-        expensesMap || {},
+        latestMap,
         incomingList,
         sourceLabel
       );
       const totalChanges = addedCount + updatedCount;
       if (totalChanges > 0 && typeof onUpdateExpenses === 'function') {
+        expensesMapRef.current = nextMap;
         onUpdateExpenses(
           nextMap,
           `📲 Synced ${addedCount} new & ${updatedCount} updated transaction${totalChanges === 1 ? '' : 's'}`
@@ -842,7 +853,8 @@ export default function ExpensesModule({
 
   const getMaterializedBaseMap = useCallback(() => {
     const clean = {};
-    for (const [k, v] of Object.entries(expensesMap || {})) {
+    const combined = { ...(expensesMap || {}), ...(expensesMapRef.current || {}) };
+    for (const [k, v] of Object.entries(combined)) {
       if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview) {
         const copy = { ...v };
         delete copy._deleted;
@@ -2266,31 +2278,82 @@ export default function ExpensesModule({
             border: `1px solid ${palette.border}`,
             padding: mobileMode ? '14px 12px' : '16px',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
               <div>
-                <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text }}>
-                  Recent Payments (Permanent Ledger)
+                <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>Recent Payments (Permanent Ledger)</span>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(16, 185, 129, 0.38)',
+                    color: '#34d399',
+                    fontSize: 10,
+                    fontWeight: 900,
+                  }}>
+                    📜 Inner Scroller · {recentPaymentsList.length} Saved (Unlimited)
+                  </span>
                 </div>
                 <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                  🔒 Never deleted · Shows Name, Time, Purpose/Thing &amp; Amount
+                  🔒 Never deleted · All edits permanently saved · Scroll inside passbook box
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSubTab('transactions')}
-                style={{
-                  background: 'rgba(59, 130, 246, 0.14)',
-                  border: '1px solid rgba(59, 130, 246, 0.35)',
-                  borderRadius: 999,
-                  padding: '5px 12px',
-                  color: '#60a5fa',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                See All ({recentPaymentsList.length}) ›
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {recentPaymentsList.length > 3 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                      style={{
+                        padding: '5px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                      title="Scroll to Latest (Top)"
+                    >
+                      ↑ Top
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                      style={{
+                        padding: '5px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                      title="Scroll to Oldest (Bottom)"
+                    >
+                      ↓ Bottom
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSubTab('transactions')}
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.14)',
+                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                    borderRadius: 999,
+                    padding: '5px 12px',
+                    color: '#60a5fa',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  See All ({recentPaymentsList.length}) ›
+                </button>
+              </div>
             </div>
 
             {recentPaymentsList.length === 0 ? (
@@ -2336,8 +2399,23 @@ export default function ExpensesModule({
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {recentPaymentsList.slice(0, 12).map((tx) => {
+              <div
+                ref={recentScrollerRef}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  maxHeight: mobileMode ? 440 : 520,
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  paddingRight: 4,
+                  scrollBehavior: 'smooth',
+                }}
+              >
+                {recentPaymentsList.map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
                   const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
                   const hasNote = Boolean(noteText);
@@ -2840,223 +2918,299 @@ export default function ExpensesModule({
             </div>
           )}
 
-          {/* Grouped Transactions List (Screen 8) */}
+          {/* Inner Scroller Control Bar & Grouped Transactions List (Screen 8) */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            padding: '6px 10px',
+            borderRadius: 12,
+            background: palette.surfaceAlt,
+            border: `1px solid ${palette.border}`,
+          }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
+              📜 Passbook Inner Scroller · {filteredTransactions.length} Unlimited Transactions
+            </span>
+            {filteredTransactions.length > 3 && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.textSub,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ↑ Top
+                </button>
+                <button
+                  type="button"
+                  onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.textSub,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ↓ Bottom
+                </button>
+              </div>
+            )}
+          </div>
+
           {groupedByDay.length === 0 ? (
             <div style={{ padding: '26px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
               Nothing matched your search. Try a different keyword or filter.
             </div>
           ) : (
-            groupedByDay.map((group) => (
-              <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: palette.textMuted,
-                  marginTop: 4,
-                }}>
-                  <span>{group.label}</span>
-                  <span>
-                    {group.daySpent > 0 ? `-₹${formatINRShort(group.daySpent)}` : ''}
-                    {group.daySpent > 0 && group.dayReceived > 0 ? ' · ' : ''}
-                    {group.dayReceived > 0 ? `+₹${formatINRShort(group.dayReceived)}` : ''}
-                  </span>
-                </div>
-                {group.items.map((tx) => {
-                  const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                  const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
-                  const hasNote = Boolean(noteText);
-                  const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
-                  const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                  const txBal = Number.isFinite(Number(tx.runningBalance))
-                    ? Number(tx.runningBalance)
-                    : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
-                      ? Number(tx.accountBalance)
-                      : null);
-                  return (
-                    <div
-                      key={tx.id}
-                      style={{
-                        padding: mobileMode ? '12px' : '14px',
-                        borderRadius: 16,
-                        background: palette.surfaceAlt,
-                        border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
-                    >
+            <div
+              ref={transactionsScrollerRef}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                maxHeight: mobileMode ? 520 : 640,
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                WebkitOverflowScrolling: 'touch',
+                paddingRight: 4,
+                scrollBehavior: 'smooth',
+              }}
+            >
+              {groupedByDay.map((group) => (
+                <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                    background: palette.surface,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    borderBottom: `1px solid ${palette.border}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: palette.textMuted,
+                    marginTop: 2,
+                  }}>
+                    <span>{group.label}</span>
+                    <span>
+                      {group.daySpent > 0 ? `-₹${formatINRShort(group.daySpent)}` : ''}
+                      {group.daySpent > 0 && group.dayReceived > 0 ? ' · ' : ''}
+                      {group.dayReceived > 0 ? `+₹${formatINRShort(group.dayReceived)}` : ''}
+                    </span>
+                  </div>
+                  {group.items.map((tx) => {
+                    const isCredit = tx.type === 'credit' || tx.type === 'refund';
+                    const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                    const hasNote = Boolean(noteText);
+                    const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                    const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                    const txBal = Number.isFinite(Number(tx.runningBalance))
+                      ? Number(tx.runningBalance)
+                      : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
+                        ? Number(tx.accountBalance)
+                        : null);
+                    return (
                       <div
-                        onClick={() => setSelectedTxId(tx.id)}
+                        key={tx.id}
                         style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          gap: 10,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
-                          <BrandPaymentAvatar tx={tx} size={40} />
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
-                                {tx.merchant || tx.app || (isCredit ? 'Bank Deposit' : 'Payment')}
-                              </span>
-                              <span style={{
-                                padding: '2px 7px',
-                                borderRadius: 999,
-                                fontSize: 9.5,
-                                fontWeight: 900,
-                                background: isCredit ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.14)',
-                                border: isCredit ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(244, 63, 94, 0.35)',
-                                color: isCredit ? '#34d399' : '#fb7185',
-                              }}>
-                                {isCredit ? '💰 DEPOSIT / IN' : '💸 PAID / OUT'}
-                              </span>
-                            </div>
-                            <div style={{
-                              fontSize: 11.5,
-                              color: palette.textMuted,
-                              fontWeight: 700,
-                              marginTop: 3,
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: 6,
-                              alignItems: 'center',
-                            }}>
-                              <span>🕒 {formatTime12h(tx.time)}</span>
-                              <span>·</span>
-                              <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
-                              {tx.accountMask && (
-                                <>
-                                  <span>·</span>
-                                  <span>A/c {tx.accountMask}</span>
-                                </>
-                              )}
-                              {tx.refId && (
-                                <>
-                                  <span>·</span>
-                                  <span>Ref: {String(tx.refId).slice(-8)}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                            {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
-                          </div>
-                          {txBal !== null && (
-                            <div style={{
-                              fontSize: 10.5,
-                              fontWeight: 900,
-                              color: '#34d399',
-                              marginTop: 2,
-                              background: 'rgba(16, 185, 129, 0.12)',
-                              padding: '2px 6px',
-                              borderRadius: 6,
-                              display: 'inline-block',
-                            }}>
-                              🏦 Bal: ₹{formatINR(txBal)}
-                            </div>
-                          )}
-                          <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            🔒 {tx.category || 'Payment'} ›
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          padding: '7px 10px',
-                          borderRadius: 10,
-                          background: hasNote
-                            ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
-                            : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
-                          border: hasNote
-                            ? '1px solid rgba(59, 130, 246, 0.35)'
-                            : '1px dashed rgba(245, 158, 11, 0.45)',
+                          padding: mobileMode ? '12px' : '14px',
+                          borderRadius: 16,
+                          background: palette.surfaceAlt,
+                          border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
                           display: 'flex',
                           flexDirection: 'column',
-                          gap: 6,
+                          gap: 8,
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
-                            📌 <strong>For What / Which Thing:</strong>{' '}
-                            {hasNote ? noteText : 'Not noted yet — write what you bought/paid for'}
+                        <div
+                          onClick={() => setSelectedTxId(tx.id)}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 10,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                            <BrandPaymentAvatar tx={tx} size={40} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
+                                  {tx.merchant || tx.app || (isCredit ? 'Bank Deposit' : 'Payment')}
+                                </span>
+                                <span style={{
+                                  padding: '2px 7px',
+                                  borderRadius: 999,
+                                  fontSize: 9.5,
+                                  fontWeight: 900,
+                                  background: isCredit ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.14)',
+                                  border: isCredit ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(244, 63, 94, 0.35)',
+                                  color: isCredit ? '#34d399' : '#fb7185',
+                                }}>
+                                  {isCredit ? '💰 DEPOSIT / IN' : '💸 PAID / OUT'}
+                                </span>
+                              </div>
+                              <div style={{
+                                fontSize: 11.5,
+                                color: palette.textMuted,
+                                fontWeight: 700,
+                                marginTop: 3,
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                alignItems: 'center',
+                              }}>
+                                <span>🕒 {formatTime12h(tx.time)}</span>
+                                <span>·</span>
+                                <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
+                                {tx.accountMask && (
+                                  <>
+                                    <span>·</span>
+                                    <span>A/c {tx.accountMask}</span>
+                                  </>
+                                )}
+                                {tx.refId && (
+                                  <>
+                                    <span>·</span>
+                                    <span>Ref: {String(tx.refId).slice(-8)}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          {hasNote && !isEditingInline && (
-                            <button
-                              type="button"
-                              onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: 7,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surface,
-                                color: '#60a5fa',
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                              {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
+                            </div>
+                            {txBal !== null && (
+                              <div style={{
                                 fontSize: 10.5,
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              ✏️ Edit Note
-                            </button>
+                                fontWeight: 900,
+                                color: '#34d399',
+                                marginTop: 2,
+                                background: 'rgba(16, 185, 129, 0.12)',
+                                padding: '2px 6px',
+                                borderRadius: 6,
+                                display: 'inline-block',
+                              }}>
+                                🏦 Bal: ₹{formatINR(txBal)}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                              🔒 {tx.category || 'Payment'} ›
+                            </div>
+                          </div>
+                        </div>
+
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            padding: '7px 10px',
+                            borderRadius: 10,
+                            background: hasNote
+                              ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
+                              : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
+                            border: hasNote
+                              ? '1px solid rgba(59, 130, 246, 0.35)'
+                              : '1px dashed rgba(245, 158, 11, 0.45)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
+                              📌 <strong>For What / Which Thing:</strong>{' '}
+                              {hasNote ? noteText : 'Not noted yet — write what you bought/paid for'}
+                            </div>
+                            {hasNote && !isEditingInline && (
+                              <button
+                                type="button"
+                                onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: 7,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: '#60a5fa',
+                                  fontSize: 10.5,
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✏️ Edit Note
+                              </button>
+                            )}
+                          </div>
+                          {(!hasNote || isEditingInline) && (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input
+                                type="text"
+                                value={inlineDraft}
+                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && inlineDraft.trim()) {
+                                    handleUpdatePersonalNote(tx.id, inlineDraft);
+                                  }
+                                }}
+                                placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch)..."
+                                style={{
+                                  flex: '1 1 180px',
+                                  padding: '6px 10px',
+                                  borderRadius: 8,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.text,
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  outline: 'none',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: 8,
+                                  border: 'none',
+                                  background: '#2563eb',
+                                  color: '#fff',
+                                  fontWeight: 800,
+                                  fontSize: 11,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Save Note
+                              </button>
+                            </div>
                           )}
                         </div>
-                        {(!hasNote || isEditingInline) && (
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <input
-                              type="text"
-                              value={inlineDraft}
-                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && inlineDraft.trim()) {
-                                  handleUpdatePersonalNote(tx.id, inlineDraft);
-                                }
-                              }}
-                              placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch)..."
-                              style={{
-                                flex: '1 1 180px',
-                                padding: '6px 10px',
-                                borderRadius: 8,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surface,
-                                color: palette.text,
-                                fontSize: 11.5,
-                                fontWeight: 700,
-                                outline: 'none',
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                              style={{
-                                padding: '6px 12px',
-                                borderRadius: 8,
-                                border: 'none',
-                                background: '#2563eb',
-                                color: '#fff',
-                                fontWeight: 800,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Save Note
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -3606,7 +3760,73 @@ export default function ExpensesModule({
               <div style={{ marginTop: 4 }}>Every tracked transaction has a personal memory note.</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 10px',
+                borderRadius: 12,
+                background: palette.surfaceAlt,
+                border: `1px solid ${palette.border}`,
+              }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fbbf24' }}>
+                  📜 Inner Scroller · {filteredMissingNotes.active.length} Pending Note(s)
+                </span>
+                {filteredMissingNotes.active.length > 3 && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => missingNotesScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                      style={{
+                        padding: '4px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surface,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↑ Top
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => missingNotesScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                      style={{
+                        padding: '4px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surface,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↓ Bottom
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div
+                ref={missingNotesScrollerRef}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  maxHeight: mobileMode ? 480 : 580,
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  paddingRight: 4,
+                  scrollBehavior: 'smooth',
+                }}
+              >
               {filteredMissingNotes.active.map((tx) => {
                 const draft = inlineNoteDrafts[tx.id] ?? '';
                 return (
@@ -3718,7 +3938,8 @@ export default function ExpensesModule({
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </>
           )}
         </div>
       )}

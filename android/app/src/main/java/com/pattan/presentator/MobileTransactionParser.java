@@ -37,6 +37,8 @@ public final class MobileTransactionParser {
     private static final String KEY_BANK_BALANCE_ENC = "bank_account_balance_enc_v1";
     private static final String KEY_TXNS_LEGACY = "captured_transactions_json";
     private static final String PERMANENT_VAULT_FILE = "permanent_expense_vault.enc";
+    private static final String PERMANENT_BANK_BALANCE_FILE = "permanent_bank_balance.enc";
+    private static final String PERMANENT_CAPTURED_ARRAY_FILE = "permanent_captured_txns.enc";
     private static final String KEYSTORE_ALIAS = "PattanExpenseMemoryAesKey";
 
     public static final Set<String> ALLOWED_PAYMENT_PACKAGES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -554,10 +556,10 @@ public final class MobileTransactionParser {
         }
     }
 
-    private static String readPermanentVaultEncrypted(Context context) {
-        if (context == null) return "";
+    private static String readNoBackupEncryptedFile(Context context, String fileName) {
+        if (context == null || fileName == null) return "";
         try {
-            File f = new File(context.getNoBackupFilesDir(), PERMANENT_VAULT_FILE);
+            File f = new File(context.getNoBackupFilesDir(), fileName);
             if (!f.exists() || f.length() <= 0) return "";
             byte[] buf = new byte[(int) f.length()];
             try (FileInputStream fis = new FileInputStream(f)) {
@@ -570,15 +572,23 @@ public final class MobileTransactionParser {
         return "";
     }
 
-    private static void writePermanentVaultEncrypted(Context context, String encrypted) {
-        if (context == null || encrypted == null || encrypted.isEmpty()) return;
+    private static void writeNoBackupEncryptedFile(Context context, String fileName, String encrypted) {
+        if (context == null || fileName == null || encrypted == null || encrypted.isEmpty()) return;
         try {
-            File f = new File(context.getNoBackupFilesDir(), PERMANENT_VAULT_FILE);
+            File f = new File(context.getNoBackupFilesDir(), fileName);
             try (FileOutputStream fos = new FileOutputStream(f, false)) {
                 fos.write(encrypted.getBytes(StandardCharsets.UTF_8));
                 fos.flush();
             }
         } catch (Exception ignored) {}
+    }
+
+    private static String readPermanentVaultEncrypted(Context context) {
+        return readNoBackupEncryptedFile(context, PERMANENT_VAULT_FILE);
+    }
+
+    private static void writePermanentVaultEncrypted(Context context, String encrypted) {
+        writeNoBackupEncryptedFile(context, PERMANENT_VAULT_FILE, encrypted);
     }
 
     private static void mergeCleanJsonIntoMap(JSONObject target, String plainJson) {
@@ -596,12 +606,56 @@ public final class MobileTransactionParser {
                     if (target.has(k)) {
                         JSONObject existing = target.optJSONObject(k);
                         if (existing != null) {
-                            // Preserve existing note/purpose if incoming is empty
+                            long existingUpdatedAt = existing.optLong("updatedAtMs", 0L);
+                            long incomingUpdatedAt = v.optLong("updatedAtMs", 0L);
+                            boolean existingUserConfirmed = "user_confirmed".equalsIgnoreCase(existing.optString("detectionStatus", ""))
+                                || existing.optBoolean("noteReviewed", false)
+                                || !existing.optString("personalNote", "").isEmpty();
+                            boolean incomingUserConfirmed = "user_confirmed".equalsIgnoreCase(v.optString("detectionStatus", ""))
+                                || v.optBoolean("noteReviewed", false);
+
+                            // If existing record has a newer timestamp or user-confirmed edits and incoming is an older auto-scan,
+                            // keep existing as primary so user edits (note, merchant, category, amount, tags) are NEVER lost!
+                            if (existingUpdatedAt > incomingUpdatedAt || (existingUserConfirmed && !incomingUserConfirmed && incomingUpdatedAt <= existingUpdatedAt)) {
+                                if (existing.optString("refId", "").isEmpty() && !v.optString("refId", "").isEmpty()) {
+                                    existing.put("refId", v.optString("refId", ""));
+                                }
+                                if (existing.optString("accountMask", "").isEmpty() && !v.optString("accountMask", "").isEmpty()) {
+                                    existing.put("accountMask", v.optString("accountMask", ""));
+                                }
+                                if (!existing.has("accountBalance") && v.has("accountBalance")) {
+                                    existing.put("accountBalance", v.optDouble("accountBalance", 0.0));
+                                }
+                                if (existing.optString("originalRemark", "").isEmpty() && !v.optString("originalRemark", "").isEmpty()) {
+                                    existing.put("originalRemark", v.optString("originalRemark", ""));
+                                }
+                                existing.put("_deleted", false);
+                                existing.put("rawText", "");
+                                target.put(k, existing);
+                                continue;
+                            }
+
+                            // Otherwise incoming is newer/equal: still preserve existing non-empty notes/metadata if incoming is blank
                             if (v.optString("personalNote", "").isEmpty() && !existing.optString("personalNote", "").isEmpty()) {
                                 v.put("personalNote", existing.optString("personalNote", ""));
                             }
                             if (v.optString("note", "").isEmpty() && !existing.optString("note", "").isEmpty()) {
                                 v.put("note", existing.optString("note", ""));
+                            }
+                            if (v.optString("originalRemark", "").isEmpty() && !existing.optString("originalRemark", "").isEmpty()) {
+                                v.put("originalRemark", existing.optString("originalRemark", ""));
+                            }
+                            if (v.optString("refId", "").isEmpty() && !existing.optString("refId", "").isEmpty()) {
+                                v.put("refId", existing.optString("refId", ""));
+                            }
+                            if (v.optString("accountMask", "").isEmpty() && !existing.optString("accountMask", "").isEmpty()) {
+                                v.put("accountMask", existing.optString("accountMask", ""));
+                            }
+                            if (!v.has("accountBalance") && existing.has("accountBalance")) {
+                                v.put("accountBalance", existing.optDouble("accountBalance", 0.0));
+                            }
+                            if (existing.optBoolean("noteReviewed", false)) {
+                                v.put("noteReviewed", true);
                             }
                         }
                     }
@@ -687,7 +741,12 @@ public final class MobileTransactionParser {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             String enc = prefs.getString(KEY_BANK_BALANCE_ENC, "");
             if (enc != null && !enc.isEmpty()) {
-                return decryptJsonString(enc, "{}");
+                String plain = decryptJsonString(enc, "{}");
+                if (!"{}".equals(plain)) return plain;
+            }
+            String fileEnc = readNoBackupEncryptedFile(context, PERMANENT_BANK_BALANCE_FILE);
+            if (fileEnc != null && !fileEnc.isEmpty()) {
+                return decryptJsonString(fileEnc, "{}");
             }
             return "{}";
         } catch (Exception ignored) {
@@ -705,6 +764,7 @@ public final class MobileTransactionParser {
             prefs.edit()
                 .putString(KEY_BANK_BALANCE_ENC, encrypted)
                 .apply();
+            writeNoBackupEncryptedFile(context, PERMANENT_BANK_BALANCE_FILE, encrypted);
             return true;
         } catch (Exception ignored) {
             return false;
@@ -766,7 +826,7 @@ public final class MobileTransactionParser {
 
             JSONArray next = new JSONArray();
             next.put(tx);
-            for (int i = 0; i < arr.length() && next.length() < 500; i++) {
+            for (int i = 0; i < arr.length() && next.length() < 10000; i++) {
                 JSONObject item = arr.optJSONObject(i);
                 if (item == null) continue;
                 item.put("rawText", "");
@@ -778,6 +838,9 @@ public final class MobileTransactionParser {
                     && Math.abs(tx.optDouble("amount", 0) - item.optDouble("amount", 0)) < 0.01;
                 if (sameId || sameRef) {
                     alreadyExisted = true;
+                    if (tx.optString("personalNote", "").isEmpty() && !item.optString("personalNote", "").isEmpty()) {
+                        tx.put("personalNote", item.optString("personalNote", ""));
+                    }
                     if (tx.optString("note", "").isEmpty() && !item.optString("note", "").isEmpty()) {
                         tx.put("note", item.optString("note", ""));
                     }
@@ -786,6 +849,17 @@ public final class MobileTransactionParser {
                     }
                     if (!tx.has("accountBalance") && item.has("accountBalance")) {
                         tx.put("accountBalance", item.optDouble("accountBalance", 0));
+                    }
+                    if (item.optBoolean("noteReviewed", false)) {
+                        tx.put("noteReviewed", true);
+                    }
+                    if ("user_confirmed".equalsIgnoreCase(item.optString("detectionStatus", "")) || item.optLong("updatedAtMs", 0L) > tx.optLong("updatedAtMs", 0L)) {
+                        if (!item.optString("merchant", "").isEmpty()) tx.put("merchant", item.optString("merchant", ""));
+                        if (!item.optString("category", "").isEmpty()) tx.put("category", item.optString("category", ""));
+                        if (!item.optString("personalNote", "").isEmpty()) tx.put("personalNote", item.optString("personalNote", ""));
+                        if (!item.optString("note", "").isEmpty()) tx.put("note", item.optString("note", ""));
+                        tx.put("detectionStatus", item.optString("detectionStatus", "user_confirmed"));
+                        tx.put("updatedAtMs", item.optLong("updatedAtMs", System.currentTimeMillis()));
                     }
                     continue;
                 }
@@ -833,6 +907,7 @@ public final class MobileTransactionParser {
                     .putString(KEY_TXNS_ENC, encrypted)
                     .remove(KEY_TXNS_LEGACY)
                     .apply();
+                writeNoBackupEncryptedFile(context, PERMANENT_CAPTURED_ARRAY_FILE, encrypted);
             }
 
             // Also merge into the encrypted Expense Memory map
@@ -850,7 +925,12 @@ public final class MobileTransactionParser {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             String enc = prefs.getString(KEY_TXNS_ENC, "");
             if (enc != null && !enc.isEmpty()) {
-                return new JSONArray(decryptJsonString(enc, "[]"));
+                JSONArray arr = new JSONArray(decryptJsonString(enc, "[]"));
+                if (arr.length() > 0) return arr;
+            }
+            String fileEnc = readNoBackupEncryptedFile(context, PERMANENT_CAPTURED_ARRAY_FILE);
+            if (fileEnc != null && !fileEnc.isEmpty()) {
+                return new JSONArray(decryptJsonString(fileEnc, "[]"));
             }
             return new JSONArray();
         } catch (Exception ignored) {

@@ -877,5 +877,59 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('openCheckBalanceModal'), true);
       assert.equal(expensesSrc.includes('🏦 Check Balance'), true);
     });
+
+    it('permanently preserves all user edits (note, merchant, category, amount) across repeated notification rescans and enables unlimited inner scrollers', () => {
+      const baseTs = new Date('2026-10-19T14:00:00+05:30').getTime();
+      const rawNotif = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.nbu.paisa.user',
+        title: 'Google Pay',
+        body: 'Paid ₹100.00 to UPI / Payment via GPay. UPI Ref ID: 998877665544.',
+        timestampMs: baseTs,
+      });
+      assert.ok(rawNotif);
+
+      let map = reconcileAndMergeTransactions({}, [rawNotif], 'android-notif').nextMap;
+      const txId = rawNotif.id;
+      assert.ok(map[txId]);
+
+      // Simulate user editing the transaction note, merchant name, and category
+      const editedRecord = {
+        ...map[txId],
+        merchant: 'Irani Chai Bakery',
+        personalNote: 'Evening tea & snacks with team',
+        note: 'Evening tea & snacks with team',
+        category: 'Food & Dining',
+        noteReviewed: true,
+        detectionStatus: 'user_confirmed',
+        updatedAtMs: baseTs + 60000,
+      };
+      map = { ...map, [txId]: editedRecord };
+
+      // Simulate background 2.5s notification rescan sending the raw unedited notification again
+      const rescanResult = reconcileAndMergeTransactions(map, [rawNotif], 'android-notif');
+      const afterRescan = rescanResult.nextMap[txId];
+      assert.equal(afterRescan.merchant, 'Irani Chai Bakery');
+      assert.equal(afterRescan.personalNote, 'Evening tea & snacks with team');
+      assert.equal(afterRescan.note, 'Evening tea & snacks with team');
+      assert.equal(afterRescan.category, 'Food & Dining');
+      assert.equal(afterRescan.noteReviewed, true);
+      assert.equal(afterRescan.detectionStatus, 'user_confirmed');
+
+      // Verify inner scroller refs and 10,000+ capacity in native parser
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      const javaParserSrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/java/com/pattan/presentator/MobileTransactionParser.java'),
+        'utf8'
+      );
+      assert.equal(expensesSrc.includes('recentScrollerRef'), true);
+      assert.equal(expensesSrc.includes('transactionsScrollerRef'), true);
+      assert.equal(expensesSrc.includes('missingNotesScrollerRef'), true);
+      assert.equal(expensesSrc.includes("overscrollBehavior: 'contain'"), true);
+      assert.equal(javaParserSrc.includes('next.length() < 10000'), true);
+    });
   });
 });
+

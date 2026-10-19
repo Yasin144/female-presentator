@@ -444,30 +444,45 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
     const byId = nextMap[incoming.id];
     if (byId) {
       if (byId._deleted) continue;
-      const mergedNote = byId.note || incoming.note || '';
+      const isUserEdited =
+        byId.detectionStatus === 'user_confirmed' ||
+        Boolean(byId.noteReviewed) ||
+        Boolean(byId.personalNote) ||
+        (Number(byId.updatedAtMs) || 0) > (Number(incoming.updatedAtMs) || 0);
+      const mergedPersonalNote = byId.personalNote || incoming.personalNote || '';
+      const mergedNote = byId.note || mergedPersonalNote || incoming.note || '';
       const mergedOriginalRemark = byId.originalRemark || incoming.originalRemark || '';
-      const mergedBalance = incoming.accountBalance !== null ? incoming.accountBalance : byId.accountBalance;
+      const mergedBalance =
+        byId.accountBalance !== null && byId.accountBalance !== undefined
+          ? byId.accountBalance
+          : incoming.accountBalance !== null && incoming.accountBalance !== undefined
+            ? incoming.accountBalance
+            : null;
       const mergedMask = byId.accountMask || incoming.accountMask || '';
-      const bestMerchant =
-        byId.merchant && !byId.merchant.startsWith('UPI /') && !byId.merchant.startsWith('Bank /')
+      const bestMerchant = isUserEdited
+        ? byId.merchant || incoming.merchant
+        : byId.merchant && !byId.merchant.startsWith('UPI /') && !byId.merchant.startsWith('Bank /')
           ? byId.merchant
           : incoming.merchant || byId.merchant;
       if (
+        mergedPersonalNote !== (byId.personalNote || '') ||
         mergedNote !== byId.note ||
         mergedOriginalRemark !== byId.originalRemark ||
         bestMerchant !== byId.merchant ||
-        mergedBalance !== byId.accountBalance
+        mergedBalance !== byId.accountBalance ||
+        mergedMask !== (byId.accountMask || '')
       ) {
         nextMap[incoming.id] = {
           ...byId,
           merchant: bestMerchant,
           originalRemark: mergedOriginalRemark,
+          personalNote: mergedPersonalNote,
           note: mergedNote,
-          noteReviewed: Boolean(byId.noteReviewed || mergedNote),
+          noteReviewed: Boolean(byId.noteReviewed || mergedPersonalNote || mergedNote),
           accountBalance: mergedBalance,
           accountMask: mergedMask,
-          updatedAt: nowIso,
-          updatedAtMs: nowMs,
+          updatedAt: byId.updatedAt || nowIso,
+          updatedAtMs: Math.max(Number(byId.updatedAtMs) || 0, nowMs),
         };
         mergedCount += 1;
       }
@@ -482,14 +497,15 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
     for (const ex of activeEntries) {
       const sameAmount = Math.abs((Number(ex.amount) || 0) - incoming.amount) < 0.01;
       const sameType = ex.type === incoming.type;
-      if (!sameAmount || !sameType) continue;
 
-      // 2a. Exact Ref ID match -> Confirmed same payment across SMS & Notification
-      if (incoming.refId && ex.refId && incoming.refId === ex.refId) {
+      // 2a. Exact Ref ID match -> Confirmed same payment across SMS & Notification (even if user edited amount/type)
+      if (incoming.refId && ex.refId && incoming.refId === ex.refId && (sameType || ex.detectionStatus === 'user_confirmed')) {
         matchedExisting = ex;
         isExactRefMatch = true;
         break;
       }
+
+      if (!sameAmount || !sameType) continue;
 
       // 2b. Conservative cross-source match within 3 minutes (180,000 ms) when at least one lacks a refId and merchant is generic/same
       const timeDiffMs = Math.abs((Number(ex.timestampMs) || 0) - incoming.timestampMs);
@@ -511,26 +527,38 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
     }
 
     if (matchedExisting && isExactRefMatch) {
-      // Merge enrichments into the existing record without creating a second transaction
-      const mergedNote = matchedExisting.note || incoming.note || '';
+      // Merge enrichments into the existing record without creating a second transaction or overwriting user edits
+      const isUserEdited =
+        matchedExisting.detectionStatus === 'user_confirmed' ||
+        Boolean(matchedExisting.noteReviewed) ||
+        Boolean(matchedExisting.personalNote);
+      const mergedPersonalNote = matchedExisting.personalNote || incoming.personalNote || '';
+      const mergedNote = matchedExisting.note || mergedPersonalNote || incoming.note || '';
       const mergedRemark = matchedExisting.originalRemark || incoming.originalRemark || '';
-      const mergedBalance = incoming.accountBalance !== null ? incoming.accountBalance : matchedExisting.accountBalance;
+      const mergedBalance =
+        matchedExisting.accountBalance !== null && matchedExisting.accountBalance !== undefined
+          ? matchedExisting.accountBalance
+          : incoming.accountBalance !== null && incoming.accountBalance !== undefined
+            ? incoming.accountBalance
+            : null;
       const mergedMask = matchedExisting.accountMask || incoming.accountMask || '';
-      const bestMerchant =
-        matchedExisting.merchant && !matchedExisting.merchant.startsWith('UPI /')
+      const bestMerchant = isUserEdited
+        ? matchedExisting.merchant || incoming.merchant
+        : matchedExisting.merchant && !matchedExisting.merchant.startsWith('UPI /')
           ? matchedExisting.merchant
           : incoming.merchant || matchedExisting.merchant;
       nextMap[matchedExisting.id] = {
         ...matchedExisting,
         merchant: bestMerchant,
         originalRemark: mergedRemark,
+        personalNote: mergedPersonalNote,
         note: mergedNote,
-        noteReviewed: Boolean(matchedExisting.noteReviewed || mergedNote),
+        noteReviewed: Boolean(matchedExisting.noteReviewed || mergedPersonalNote || mergedNote),
         refId: matchedExisting.refId || incoming.refId,
         accountBalance: mergedBalance,
         accountMask: mergedMask,
-        updatedAt: nowIso,
-        updatedAtMs: nowMs,
+        updatedAt: matchedExisting.updatedAt || nowIso,
+        updatedAtMs: Math.max(Number(matchedExisting.updatedAtMs) || 0, nowMs),
       };
       mergedCount += 1;
       continue;

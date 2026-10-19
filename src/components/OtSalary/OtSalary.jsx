@@ -1519,9 +1519,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [pcSyncOptIn, getCandidateLanBases, applyIncomingStore]);
 
   const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = 'Updated Expenses') => {
-    expensesMapRef.current = nextExpensesMap;
-    setExpensesMap(nextExpensesMap);
-    persistStore(settings, daysMap, noticeMessage, nextExpensesMap);
+    const merged = { ...(expensesMapRef.current || {}), ...(nextExpensesMap || {}) };
+    expensesMapRef.current = merged;
+    setExpensesMap(merged);
+    saveEncryptedExpenseStore(merged);
+    persistStore(settings, daysMap, noticeMessage, merged);
   }, [settings, daysMap, persistStore]);
 
   // Global listener & auto-sync for real UPI / Bank payment notifications across all tabs
@@ -1554,12 +1556,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       try {
         const encLoaded = loadEncryptedExpenseStore();
         if (encLoaded && encLoaded.ready && encLoaded.expenses && Object.keys(encLoaded.expenses).length > 0) {
-          const currentKeys = Object.keys(expensesMapRef.current || {});
-          const loadedKeys = Object.keys(encLoaded.expenses);
-          if (loadedKeys.some((k) => !currentKeys.includes(k))) {
-            const merged = { ...(expensesMapRef.current || {}), ...encLoaded.expenses };
+          const currentMap = expensesMapRef.current || {};
+          let hasNewOrUpdated = false;
+          const merged = { ...currentMap };
+          for (const [k, diskVal] of Object.entries(encLoaded.expenses)) {
+            if (!diskVal || typeof diskVal !== 'object' || String(k).startsWith('demo_tx_')) continue;
+            const memVal = merged[k];
+            if (!memVal) {
+              merged[k] = diskVal;
+              hasNewOrUpdated = true;
+            } else {
+              const memTs = Number(memVal.updatedAtMs) || 0;
+              const diskTs = Number(diskVal.updatedAtMs) || 0;
+              if (diskTs > memTs && memVal.detectionStatus !== 'user_confirmed') {
+                merged[k] = {
+                  ...diskVal,
+                  personalNote: memVal.personalNote || diskVal.personalNote || '',
+                  note: memVal.note || diskVal.note || '',
+                  noteReviewed: Boolean(memVal.noteReviewed || diskVal.noteReviewed),
+                };
+                hasNewOrUpdated = true;
+              }
+            }
+          }
+          if (hasNewOrUpdated) {
             expensesMapRef.current = merged;
             setExpensesMap(merged);
+            saveEncryptedExpenseStore(merged);
           }
         }
         if (window.PattanBiometric) {
