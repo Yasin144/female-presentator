@@ -764,6 +764,17 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       // 7. Biometric Lock when shifting to Expenses
       assert.equal(otSalarySrc.includes('unlockExpensesWithBiometric'), true);
       assert.equal(otSalarySrc.includes('Private Expense Vault Locked'), true);
+
+      // 8. Normal Office Time Ends & OT Time Starts Notification (Native Android + Live In-App)
+      const alarmReceiverSrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/java/com/pattan/presentator/OfficeEndAlarmReceiver.java'),
+        'utf8'
+      );
+      assert.equal(otSalarySrc.includes('triggerOfficeEndAndOtStartNotification'), true);
+      assert.equal(otSalarySrc.includes('Office Time Ends & OT Time Starts!'), true);
+      assert.equal(mainActivitySrc.includes('triggerOfficeEndOtStartNotification'), true);
+      assert.equal(mainActivitySrc.includes('scheduleOfficeEndOtAlarm'), true);
+      assert.equal(alarmReceiverSrc.includes('showOfficeEndOtStartNotification'), true);
     });
   });
 });

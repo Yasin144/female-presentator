@@ -971,6 +971,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [expensesUnlockBusy, setExpensesUnlockBusy] = useState(false);
   const [expensesUnlockError, setExpensesUnlockError] = useState('');
 
+  // Office Time Ends & OT Time Starts Live Notification Banner state
+  const [otTimeStartedBanner, setOtTimeStartedBanner] = useState(null);
+
   // Multi-Day Select & Bulk Set IN/OUT Time state
   const [selectedBulkDates, setSelectedBulkDates] = useState([]);
   const [bulkInTime, setBulkInTime] = useState(DEFAULT_SETTINGS.officeStartTime);
@@ -2171,11 +2174,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
     if (typeof window !== 'undefined') {
       try {
-        if (
-          window.PattanBiometricBridge &&
-          typeof window.PattanBiometricBridge.sendWhatsAppMessageToNumber === 'function'
-        ) {
-          window.PattanBiometricBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
+        const waBridge = window.PattanBiometric || window.PattanBiometricBridge || window.PattanSecureWhatsApp;
+        if (waBridge && typeof waBridge.sendWhatsAppMessageToNumber === 'function') {
+          waBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
           return true;
         }
       } catch (_) {}
@@ -2187,6 +2188,106 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
     return false;
   }, [settings.employeeName, settings.officeStartTime]);
+
+  // Trigger Notification: "Normal Office Time Ends & OT Time Starts"
+  const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
+    const todayIso = getTodayIsoDate();
+    const empName = normalizeEmployeeName(settings.employeeName);
+    const todayRec = daysMap[todayIso] || {};
+    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
+    const endHHMM = endHHMMOverride || settings.officeEndTime || '18:30';
+    const endFormatted = formatTime12h(endHHMM);
+    const title = '⏰ Office Time Ends & OT Time Starts!';
+    const body = `Hi ${empName}, normal office time (${endFormatted}) has ended! Your Extra Overtime (OT) time and OT pay (+₹${formatINR(rates.otHourlyRate)}/hr) have now started! ⚡`;
+
+    playBiometricBeep('in');
+    triggerBiometricHaptic(140);
+
+    setOtTimeStartedBanner({
+      date: todayIso,
+      officeEndTimeFormatted: endFormatted,
+      inTimeFormatted: formatTime12h(inTimeUsed),
+      startedAtHHMM: getCurrentTime24h(),
+      title,
+      body,
+    });
+    setSaveNotice(`⏰ Normal Office Time (${endFormatted}) Ended — Extra OT Time Started! ⚡`);
+
+    if (typeof window !== 'undefined') {
+      try {
+        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
+        if (nativeBridge && typeof nativeBridge.triggerOfficeEndOtStartNotification === 'function') {
+          nativeBridge.triggerOfficeEndOtStartNotification(title, body);
+        } else if (typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            new Notification(title, { body });
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then((perm) => {
+              if (perm === 'granted') new Notification(title, { body });
+            }).catch(() => {});
+          }
+        }
+      } catch (_) {}
+    }
+  }, [settings.employeeName, settings.officeStartTime, settings.officeEndTime, daysMap, entryInTime, rates.otHourlyRate]);
+
+  // Sync Native Android Daily Alarm for Normal Office End Time & Live Auto-Trigger when Office Time Ends
+  useEffect(() => {
+    const todayIso = getTodayIsoDate();
+    const todayRec = daysMap[todayIso];
+    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
+    let targetEndMins = officeEndDefaultMins;
+    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
+      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
+      targetEndMins = (inM + rates.shiftMins) % 1440;
+    }
+    const endHour24 = Math.floor(targetEndMins / 60);
+    const endMin = targetEndMins % 60;
+
+    if (typeof window !== 'undefined') {
+      try {
+        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
+        if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function') {
+          nativeBridge.scheduleOfficeEndOtAlarm(
+            endHour24,
+            endMin,
+            normalizeEmployeeName(settings.employeeName)
+          );
+        }
+      } catch (_) {}
+    }
+  }, [settings.officeEndTime, settings.officeStartTime, settings.otTimeCalcMode, settings.employeeName, daysMap, rates.shiftMins]);
+
+  useEffect(() => {
+    const todayIso = getTodayIsoDate();
+    const todayRec = daysMap[todayIso];
+    if (todayRec?.status === 'leave') return;
+    if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
+
+    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
+    let targetEndMins = officeEndDefaultMins;
+    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
+      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
+      targetEndMins = (inM + rates.shiftMins) % 1440;
+    }
+
+    const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
+    if (nowMins < 0) return;
+
+    if (nowMins >= targetEndMins) {
+      let alreadyNotifiedDate = '';
+      try {
+        alreadyNotifiedDate = localStorage.getItem('pattan.ot.officeEndNotifiedDate') || '';
+      } catch (_) {}
+      if (alreadyNotifiedDate !== todayIso) {
+        try {
+          localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
+        } catch (_) {}
+        const endHHMM = minutesToTimeInput(targetEndMins);
+        triggerOfficeEndAndOtStartNotification(endHHMM);
+      }
+    }
+  }, [liveClockHHMM, daysMap, settings.officeEndTime, settings.otTimeCalcMode, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
 
   // 1-Tap & Biometric Touch Sensor Live Mobile Punch Actions
   const punchEnterNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
@@ -3000,6 +3101,49 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
+        {/* ⏰ LIVE NOTIFICATION BANNER: NORMAL OFFICE TIME ENDS & OT TIME STARTS */}
+        {otTimeStartedBanner && (
+          <div style={{
+            padding: '12px 14px',
+            borderRadius: 16,
+            background: isLight
+              ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
+              : 'linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(16, 185, 129, 0.18) 100%)',
+            border: '1.5px solid rgba(245, 158, 11, 0.65)',
+            boxShadow: ui.shadow,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#92400e' : '#fde68a' }}>
+                {otTimeStartedBanner.title}
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: ui.textPrimary, marginTop: 2, lineHeight: 1.35 }}>
+                {otTimeStartedBanner.body}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOtTimeStartedBanner(null)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 9,
+                border: `1px solid ${ui.border}`,
+                background: ui.cardSubBg,
+                color: ui.textPrimary,
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              Got It ✓
+            </button>
+          </div>
+        )}
+
         {/* 🔔 NOTIFICATIONS & ACTIVITY CENTER MODAL (Attendance + WhatsApp + Payments) */}
         {showNotificationsModal && (
           <div
@@ -3039,7 +3183,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     🔔 Notifications &amp; Activity Center
                   </div>
                   <div style={{ fontSize: 11, color: ui.textSecondary }}>
-                    Attendance IN/OUT alerts, WhatsApp (+91 7386726193) &amp; UPI Payment notifications
+                    Office End &amp; OT Start alerts, WhatsApp (+91 7386726193) &amp; UPI Payment notifications
                   </div>
                 </div>
                 <button
@@ -3057,6 +3201,52 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   }}
                 >
                   ✕ Close
+                </button>
+              </div>
+
+              {/* ⏰ Normal Office Time Ends & OT Time Starts Alert Card */}
+              <div style={{
+                padding: 12,
+                borderRadius: 14,
+                background: isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.14)',
+                border: '1px solid rgba(245, 158, 11, 0.45)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#92400e' : '#fcd34d' }}>
+                    ⏰ Office Time Ends &amp; OT Time Starts Notification
+                  </div>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.2)',
+                    color: '#10b981',
+                    fontSize: 10,
+                    fontWeight: 900,
+                  }}>
+                    ACTIVE ({formatTime12h(settings.officeEndTime || '18:30')})
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary, lineHeight: 1.4 }}>
+                  Automatically sends an Android system notification + sound/vibration whenever your normal office shift (<strong>{formatTime12h(settings.officeStartTime || '10:00')} – {formatTime12h(settings.officeEndTime || '18:30')}</strong>) ends and Extra Overtime (OT) starts.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => triggerOfficeEndAndOtStartNotification()}
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(245, 158, 11, 0.55)',
+                    background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔔 Test &ldquo;Office Time Ends &amp; OT Time Starts&rdquo; Notification Now
                 </button>
               </div>
 
