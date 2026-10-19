@@ -1591,11 +1591,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     };
 
     syncSavedNativeTransactions();
+    const autoSyncTimer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        syncSavedNativeTransactions();
+      }
+    }, 2500);
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     window.addEventListener('focus', onVisibilityOrFocus);
     document.addEventListener('visibilitychange', onVisibilityOrFocus);
 
     return () => {
+      clearInterval(autoSyncTimer);
       window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
       window.removeEventListener('focus', onVisibilityOrFocus);
       document.removeEventListener('visibilitychange', onVisibilityOrFocus);

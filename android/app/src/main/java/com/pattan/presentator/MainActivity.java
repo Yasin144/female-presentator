@@ -54,6 +54,7 @@ public class MainActivity extends BridgeActivity {
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             String txJson = intent.getStringExtra("tx_json");
+            String balJson = intent.getStringExtra("balance_json");
             if (txJson != null && !txJson.isEmpty()) {
                 try {
                     JSONObject single = new JSONObject(txJson);
@@ -61,6 +62,8 @@ public class MainActivity extends BridgeActivity {
                     arr.put(single);
                     dispatchMobileTransactionsToJs(true, arr, "");
                 } catch (Exception ignored) {}
+            } else if (balJson != null && !balJson.isEmpty()) {
+                dispatchMobileTransactionsToJs(true, new JSONArray(), "");
             }
         }
     };
@@ -172,6 +175,9 @@ public class MainActivity extends BridgeActivity {
     private void performMobileTransactionScanAsync() {
         new Thread(() -> {
             try {
+                // Sweep any currently active status-bar notifications first
+                PaymentNotificationService.rescanActiveNotificationsNow();
+
                 JSONArray combined = new JSONArray();
                 Set<String> seenIds = new HashSet<>();
 
@@ -200,6 +206,12 @@ public class MainActivity extends BridgeActivity {
             payload.put("smsGranted", false);
             payload.put("notifGranted", isNotifListenerEnabledInternal());
             payload.put("transactions", transactions != null ? transactions : new JSONArray());
+            try {
+                String balRaw = MobileTransactionParser.getSavedBankBalanceJson(getApplicationContext());
+                if (balRaw != null && !balRaw.isEmpty()) {
+                    payload.put("bankBalance", new JSONObject(balRaw));
+                }
+            } catch (Exception ignored) {}
             payload.put("error", error != null ? error : "");
             payload.put("timestamp", System.currentTimeMillis());
             final String js = "window.dispatchEvent(new CustomEvent('pattan-mobile-transactions', { detail: " + payload.toString() + " }));";
@@ -366,6 +378,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public String loadEncryptedExpenseStoreJson() {
+            PaymentNotificationService.rescanActiveNotificationsNow();
             return MobileTransactionParser.loadEncryptedExpenseStoreJson(getApplicationContext());
         }
 
@@ -377,11 +390,65 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public String getSavedMobileTransactionsJson() {
             try {
+                PaymentNotificationService.rescanActiveNotificationsNow();
                 JSONArray arr = MobileTransactionParser.getSavedCapturedTransactions(getApplicationContext());
                 return arr != null ? arr.toString() : "[]";
             } catch (Exception ignored) {
                 return "[]";
             }
+        }
+
+        @JavascriptInterface
+        public String getBankBalanceJson() {
+            try {
+                return MobileTransactionParser.getSavedBankBalanceJson(getApplicationContext());
+            } catch (Exception ignored) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean saveBankBalanceJson(final String plainJson) {
+            try {
+                return MobileTransactionParser.saveBankBalanceJson(getApplicationContext(), plainJson);
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean openUpiAppForBalanceCheck(final String appKey) {
+            runOnUiThread(() -> {
+                try {
+                    String key = appKey != null ? appKey.trim().toLowerCase() : "";
+                    String[] candidates;
+                    if (key.contains("gpay") || key.contains("google")) {
+                        candidates = new String[]{"com.google.android.apps.nbu.paisa.user", "com.phonepe.app", "net.one97.paytm", "in.org.npci.upiapp"};
+                    } else if (key.contains("phonepe")) {
+                        candidates = new String[]{"com.phonepe.app", "com.google.android.apps.nbu.paisa.user", "net.one97.paytm", "in.org.npci.upiapp"};
+                    } else if (key.contains("paytm")) {
+                        candidates = new String[]{"net.one97.paytm", "com.google.android.apps.nbu.paisa.user", "com.phonepe.app", "in.org.npci.upiapp"};
+                    } else if (key.contains("bhim")) {
+                        candidates = new String[]{"in.org.npci.upiapp", "com.google.android.apps.nbu.paisa.user", "com.phonepe.app", "net.one97.paytm"};
+                    } else {
+                        candidates = new String[]{"com.google.android.apps.nbu.paisa.user", "com.phonepe.app", "net.one97.paytm", "in.org.npci.upiapp", "money.super.payments", "com.dreamplug.androidapp"};
+                    }
+                    PackageManager pm = getPackageManager();
+                    for (String pkg : candidates) {
+                        Intent launch = pm.getLaunchIntentForPackage(pkg);
+                        if (launch != null) {
+                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            Toast.makeText(MainActivity.this, "Opening UPI App to Check Bank Balance...", Toast.LENGTH_SHORT).show();
+                            startActivity(launch);
+                            return;
+                        }
+                    }
+                    Intent upiView = new Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay"));
+                    Intent chooser = Intent.createChooser(upiView, "Open UPI App to Check Balance");
+                    startActivity(chooser);
+                } catch (Exception ignored) {}
+            });
+            return true;
         }
 
         @JavascriptInterface

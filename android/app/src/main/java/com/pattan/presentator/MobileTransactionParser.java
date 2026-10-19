@@ -34,14 +34,18 @@ public final class MobileTransactionParser {
     private static final String PREF_NAME = "pattan_expenses_native_store";
     private static final String KEY_TXNS_ENC = "captured_transactions_enc_v2";
     private static final String KEY_EXPENSE_STORE_MAP_ENC = "expense_memory_store_map_enc_v1";
+    private static final String KEY_BANK_BALANCE_ENC = "bank_account_balance_enc_v1";
     private static final String KEY_TXNS_LEGACY = "captured_transactions_json";
     private static final String PERMANENT_VAULT_FILE = "permanent_expense_vault.enc";
     private static final String KEYSTORE_ALIAS = "PattanExpenseMemoryAesKey";
 
     public static final Set<String> ALLOWED_PAYMENT_PACKAGES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
         "com.google.android.apps.nbu.paisa.user",
+        "com.google.android.apps.nbu.paisa.merchant",
         "com.phonepe.app",
+        "com.phonepe.app.business",
         "net.one97.paytm",
+        "net.one97.paytm.business",
         "in.org.npci.upiapp",
         "money.super.payments",
         "com.dreamplug.androidapp",
@@ -66,21 +70,28 @@ public final class MobileTransactionParser {
         "com.airtel.paymentsbank",
         "com.jio.myjio",
         "com.csam.icici.bank.imobile",
+        "com.icicibank.imobile",
         "com.snapwork.hdfc",
         "com.Snapwork.hdfc",
+        "com.hdfcbank.payzapp",
         "com.sbi.lotusintouch",
         "com.sbi.SBIFreedomPlus",
         "com.sbi.sbifreedomplus",
+        "com.sbi.yono",
+        "com.sbi.yonolite",
         "com.axis.mobile",
         "com.msf.kbank.mobile",
+        "com.kotak811",
         "com.bankofbaroda.mconnect",
         "com.bob.world",
         "com.infrasofttech.CentralBank",
         "com.infrasofttech.centralbank",
         "com.infrasoft.uboi",
+        "com.unionbank.ecommerce.mobile.android",
         "com.canarabank.mobility",
         "com.Version1",
         "com.version1",
+        "com.pnb.one",
         "com.idfcfirstbank.optimus",
         "com.indusind.indie",
         "com.finopaymentbank.mobile",
@@ -90,22 +101,53 @@ public final class MobileTransactionParser {
         "com.fedmobile",
         "com.federalbank.fedmobile",
         "com.ippb.mobilebanking",
+        "com.indianbank.indall",
+        "com.boi.mobile",
+        "com.uco.mbs",
+        "com.mahamobile",
+        "com.kvb.mobilebanking",
+        "com.cub.plus",
+        "com.southindianbank.sibmirrorplus",
+        "com.bandhan.mbandhan",
+        "com.aubank.aumobile",
+        "com.equitasbank.equitasmobile",
+        "com.ujjivan.mobilebanking",
+        "com.paytmbank.app",
         "com.google.android.apps.messaging",
         "com.samsung.android.messaging",
-        "com.android.mms"
+        "com.android.mms",
+        "com.android.mms.service",
+        "com.miui.smsextra",
+        "com.coloros.mms",
+        "com.oplus.mms",
+        "com.oneplus.mms",
+        "com.vivo.message",
+        "com.asus.message",
+        "com.motorola.messaging",
+        "com.sonyericsson.conversations",
+        "com.google.android.ims"
     )));
 
+    private static final Pattern BALANCE_PATTERN = Pattern.compile(
+        "(?i)(?:avl\\.?\\s*bal(?:ance)?|available\\s*bal(?:ance)?|avbl\\.?\\s*bal(?:ance)?|clear\\s*bal(?:ance)?|updated\\s*bal(?:ance)?|closing\\s*bal(?:ance)?|new\\s*bal(?:ance)?|a/c\\s*bal(?:ance)?|acct\\s*bal(?:ance)?|total\\s*bal(?:ance)?|\\bbal(?:ance)?\\s*(?:is|:|=))\\s*(?:is)?\\s*[:\\-=]?\\s*(?:₹|rs\\.?|inr)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
+    );
+    private static final Pattern ACCOUNT_MASK_PATTERN = Pattern.compile(
+        "(?i)(?:a/c|ac|acct|account)\\s*(?:no\\.?|ending|linked|with)?\\s*[xX*\\.\\-#]*([0-9]{3,6})\\b"
+    );
+    private static final Pattern AMOUNT_PATTERN_VERB = Pattern.compile(
+        "(?i)(?:debited|credited|paid|sent|received|spent|transferred|deducted|deposited|withdrawn|added|deposit\\s+of|credit\\s+of|debit\\s+of|payment\\s+of)\\s+(?:by|for|with|of|to|from|in)?\\s*(?:₹|rs\\.?|inr)?\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
+    );
+    private static final Pattern AMOUNT_PATTERN_VERB_AFTER = Pattern.compile(
+        "(?i)(?:₹|rs\\.?|inr)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s+(?:has\\s+been\\s+|is\\s+|was\\s+)?(?:debited|credited|paid|sent|received|spent|transferred|deducted|deposited|withdrawn|added)"
+    );
     private static final Pattern AMOUNT_PATTERN_PREFIX = Pattern.compile(
         "(?i)(?:₹|rs\\.?|inr|amt)\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
     );
     private static final Pattern AMOUNT_PATTERN_SUFFIX = Pattern.compile(
         "(?i)([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:rs\\.?|inr|₹)"
     );
-    private static final Pattern AMOUNT_PATTERN_VERB = Pattern.compile(
-        "(?i)(?:debited|credited|paid|sent|received|spent|transferred|deducted)\\s+(?:by|for|with|of)?\\s*(?:₹|rs\\.?|inr)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
-    );
     private static final Pattern REF_PATTERN = Pattern.compile(
-        "(?i)(?:upi\\s*(?:ref)?(?:\\s*no\\.?|\\s*id)?|utr|ref(?:erence)?(?:\\s*no\\.?)?|txn\\s*(?:id|no\\.?)?)\\s*[:\\-/]?\\s*([0-9]{9,14})"
+        "(?i)(?:upi\\s*(?:ref)?(?:\\s*no\\.?|\\s*id)?|utr|ref(?:erence)?(?:\\s*no\\.?)?|txn\\s*(?:id|no\\.?)?|rrn)\\s*[:\\-/]?\\s*([0-9]{9,14})"
     );
     private static final Pattern UPI_SLASH_PATTERN = Pattern.compile(
         "(?i)UPI/(?:CR/|DR/)?([0-9]{9,14})(?:/([^/\\n\\r]{2,40}))?(?:/([^/\\n\\r]{2,60}))?"
@@ -114,7 +156,7 @@ public final class MobileTransactionParser {
         "(?i)(?:note|remarks?|purpose|for|comment|message|description)\\s*[:\\-]\\s*([^\\n\\r.;]{2,80})"
     );
     private static final Pattern MERCHANT_PATTERN = Pattern.compile(
-        "(?i)(?:paid\\s+to|sent\\s+to|trf\\s+to|transferred\\s+to|to\\s+vpa|received\\s+from|from\\s+vpa|at|towards|to)\\s+([A-Za-z0-9@._\\-\\s&]{2,38}?)(?=\\s+(?:is\\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a/c|ac|acct|avl|bal|using|from|\\.|,|\\n|$))"
+        "(?i)(?:paid\\s+to|sent\\s+to|trf\\s+to|transferred\\s+to|to\\s+vpa|received\\s+from|from\\s+vpa|deposited\\s+by|deposited\\s+at|credited\\s+by|at|towards|from|to)\\s+([A-Za-z0-9@._\\-\\s&]{2,38}?)(?=\\s+(?:is\\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a/c|ac|acct|avl|bal|using|from|in\\s+your|\\.|,|\\n|$))"
     );
 
     private MobileTransactionParser() {}
@@ -123,7 +165,62 @@ public final class MobileTransactionParser {
         if (packageName == null) return false;
         String clean = packageName.trim();
         if (clean.isEmpty()) return false;
-        return ALLOWED_PAYMENT_PACKAGES.contains(clean) || ALLOWED_PAYMENT_PACKAGES.contains(clean.toLowerCase(Locale.ROOT));
+        String lower = clean.toLowerCase(Locale.ROOT);
+        if (ALLOWED_PAYMENT_PACKAGES.contains(clean) || ALLOWED_PAYMENT_PACKAGES.contains(lower)) {
+            return true;
+        }
+        // Reject non-financial / social / entertainment / gaming packages
+        if (lower.contains("instagram") || lower.contains("facebook") || lower.contains("snapchat")
+            || lower.contains("youtube") || lower.contains("game") || lower.contains("spotify")
+            || lower.contains("netflix") || lower.contains("twitter") || lower.contains("telegram")
+            || lower.contains("discord") || lower.contains("linkedin")) {
+            return false;
+        }
+        // Allow OEM SMS / Messaging / Banking / UPI packages
+        return lower.endsWith(".mms")
+            || lower.contains(".mms.")
+            || lower.contains("messaging")
+            || lower.contains("smsextra")
+            || lower.contains("paisa")
+            || lower.contains("phonepe")
+            || lower.contains("paytm")
+            || lower.contains("upiapp")
+            || lower.contains("bhim")
+            || lower.contains("imobile")
+            || lower.contains("hdfc")
+            || lower.contains("sbi.")
+            || lower.contains("icici")
+            || lower.contains("axis")
+            || lower.contains("kotak")
+            || lower.contains("baroda")
+            || lower.contains("canarabank")
+            || lower.contains("unionbank")
+            || lower.contains("idfc")
+            || lower.contains("indusind")
+            || lower.contains("yesbank")
+            || lower.contains("federalbank")
+            || lower.contains("fedmobile")
+            || lower.contains("rblbank")
+            || lower.contains("finopayment")
+            || lower.contains("ippb");
+    }
+
+    public static boolean looksLikeFinancialNotification(String packageName, String title, String body) {
+        if (packageName == null) return false;
+        String lowerPkg = packageName.trim().toLowerCase(Locale.ROOT);
+        if (lowerPkg.contains("instagram") || lowerPkg.contains("facebook") || lowerPkg.contains("snapchat")
+            || lowerPkg.contains("youtube") || lowerPkg.contains("game") || lowerPkg.contains("spotify")
+            || lowerPkg.contains("netflix")) {
+            return false;
+        }
+        String text = ((title != null ? title : "") + " " + (body != null ? body : "")).toLowerCase(Locale.ROOT);
+        boolean hasCurrencyOrBank = text.contains("₹") || text.contains("rs.") || text.contains("rs ")
+            || text.contains("inr ") || text.contains("a/c") || text.contains("acct") || text.contains("upi");
+        boolean hasTxnVerb = text.contains("debited") || text.contains("credited")
+            || text.contains("deposited") || text.contains("paid to") || text.contains("received from")
+            || text.contains("money sent") || text.contains("money received") || text.contains("avl bal")
+            || text.contains("available balance") || text.contains("upi/");
+        return hasCurrencyOrBank && hasTxnVerb;
     }
 
     public static JSONObject parseSmsOrNotification(
@@ -154,10 +251,14 @@ public final class MobileTransactionParser {
                 || lower.contains("paid") || lower.contains("sent")
                 || lower.contains("received") || lower.contains("spent")
                 || lower.contains("withdrawn") || lower.contains("transferred")
-                || lower.contains("deducted") || lower.contains("trf to")
-                || lower.contains("payment of") || lower.contains("payment to")
-                || lower.contains("payment successful") || lower.contains("payment completed")
+                || lower.contains("deducted") || lower.contains("trf to") || lower.contains("trf from")
+                || lower.contains("deposited") || lower.contains("deposit of") || lower.contains("cash deposit")
+                || lower.contains("added to") || lower.contains("money added")
+                || lower.contains("credit of") || lower.contains("debit of")
+                || lower.contains("payment of") || lower.contains("payment to") || lower.contains("payment from")
+                || lower.contains("payment received") || lower.contains("payment successful") || lower.contains("payment completed")
                 || lower.contains("money sent") || lower.contains("money received")
+                || lower.contains("you paid") || lower.contains("you received")
                 || lower.contains("refund") || lower.contains("reversed")
                 || lower.contains("failed") || lower.contains("declined")
                 || lower.contains("pending") || lower.contains("processing");
@@ -167,7 +268,8 @@ public final class MobileTransactionParser {
             // Ignore promotional offers / loan spam
             if ((lower.contains("pre-approved") || lower.contains("apply now") || lower.contains("loan up to")
                 || lower.contains("get flat") || lower.contains("win up to") || lower.contains("click http"))
-                && !lower.contains("debited") && !lower.contains("credited") && !lower.contains("paid")) {
+                && !lower.contains("debited") && !lower.contains("credited") && !lower.contains("paid")
+                && !lower.contains("deposited") && !lower.contains("received")) {
                 return null;
             }
 
@@ -175,52 +277,97 @@ public final class MobileTransactionParser {
                 return null;
             }
 
-            // 1. Parse Amount
+            // 0. Extract Available Bank Balance (Avl Bal) & Account Mask FIRST, and strip Balance from amount search text
+            double accountBalance = -1.0;
+            String textWithoutBalance = fullText;
+            Matcher mBal = BALANCE_PATTERN.matcher(fullText);
+            if (mBal.find()) {
+                double parsedBal = parseDoubleSafe(mBal.group(1));
+                if (parsedBal >= 0.0 && parsedBal <= 1000000000.0) {
+                    accountBalance = parsedBal;
+                }
+                textWithoutBalance = mBal.replaceAll(" ");
+            }
+
+            String accountMask = "";
+            Matcher mMask = ACCOUNT_MASK_PATTERN.matcher(fullText);
+            if (mMask.find()) {
+                String digits = safeTrim(mMask.group(1));
+                if (digits.length() > 4) {
+                    digits = digits.substring(digits.length() - 4);
+                }
+                accountMask = "XX" + digits;
+            }
+
+            // 1. Parse Transaction Amount from textWithoutBalance
             double amount = 0.0;
-            Matcher mPrefix = AMOUNT_PATTERN_PREFIX.matcher(fullText);
+            Matcher mPrefix = AMOUNT_PATTERN_PREFIX.matcher(textWithoutBalance);
             if (mPrefix.find()) {
                 amount = parseDoubleSafe(mPrefix.group(1));
-            } else {
-                Matcher mSuffix = AMOUNT_PATTERN_SUFFIX.matcher(fullText);
+            }
+            if (amount <= 0.0) {
+                Matcher mVerb = AMOUNT_PATTERN_VERB.matcher(textWithoutBalance);
+                if (mVerb.find()) {
+                    amount = parseDoubleSafe(mVerb.group(1));
+                }
+            }
+            if (amount <= 0.0) {
+                Matcher mVerbAfter = AMOUNT_PATTERN_VERB_AFTER.matcher(textWithoutBalance);
+                if (mVerbAfter.find()) {
+                    amount = parseDoubleSafe(mVerbAfter.group(1));
+                }
+            }
+            if (amount <= 0.0) {
+                Matcher mSuffix = AMOUNT_PATTERN_SUFFIX.matcher(textWithoutBalance);
                 if (mSuffix.find()) {
                     amount = parseDoubleSafe(mSuffix.group(1));
-                } else {
-                    Matcher mVerb = AMOUNT_PATTERN_VERB.matcher(fullText);
-                    if (mVerb.find()) {
-                        amount = parseDoubleSafe(mVerb.group(1));
-                    }
                 }
             }
             if (amount <= 0.0 || amount > 100000000.0) return null;
 
             // 2. Determine Transaction Status (completed, failed, reversed, pending)
+            boolean hasExplicitSuccess = lower.contains("debited") || lower.contains("credited")
+                || lower.contains("deposited") || lower.contains("paid") || lower.contains("received")
+                || lower.contains("sent") || lower.contains("successful") || lower.contains("completed");
             String status = "completed";
             if (lower.contains("failed") || lower.contains("declined") || lower.contains("unsuccessful") || lower.contains("could not be processed")) {
                 status = "failed";
             } else if (lower.contains("reversed") || lower.contains("reversal")) {
                 status = "reversed";
-            } else if (lower.contains("pending") || lower.contains("processing") || lower.contains("initiated") || lower.contains("requested")) {
+            } else if (lower.contains("is pending") || lower.contains("pending processing") || lower.contains("payment pending")
+                || ((!hasExplicitSuccess) && (lower.contains("pending") || lower.contains("processing")))) {
                 status = "pending";
             }
 
-            // 3. Determine Type: debit (expense), credit (income), refund, transfer
+            // 3. Determine Type: debit (expense), credit (income/deposit), refund, transfer
             boolean isRefund = lower.contains("refund") || lower.contains("reversed") || lower.contains("reversal") || lower.contains("cashback");
             boolean isSelfTransfer = lower.contains("self transfer") || lower.contains("to self") || lower.contains("own account") || lower.contains("between your accounts");
-            boolean isCredit = lower.contains("credited") || lower.contains("received")
-                || lower.contains("deposited") || lower.contains("added to your") || lower.contains("upi/cr/")
-                || lower.contains("money received");
-            boolean isDebit = lower.contains("debited") || lower.contains("spent")
-                || lower.contains("paid") || lower.contains("sent")
-                || lower.contains("withdrawn") || lower.contains("deducted")
+            boolean hasStrongCredit = lower.contains("credited") || lower.contains("deposited")
+                || lower.contains("deposit of") || lower.contains("cash deposit")
+                || lower.contains("received from") || lower.contains("money received")
+                || lower.contains("you received") || lower.contains("payment received")
+                || lower.contains("added to your") || lower.contains("upi/cr/");
+            boolean hasStrongDebit = lower.contains("debited") || lower.contains("withdrawn")
+                || lower.contains("deducted") || lower.contains("spent")
+                || lower.contains("paid to") || lower.contains("sent to")
+                || lower.contains("money sent") || lower.contains("you paid")
                 || lower.contains("trf to") || lower.contains("upi/dr/")
-                || lower.contains("payment of") || lower.contains("payment to") || lower.contains("money sent");
+                || lower.contains("payment of") || lower.contains("payment to");
+            boolean isCredit = hasStrongCredit || lower.contains("received") || lower.contains("credit");
+            boolean isDebit = hasStrongDebit || lower.contains("paid") || lower.contains("sent") || lower.contains("debit");
 
             String type = "debit";
             if (isSelfTransfer) {
                 type = "transfer";
             } else if (isRefund) {
                 type = "refund";
+            } else if (hasStrongCredit && !hasStrongDebit) {
+                type = "credit";
+            } else if (hasStrongDebit && !hasStrongCredit) {
+                type = "debit";
             } else if (isCredit && !isDebit) {
+                type = "credit";
+            } else if (lower.startsWith("received") || lower.startsWith("credited") || lower.startsWith("deposited") || lower.contains("money received")) {
                 type = "credit";
             }
 
@@ -246,11 +393,17 @@ public final class MobileTransactionParser {
             String app = detectPaymentApp(senderOrPkg, fullText);
             String paymentMethod = detectPaymentMethod(app, fullText);
 
-            // 6. Extract Merchant / Payee
+            // 6. Extract Merchant / Payee / Depositor
             String merchant = "";
-            Matcher mMerch = MERCHANT_PATTERN.matcher(fullText);
+            Matcher mMerch = MERCHANT_PATTERN.matcher(textWithoutBalance);
             if (mMerch.find()) {
-                merchant = cleanMerchantName(mMerch.group(1));
+                String candidateMerch = cleanMerchantName(mMerch.group(1));
+                if (!candidateMerch.equalsIgnoreCase("your a/c")
+                    && !candidateMerch.equalsIgnoreCase("your account")
+                    && !candidateMerch.equalsIgnoreCase("your bank")
+                    && !candidateMerch.toLowerCase(Locale.ROOT).startsWith("a/c ")) {
+                    merchant = candidateMerch;
+                }
             }
             if (merchant.isEmpty() && !upiSlashMerchant.isEmpty()) {
                 merchant = cleanMerchantName(upiSlashMerchant);
@@ -271,13 +424,13 @@ public final class MobileTransactionParser {
             if (merchant.isEmpty()) {
                 if ("refund".equals(type)) merchant = "Refund / Reversal";
                 else if ("transfer".equals(type)) merchant = "Self Account Transfer";
-                else if ("credit".equals(type)) merchant = !app.equals("Bank Notice") ? app + " Received" : "UPI / Bank Credit";
+                else if ("credit".equals(type)) merchant = !app.equals("Bank Notice") ? app + " Deposit / Credit" : "Bank Deposit / Credit";
                 else merchant = !app.equals("Bank Notice") ? app + " Payment" : "UPI Payment";
             }
 
             // 7. Extract Original Payment Remark (never fabricated if missing!)
             String originalRemark = "";
-            Matcher mNote = NOTE_EXPLICIT_PATTERN.matcher(fullText);
+            Matcher mNote = NOTE_EXPLICIT_PATTERN.matcher(textWithoutBalance);
             if (mNote.find()) {
                 originalRemark = cleanNoteText(mNote.group(1));
             }
@@ -306,10 +459,10 @@ public final class MobileTransactionParser {
             String dateIso = isoFmt.format(dt);
             String timeHHMM = timeFmt.format(dt);
 
-            // Deterministic ID using reference ID when available, or 2-minute bucket + amount + source
+            // Deterministic ID including transaction type (debit vs credit) so ₹100 payment & ₹100 deposit never collide!
             String uniqueKey = !refId.isEmpty()
-                ? "mob_ref_" + refId + "_" + Math.round(amount)
-                : "mob_ts_" + (ts / 120000L) + "_" + Math.round(amount * 100);
+                ? "mob_ref_" + type + "_" + refId + "_" + Math.round(amount)
+                : "mob_ts_" + type + "_" + (ts / 30000L) + "_" + Math.round(amount * 100);
 
             String reconciliationStatus = !"completed".equals(status)
                 ? "needs_review"
@@ -331,6 +484,10 @@ public final class MobileTransactionParser {
             tx.put("app", app);
             tx.put("paymentMethod", paymentMethod);
             tx.put("refId", refId);
+            tx.put("accountMask", accountMask);
+            if (accountBalance >= 0.0) {
+                tx.put("accountBalance", accountBalance);
+            }
             tx.put("date", dateIso);
             tx.put("time", timeHHMM);
             tx.put("timestampMs", ts);
@@ -524,6 +681,78 @@ public final class MobileTransactionParser {
         }
     }
 
+    public static String getSavedBankBalanceJson(Context context) {
+        if (context == null) return "{}";
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String enc = prefs.getString(KEY_BANK_BALANCE_ENC, "");
+            if (enc != null && !enc.isEmpty()) {
+                return decryptJsonString(enc, "{}");
+            }
+            return "{}";
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    public static boolean saveBankBalanceJson(Context context, String plainJson) {
+        if (context == null || plainJson == null) return false;
+        try {
+            JSONObject obj = new JSONObject(plainJson);
+            String encrypted = encryptJsonString(obj.toString());
+            if (encrypted.isEmpty()) return false;
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            prefs.edit()
+                .putString(KEY_BANK_BALANCE_ENC, encrypted)
+                .apply();
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public static JSONObject extractAndSaveStandaloneBalance(
+        Context context,
+        String senderOrPkg,
+        String title,
+        String body,
+        long timestampMs
+    ) {
+        if (context == null) return null;
+        try {
+            if (!isAllowedPaymentPackage(senderOrPkg) && !looksLikeFinancialNotification(senderOrPkg, title, body)) {
+                return null;
+            }
+            String fullText = ((title != null ? title + " " : "") + (body != null ? body : "")).trim();
+            if (fullText.length() < 6) return null;
+            Matcher mBal = BALANCE_PATTERN.matcher(fullText);
+            if (!mBal.find()) return null;
+            double bal = parseDoubleSafe(mBal.group(1));
+            if (bal < 0.0 || bal > 1000000000.0) return null;
+
+            String accountMask = "";
+            Matcher mMask = ACCOUNT_MASK_PATTERN.matcher(fullText);
+            if (mMask.find()) {
+                String digits = safeTrim(mMask.group(1));
+                if (digits.length() > 4) digits = digits.substring(digits.length() - 4);
+                accountMask = "XX" + digits;
+            }
+            String bankApp = detectPaymentApp(senderOrPkg, fullText);
+            long ts = timestampMs > 0 ? timestampMs : System.currentTimeMillis();
+
+            JSONObject balObj = new JSONObject();
+            balObj.put("balance", bal);
+            balObj.put("bankName", bankApp);
+            balObj.put("accountMask", accountMask);
+            balObj.put("updatedAtMs", ts);
+            balObj.put("source", "auto-notification");
+            saveBankBalanceJson(context, balObj.toString());
+            return balObj;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     public static void saveCapturedTransaction(Context context, JSONObject tx) {
         if (context == null || tx == null) return;
         try {
@@ -532,6 +761,9 @@ public final class MobileTransactionParser {
             JSONArray arr = getSavedCapturedTransactions(context);
             String id = tx.optString("id", "");
             String refId = tx.optString("refId", "");
+            String txType = tx.optString("type", "debit");
+            boolean alreadyExisted = false;
+
             JSONArray next = new JSONArray();
             next.put(tx);
             for (int i = 0; i < arr.length() && next.length() < 500; i++) {
@@ -539,20 +771,61 @@ public final class MobileTransactionParser {
                 if (item == null) continue;
                 item.put("rawText", "");
                 item.put("_deleted", false);
+                String itemType = item.optString("type", "debit");
+                boolean sameType = txType.equalsIgnoreCase(itemType);
                 boolean sameId = !id.isEmpty() && id.equals(item.optString("id", ""));
-                boolean sameRef = !refId.isEmpty() && refId.equals(item.optString("refId", ""))
+                boolean sameRef = sameType && !refId.isEmpty() && refId.equals(item.optString("refId", ""))
                     && Math.abs(tx.optDouble("amount", 0) - item.optDouble("amount", 0)) < 0.01;
                 if (sameId || sameRef) {
+                    alreadyExisted = true;
                     if (tx.optString("note", "").isEmpty() && !item.optString("note", "").isEmpty()) {
                         tx.put("note", item.optString("note", ""));
                     }
                     if (tx.optString("originalRemark", "").isEmpty() && !item.optString("originalRemark", "").isEmpty()) {
                         tx.put("originalRemark", item.optString("originalRemark", ""));
                     }
+                    if (!tx.has("accountBalance") && item.has("accountBalance")) {
+                        tx.put("accountBalance", item.optDouble("accountBalance", 0));
+                    }
                     continue;
                 }
                 next.put(item);
             }
+
+            // Update or compute live running bank balance when transaction is completed
+            if ("completed".equalsIgnoreCase(tx.optString("status", "completed"))) {
+                double explicitBal = tx.optDouble("accountBalance", -1.0);
+                long ts = tx.optLong("timestampMs", System.currentTimeMillis());
+                if (explicitBal >= 0.0) {
+                    JSONObject balObj = new JSONObject();
+                    balObj.put("balance", explicitBal);
+                    balObj.put("bankName", tx.optString("app", "Bank Account"));
+                    balObj.put("accountMask", tx.optString("accountMask", ""));
+                    balObj.put("updatedAtMs", ts);
+                    balObj.put("source", "sms-avl-bal");
+                    saveBankBalanceJson(context, balObj.toString());
+                } else if (!alreadyExisted) {
+                    try {
+                        JSONObject currentBalObj = new JSONObject(getSavedBankBalanceJson(context));
+                        if (currentBalObj.has("balance")) {
+                            double prevBal = currentBalObj.optDouble("balance", 0.0);
+                            double amt = tx.optDouble("amount", 0.0);
+                            double newBal = prevBal;
+                            if ("credit".equalsIgnoreCase(txType) || "refund".equalsIgnoreCase(txType)) {
+                                newBal = Math.round((prevBal + amt) * 100.0) / 100.0;
+                            } else if ("debit".equalsIgnoreCase(txType)) {
+                                newBal = Math.max(0.0, Math.round((prevBal - amt) * 100.0) / 100.0);
+                            }
+                            tx.put("accountBalance", newBal);
+                            currentBalObj.put("balance", newBal);
+                            currentBalObj.put("updatedAtMs", ts);
+                            currentBalObj.put("source", "live-auto-calc");
+                            saveBankBalanceJson(context, currentBalObj.toString());
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
             String encrypted = encryptJsonString(next.toString());
             if (!encrypted.isEmpty()) {
                 SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);

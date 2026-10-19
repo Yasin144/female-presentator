@@ -143,6 +143,13 @@ export function migrateAndNormalizeExpenseRecord(tx) {
     ? tx.tags.map((t) => String(t).trim()).filter(Boolean)
     : [];
 
+  const hasAccountBalance =
+    tx.accountBalance !== undefined &&
+    tx.accountBalance !== null &&
+    tx.accountBalance !== '' &&
+    Number.isFinite(Number(tx.accountBalance)) &&
+    Number(tx.accountBalance) >= 0;
+
   return {
     ...tx,
     id: String(tx.id || `tx_${ts}`),
@@ -164,6 +171,8 @@ export function migrateAndNormalizeExpenseRecord(tx) {
     app,
     paymentMethod,
     refId: String(tx.refId || '').trim(),
+    accountMask: String(tx.accountMask || '').trim(),
+    accountBalance: hasAccountBalance ? Number(Number(tx.accountBalance).toFixed(2)) : null,
     date: dateIso,
     time: timeHHMM,
     timestampMs: ts,
@@ -178,7 +187,7 @@ export function migrateAndNormalizeExpenseRecord(tx) {
 
 /**
  * Parses a Bank SMS, UPI notification, or shared receipt text into an Expense Memory record.
- * Never fabricates missing payment remarks; masks sensitive account digits.
+ * Never fabricates missing payment remarks; masks sensitive account digits; extracts real Avl Bal.
  */
 export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), sourceType = 'mobile-sms-parsed') {
   const text = String(rawText || '').trim();
@@ -187,13 +196,13 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
 
   // Ignore pure OTP / PIN / verification messages
   const hasOtpWord = /(?:^|\W)(otp|one time password|verification code|upi pin|never share your pin)(?:\W|$)/i.test(lower);
-  const hasCompletionWord = /(debited|credited|paid|sent\b|received|spent|withdrawn|transferred|deducted|trf to|refund|reversed|reversal|failed|declined|pending|processing|payment of|payment to|payment successful|payment completed|money sent|money received)/i.test(lower);
+  const hasCompletionWord = /(debited|credited|paid|sent\b|received|spent|withdrawn|transferred|deducted|trf to|trf from|deposited|deposit of|cash deposit|added to|money added|credit of|debit of|you paid|you received|payment received|refund|reversed|reversal|failed|declined|pending|processing|payment of|payment to|payment from|payment successful|payment completed|money sent|money received)/i.test(lower);
   if (hasOtpWord && !hasCompletionWord) return null;
 
   // Ignore promotional / loan spam
   if (
     /(pre-approved|apply now|loan up to|get flat|win up to|click http)/i.test(lower) &&
-    !/(debited|credited|paid)/i.test(lower)
+    !/(debited|credited|paid|deposited|received)/i.test(lower)
   ) {
     return null;
   }
@@ -202,40 +211,69 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     return null;
   }
 
-  // 1. Extract Amount
+  // 0. Extract Available Bank Balance (Avl Bal) & Account Mask FIRST, and strip balance from amount search text
+  let accountBalance = null;
+  let textWithoutBalance = text;
+  const balRegex = /(?:avl\.?\s*bal(?:ance)?|available\s*bal(?:ance)?|avbl\.?\s*bal(?:ance)?|clear\s*bal(?:ance)?|updated\s*bal(?:ance)?|closing\s*bal(?:ance)?|new\s*bal(?:ance)?|a\/c\s*bal(?:ance)?|acct\s*bal(?:ance)?|total\s*bal(?:ance)?|\bbal(?:ance)?\s*(?:is|:|=))\s*(?:is)?\s*[:\-=]?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/gi;
+  const mBal = balRegex.exec(text);
+  if (mBal) {
+    const parsedBal = parseFloat(mBal[1].replace(/,/g, ''));
+    if (Number.isFinite(parsedBal) && parsedBal >= 0 && parsedBal <= 1000000000) {
+      accountBalance = Number(parsedBal.toFixed(2));
+    }
+    textWithoutBalance = text.replace(balRegex, ' ');
+  }
+
+  let accountMask = '';
+  const mMask = /(?:a\/c|ac|acct|account)\s*(?:no\.?|ending|linked|with)?\s*[xX*.\-#]*([0-9]{3,6})\b/i.exec(text);
+  if (mMask) {
+    const digits = String(mMask[1] || '').trim().slice(-4);
+    if (digits) accountMask = `XX${digits}`;
+  }
+
+  // 1. Extract Transaction Amount from textWithoutBalance
   let amount = 0;
-  const mPrefix = /(?:₹|rs\.?|inr|amt)\s*[:\-]?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(text);
-  const mSuffix = /([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:rs\.?|inr|₹)/i.exec(text);
-  const mVerb = /(?:debited|credited|paid|sent|received|spent|transferred|deducted)\s+(?:by|for|with|of)?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(text);
+  const mPrefix = /(?:₹|rs\.?|inr|amt)\s*[:\-]?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(textWithoutBalance);
+  const mVerb = /(?:debited|credited|paid|sent|received|spent|transferred|deducted|deposited|withdrawn|added|deposit\s+of|credit\s+of|debit\s+of|payment\s+of)\s+(?:by|for|with|of|to|from|in)?\s*(?:₹|rs\.?|inr)?\s*[:\-]?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(textWithoutBalance);
+  const mVerbAfter = /(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+(?:has\s+been\s+|is\s+|was\s+)?(?:debited|credited|paid|sent|received|spent|transferred|deducted|deposited|withdrawn|added)/i.exec(textWithoutBalance);
+  const mSuffix = /([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:rs\.?|inr|₹)/i.exec(textWithoutBalance);
   if (mPrefix) {
     amount = parseFloat(mPrefix[1].replace(/,/g, '')) || 0;
-  } else if (mSuffix) {
-    amount = parseFloat(mSuffix[1].replace(/,/g, '')) || 0;
   } else if (mVerb) {
     amount = parseFloat(mVerb[1].replace(/,/g, '')) || 0;
+  } else if (mVerbAfter) {
+    amount = parseFloat(mVerbAfter[1].replace(/,/g, '')) || 0;
+  } else if (mSuffix) {
+    amount = parseFloat(mSuffix[1].replace(/,/g, '')) || 0;
   }
   if (amount <= 0 || amount > 100000000) return null;
 
   // 2. Status (completed, failed, reversed, pending)
+  const hasExplicitSuccess = /(debited|credited|deposited|paid|received|sent\b|successful|completed)/i.test(lower);
   let status = 'completed';
   if (/(failed|declined|unsuccessful|could not be processed)/i.test(lower)) {
     status = 'failed';
   } else if (/(reversed|reversal)/i.test(lower)) {
     status = 'reversed';
-  } else if (/(pending|processing)/i.test(lower)) {
+  } else if (/(is pending|pending processing|payment pending)/i.test(lower) || (!hasExplicitSuccess && /(pending|processing)/i.test(lower))) {
     status = 'pending';
   }
 
   // 3. Transaction Type (debit, credit, transfer, refund)
   const isRefund = /(refund|reversed|reversal|cashback)/i.test(lower);
   const isSelfTransfer = /(self transfer|to self|own account|between your accounts)/i.test(lower);
-  const isCredit = /(credited|received|deposited|added to your|upi\/cr\/|money received)/i.test(lower);
-  const isDebit = /(debited|spent|paid|sent|withdrawn|deducted|trf to|upi\/dr\/|payment of|payment to|money sent)/i.test(lower);
+  const hasStrongCredit = /(credited|deposited|deposit of|cash deposit|received from|money received|you received|payment received|added to your|upi\/cr\/)/i.test(lower);
+  const hasStrongDebit = /(debited|withdrawn|deducted|spent|paid to|sent to|money sent|you paid|trf to|upi\/dr\/|payment of|payment to)/i.test(lower);
+  const isCredit = hasStrongCredit || /(received|credit)/i.test(lower);
+  const isDebit = hasStrongDebit || /(paid|sent\b|debit)/i.test(lower);
 
   let type = 'debit';
   if (isSelfTransfer) type = 'transfer';
   else if (isRefund) type = 'refund';
+  else if (hasStrongCredit && !hasStrongDebit) type = 'credit';
+  else if (hasStrongDebit && !hasStrongCredit) type = 'debit';
   else if (isCredit && !isDebit) type = 'credit';
+  else if (/^(received|credited|deposited)/i.test(lower) || /money received/i.test(lower)) type = 'credit';
 
   // 4. UPI Slash pattern: UPI/<Ref>/<Merchant>/<Remark>
   let refId = '';
@@ -248,7 +286,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     slashNote = (mSlash[3] || '').trim();
   }
   if (!refId) {
-    const mRef = /(?:upi\s*(?:ref)?(?:\s*no\.?|\s*id)?|utr|ref(?:erence)?(?:\s*no\.?)?|txn\s*(?:id|no\.?)?)\s*[:\-/]?\s*([0-9]{9,14})/i.exec(text);
+    const mRef = /(?:upi\s*(?:ref)?(?:\s*no\.?|\s*id)?|utr|ref(?:erence)?(?:\s*no\.?)?|txn\s*(?:id|no\.?)?|rrn)\s*[:\-/]?\s*([0-9]{9,14})/i.exec(text);
     if (mRef) refId = mRef[1].trim();
   }
 
@@ -274,6 +312,9 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   else if (/icici/i.test(lower)) app = 'ICICI Bank';
   else if (/axis/i.test(lower)) app = 'Axis Bank';
   else if (/kotak/i.test(lower)) app = 'Kotak Bank';
+  else if (/(canara)/i.test(lower)) app = 'Canara Bank';
+  else if (/(union bank|uboi)/i.test(lower)) app = 'Union Bank';
+  else if (/(baroda|bob)/i.test(lower)) app = 'Bank of Baroda';
   else if (/upi/i.test(lower)) app = 'UPI';
 
   let paymentMethod = 'Bank Account';
@@ -281,24 +322,28 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   else if (/(atm|cash withdrawal)/i.test(lower)) paymentMethod = 'Cash';
   else if (/(GPay|PhonePe|Paytm|BHIM UPI|Super\.money|CRED|Navi UPI|Amazon Pay|WhatsApp Pay|MobiKwik|Freecharge|slice UPI|FamPay|Jupiter|Fi Money|UPI)/i.test(app) || /(upi|vpa)/i.test(lower)) paymentMethod = 'UPI';
 
-  // 6. Merchant / Recipient
+  // 6. Merchant / Recipient / Depositor
   let merchant = '';
-  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|refund\s+from|at|towards|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:is\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|\.|,|\n|$))/i.exec(text);
+  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|deposited\s+by|deposited\s+at|credited\s+by|refund\s+from|at|towards|from|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:is\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|in\s+your|\.|,|\n|$))/i.exec(textWithoutBalance);
   if (mMerch) {
-    merchant = mMerch[1].replace(/^(mr\.?|mrs\.?|ms\.?|m\/s)\s+/i, '').trim();
-  } else if (slashMerchant) {
+    const candidateMerch = mMerch[1].replace(/^(mr\.?|mrs\.?|ms\.?|m\/s)\s+/i, '').trim();
+    if (!/^(your a\/c|your account|your bank|a\/c\s)/i.test(candidateMerch)) {
+      merchant = candidateMerch;
+    }
+  }
+  if (!merchant && slashMerchant) {
     merchant = slashMerchant.trim();
   }
   if (!merchant) {
     if (type === 'refund') merchant = 'Refund / Reversal';
     else if (type === 'transfer') merchant = 'Self Account Transfer';
-    else if (type === 'credit') merchant = app && app !== 'Bank SMS' ? `${app} Received` : 'UPI / Bank Credit';
+    else if (type === 'credit') merchant = app && app !== 'Bank SMS' ? `${app} Deposit / Credit` : 'Bank Deposit / Credit';
     else merchant = app && app !== 'Bank SMS' ? `${app} Payment` : 'UPI Payment';
   }
 
   // 7. Original Payment Remark (only if genuinely present in message; never fabricated)
   let originalRemark = '';
-  const mNote = /(?:note|remarks?|purpose|for|comment|message|description)\s*[:\-]\s*([^\n\r.;]{2,80})/i.exec(text);
+  const mNote = /(?:note|remarks?|purpose|for|comment|message|description)\s*[:\-]\s*([^\n\r.;]{2,80})/i.exec(textWithoutBalance);
   if (mNote) {
     originalRemark = mNote[1].trim();
   } else if (slashNote && !/^(upi|na|nil|payment|[0-9]+)$/i.test(slashNote.trim())) {
@@ -324,8 +369,8 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   const dateIso = getLocalIsoDate(dt);
   const timeHHMM = getLocalTimeHHMM(dt);
   const id = refId
-    ? `mob_ref_${refId}_${Math.round(amount)}`
-    : `mob_ts_${Math.floor(fallbackTimestampMs / 120000)}_${Math.round(amount * 100)}`;
+    ? `mob_ref_${type}_${refId}_${Math.round(amount)}`
+    : `mob_ts_${type}_${Math.floor(fallbackTimestampMs / 30000)}_${Math.round(amount * 100)}`;
 
   const reconciliationStatus = status !== 'completed'
     ? 'needs_review'
@@ -349,6 +394,8 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     app,
     paymentMethod,
     refId,
+    accountMask,
+    accountBalance,
     date: dateIso,
     time: timeHHMM,
     timestampMs: fallbackTimestampMs,
@@ -372,11 +419,9 @@ export function parseFinancialSmsOrNotification(input, fallbackTimestampMs = Dat
 /**
  * Phase 11 — Conservative Reconciliation & Duplicate Prevention Engine.
  * Avoids double-counting a single payment when it appears in both Bank SMS and App Notification.
- * - Exact Ref ID + Amount match: merges automatically into one record, preserving user notes & original remarks.
- * - Cross-source (e.g. SMS + Notification) within 4 minutes with same Amount & Direction but missing/different Ref ID:
- *   flags the newer record as `reconciliationStatus: 'possible_duplicate'` with `duplicateOfId` so it is held for user review
- *   and NOT double-counted in spending totals!
- * - Never merges transactions solely because their amounts match when they are >4 minutes apart or both manual/same-source.
+ * - Exact Ref ID + Amount + Type match: merges automatically into one record, preserving user notes & original remarks.
+ * - Cross-source (e.g. SMS + Notification) within 3 minutes with same Amount, Direction & matching/generic Merchant:
+ *   flags the newer record as `reconciliationStatus: 'possible_duplicate'` with `duplicateOfId` so it is held for user review.
  */
 export function reconcileAndMergeTransactions(existingMap = {}, incomingList = []) {
   const nextMap = {};
@@ -401,6 +446,8 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
       if (byId._deleted) continue;
       const mergedNote = byId.note || incoming.note || '';
       const mergedOriginalRemark = byId.originalRemark || incoming.originalRemark || '';
+      const mergedBalance = incoming.accountBalance !== null ? incoming.accountBalance : byId.accountBalance;
+      const mergedMask = byId.accountMask || incoming.accountMask || '';
       const bestMerchant =
         byId.merchant && !byId.merchant.startsWith('UPI /') && !byId.merchant.startsWith('Bank /')
           ? byId.merchant
@@ -408,7 +455,8 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
       if (
         mergedNote !== byId.note ||
         mergedOriginalRemark !== byId.originalRemark ||
-        bestMerchant !== byId.merchant
+        bestMerchant !== byId.merchant ||
+        mergedBalance !== byId.accountBalance
       ) {
         nextMap[incoming.id] = {
           ...byId,
@@ -416,6 +464,8 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
           originalRemark: mergedOriginalRemark,
           note: mergedNote,
           noteReviewed: Boolean(byId.noteReviewed || mergedNote),
+          accountBalance: mergedBalance,
+          accountMask: mergedMask,
           updatedAt: nowIso,
           updatedAtMs: nowMs,
         };
@@ -441,11 +491,19 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
         break;
       }
 
-      // 2b. Conservative cross-source match within 4 minutes (240,000 ms) when at least one lacks a refId
+      // 2b. Conservative cross-source match within 3 minutes (180,000 ms) when at least one lacks a refId and merchant is generic/same
       const timeDiffMs = Math.abs((Number(ex.timestampMs) || 0) - incoming.timestampMs);
       const differentSources = ex.source !== incoming.source;
       const lacksRef = !incoming.refId || !ex.refId;
-      if (differentSources && lacksRef && timeDiffMs <= 240000 && ex.date === incoming.date) {
+      const m1 = String(ex.merchant || '').toLowerCase();
+      const m2 = String(incoming.merchant || '').toLowerCase();
+      const isGenericOrSameMerch =
+        m1 === m2 ||
+        m1.includes(m2) ||
+        m2.includes(m1) ||
+        /(upi|payment|bank|credit|deposit|received)/i.test(m1) ||
+        /(upi|payment|bank|credit|deposit|received)/i.test(m2);
+      if (differentSources && lacksRef && isGenericOrSameMerch && timeDiffMs <= 180000 && ex.date === incoming.date) {
         matchedExisting = ex;
         isExactRefMatch = false;
         break;
@@ -456,6 +514,8 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
       // Merge enrichments into the existing record without creating a second transaction
       const mergedNote = matchedExisting.note || incoming.note || '';
       const mergedRemark = matchedExisting.originalRemark || incoming.originalRemark || '';
+      const mergedBalance = incoming.accountBalance !== null ? incoming.accountBalance : matchedExisting.accountBalance;
+      const mergedMask = matchedExisting.accountMask || incoming.accountMask || '';
       const bestMerchant =
         matchedExisting.merchant && !matchedExisting.merchant.startsWith('UPI /')
           ? matchedExisting.merchant
@@ -467,6 +527,8 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
         note: mergedNote,
         noteReviewed: Boolean(matchedExisting.noteReviewed || mergedNote),
         refId: matchedExisting.refId || incoming.refId,
+        accountBalance: mergedBalance,
+        accountMask: mergedMask,
         updatedAt: nowIso,
         updatedAtMs: nowMs,
       };
@@ -570,6 +632,7 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   let selectedMonth = '';
   let todayIso = getLocalIsoDate();
   let monthlyNetSalary = 25000;
+  let bankBalanceInfo = null;
 
   if (typeof optionsOrMonth === 'string') {
     selectedMonth = optionsOrMonth;
@@ -580,6 +643,159 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     selectedMonth = optionsOrMonth.selectedMonth || '';
     todayIso = optionsOrMonth.todayIso || getLocalIsoDate();
     monthlyNetSalary = Number(optionsOrMonth.monthlyNetSalary) || 25000;
+    if (optionsOrMonth.bankBalanceInfo && typeof optionsOrMonth.bankBalanceInfo === 'object') {
+      bankBalanceInfo = optionsOrMonth.bankBalanceInfo;
+    }
+  }
+
+  // Compute chronological running balance across all valid transactions (oldest -> newest)
+  const chronoValid = [...activeAll]
+    .filter((tx) => tx.status !== 'failed' && tx.status !== 'reversed' && tx.reconciliationStatus !== 'possible_duplicate')
+    .reverse();
+
+  let allTimeSpent = 0;
+  let allTimeReceived = 0;
+  let allTimeRefunds = 0;
+  let latestSmsBalanceTx = null;
+
+  for (const tx of chronoValid) {
+    const amt = Number(tx.amount) || 0;
+    if (tx.type === 'debit') allTimeSpent += amt;
+    else if (tx.type === 'credit') allTimeReceived += amt;
+    else if (tx.type === 'refund') allTimeRefunds += amt;
+    if (tx.accountBalance !== null && Number.isFinite(tx.accountBalance)) {
+      latestSmsBalanceTx = tx;
+    }
+  }
+
+  const hasExplicitBankAnchor =
+    bankBalanceInfo &&
+    bankBalanceInfo.balance !== undefined &&
+    bankBalanceInfo.balance !== null &&
+    bankBalanceInfo.balance !== '' &&
+    Number.isFinite(Number(bankBalanceInfo.balance));
+
+  let realAccountBalance = 0;
+  let openingAccountBalance = 0;
+  let hasVerifiedBankBalance = false;
+  let latestBankName = (bankBalanceInfo && bankBalanceInfo.bankName) || (latestSmsBalanceTx && latestSmsBalanceTx.app) || 'Primary Bank A/c';
+  let latestAccountMask = (bankBalanceInfo && bankBalanceInfo.accountMask) || (latestSmsBalanceTx && latestSmsBalanceTx.accountMask) || '';
+
+  if (hasExplicitBankAnchor) {
+    hasVerifiedBankBalance = true;
+    const anchorBal = Number(bankBalanceInfo.balance);
+    const anchorMs = Number(bankBalanceInfo.updatedAtMs || 0);
+    // Find index of last transaction at or before anchorMs
+    let anchorIdx = -1;
+    for (let i = 0; i < chronoValid.length; i++) {
+      if ((chronoValid[i].timestampMs || 0) <= anchorMs) {
+        anchorIdx = i;
+      }
+    }
+    if (anchorIdx === -1) {
+      // All transactions occurred after the anchor balance was set
+      let running = anchorBal;
+      openingAccountBalance = anchorBal;
+      for (let i = 0; i < chronoValid.length; i++) {
+        const t = chronoValid[i];
+        if (t.accountBalance !== null && Number.isFinite(t.accountBalance)) {
+          running = t.accountBalance;
+        } else if (t.type === 'credit' || t.type === 'refund') {
+          running = Number((running + t.amount).toFixed(2));
+        } else if (t.type === 'debit') {
+          running = Number((running - t.amount).toFixed(2));
+        }
+        t.runningBalance = running;
+      }
+      realAccountBalance = running;
+    } else {
+      chronoValid[anchorIdx].runningBalance =
+        chronoValid[anchorIdx].accountBalance !== null
+          ? chronoValid[anchorIdx].accountBalance
+          : anchorBal;
+      // Walk backward from anchorIdx
+      let backBal = chronoValid[anchorIdx].runningBalance;
+      for (let i = anchorIdx - 1; i >= 0; i--) {
+        const nextT = chronoValid[i + 1];
+        if (nextT.type === 'credit' || nextT.type === 'refund') {
+          backBal = Number((backBal - nextT.amount).toFixed(2));
+        } else if (nextT.type === 'debit') {
+          backBal = Number((backBal + nextT.amount).toFixed(2));
+        }
+        if (chronoValid[i].accountBalance !== null && Number.isFinite(chronoValid[i].accountBalance)) {
+          backBal = chronoValid[i].accountBalance;
+        }
+        chronoValid[i].runningBalance = backBal;
+      }
+      // Compute opening balance before first transaction
+      if (chronoValid.length > 0) {
+        const first = chronoValid[0];
+        openingAccountBalance =
+          first.type === 'debit'
+            ? Number((first.runningBalance + first.amount).toFixed(2))
+            : first.type === 'credit' || first.type === 'refund'
+              ? Number((first.runningBalance - first.amount).toFixed(2))
+              : first.runningBalance;
+      }
+      // Walk forward from anchorIdx + 1
+      let fwdBal = chronoValid[anchorIdx].runningBalance;
+      for (let i = anchorIdx + 1; i < chronoValid.length; i++) {
+        const t = chronoValid[i];
+        if (t.accountBalance !== null && Number.isFinite(t.accountBalance)) {
+          fwdBal = t.accountBalance;
+        } else if (t.type === 'credit' || t.type === 'refund') {
+          fwdBal = Number((fwdBal + t.amount).toFixed(2));
+        } else if (t.type === 'debit') {
+          fwdBal = Number((fwdBal - t.amount).toFixed(2));
+        }
+        t.runningBalance = fwdBal;
+      }
+      realAccountBalance = chronoValid[chronoValid.length - 1].runningBalance;
+    }
+  } else if (latestSmsBalanceTx) {
+    hasVerifiedBankBalance = true;
+    const anchorIdx = chronoValid.lastIndexOf(latestSmsBalanceTx);
+    chronoValid[anchorIdx].runningBalance = latestSmsBalanceTx.accountBalance;
+    let backBal = latestSmsBalanceTx.accountBalance;
+    for (let i = anchorIdx - 1; i >= 0; i--) {
+      const nextT = chronoValid[i + 1];
+      if (nextT.type === 'credit' || nextT.type === 'refund') {
+        backBal = Number((backBal - nextT.amount).toFixed(2));
+      } else if (nextT.type === 'debit') {
+        backBal = Number((backBal + nextT.amount).toFixed(2));
+      }
+      if (chronoValid[i].accountBalance !== null && Number.isFinite(chronoValid[i].accountBalance)) {
+        backBal = chronoValid[i].accountBalance;
+      }
+      chronoValid[i].runningBalance = backBal;
+    }
+    let fwdBal = latestSmsBalanceTx.accountBalance;
+    for (let i = anchorIdx + 1; i < chronoValid.length; i++) {
+      const t = chronoValid[i];
+      if (t.accountBalance !== null && Number.isFinite(t.accountBalance)) {
+        fwdBal = t.accountBalance;
+      } else if (t.type === 'credit' || t.type === 'refund') {
+        fwdBal = Number((fwdBal + t.amount).toFixed(2));
+      } else if (t.type === 'debit') {
+        fwdBal = Number((fwdBal - t.amount).toFixed(2));
+      }
+      t.runningBalance = fwdBal;
+    }
+    realAccountBalance = chronoValid[chronoValid.length - 1].runningBalance;
+  } else {
+    // Net cashflow ledger when no opening bank balance is set yet: Credits/Deposits - Debits/Payments
+    let running = 0;
+    openingAccountBalance = 0;
+    for (let i = 0; i < chronoValid.length; i++) {
+      const t = chronoValid[i];
+      if (t.type === 'credit' || t.type === 'refund') {
+        running = Number((running + t.amount).toFixed(2));
+      } else if (t.type === 'debit') {
+        running = Number((running - t.amount).toFixed(2));
+      }
+      t.runningBalance = running;
+    }
+    realAccountBalance = running;
   }
 
   const monthPrefix = selectedMonth || todayIso.slice(0, 7);
@@ -837,6 +1053,15 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     incomeTotal: Number(incomeTotal.toFixed(2)),
     totalIncome: Number(incomeTotal.toFixed(2)),
     totalReceived: Number(incomeTotal.toFixed(2)),
+    allTimeSpent: Number(allTimeSpent.toFixed(2)),
+    allTimeReceived: Number(allTimeReceived.toFixed(2)),
+    allTimeRefunds: Number(allTimeRefunds.toFixed(2)),
+    allTimeCount: chronoValid.length,
+    realAccountBalance: Number(realAccountBalance.toFixed(2)),
+    openingAccountBalance: Number(openingAccountBalance.toFixed(2)),
+    hasVerifiedBankBalance,
+    latestBankName,
+    latestAccountMask,
     selfTransfersTotal: Number(selfTransfersTotal.toFixed(2)),
     failedOrReversedTotal: Number(failedOrReversedTotal.toFixed(2)),
     duplicatePendingCount,

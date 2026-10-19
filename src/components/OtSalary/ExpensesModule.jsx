@@ -382,6 +382,76 @@ export default function ExpensesModule({
   const [showSmsPasteModal, setShowSmsPasteModal] = useState(false);
   const [smsPasteText, setSmsPasteText] = useState('');
 
+  // Real Bank Account Balance & Check Balance Modal State
+  const [bankBalanceInfo, setBankBalanceInfo] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
+        const raw = window.PattanBiometric.getBankBalanceJson();
+        const parsed = JSON.parse(raw || '{}');
+        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+          return parsed;
+        }
+      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const localRaw = window.localStorage.getItem('yasin_ot_bank_balance_v1');
+        if (localRaw) {
+          const parsed = JSON.parse(localRaw);
+          if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+            return parsed;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  });
+  const [showCheckBalanceModal, setShowCheckBalanceModal] = useState(false);
+  const [balanceDraftAmount, setBalanceDraftAmount] = useState('');
+  const [balanceDraftBank, setBalanceDraftBank] = useState('Linked Bank Account');
+  const [balanceDraftMask, setBalanceDraftMask] = useState('');
+
+  const persistBankBalance = useCallback((nextBalObj) => {
+    if (!nextBalObj || typeof nextBalObj !== 'object' || !Number.isFinite(Number(nextBalObj.balance))) return;
+    const normalized = {
+      balance: Number(Number(nextBalObj.balance).toFixed(2)),
+      bankName: String(nextBalObj.bankName || 'Linked Bank Account').trim(),
+      accountMask: String(nextBalObj.accountMask || '').trim(),
+      source: String(nextBalObj.source || 'manual-balance-sync'),
+      updatedAtMs: Number(nextBalObj.updatedAtMs) || Date.now(),
+    };
+    setBankBalanceInfo(normalized);
+    try {
+      const jsonStr = JSON.stringify(normalized);
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
+        window.PattanBiometric.saveBankBalanceJson(jsonStr);
+      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('yasin_ot_bank_balance_v1', jsonStr);
+      }
+    } catch (_) {}
+  }, []);
+
+  const syncSavedBankBalanceFromNative = useCallback(() => {
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
+        const raw = window.PattanBiometric.getBankBalanceJson();
+        const parsed = JSON.parse(raw || '{}');
+        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+          setBankBalanceInfo((prev) => {
+            if (!prev || Number(parsed.updatedAtMs || 0) >= Number(prev.updatedAtMs || 0) || parsed.balance !== prev.balance) {
+              try {
+                if (window.localStorage) {
+                  window.localStorage.setItem('yasin_ot_bank_balance_v1', JSON.stringify(parsed));
+                }
+              } catch (_) {}
+              return parsed;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (_) {}
+  }, []);
+
   // Native Permission & Scan Status
   const [scanStatus, setScanStatus] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -466,47 +536,65 @@ export default function ExpensesModule({
       if (!detail) return;
       if (typeof detail.notifGranted === 'boolean') setNotifGranted(detail.notifGranted);
       if (typeof detail.smsGranted === 'boolean') setSmsGranted(detail.smsGranted);
+      syncSavedBankBalanceFromNative();
       const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
       if (txList.length > 0) {
         const added = mergeDetectedTransactions(txList, 'android-notif');
-        setScanStatus(
-          added > 0
-            ? `✅ Auto-captured ${added} new UPI/Bank payment(s)`
-            : `✅ Checked ${txList.length} payment notification(s) — statement up to date`
-        );
-      } else if (!detail.notifGranted) {
-        setScanStatus('ℹ️ Enable Notification Access to auto-capture UPI & Bank payments.');
-      } else {
-        setScanStatus('ℹ️ Checked payment notifications — no new transactions found.');
+        if (added > 0) {
+          setScanStatus(`✅ Auto-captured ${added} new UPI/Bank transaction(s) (Payments & Deposits)`);
+        }
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
-  }, [mergeDetectedTransactions]);
+  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
 
-  // Silent sync of encrypted notification captures on mount
+  // Continuous zero-fetch auto-sync of encrypted notification captures & bank balance (every 2.5s + focus)
   useEffect(() => {
-    try {
-      if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
-        const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
-        const savedArr = JSON.parse(savedRaw || '[]');
-        if (Array.isArray(savedArr) && savedArr.length > 0) {
-          mergeDetectedTransactions(savedArr, 'android-saved-notif');
+    const syncNativeNow = () => {
+      checkNativePermissions();
+      syncSavedBankBalanceFromNative();
+      try {
+        if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+          const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+          const savedArr = JSON.parse(savedRaw || '[]');
+          if (Array.isArray(savedArr) && savedArr.length > 0) {
+            mergeDetectedTransactions(savedArr, 'android-saved-notif');
+          }
         }
-      }
-    } catch (_) {}
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      } catch (_) {}
+    };
+    syncNativeNow();
+    const intervalId = setInterval(syncNativeNow, 2500);
+    window.addEventListener('focus', syncNativeNow);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', syncNativeNow);
+    };
+  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
+
+  // Automatically trigger full native scan the moment Notification Access is granted (zero manual fetch required)
+  useEffect(() => {
+    if (notifGranted) {
+      try {
+        if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+          window.PattanBiometric.scanMobileTransactions(60);
+        }
+      } catch (_) {}
+    }
+  }, [notifGranted]);
 
   const triggerMobileTransactionScan = () => {
     setIsScanning(true);
     checkNativePermissions();
+    syncSavedBankBalanceFromNative();
     try {
       if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
-        window.PattanBiometric.scanMobileTransactions(45);
+        window.PattanBiometric.scanMobileTransactions(60);
         return;
       }
       if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileSmsInbox === 'function') {
-        window.PattanBiometric.scanMobileSmsInbox(45);
+        window.PattanBiometric.scanMobileSmsInbox(60);
         return;
       }
       if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
@@ -516,10 +604,10 @@ export default function ExpensesModule({
         setIsScanning(false);
         setScanStatus(
           added > 0
-            ? `✅ Synced ${added} new payment notification(s)`
+            ? `✅ Synced ${added} new payment/deposit notification(s)`
             : notifGranted
-              ? '✅ Notification capture is active for all UPI & banking apps.'
-              : 'ℹ️ Enable Notification Listener access to capture UPI payments automatically.'
+              ? '✅ Zero-Fetch Auto Capture is active for all UPI & Bank payments and deposits.'
+              : 'ℹ️ Enable Notification Listener access to capture UPI payments & deposits automatically.'
         );
         return;
       }
@@ -552,8 +640,14 @@ export default function ExpensesModule({
   }, [expensesMap]);
 
   const analytics = useMemo(
-    () => computeExpenseAnalytics(effectiveExpensesSource, { selectedMonth, todayIso, monthlyNetSalary: effectiveMonthlySalary }),
-    [effectiveExpensesSource, selectedMonth, todayIso, effectiveMonthlySalary]
+    () =>
+      computeExpenseAnalytics(effectiveExpensesSource, {
+        selectedMonth,
+        todayIso,
+        monthlyNetSalary: effectiveMonthlySalary,
+        bankBalanceInfo,
+      }),
+    [effectiveExpensesSource, selectedMonth, todayIso, effectiveMonthlySalary, bankBalanceInfo]
   );
 
   // Recent payments list: always show current month's payments, or all saved payments if current month has none
@@ -758,8 +852,8 @@ export default function ExpensesModule({
     return clean;
   }, [expensesMap]);
 
-  const openQuickAddModal = (txToEdit = null) => {
-    if (txToEdit) {
+  const openQuickAddModal = (txToEdit = null, defaultType = 'debit') => {
+    if (txToEdit && typeof txToEdit === 'object' && txToEdit.id) {
       const norm = migrateAndNormalizeExpenseRecord(txToEdit);
       setEditingTxId(norm.id);
       setFormAmount(String(norm.amount));
@@ -776,14 +870,15 @@ export default function ExpensesModule({
       setFormTagsInput((norm.tags || []).join(', '));
     } else {
       const now = new Date();
+      const initType = defaultType === 'credit' || defaultType === 'refund' ? defaultType : 'debit';
       setEditingTxId(null);
       setFormAmount('');
-      setFormType('debit');
+      setFormType(initType);
       setFormMerchant('');
       setFormPayeeVpa('');
       setFormNote('');
       setFormPaymentRemark('');
-      setFormCategory('Food & Dining');
+      setFormCategory(initType === 'credit' ? 'Salary / Income' : 'Food & Dining');
       setFormPaymentMethod('UPI');
       setFormApp('GPay');
       setFormDate(todayIso);
@@ -791,6 +886,48 @@ export default function ExpensesModule({
       setFormTagsInput('');
     }
     setShowAddModal(true);
+  };
+
+  const openCheckBalanceModal = () => {
+    setBalanceDraftAmount(
+      analytics.realAccountBalance !== undefined && Number.isFinite(Number(analytics.realAccountBalance))
+        ? String(Number(analytics.realAccountBalance.toFixed(2)))
+        : ''
+    );
+    setBalanceDraftBank(bankBalanceInfo?.bankName || 'Linked Bank Account');
+    setBalanceDraftMask(bankBalanceInfo?.accountMask || '');
+    setShowCheckBalanceModal(true);
+  };
+
+  const handleSaveBankBalanceManual = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const num = Number(String(balanceDraftAmount).replace(/,/g, '').trim());
+    if (!Number.isFinite(num) || num < 0) {
+      setScanStatus('⚠️ Please enter a valid bank balance amount (₹0 or more).');
+      return;
+    }
+    persistBankBalance({
+      balance: num,
+      bankName: balanceDraftBank || 'Linked Bank Account',
+      accountMask: balanceDraftMask || '',
+      source: 'user-verified-balance',
+      updatedAtMs: Date.now(),
+    });
+    setShowCheckBalanceModal(false);
+    setScanStatus(`🏦 Real Account Balance synced to ₹${formatINR(num)}. Future payments (-₹) and deposits (+₹) will update this balance automatically.`);
+  };
+
+  const handleLaunchUpiBalanceCheck = (appKey, appLabel) => {
+    try {
+      if (window.PattanBiometric && typeof window.PattanBiometric.openUpiAppForBalanceCheck === 'function') {
+        const opened = window.PattanBiometric.openUpiAppForBalanceCheck(appKey);
+        if (opened) {
+          setScanStatus(`🏦 Opening ${appLabel} to check balance — any bank SMS/notification balance alert will sync automatically.`);
+          return;
+        }
+      }
+    } catch (_) {}
+    setScanStatus(`ℹ️ Check your balance in ${appLabel} or enter your current balance below to track every ₹ spent and deposited.`);
   };
 
   const handleSaveTransactionForm = (e) => {
@@ -806,11 +943,30 @@ export default function ExpensesModule({
     const txId = editingTxId || `tx_manual_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
     const existing = editingTxId ? baseMap[editingTxId] : null;
     const cleanNote = formNote.trim();
-    const cleanMerchant = formMerchant.trim() || (cleanNote ? cleanNote.slice(0, 32) : 'Mobile Payment');
+    const cleanMerchant =
+      formMerchant.trim() ||
+      (cleanNote ? cleanNote.slice(0, 32) : formType === 'credit' ? 'Bank Deposit / Received' : 'Mobile Payment');
     const tags = formTagsInput
       .split(',')
       .map((t) => t.trim().replace(/^#/, ''))
       .filter(Boolean);
+
+    // Compute updated real account balance if this is a new entry
+    let nextAccountBal = existing?.accountBalance ?? null;
+    if (!editingTxId) {
+      const currentRealBal = Number(analytics.realAccountBalance || 0);
+      const isCreditEntry = formType === 'credit' || formType === 'refund';
+      nextAccountBal = Number((isCreditEntry ? currentRealBal + amt : currentRealBal - amt).toFixed(2));
+      if (bankBalanceInfo && Number.isFinite(Number(bankBalanceInfo.balance))) {
+        persistBankBalance({
+          balance: nextAccountBal,
+          bankName: bankBalanceInfo.bankName || formApp || 'Linked Bank Account',
+          accountMask: bankBalanceInfo.accountMask || '',
+          source: isCreditEntry ? 'auto-adjusted-credit' : 'auto-adjusted-debit',
+          updatedAtMs: nowMs,
+        });
+      }
+    }
 
     const record = migrateAndNormalizeExpenseRecord({
       ...(existing || {}),
@@ -826,6 +982,7 @@ export default function ExpensesModule({
       category: formCategory,
       paymentMethod: formPaymentMethod,
       app: formApp,
+      accountBalance: nextAccountBal,
       date: formDate || todayIso,
       time: formTime || '12:00',
       tags,
@@ -844,9 +1001,10 @@ export default function ExpensesModule({
 
     const nextMap = { ...baseMap, [txId]: record };
     if (typeof onUpdateExpenses === 'function') {
+      const dirBadge = formType === 'credit' ? '+₹' : formType === 'refund' ? '+₹' : '-₹';
       onUpdateExpenses(
         nextMap,
-        `${editingTxId ? '✏️ Updated' : '💾 Saved'} ₹${formatINR(amt)} — ${cleanMerchant}${cleanNote ? ` (${cleanNote})` : ''}`
+        `${editingTxId ? '✏️ Updated' : '💾 Saved'} ${dirBadge}${formatINR(amt)} — ${cleanMerchant}${cleanNote ? ` (${cleanNote})` : ''}`
       );
     }
     setShowAddModal(false);
@@ -907,13 +1065,52 @@ export default function ExpensesModule({
     if (!raw) return;
     const parsed = parseSmsOrUpiTextJs(raw, Date.now());
     if (!parsed) {
-      setScanStatus('⚠️ No valid payment found (OTPs, promos, and balance alerts are safely ignored).');
+      // Check if it is a standalone bank balance inquiry SMS
+      const balMatch = raw.match(/(?:avl\.?\s*bal(?:ance)?|available\s+bal(?:ance)?|a\/c\s*bal(?:ance)?|closing\s+bal(?:ance)?|clear\s+bal(?:ance)?|total\s+bal(?:ance)?|updated\s+bal(?:ance)?|bal(?:ance)?\s*(?:is|:))\s*(?:is\s*)?(?:rs\.?|inr|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i);
+      if (balMatch && balMatch[1]) {
+        const bVal = Number(balMatch[1].replace(/,/g, ''));
+        if (Number.isFinite(bVal) && bVal >= 0) {
+          persistBankBalance({
+            balance: bVal,
+            bankName: 'Bank SMS Balance',
+            accountMask: '',
+            source: 'sms-balance-paste',
+            updatedAtMs: Date.now(),
+          });
+          setSmsPasteText('');
+          setShowSmsPasteModal(false);
+          setScanStatus(`🏦 Updated Real Account Balance to ₹${formatINR(bVal)} from Bank SMS`);
+          return;
+        }
+      }
+      setScanStatus('⚠️ No valid payment or deposit found in pasted message.');
       return;
+    }
+    if (parsed.accountBalance !== null && parsed.accountBalance !== undefined && Number.isFinite(Number(parsed.accountBalance))) {
+      persistBankBalance({
+        balance: Number(parsed.accountBalance),
+        bankName: parsed.app || 'Bank Account',
+        accountMask: parsed.accountMask || '',
+        source: 'sms-paste-avl-bal',
+        updatedAtMs: Date.now(),
+      });
+    } else if (bankBalanceInfo && Number.isFinite(Number(bankBalanceInfo.balance))) {
+      const nextBal = parsed.type === 'credit' || parsed.type === 'refund'
+        ? Number(bankBalanceInfo.balance) + Number(parsed.amount)
+        : Number(bankBalanceInfo.balance) - Number(parsed.amount);
+      persistBankBalance({
+        balance: nextBal,
+        bankName: bankBalanceInfo.bankName || parsed.app || 'Bank Account',
+        accountMask: parsed.accountMask || bankBalanceInfo.accountMask || '',
+        source: 'sms-paste-adjusted',
+        updatedAtMs: Date.now(),
+      });
     }
     mergeDetectedTransactions([parsed], 'sms-paste');
     setSmsPasteText('');
     setShowSmsPasteModal(false);
-    setScanStatus(`✅ Added ₹${formatINR(parsed.amount)} (${parsed.merchant}) from pasted message`);
+    const sign = parsed.type === 'credit' || parsed.type === 'refund' ? '+' : '-';
+    setScanStatus(`✅ Added ${sign}₹${formatINR(parsed.amount)} (${parsed.merchant}) from pasted message`);
   };
 
   const handleExportExpensesCsv = () => {
@@ -1094,12 +1291,23 @@ export default function ExpensesModule({
           gap: 11,
         }}>
           {[
+            { label: 'Statement Entry', value: isCredit ? '💰 CREDIT / DEPOSIT (+₹)' : '💸 DEBIT / PAYMENT (-₹)' },
             { label: 'Type', value: selectedTx.paymentMethod === 'UPI' ? 'UPI Payment' : (selectedTx.paymentMethod || 'Payment') },
-            { label: 'From', value: selectedTx.accountMask ? `Bank Account (${selectedTx.accountMask})` : 'HDFC / Linked Bank' },
-            { label: 'To', value: (selectedTx.merchant || 'Merchant').toUpperCase() },
-            { label: 'Category', value: selectedTx.category || 'Food & Dining' },
+            { label: 'From / Account', value: selectedTx.accountMask ? `Bank Account (${selectedTx.accountMask})` : (bankBalanceInfo?.accountMask ? `Bank Account (${bankBalanceInfo.accountMask})` : 'Linked Bank Account') },
+            { label: isCredit ? 'Received From' : 'Paid To', value: (selectedTx.merchant || 'Merchant').toUpperCase() },
+            { label: 'Category', value: selectedTx.category || (isCredit ? 'Salary / Income' : 'Food & Dining') },
             { label: 'UPI ID', value: upiHandle },
-            { label: 'Transaction ID', value: txRefDisplay },
+            { label: 'UTR / Ref ID', value: txRefDisplay },
+            {
+              label: 'Balance After Txn',
+              value:
+                Number.isFinite(Number(selectedTx.runningBalance))
+                  ? `₹${formatINR(selectedTx.runningBalance)}`
+                  : Number.isFinite(Number(selectedTx.accountBalance))
+                    ? `₹${formatINR(selectedTx.accountBalance)}`
+                    : `₹${formatINR(analytics.realAccountBalance)}`,
+            },
+            { label: 'Ledger Security', value: '🔒 Permanent Record (Never Deleted)' },
           ].map((row) => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 12.5, color: palette.textMuted, fontWeight: 700 }}>{row.label}</span>
@@ -1120,7 +1328,7 @@ export default function ExpensesModule({
               alignItems: 'center',
               gap: 5,
             }}>
-              ● {selectedTx.reconciliationStatus === 'needs_review' ? 'Needs Review' : 'Success'}
+              ● {selectedTx.reconciliationStatus === 'needs_review' ? 'Needs Review' : 'Completed'}
             </span>
           </div>
         </div>
@@ -1266,7 +1474,7 @@ export default function ExpensesModule({
           color: isLight ? '#065f46' : '#a7f3d0',
         }}>
           <div>
-            🔔 <strong>Android 13–16 Restricted Setting Fix:</strong> If Android says <em>&ldquo;Controlled by Restricted Setting&rdquo;</em>, tap <strong>Step 1 (Open App Info)</strong> → tap <strong>⋮ (top-right)</strong> → tap <strong>Allow restricted settings</strong>, then tap <strong>Step 2 (Enable Notification Access)</strong>.
+            🔔 <strong>Android 13–16 Restricted Setting Fix:</strong> If Android says <em>&ldquo;Controlled by Restricted Setting&rdquo;</em>, tap <strong>Step 1 (Open App Info)</strong> → tap <strong>⋮ (top-right)</strong> → tap <strong>Allow restricted settings</strong>, then tap <strong>Step 2 (Enable Notification Access)</strong>. Once enabled, all ₹100 payments &amp; ₹100 deposits appear automatically with zero manual fetching!
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
@@ -1370,6 +1578,198 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
+          🏦 REAL BANK ACCOUNT BALANCE & LIVE PASSBOOK CARD (OVERVIEW & TRANSACTIONS)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {(subTab === 'overview' || subTab === 'transactions') && (
+        <div style={{
+          padding: mobileMode ? '16px 14px' : '18px 20px',
+          borderRadius: 22,
+          background: isLight
+            ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+            : 'linear-gradient(135deg, #0f172a 0%, #172554 55%, #064e3b 100%)',
+          border: '1px solid rgba(52, 211, 153, 0.38)',
+          boxShadow: '0 14px 34px rgba(2, 6, 23, 0.45)',
+          color: '#f8fafc',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: '#34d399',
+                  background: 'rgba(16, 185, 129, 0.16)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                }}>
+                  🏦 Real Bank Account Balance
+                </span>
+                {(bankBalanceInfo?.accountMask || analytics.bankBalanceSource) && (
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#93c5fd' }}>
+                    {bankBalanceInfo?.bankName || 'Bank A/c'} {bankBalanceInfo?.accountMask ? `(${bankBalanceInfo.accountMask})` : ''}
+                  </span>
+                )}
+              </div>
+              <div style={{
+                fontSize: mobileMode ? 30 : 34,
+                fontWeight: 950,
+                color: '#ffffff',
+                letterSpacing: '-0.02em',
+                marginTop: 6,
+                lineHeight: 1.1,
+              }}>
+                ₹{formatINR(analytics.realAccountBalance)}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700, marginTop: 4 }}>
+                Auto-adjusts on every payment (<strong>-₹</strong>) &amp; deposit (<strong>+₹</strong>) · Permanent Bank Statement
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={openCheckBalanceModal}
+              style={{
+                padding: '10px 14px',
+                borderRadius: 13,
+                border: '1px solid rgba(52, 211, 153, 0.6)',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#022c22',
+                fontWeight: 950,
+                fontSize: 12.5,
+                cursor: 'pointer',
+                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.32)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              🏦 Check Balance
+            </button>
+          </div>
+
+          {/* 3-Column Bank Statement Breakdown: Total Deposited (+₹) | Total Spent (-₹) | Remaining Balance (₹) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 8,
+          }}>
+            <div style={{
+              padding: '9px 10px',
+              borderRadius: 12,
+              background: 'rgba(16, 185, 129, 0.14)',
+              border: '1px solid rgba(16, 185, 129, 0.32)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#a7f3d0', textTransform: 'uppercase' }}>
+                💰 Deposited / In
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#34d399', marginTop: 2 }}>
+                +₹{formatINR(analytics.allTimeReceived)}
+              </div>
+              <div style={{ fontSize: 9.5, color: '#cbd5e1', marginTop: 1 }}>
+                Today: +₹{formatINRShort(analytics.todayReceived)}
+              </div>
+            </div>
+
+            <div style={{
+              padding: '9px 10px',
+              borderRadius: 12,
+              background: 'rgba(244, 63, 94, 0.14)',
+              border: '1px solid rgba(244, 63, 94, 0.32)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#fecdd3', textTransform: 'uppercase' }}>
+                💸 Spent / Out
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#fb7185', marginTop: 2 }}>
+                -₹{formatINR(analytics.allTimeSpent)}
+              </div>
+              <div style={{ fontSize: 9.5, color: '#cbd5e1', marginTop: 1 }}>
+                Today: -₹{formatINRShort(analytics.todaySpent)}
+              </div>
+            </div>
+
+            <div style={{
+              padding: '9px 10px',
+              borderRadius: 12,
+              background: 'rgba(59, 130, 246, 0.16)',
+              border: '1px solid rgba(96, 165, 250, 0.35)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#bfdbfe', textTransform: 'uppercase' }}>
+                🏦 Remaining Bal
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#60a5fa', marginTop: 2 }}>
+                ₹{formatINR(analytics.realAccountBalance)}
+              </div>
+              <div style={{ fontSize: 9.5, color: '#cbd5e1', marginTop: 1 }}>
+                {analytics.allTimeCount || analytics.totalCount} Statement Txns
+              </div>
+            </div>
+          </div>
+
+          {/* 1-Tap Passbook Action Row: + Payment (-₹) | + Deposit (+₹) | Check / Sync Balance */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => openQuickAddModal(null, 'debit')}
+              style={{
+                padding: '9px 8px',
+                borderRadius: 11,
+                border: '1px solid rgba(244, 63, 94, 0.45)',
+                background: 'rgba(244, 63, 94, 0.18)',
+                color: '#fda4af',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              💸 + Payment (-₹)
+            </button>
+            <button
+              type="button"
+              onClick={() => openQuickAddModal(null, 'credit')}
+              style={{
+                padding: '9px 8px',
+                borderRadius: 11,
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                background: 'rgba(16, 185, 129, 0.18)',
+                color: '#6ee7b7',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              💰 + Deposit (+₹)
+            </button>
+            <button
+              type="button"
+              onClick={openCheckBalanceModal}
+              style={{
+                padding: '9px 8px',
+                borderRadius: 11,
+                border: '1px solid rgba(96, 165, 250, 0.45)',
+                background: 'rgba(37, 99, 235, 0.24)',
+                color: '#93c5fd',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              🔄 Sync Real Bal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
           SCREEN 7: EXPENSE OVERVIEW (AUTO DETECT)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
@@ -1413,7 +1813,9 @@ export default function ExpensesModule({
               }}>
                 <span>{analytics.totalCount} Transactions</span>
                 <span>·</span>
-                <span>In: ₹{formatINRShort(analytics.totalIncome)}</span>
+                <span>In: +₹{formatINRShort(analytics.totalIncome)}</span>
+                <span>·</span>
+                <span>Bal: ₹{formatINRShort(analytics.realAccountBalance)}</span>
                 <span>·</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <span>Salary Left: {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}</span>
@@ -1536,12 +1938,12 @@ export default function ExpensesModule({
               background: palette.surface,
               border: `1px solid ${palette.border}`,
             }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Received Today</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Deposited Today</div>
               <div style={{ fontSize: 14, fontWeight: 950, color: '#10b981', marginTop: 3 }}>
                 +₹{formatINRShort(analytics.todayReceived)}
               </div>
               <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
-                In: ₹{formatINRShort(analytics.totalIncome)}
+                Month In: +₹{formatINRShort(analytics.totalIncome)}
               </div>
             </div>
 
@@ -1557,12 +1959,12 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Saved Ledger</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Statement Ledger</div>
               <div style={{ fontSize: 14, fontWeight: 950, color: palette.text, marginTop: 3 }}>
                 {recentPaymentsList.length} Txns
               </div>
               <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginTop: 1 }}>
-                View all ›
+                View statement ›
               </div>
             </button>
 
@@ -1590,11 +1992,11 @@ export default function ExpensesModule({
             </button>
           </div>
 
-          {/* Fast Action Bar: + Add Spend, Sync Alerts, Paste Receipt */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+          {/* Fast Action Bar: + Add Spend, + Add Deposit, Check Balance, Paste Alert */}
+          <div style={{ display: 'grid', gridTemplateColumns: mobileMode ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
             <button
               type="button"
-              onClick={() => openQuickAddModal(null)}
+              onClick={() => openQuickAddModal(null, 'debit')}
               style={{
                 padding: '11px 10px',
                 borderRadius: 14,
@@ -1607,11 +2009,27 @@ export default function ExpensesModule({
                 boxShadow: '0 8px 20px rgba(37, 99, 235, 0.3)',
               }}
             >
-              ➕ Add Entry
+              ➕ Add Payment
             </button>
             <button
               type="button"
-              onClick={() => triggerMobileTransactionScan()}
+              onClick={() => openQuickAddModal(null, 'credit')}
+              style={{
+                padding: '11px 10px',
+                borderRadius: 14,
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              💰 Add Deposit
+            </button>
+            <button
+              type="button"
+              onClick={openCheckBalanceModal}
               style={{
                 padding: '11px 10px',
                 borderRadius: 14,
@@ -1623,7 +2041,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              {isScanning ? '⏳ Syncing...' : '📲 Sync Alerts'}
+              🏦 Check Balance
             </button>
             <button
               type="button"
@@ -1639,7 +2057,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              📋 Paste Alert
+              📋 Paste SMS/UPI
             </button>
           </div>
 
@@ -1919,12 +2337,17 @@ export default function ExpensesModule({
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {recentPaymentsList.slice(0, 10).map((tx) => {
+                {recentPaymentsList.slice(0, 12).map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
                   const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
                   const hasNote = Boolean(noteText);
                   const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
                   const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                  const txBal = Number.isFinite(Number(tx.runningBalance))
+                    ? Number(tx.runningBalance)
+                    : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
+                      ? Number(tx.accountBalance)
+                      : null);
                   return (
                     <div
                       key={tx.id}
@@ -1932,13 +2355,13 @@ export default function ExpensesModule({
                         padding: mobileMode ? '12px' : '14px',
                         borderRadius: 16,
                         background: palette.surfaceAlt,
-                        border: `1px solid ${palette.border}`,
+                        border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 9,
                       }}
                     >
-                      {/* Top Row: Avatar + Name + Time + Amount */}
+                      {/* Top Row: Avatar + Name + Time + Amount + Running Balance */}
                       <div
                         onClick={() => setSelectedTxId(tx.id)}
                         style={{
@@ -1952,20 +2375,33 @@ export default function ExpensesModule({
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
                           <BrandPaymentAvatar tx={tx} size={40} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{
-                              fontSize: 14,
-                              fontWeight: 900,
-                              color: palette.text,
-                              wordBreak: 'break-word',
-                              lineHeight: 1.25,
-                            }}>
-                              {tx.merchant || tx.app || 'UPI Payment'}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: 14,
+                                fontWeight: 900,
+                                color: palette.text,
+                                wordBreak: 'break-word',
+                                lineHeight: 1.25,
+                              }}>
+                                {tx.merchant || tx.app || (isCredit ? 'Bank Deposit' : 'UPI Payment')}
+                              </span>
+                              <span style={{
+                                padding: '2px 7px',
+                                borderRadius: 999,
+                                fontSize: 9.5,
+                                fontWeight: 900,
+                                background: isCredit ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.14)',
+                                border: isCredit ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(244, 63, 94, 0.35)',
+                                color: isCredit ? '#34d399' : '#fb7185',
+                              }}>
+                                {isCredit ? '💰 DEPOSIT / IN' : '💸 PAID / OUT'}
+                              </span>
                             </div>
                             <div style={{
                               fontSize: 11.5,
                               color: palette.textMuted,
                               fontWeight: 700,
-                              marginTop: 3,
+                              marginTop: 4,
                               display: 'flex',
                               flexWrap: 'wrap',
                               gap: 6,
@@ -1974,6 +2410,18 @@ export default function ExpensesModule({
                               <span>🕒 {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}</span>
                               <span>·</span>
                               <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
+                              {tx.accountMask && (
+                                <>
+                                  <span>·</span>
+                                  <span>A/c {tx.accountMask}</span>
+                                </>
+                              )}
+                              {tx.refId && (
+                                <>
+                                  <span>·</span>
+                                  <span>Ref: {String(tx.refId).slice(-8)}</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1981,8 +2429,22 @@ export default function ExpensesModule({
                           <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                             {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                           </div>
-                          <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            {tx.category || 'Payment'} ›
+                          {txBal !== null && (
+                            <div style={{
+                              fontSize: 10.5,
+                              fontWeight: 900,
+                              color: '#34d399',
+                              marginTop: 2,
+                              background: 'rgba(16, 185, 129, 0.12)',
+                              padding: '2px 6px',
+                              borderRadius: 6,
+                              display: 'inline-block',
+                            }}>
+                              🏦 Bal: ₹{formatINR(txBal)}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            🔒 {tx.category || 'Payment'} ›
                           </div>
                         </div>
                       </div>
@@ -2408,6 +2870,11 @@ export default function ExpensesModule({
                   const hasNote = Boolean(noteText);
                   const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
                   const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                  const txBal = Number.isFinite(Number(tx.runningBalance))
+                    ? Number(tx.runningBalance)
+                    : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
+                      ? Number(tx.accountBalance)
+                      : null);
                   return (
                     <div
                       key={tx.id}
@@ -2415,7 +2882,7 @@ export default function ExpensesModule({
                         padding: mobileMode ? '12px' : '14px',
                         borderRadius: 16,
                         background: palette.surfaceAlt,
-                        border: `1px solid ${palette.border}`,
+                        border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 8,
@@ -2434,11 +2901,47 @@ export default function ExpensesModule({
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
                           <BrandPaymentAvatar tx={tx} size={40} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
-                              {tx.merchant || tx.app || 'Payment'}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
+                                {tx.merchant || tx.app || (isCredit ? 'Bank Deposit' : 'Payment')}
+                              </span>
+                              <span style={{
+                                padding: '2px 7px',
+                                borderRadius: 999,
+                                fontSize: 9.5,
+                                fontWeight: 900,
+                                background: isCredit ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.14)',
+                                border: isCredit ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(244, 63, 94, 0.35)',
+                                color: isCredit ? '#34d399' : '#fb7185',
+                              }}>
+                                {isCredit ? '💰 DEPOSIT / IN' : '💸 PAID / OUT'}
+                              </span>
                             </div>
-                            <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                              🕒 {formatTime12h(tx.time)} · <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
+                            <div style={{
+                              fontSize: 11.5,
+                              color: palette.textMuted,
+                              fontWeight: 700,
+                              marginTop: 3,
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                              alignItems: 'center',
+                            }}>
+                              <span>🕒 {formatTime12h(tx.time)}</span>
+                              <span>·</span>
+                              <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
+                              {tx.accountMask && (
+                                <>
+                                  <span>·</span>
+                                  <span>A/c {tx.accountMask}</span>
+                                </>
+                              )}
+                              {tx.refId && (
+                                <>
+                                  <span>·</span>
+                                  <span>Ref: {String(tx.refId).slice(-8)}</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -2446,8 +2949,22 @@ export default function ExpensesModule({
                           <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                             {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                           </div>
-                          <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            {tx.category || 'Payment'} ›
+                          {txBal !== null && (
+                            <div style={{
+                              fontSize: 10.5,
+                              fontWeight: 900,
+                              color: '#34d399',
+                              marginTop: 2,
+                              background: 'rgba(16, 185, 129, 0.12)',
+                              padding: '2px 6px',
+                              borderRadius: 6,
+                              display: 'inline-block',
+                            }}>
+                              🏦 Bal: ₹{formatINR(txBal)}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            🔒 {tx.category || 'Payment'} ›
                           </div>
                         </div>
                       </div>
@@ -3895,6 +4412,277 @@ export default function ExpensesModule({
           </div>
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL: 🏦 CHECK BALANCE & REAL BANK PASSBOOK SYNC
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showCheckBalanceModal && (
+        <div
+          onClick={() => setShowCheckBalanceModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.82)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 99995,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSaveBankBalanceManual}
+            style={{
+              width: 'min(480px, 100%)',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              background: palette.surface,
+              borderRadius: 24,
+              border: '1px solid rgba(52, 211, 153, 0.45)',
+              padding: 20,
+              color: palette.text,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              boxShadow: '0 24px 60px rgba(0,0,0,0.65)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 16.5, fontWeight: 950 }}>
+                🏦 Check Balance &amp; Bank Passbook
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCheckBalanceModal(false)}
+                style={{ background: 'transparent', border: 'none', color: palette.textMuted, fontSize: 18, cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Live Balance Summary Banner */}
+            <div style={{
+              padding: '16px',
+              borderRadius: 18,
+              background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 100%)',
+              border: '1px solid rgba(52, 211, 153, 0.4)',
+              color: '#f8fafc',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#6ee7b7', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Current Real Account Balance (Remaining)
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 950, color: '#ffffff', marginTop: 4 }}>
+                ₹{formatINR(analytics.realAccountBalance)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(16, 185, 129, 0.16)' }}>
+                  <div style={{ fontSize: 10, color: '#a7f3d0', fontWeight: 800 }}>Total Deposited / In</div>
+                  <div style={{ fontSize: 14, color: '#34d399', fontWeight: 950, marginTop: 2 }}>
+                    +₹{formatINR(analytics.allTimeReceived)}
+                  </div>
+                </div>
+                <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(244, 63, 94, 0.16)' }}>
+                  <div style={{ fontSize: 10, color: '#fecdd3', fontWeight: 800 }}>Total Spent / Out</div>
+                  <div style={{ fontSize: 14, color: '#fb7185', fontWeight: 950, marginTop: 2 }}>
+                    -₹{formatINR(analytics.allTimeSpent)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 1-Tap Open UPI App to Check Bank Balance */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: palette.text, marginBottom: 6 }}>
+                📲 1-Tap Check Live Bank Balance in UPI App
+              </div>
+              <div style={{ fontSize: 11, color: palette.textMuted, marginBottom: 8 }}>
+                Open your UPI app to check your bank balance with UPI PIN. If your bank sends an SMS/notification with <em>Avl Bal</em>, it updates here automatically!
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                {[
+                  { key: 'gpay', label: 'Google Pay (Check Bal)', bg: '#2563eb' },
+                  { key: 'phonepe', label: 'PhonePe (Check Bal)', bg: '#6739b7' },
+                  { key: 'paytm', label: 'Paytm (Check Bal)', bg: '#0284c7' },
+                  { key: 'bhim', label: 'BHIM UPI (Check Bal)', bg: '#059669' },
+                ].map((u) => (
+                  <button
+                    key={u.key}
+                    type="button"
+                    onClick={() => handleLaunchUpiBalanceCheck(u.key, u.label)}
+                    style={{
+                      padding: '10px 10px',
+                      borderRadius: 11,
+                      border: 'none',
+                      background: u.bg,
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🏦 {u.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Set / Sync Exact Current Bank Balance */}
+            <div style={{
+              padding: '12px',
+              borderRadius: 14,
+              background: palette.surfaceAlt,
+              border: `1px solid ${palette.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: '#34d399' }}>
+                ✏️ Set / Sync Your Exact Current Bank Balance (₹)
+              </div>
+              <div style={{ fontSize: 11, color: palette.textMuted }}>
+                Enter your real bank balance once. Every ₹100 payment (-₹100) and ₹100 deposit (+₹100) will automatically deduct or add to this balance and show your remaining balance on every transaction!
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Current Available Balance (₹) *</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  required
+                  value={balanceDraftAmount}
+                  onChange={(e) => setBalanceDraftAmount(e.target.value)}
+                  placeholder="e.g. 12500.00"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 4,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(52, 211, 153, 0.5)',
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 16,
+                    fontWeight: 900,
+                  }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Bank Name</label>
+                  <input
+                    type="text"
+                    value={balanceDraftBank}
+                    onChange={(e) => setBalanceDraftBank(e.target.value)}
+                    placeholder="e.g. SBI / HDFC / ICICI"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>A/c Last 4 Digits</label>
+                  <input
+                    type="text"
+                    value={balanceDraftMask}
+                    onChange={(e) => setBalanceDraftMask(e.target.value)}
+                    placeholder="XX1234"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Passbook Balance Trail */}
+            {recentPaymentsList.length > 0 && (
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: palette.surfaceAlt,
+                border: `1px solid ${palette.border}`,
+              }}>
+                <div style={{ fontSize: 11.5, fontWeight: 900, color: palette.text, marginBottom: 6 }}>
+                  📜 How Your Balance Changed (Recent Statement)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {recentPaymentsList.slice(0, 4).map((tx) => {
+                    const isCredit = tx.type === 'credit' || tx.type === 'refund';
+                    const bAfter = Number.isFinite(Number(tx.runningBalance)) ? tx.runningBalance : tx.accountBalance;
+                    return (
+                      <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+                        <span style={{ color: palette.textSub, fontWeight: 700 }}>
+                          {tx.merchant || tx.app} ({formatShortDate(tx.date)})
+                        </span>
+                        <span style={{ fontWeight: 900, color: isCredit ? '#34d399' : '#fb7185' }}>
+                          {isCredit ? `+₹${formatINR(tx.amount)}` : `-₹${formatINR(tx.amount)}`}
+                          {Number.isFinite(Number(bAfter)) ? ` → Bal: ₹${formatINR(bAfter)}` : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setShowCheckBalanceModal(false)}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.textSub,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1.3,
+                  padding: 12,
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#022c22',
+                  fontWeight: 950,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                }}
+              >
+                💾 Save Real Balance
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
+

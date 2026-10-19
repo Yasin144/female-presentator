@@ -802,7 +802,80 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes('🟢 Send IN Time Now'), true);
       assert.equal(otSalarySrc.includes('🔴 Send OUT + Payments'), true);
     });
+
+    it('captures both ₹100 payment (debit) and ₹100 deposit (credit) without collision and computes live Real Account Balance & Running Passbook Balance (v7.2)', () => {
+      const baseTs = new Date('2026-10-19T15:10:00').getTime();
+
+      // 1. ₹100 Payment notification (debit) with Avl Bal Rs. 900.00
+      const payment100 = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.nbu.paisa.user',
+        title: 'Google Pay',
+        body: 'Paid ₹100.00 to Irani Cafe using UPI. A/c XX4321 debited. UPI Ref 629300112233. Avl Bal: Rs. 900.00',
+        timestampMs: baseTs,
+      });
+      assert.ok(payment100, '₹100 payment should be parsed');
+      assert.equal(payment100.type, 'debit');
+      assert.equal(payment100.amount, 100);
+      assert.equal(payment100.accountBalance, 900);
+      assert.equal(payment100.accountMask, 'XX4321');
+
+      // 2. ₹100 Deposit notification (credit) 10 seconds later
+      const deposit100 = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.phonepe.app',
+        title: 'PhonePe',
+        body: 'Rs. 100.00 deposited to your Bank A/c XX4321 from YASIN PATTAN. UPI Ref 629300998877. Available Balance: ₹1,000.00',
+        timestampMs: baseTs + 10000,
+      });
+      assert.ok(deposit100, '₹100 deposit should be parsed');
+      assert.equal(deposit100.type, 'credit');
+      assert.equal(deposit100.amount, 100);
+      assert.equal(deposit100.accountBalance, 1000);
+      assert.equal(deposit100.accountMask, 'XX4321');
+
+      // 3. Reconcile & merge both into permanent ledger — neither may overwrite the other
+      let map = {};
+      map = reconcileAndMergeTransactions(map, [payment100, deposit100], 'android-notif').nextMap;
+      assert.equal(Object.keys(map).length, 2, 'Both ₹100 payment and ₹100 deposit must be preserved in ledger');
+
+      // 4. Verify analytics computes realAccountBalance, allTimeSpent, allTimeReceived, and per-row runningBalance
+      const analytics = computeExpenseAnalytics(map, {
+        selectedMonth: '2026-10',
+        todayIso: '2026-10-19',
+        monthlyNetSalary: 25000,
+        bankBalanceInfo: {
+          balance: 1000,
+          bankName: 'SBI Bank',
+          accountMask: 'XX4321',
+          updatedAtMs: baseTs + 10000,
+        },
+      });
+      assert.equal(analytics.allTimeSpent, 100);
+      assert.equal(analytics.allTimeReceived, 100);
+      assert.equal(analytics.realAccountBalance, 1000);
+      assert.equal(analytics.allActiveList.length, 2);
+
+      // Latest transaction (deposit +100) has runningBalance 1000; earlier transaction (payment -100) had 900
+      const latestTx = analytics.allActiveList[0];
+      const earlierTx = analytics.allActiveList[1];
+      assert.equal(latestTx.type, 'credit');
+      assert.equal(latestTx.runningBalance, 1000);
+      assert.equal(earlierTx.type, 'debit');
+      assert.equal(earlierTx.runningBalance, 900);
+
+      // 5. Verify native & UI source code has zero-fetch active notification rescan & Check Balance modal
+      const notifServiceSrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/java/com/pattan/presentator/PaymentNotificationService.java'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      assert.equal(notifServiceSrc.includes('rescanActiveNotificationsNow'), true);
+      assert.equal(notifServiceSrc.includes('EXTRA_MESSAGES'), true);
+      assert.equal(expensesSrc.includes('🏦 Real Bank Account Balance'), true);
+      assert.equal(expensesSrc.includes('openCheckBalanceModal'), true);
+      assert.equal(expensesSrc.includes('🏦 Check Balance'), true);
+    });
   });
 });
-
-
