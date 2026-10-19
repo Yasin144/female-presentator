@@ -971,6 +971,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [expensesUnlockBusy, setExpensesUnlockBusy] = useState(false);
   const [expensesUnlockError, setExpensesUnlockError] = useState('');
 
+  // Salary Numbers Biometric Privacy Mask (Hidden by default everywhere; requires Biometric when Eye is clicked to unhide)
+  const [salaryBiometricVisible, setSalaryBiometricVisible] = useState(false);
+  const [salaryUnlockBusy, setSalaryUnlockBusy] = useState(false);
+
   // Office Time Ends & OT Time Starts Live Notification Banner state
   const [otTimeStartedBanner, setOtTimeStartedBanner] = useState(null);
 
@@ -1018,6 +1022,83 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [liveNow, setLiveNow] = useState(() => new Date());
   const tabHistoryRef = useRef(['today']);
   const touchStartRef = useRef(null);
+
+  const toggleSalaryVisibilityWithBiometric = useCallback(async () => {
+    if (salaryBiometricVisible) {
+      triggerBiometricHaptic(30);
+      setSalaryBiometricVisible(false);
+      setSaveNotice('🙈 Salary numbers hidden');
+      setTimeout(() => setSaveNotice(''), 2000);
+      return false;
+    }
+    if (salaryUnlockBusy) return false;
+    setSalaryUnlockBusy(true);
+    triggerBiometricHaptic(45);
+    const hwRes = await requestAndroidHardwareBiometric(
+      'unhide_salary',
+      'Unlock to Show Salary',
+      'Scan fingerprint or face to unhide Yasin Pattan salary numbers'
+    );
+    setSalaryUnlockBusy(false);
+    if (hwRes && hwRes.ok) {
+      playBiometricBeep('in');
+      triggerBiometricHaptic(95);
+      setSalaryBiometricVisible(true);
+      setSaveNotice('👁️ Biometric Verified — Salary numbers visible');
+      setTimeout(() => setSaveNotice(''), 2500);
+      return true;
+    }
+    setSalaryBiometricVisible(false);
+    setSaveNotice(`⚠️ ${hwRes?.error || 'Biometric permission required to show salary numbers'}`);
+    setTimeout(() => setSaveNotice(''), 2800);
+    return false;
+  }, [salaryBiometricVisible, salaryUnlockBusy]);
+
+  const formatSalaryMask = useCallback((amount, prefix = '₹', suffix = '') => {
+    if (!salaryBiometricVisible) {
+      return `${prefix}••••••${suffix}`;
+    }
+    return `${prefix}${formatINR(amount)}${suffix}`;
+  }, [salaryBiometricVisible]);
+
+  const renderSalaryEyeButton = useCallback((compact = false, customLabel = '') => (
+    <button
+      type="button"
+      onClick={(e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        toggleSalaryVisibilityWithBiometric();
+      }}
+      disabled={salaryUnlockBusy}
+      title={salaryBiometricVisible ? 'Hide Salary Numbers' : 'Click Eye & Verify Biometric to Show Salary'}
+      aria-label={salaryBiometricVisible ? 'Hide Salary' : 'Unhide Salary with Biometric'}
+      style={{
+        padding: compact ? '2px 7px' : '5px 10px',
+        borderRadius: 999,
+        border: salaryBiometricVisible
+          ? '1px solid rgba(244, 63, 94, 0.5)'
+          : '1px solid rgba(16, 185, 129, 0.5)',
+        background: salaryBiometricVisible
+          ? 'rgba(244, 63, 94, 0.16)'
+          : 'rgba(16, 185, 129, 0.16)',
+        color: salaryBiometricVisible ? '#f43f5e' : '#10b981',
+        fontWeight: 900,
+        fontSize: compact ? 10.5 : 11.5,
+        cursor: salaryUnlockBusy ? 'wait' : 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        lineHeight: 1.2,
+        flexShrink: 0,
+      }}
+    >
+      <span>{salaryUnlockBusy ? '⏳' : salaryBiometricVisible ? '🙈' : '👁️'}</span>
+      {!compact && (
+        <span>
+          {customLabel || (salaryBiometricVisible ? 'Hide Salary' : 'Show Salary')}
+        </span>
+      )}
+    </button>
+  ), [salaryBiometricVisible, salaryUnlockBusy, toggleSalaryVisibilityWithBiometric]);
 
   const unlockExpensesWithBiometric = useCallback(async () => {
     setExpensesUnlockBusy(true);
@@ -1741,7 +1822,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     };
     const nextDays = { ...daysMap, [selectedDate]: record };
     setDaysMap(nextDays);
-    persistStore(settings, nextDays, `Saved ${selectedDate} (${formatTime12h(entryInTime)} – ${formatTime12h(entryOutTime)})`);
+    persistStore(
+      settings,
+      nextDays,
+      `Saved ${selectedDate} (${formatTime12h(entryInTime)} – ${entryOutTime ? formatTime12h(entryOutTime) : 'Pending OUT'}) · WhatsApp Sent`
+    );
+    if (String(entryOutTime || '').trim()) {
+      sendWhatsAppAttendanceAndPaymentAlert('out', {
+        date: selectedDate,
+        inTime: entryInTime,
+        outTime: entryOutTime,
+        workedMins: calc.workedMins,
+        otMins: calc.otMins,
+        status: entryStatus,
+        isBiometric: Boolean(entryBiometricOut),
+        note: String(entryNote || '').trim(),
+        calculation: calc,
+      });
+    } else if (String(entryInTime || '').trim()) {
+      sendWhatsAppAttendanceAndPaymentAlert('in', {
+        date: selectedDate,
+        inTime: entryInTime,
+        outTime: '',
+        status: entryStatus,
+        isBiometric: Boolean(entryBiometricIn),
+        note: String(entryNote || '').trim(),
+      });
+    }
   };
 
   // Quick update a row directly from the monthly table (including Enter Time / Exit Time changes!)
@@ -2119,12 +2226,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const allTxs = Object.values(expensesMapRef.current || {}).filter(
       (tx) => tx && typeof tx === 'object' && !tx._deleted && Number(tx.amount) > 0
     );
+    const getTxSortMs = (tx) => Number(tx?.timestampMs || tx?.timestamp || tx?.updatedAtMs || 0);
     const todayTxs = allTxs
       .filter((tx) => String(tx.date || '').slice(0, 10) === dateStr)
-      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+      .sort((a, b) => getTxSortMs(b) - getTxSortMs(a));
     const recentTxs = (todayTxs.length > 0 ? todayTxs : allTxs)
       .slice()
-      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0))
+      .sort((a, b) => getTxSortMs(b) - getTxSortMs(a))
       .slice(0, 5);
 
     let messageText = '';
@@ -2141,13 +2249,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     } else {
       const calc = payload.calculation || {};
       const todaySpendTotal = todayTxs
-        .filter((tx) => String(tx.direction || 'debit').toLowerCase() !== 'credit')
+        .filter((tx) => String(tx.type || tx.direction || 'debit').toLowerCase() !== 'credit')
         .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
       const paymentLines = recentTxs.length > 0
         ? recentTxs.map((tx, idx) => {
             const txNote = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
-            const txApp = tx.paymentApp || tx.sourceApp || 'UPI';
-            const txSign = String(tx.direction || 'debit').toLowerCase() === 'credit' ? '+' : '-';
+            const txApp = tx.app || tx.paymentApp || tx.sourceApp || tx.paymentMethod || 'UPI';
+            const txSign = String(tx.type || tx.direction || 'debit').toLowerCase() === 'credit' ? '+' : '-';
             return `  ${idx + 1}. ${txSign}₹${formatINR(tx.amount)} → *${tx.merchant || 'Merchant'}* (${tx.time || '--:--'} · ${txApp})${txNote ? ` | 📌 For: ${txNote}` : ''}`;
           })
         : ['  • No UPI payments recorded today'];
@@ -2176,12 +2284,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       try {
         const waBridge = window.PattanBiometric || window.PattanBiometricBridge || window.PattanSecureWhatsApp;
         if (waBridge && typeof waBridge.sendWhatsAppMessageToNumber === 'function') {
-          waBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
-          return true;
+          const ok = waBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
+          if (ok !== false) return true;
         }
       } catch (_) {}
       try {
-        const waUrl = `https://wa.me/${targetPhoneE164}?text=${encodeURIComponent(messageText)}`;
+        const encoded = encodeURIComponent(messageText);
+        const isMobileUa = /Android|iPhone|iPad|iPod/i.test(String(navigator?.userAgent || ''));
+        if (isMobileUa) {
+          window.location.href = `whatsapp://send?phone=${targetPhoneE164}&text=${encoded}`;
+          return true;
+        }
+        const waUrl = `https://api.whatsapp.com/send?phone=${targetPhoneE164}&text=${encoded}`;
         window.open(waUrl, '_blank', 'noopener,noreferrer');
         return true;
       } catch (_) {}
@@ -2507,7 +2621,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     } else {
       const res = punchExitNowAndSave(true, methodUsed);
       const otEarned = (res.otMins / 60) * rates.otHourlyRate;
-      const verifiedMsg = `✅ Biometric OUT Verified at ${formatTime12h(res.nowHHMM)} · +${formatMinutesCompact(res.otMins)} OT (+₹${formatINR(otEarned)})`;
+      const verifiedMsg = `✅ Biometric OUT Verified at ${formatTime12h(res.nowHHMM)} · +${formatMinutesCompact(res.otMins)} OT (${formatSalaryMask(otEarned, '+₹')})`;
       setBiometricScanState({
         active: false,
         direction: 'out',
@@ -2531,23 +2645,25 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const savedRec = {
+      ...existing,
+      date: todayIso,
+      status,
+      inTime,
+      outTime,
+      workedMins: worked,
+      otHours: Number(otHoursValue) || 0,
+      note: existing?.note || '',
+      extraAllowance,
+      savedAt: nowIso,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
+    };
     const nextDays = {
       ...daysMap,
-      [todayIso]: {
-        ...existing,
-        date: todayIso,
-        status,
-        inTime,
-        outTime,
-        workedMins: worked,
-        otHours: Number(otHoursValue) || 0,
-        note: existing?.note || '',
-        extraAllowance,
-        savedAt: nowIso,
-        updatedAt: nowIso,
-        updatedAtMs: nowMs,
-      },
+      [todayIso]: savedRec,
     };
+    const calc = computeDayEarnings(savedRec);
     setSelectedDate(todayIso);
     setSelectedMonth(todayIso.slice(0, 7));
     setEntryInTime(inTime);
@@ -2557,8 +2673,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(
       settings,
       nextDays,
-      `⚡ Saved Today (${todayIso}): ${formatTime12h(inTime)} → ${formatTime12h(outTime)} (+${otHoursValue}h OT)`
+      `⚡ Saved Today (${todayIso}): ${formatTime12h(inTime)} → ${formatTime12h(outTime)} (+${otHoursValue}h OT) · WhatsApp Sent`
     );
+    sendWhatsAppAttendanceAndPaymentAlert('out', {
+      date: todayIso,
+      inTime,
+      outTime,
+      workedMins: worked,
+      otMins,
+      status,
+      isBiometric: false,
+      note: savedRec.note || '',
+      calculation: calc,
+    });
   };
 
   const buildSalarySummaryText = () => {
@@ -3610,6 +3737,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   onChangeMonth={(m) => setSelectedMonth(m)}
                   netMonthlySalary={monthSummary.fullMonthNetPayable}
                   baseMonthlySalary={rates.salary}
+                  salaryVisible={salaryBiometricVisible}
+                  onToggleSalaryVisibility={toggleSalaryVisibilityWithBiometric}
                   mobileMode={mobileMode}
                   themeMode={themeMode}
                 />
@@ -3634,14 +3763,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               boxShadow: ui.shadow,
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    color: isLight ? '#047857' : '#a7f3d0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    flexWrap: 'wrap',
                     marginBottom: 4,
                   }}>
-                    Net Salary (This Month)
+                    <span style={{
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      color: isLight ? '#047857' : '#a7f3d0',
+                    }}>
+                      Net Salary (This Month)
+                    </span>
+                    {renderSalaryEyeButton(false)}
                   </div>
                   <div style={{
                     fontSize: 31,
@@ -3650,7 +3787,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     letterSpacing: '-0.02em',
                     lineHeight: 1.1,
                   }}>
-                    ₹{formatINR(monthSummary.fullMonthNetPayable)}
+                    {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                   </div>
                   <div style={{
                     marginTop: 6,
@@ -3662,7 +3799,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     gap: 6,
                     flexWrap: 'wrap',
                   }}>
-                    <span>Base ₹{formatINR(rates.salary)} + OT ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}</span>
+                    <span>
+                      Base {formatSalaryMask(rates.salary)} + OT {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
+                    </span>
+                    {renderSalaryEyeButton(true)}
                   </div>
                 </div>
 
@@ -3731,9 +3871,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>OT Earned:</div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>OT Earned:</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
                   <div style={{ fontSize: 13.5, fontWeight: 900, color: '#10b981', marginTop: 1 }}>
-                    ₹{formatINR(monthSummary.totalOtPay)}
+                    {formatSalaryMask(monthSummary.totalOtPay)}
                   </div>
                 </div>
               </div>
@@ -3932,6 +4075,112 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
               </div>
 
+              {/* 1-Tap Direct WhatsApp Send Bar (+91 7386726193) */}
+              <div style={{
+                marginTop: 12,
+                padding: '10px 12px',
+                borderRadius: 14,
+                background: isLight
+                  ? 'linear-gradient(135deg, #ecfdf5 0%, #eff6ff 100%)'
+                  : 'linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(37, 99, 235, 0.14) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  color: ui.textPrimary,
+                }}>
+                  <span>📲 Direct WhatsApp (+91 7386726193)</span>
+                  <span style={{ fontSize: 10.5, color: '#10b981', fontWeight: 900 }}>● Auto-Send on IN &amp; OUT</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayIso = getTodayIsoDate();
+                      const todayRec = daysMap[todayIso] || {};
+                      const inT = todayRec.inTime || entryInTime || getNowTimeHHMM();
+                      sendWhatsAppAttendanceAndPaymentAlert('in', {
+                        date: todayIso,
+                        inTime: inT,
+                        outTime: todayRec.outTime || '',
+                        status: todayRec.status || entryStatus || 'present',
+                        isBiometric: Boolean(todayRec.biometricIn || entryBiometricIn),
+                        note: todayRec.note || entryNote || '',
+                      });
+                      setSaveNotice(`📲 Opening WhatsApp (+91 7386726193) with IN Time (${formatTime12h(inT)})`);
+                    }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🟢 Send IN Time Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayIso = getTodayIsoDate();
+                      const todayRec = daysMap[todayIso] || {};
+                      const inT = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
+                      const outT = todayRec.outTime || entryOutTime || getNowTimeHHMM();
+                      const st = todayRec.status || entryStatus || 'present';
+                      const timing = calculateWorkTiming({
+                        inTime: inT,
+                        outTime: outT,
+                        status: st,
+                        officeStartTime: settings.officeStartTime,
+                        officeEndTime: settings.officeEndTime,
+                        otTimeCalcMode: settings.otTimeCalcMode,
+                      });
+                      const calc = computeDayEarnings({
+                        status: st,
+                        inTime: inT,
+                        outTime: outT,
+                        otHours: timing.otMins / 60,
+                        extraAllowance: Number(todayRec.extraAllowance ?? entryBonus) || 0,
+                      });
+                      sendWhatsAppAttendanceAndPaymentAlert('out', {
+                        date: todayIso,
+                        inTime: inT,
+                        outTime: outT,
+                        workedMins: timing.workedMins,
+                        otMins: timing.otMins,
+                        status: st,
+                        isBiometric: Boolean(todayRec.biometricOut || entryBiometricOut),
+                        note: todayRec.note || entryNote || '',
+                        calculation: calc,
+                      });
+                      setSaveNotice(`📲 Opening WhatsApp (+91 7386726193) with OUT (${formatTime12h(outT)}) + Payment Details`);
+                    }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(244, 63, 94, 0.5)',
+                      background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔴 Send OUT + Payments
+                  </button>
+                </div>
+              </div>
+
               {/* After-OUT WhatsApp Statement Status Strip */}
               {(waState.enabled || waState.lastStatus !== 'idle') && (
                 <div style={{
@@ -4046,20 +4295,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               flexDirection: 'column',
               gap: 10,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 13.5, fontWeight: 900, color: ui.textPrimary }}>
                   📊 Today&apos;s Shift &amp; Pay Breakdown ({selectedDate})
                 </div>
-                <span style={{
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                  background: activeDayPreview.otMins > 0 ? 'rgba(16, 185, 129, 0.16)' : ui.cardSubBg,
-                  color: activeDayPreview.otMins > 0 ? '#10b981' : ui.textSecondary,
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                }}>
-                  {entryStatus === 'present' ? 'Present' : entryStatus === 'half' ? 'Half Day' : entryStatus === 'holiday_paid' ? 'Paid Off' : entryStatus === 'ot_only' ? 'OT Only' : 'Leave'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {renderSalaryEyeButton(false)}
+                  <span style={{
+                    padding: '3px 9px',
+                    borderRadius: 999,
+                    background: activeDayPreview.otMins > 0 ? 'rgba(16, 185, 129, 0.16)' : ui.cardSubBg,
+                    color: activeDayPreview.otMins > 0 ? '#10b981' : ui.textSecondary,
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                  }}>
+                    {entryStatus === 'present' ? 'Present' : entryStatus === 'half' ? 'Half Day' : entryStatus === 'holiday_paid' ? 'Paid Off' : entryStatus === 'ot_only' ? 'OT Only' : 'Leave'}
+                  </span>
+                </div>
               </div>
 
               <div style={{
@@ -4076,19 +4328,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <div style={{ padding: '8px', borderRadius: 12, background: ui.cardSubBg, border: `1px solid ${ui.border}` }}>
                   <div style={{ fontSize: 10, color: ui.textSecondary, fontWeight: 700 }}>Base Pay</div>
                   <div style={{ fontSize: 13, fontWeight: 900, color: ui.textPrimary, marginTop: 2 }}>
-                    ₹{formatINR(activeDayPreview.basePay)}
+                    {formatSalaryMask(activeDayPreview.basePay)}
                   </div>
                 </div>
                 <div style={{ padding: '8px', borderRadius: 12, background: ui.cardSubBg, border: `1px solid ${ui.border}` }}>
                   <div style={{ fontSize: 10, color: ui.textSecondary, fontWeight: 700 }}>Extra OT</div>
                   <div style={{ fontSize: 13, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
-                    +₹{formatINR(activeDayPreview.otPay)}
+                    {formatSalaryMask(activeDayPreview.otPay, '+₹')}
                   </div>
                 </div>
                 <div style={{ padding: '8px', borderRadius: 12, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(52, 211, 153, 0.35)' }}>
                   <div style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>Day Total</div>
                   <div style={{ fontSize: 13, fontWeight: 950, color: '#10b981', marginTop: 2 }}>
-                    ₹{formatINR(activeDayPreview.totalPay)}
+                    {formatSalaryMask(activeDayPreview.totalPay)}
                   </div>
                 </div>
               </div>
@@ -4335,10 +4587,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <span style={{ color: ui.textSecondary }}>Worked Duration</span>
                   <span style={{ color: ui.textPrimary }}>{formatMinutesCompact(activeDayPreview.workedMins)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 900 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, fontWeight: 900 }}>
                   <span style={{ color: '#10b981' }}>Extra OT</span>
-                  <span style={{ color: '#10b981' }}>
-                    +{formatMinutesCompact(activeDayPreview.otMins)} (₹{formatINR(activeDayPreview.otPay)})
+                  <span style={{ color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span>+{formatMinutesCompact(activeDayPreview.otMins)} ({formatSalaryMask(activeDayPreview.otPay)})</span>
+                    {renderSalaryEyeButton(true)}
                   </span>
                 </div>
               </div>
@@ -4889,7 +5142,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>IN → OUT</th>
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>Worked</th>
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>OT</th>
-                      <th style={{ padding: '10px 8px', fontWeight: 900, textAlign: 'right' }}>Total</th>
+                      <th style={{ padding: '10px 8px', fontWeight: 900, textAlign: 'right' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span>Total</span>
+                          {renderSalaryEyeButton(true)}
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4940,7 +5198,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                             {e.otMins > 0 ? `+${formatMinutesCompact(e.otMins)}` : '-'}
                           </td>
                           <td style={{ padding: '9px 8px', fontWeight: 900, color: ui.textPrimary, textAlign: 'right' }}>
-                            ₹{formatINR(e.totalPay)}
+                            {formatSalaryMask(e.totalPay)}
                           </td>
                         </tr>
                       );
@@ -5065,10 +5323,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           fontWeight: 700,
                           color: e.otMins > 0 ? '#10b981' : ui.textSecondary,
                           marginTop: 3,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          flexWrap: 'wrap',
                         }}>
-                          {formatMinutesCompact(e.workedMins)}
-                          {e.otMins > 0 ? ` · +${formatMinutesCompact(e.otMins)} · +₹${formatINR(e.otPay)}` : ''}
-                          {` · ₹${formatINR(e.totalPay)}`}
+                          <span>
+                            {formatMinutesCompact(e.workedMins)}
+                            {e.otMins > 0 ? ` · +${formatMinutesCompact(e.otMins)} · ${formatSalaryMask(e.otPay, '+₹')}` : ''}
+                            {` · ${formatSalaryMask(e.totalPay)}`}
+                          </span>
+                          {renderSalaryEyeButton(true)}
                         </div>
                       </div>
 
@@ -5129,7 +5394,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               border: `1px solid ${ui.border}`,
               boxShadow: ui.shadow,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
                 <div>
                   <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
                     Monthly Salary Slip
@@ -5138,34 +5403,44 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     {formattedMonthLabel} · {normalizeEmployeeName(settings.employeeName)}
                   </div>
                 </div>
-                <span style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  background: 'rgba(16, 185, 129, 0.16)',
-                  color: '#10b981',
-                  fontSize: 11,
-                  fontWeight: 800,
-                }}>
-                  Verified
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {renderSalaryEyeButton(false)}
+                  <span style={{
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.16)',
+                    color: '#10b981',
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}>
+                    Verified
+                  </span>
+                </div>
               </div>
 
               {/* Structured Key-Value Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { label: 'Employee Name', value: normalizeEmployeeName(settings.employeeName), color: ui.textPrimary },
-                  { label: 'Base Monthly Salary', value: `₹${formatINR(rates.salary)}`, color: ui.textPrimary },
-                  { label: 'Per Day Salary', value: `₹${formatINR(rates.perDaySalary)}`, color: ui.textPrimary },
-                  { label: 'Per Hour / Per Min Rate', value: `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${(Number(rates.baseMinuteRate ?? rates.otPerMinuteRate) || 0).toFixed(2)}/m`, color: ui.textSecondary },
-                  { label: 'Standard Shift Hours', value: formatMinutesCompact(rates.shiftMins), color: ui.textPrimary },
-                  { label: 'Total Working Days', value: `${monthSummary.savedDaysCount || 0} / ${monthRows.length} Days`, color: ui.textPrimary },
-                  { label: 'Attendance Breakdown', value: `${monthSummary.presentDays || 0}P · ${monthSummary.halfDays || 0}H · ${monthSummary.paidHolidays || 0} Off · ${monthSummary.unpaidLeaves ?? monthSummary.leaveDays ?? 0} Leave`, color: ui.textPrimary },
-                  { label: 'Total Worked Hours', value: formatMinutesCompact(monthSummary.totalWorkedMins), color: ui.textPrimary },
-                  { label: 'Total Extra OT', value: formatMinutesCompact(monthSummary.totalOtMins), color: '#38bdf8' },
-                  { label: 'OT Rate (per hour)', value: `₹${formatINR(rates.otHourlyRate)}/hr`, color: ui.textSecondary },
-                  { label: 'Total OT Pay', value: `+ ₹${formatINR(monthSummary.totalOtPay)}`, color: '#10b981' },
-                  { label: 'Extra Allowances', value: `+ ₹${formatINR(monthSummary.totalExtraAllowance)}`, color: '#10b981' },
-                  { label: 'Leave Deductions', value: `- ₹${formatINR(monthSummary.leaveDeduction)}`, color: '#f43f5e' },
+                  { label: 'Employee Name', value: normalizeEmployeeName(settings.employeeName), color: ui.textPrimary, isSalary: false },
+                  { label: 'Base Monthly Salary', value: formatSalaryMask(rates.salary), color: ui.textPrimary, isSalary: true },
+                  { label: 'Per Day Salary', value: formatSalaryMask(rates.perDaySalary), color: ui.textPrimary, isSalary: true },
+                  {
+                    label: 'Per Hour / Per Min Rate',
+                    value: salaryBiometricVisible
+                      ? `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${(Number(rates.baseMinuteRate ?? rates.otPerMinuteRate) || 0).toFixed(2)}/m`
+                      : '₹••••/hr · ₹••/m',
+                    color: ui.textSecondary,
+                    isSalary: true,
+                  },
+                  { label: 'Standard Shift Hours', value: formatMinutesCompact(rates.shiftMins), color: ui.textPrimary, isSalary: false },
+                  { label: 'Total Working Days', value: `${monthSummary.savedDaysCount || 0} / ${monthRows.length} Days`, color: ui.textPrimary, isSalary: false },
+                  { label: 'Attendance Breakdown', value: `${monthSummary.presentDays || 0}P · ${monthSummary.halfDays || 0}H · ${monthSummary.paidHolidays || 0} Off · ${monthSummary.unpaidLeaves ?? monthSummary.leaveDays ?? 0} Leave`, color: ui.textPrimary, isSalary: false },
+                  { label: 'Total Worked Hours', value: formatMinutesCompact(monthSummary.totalWorkedMins), color: ui.textPrimary, isSalary: false },
+                  { label: 'Total Extra OT', value: formatMinutesCompact(monthSummary.totalOtMins), color: '#38bdf8', isSalary: false },
+                  { label: 'OT Rate (per hour)', value: formatSalaryMask(rates.otHourlyRate, '₹', '/hr'), color: ui.textSecondary, isSalary: true },
+                  { label: 'Total OT Pay', value: formatSalaryMask(monthSummary.totalOtPay, '+ ₹'), color: '#10b981', isSalary: true },
+                  { label: 'Extra Allowances', value: formatSalaryMask(monthSummary.totalExtraAllowance, '+ ₹'), color: '#10b981', isSalary: true },
+                  { label: 'Leave Deductions', value: formatSalaryMask(monthSummary.leaveDeduction, '- ₹'), color: '#f43f5e', isSalary: true },
                 ].map((item) => (
                   <div
                     key={item.label}
@@ -5176,10 +5451,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       paddingBottom: 8,
                       borderBottom: `1px solid ${ui.border}`,
                       fontSize: 13,
+                      gap: 8,
                     }}
                   >
                     <span style={{ color: ui.textSecondary, fontWeight: 600 }}>{item.label}</span>
-                    <span style={{ color: item.color, fontWeight: 900 }}>{item.value}</span>
+                    <span style={{ color: item.color, fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span>{item.value}</span>
+                      {item.isSalary && renderSalaryEyeButton(true)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -5194,13 +5473,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                gap: 10,
               }}>
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981' }}>Net Salary Receivable</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>Net Salary Receivable</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
                   <div style={{ fontSize: 10.5, color: ui.textSecondary }}>Base + Extra OT - Leaves</div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 950, color: '#10b981' }}>
-                  ₹{formatINR(monthSummary.fullMonthNetPayable)}
+                  {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                 </div>
               </div>
 
@@ -5214,15 +5497,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                gap: 10,
               }}>
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa' }}>After Expenses (This Month)</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>After Expenses (This Month)</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
                   <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
                     Spent: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.count} txns)
                   </div>
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 950, color: isLight ? '#1d4ed8' : '#93c5fd' }}>
-                  ₹{formatINR(Math.max(0, monthSummary.fullMonthNetPayable - expenseQuickStats.spent))}
+                  {formatSalaryMask(Math.max(0, monthSummary.fullMonthNetPayable - expenseQuickStats.spent))}
                 </div>
               </div>
 
@@ -5340,29 +5627,66 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   />
                 </div>
 
-                {/* Base Monthly Salary */}
+                {/* Base Monthly Salary (Protected by Eye + Biometric) */}
                 <div>
-                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
-                    Base Monthly Salary (₹)
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: 12,
+                    color: ui.textSecondary,
+                    fontWeight: 700,
+                    marginBottom: 5,
+                  }}>
+                    <span>Base Monthly Salary (₹)</span>
+                    {renderSalaryEyeButton(false)}
                   </div>
-                  <input
-                    type="number"
-                    min="1000"
-                    step="500"
-                    value={settings.monthlySalary}
-                    onChange={(e) => updateSetting('monthlySalary', Math.max(0, Number(e.target.value) || 0))}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '11px 12px',
-                      borderRadius: 12,
-                      border: `1px solid ${ui.border}`,
-                      background: ui.cardSubBg,
-                      color: ui.textPrimary,
-                      fontWeight: 900,
-                      fontSize: 15,
-                    }}
-                  />
+                  {salaryBiometricVisible ? (
+                    <input
+                      type="number"
+                      min="1000"
+                      step="500"
+                      value={settings.monthlySalary}
+                      onChange={(e) => updateSetting('monthlySalary', Math.max(0, Number(e.target.value) || 0))}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '11px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 900,
+                        fontSize: 15,
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => toggleSalaryVisibilityWithBiometric()}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '11px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 900,
+                        fontSize: 15,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span>₹••••••</span>
+                      <span style={{ fontSize: 11.5, color: '#10b981', fontWeight: 800 }}>
+                        👁️ Tap to Unlock Salary with Biometric
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Standard Shift Hours (Start & End) */}
@@ -5428,8 +5752,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
                 {/* OT Rate Type */}
                 <div>
-                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
-                    OT Rate Type (₹{formatINR(rates.otHourlyRate)}/hr)
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: 12,
+                    color: ui.textSecondary,
+                    fontWeight: 700,
+                    marginBottom: 5,
+                  }}>
+                    <span>OT Rate Type ({formatSalaryMask(rates.otHourlyRate, '₹', '/hr')})</span>
+                    {renderSalaryEyeButton(true)}
                   </div>
                   <select
                     value={settings.otRateMode === '1.0x' ? 'auto' : settings.otRateMode}
@@ -5445,9 +5778,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       fontSize: 13.5,
                     }}
                   >
-                    <option value="auto">1.0x Normal (₹{formatINR(rates.baseHourlyRate)}/hr)</option>
-                    <option value="1.5x">1.5x Overtime (₹{formatINR(rates.baseHourlyRate * 1.5)}/hr)</option>
-                    <option value="2.0x">2.0x Double OT (₹{formatINR(rates.baseHourlyRate * 2)}/hr)</option>
+                    <option value="auto">1.0x Normal ({formatSalaryMask(rates.baseHourlyRate, '₹', '/hr')})</option>
+                    <option value="1.5x">1.5x Overtime ({formatSalaryMask(rates.baseHourlyRate * 1.5, '₹', '/hr')})</option>
+                    <option value="2.0x">2.0x Double OT ({formatSalaryMask(rates.baseHourlyRate * 2, '₹', '/hr')})</option>
                     <option value="custom">Custom Hourly Rate</option>
                   </select>
                   {settings.otRateMode === 'custom' && (

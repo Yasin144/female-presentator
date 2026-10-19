@@ -324,6 +324,8 @@ export default function ExpensesModule({
   onChangeMonth,
   monthlyNetSalary = 0,
   netMonthlySalary = 0,
+  salaryVisible = false,
+  onToggleSalaryVisibility,
   mobileMode = false,
   themeMode = 'dark',
 }) {
@@ -1413,7 +1415,34 @@ export default function ExpensesModule({
                 <span>·</span>
                 <span>In: ₹{formatINRShort(analytics.totalIncome)}</span>
                 <span>·</span>
-                <span>Salary Left: ₹{formatINRShort(remainingSalary)}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span>Salary Left: {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}</span>
+                  {typeof onToggleSalaryVisibility === 'function' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSalaryVisibility();
+                      }}
+                      title={salaryVisible ? 'Hide Salary' : 'Unlock with Biometric to Show Salary'}
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: 999,
+                        border: '1px solid rgba(255,255,255,0.45)',
+                        background: 'rgba(15, 23, 42, 0.32)',
+                        color: '#ffffff',
+                        fontSize: 11,
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                    >
+                      <span>{salaryVisible ? '🙈' : '👁️'}</span>
+                    </button>
+                  )}
+                </span>
               </div>
             </div>
 

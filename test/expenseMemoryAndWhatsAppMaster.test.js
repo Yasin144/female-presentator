@@ -775,6 +775,29 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(mainActivitySrc.includes('triggerOfficeEndOtStartNotification'), true);
       assert.equal(mainActivitySrc.includes('scheduleOfficeEndOtAlarm'), true);
       assert.equal(alarmReceiverSrc.includes('showOfficeEndOtStartNotification'), true);
+
+      // 9. Salary Numbers Hidden by Default with Eye Button (👁️) + Biometric Unlock Everywhere
+      assert.equal(otSalarySrc.includes('const [salaryBiometricVisible, setSalaryBiometricVisible] = useState(false)'), true);
+      assert.equal(otSalarySrc.includes('toggleSalaryVisibilityWithBiometric'), true);
+      assert.equal(otSalarySrc.includes('formatSalaryMask'), true);
+      assert.equal(otSalarySrc.includes('renderSalaryEyeButton'), true);
+      assert.equal(otSalarySrc.includes("'unhide_salary'"), true);
+      assert.equal(otSalarySrc.includes('Unlock to Show Salary'), true);
+      assert.equal(expensesSrc.includes('salaryVisible'), true);
+      assert.equal(expensesSrc.includes('onToggleSalaryVisibility'), true);
+
+      // 10. Direct WhatsApp Message Sending to +91 7386726193 (Android 11-16 <queries> + whatsapp://send + 320ms postDelayed)
+      const manifestSrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/AndroidManifest.xml'),
+        'utf8'
+      );
+      assert.equal(manifestSrc.includes('<package android:name="com.whatsapp" />'), true);
+      assert.equal(manifestSrc.includes('<package android:name="com.whatsapp.w4b" />'), true);
+      assert.equal(manifestSrc.includes('<data android:scheme="whatsapp" />'), true);
+      assert.equal(mainActivitySrc.includes('launchDirectWhatsAppMessage'), true);
+      assert.equal(mainActivitySrc.includes('whatsapp://send?phone='), true);
+      assert.equal(otSalarySrc.includes('🟢 Send IN Time Now'), true);
+      assert.equal(otSalarySrc.includes('🔴 Send OUT + Payments'), true);
     });
   });
 });

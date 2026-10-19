@@ -496,39 +496,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public boolean sendWhatsAppMessageToNumber(final String phoneE164, final String messageText) {
-            try {
-                final String digits = (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
-                final String targetPhone = digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits);
-                final String msg = messageText != null ? messageText : "";
-                final String encodedMsg = Uri.encode(msg);
-                runOnUiThread(() -> {
-                    try {
-                        Uri waUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
-                        Intent waIntent = new Intent(Intent.ACTION_VIEW, waUri);
-                        waIntent.setPackage("com.whatsapp");
-                        waIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(waIntent);
-                        return;
-                    } catch (Exception ignored) {}
-                    try {
-                        Uri waBizUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
-                        Intent waBizIntent = new Intent(Intent.ACTION_VIEW, waBizUri);
-                        waBizIntent.setPackage("com.whatsapp.w4b");
-                        waBizIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(waBizIntent);
-                        return;
-                    } catch (Exception ignored) {}
-                    try {
-                        Uri webUri = Uri.parse("https://wa.me/" + targetPhone + "?text=" + encodedMsg);
-                        Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
-                        webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(webIntent);
-                    } catch (Exception ignored) {}
-                });
-                return true;
-            } catch (Exception ignored) {
-                return false;
-            }
+            return launchDirectWhatsAppMessage(phoneE164, messageText);
         }
 
         @SuppressWarnings("deprecation")
@@ -736,39 +704,63 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public boolean sendWhatsAppMessageToNumber(final String phoneE164, final String messageText) {
-            try {
-                final String digits = (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
-                final String targetPhone = digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits);
-                final String msg = messageText != null ? messageText : "";
-                final String encodedMsg = Uri.encode(msg);
-                runOnUiThread(() -> {
-                    try {
-                        Uri waUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
-                        Intent waIntent = new Intent(Intent.ACTION_VIEW, waUri);
-                        waIntent.setPackage("com.whatsapp");
-                        waIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(waIntent);
-                        return;
-                    } catch (Exception ignored) {}
-                    try {
-                        Uri waBizUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
-                        Intent waBizIntent = new Intent(Intent.ACTION_VIEW, waBizUri);
-                        waBizIntent.setPackage("com.whatsapp.w4b");
-                        waBizIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(waBizIntent);
-                        return;
-                    } catch (Exception ignored) {}
-                    try {
-                        Uri webUri = Uri.parse("https://wa.me/" + targetPhone + "?text=" + encodedMsg);
-                        Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
-                        webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(webIntent);
-                    } catch (Exception ignored) {}
-                });
-                return true;
-            } catch (Exception ignored) {
-                return false;
-            }
+            return launchDirectWhatsAppMessage(phoneE164, messageText);
+        }
+    }
+
+    private boolean launchDirectWhatsAppMessage(final String phoneE164, final String messageText) {
+        try {
+            final String digits = (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
+            final String targetPhone = digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits);
+            final String msg = messageText != null ? messageText : "";
+            final String encodedMsg = Uri.encode(msg);
+
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    Toast.makeText(getApplicationContext(), "Opening WhatsApp chat (+91 7386726193)...", Toast.LENGTH_SHORT).show();
+                } catch (Exception ignored) {}
+
+                // 1. Direct WhatsApp native deep-link (com.whatsapp)
+                try {
+                    Uri directUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Intent directIntent = new Intent(Intent.ACTION_VIEW, directUri);
+                    directIntent.setPackage("com.whatsapp");
+                    directIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(directIntent);
+                    return;
+                } catch (Exception ignored) {}
+
+                // 2. Direct WhatsApp Business native deep-link (com.whatsapp.w4b)
+                try {
+                    Uri bizDirectUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Intent bizDirectIntent = new Intent(Intent.ACTION_VIEW, bizDirectUri);
+                    bizDirectIntent.setPackage("com.whatsapp.w4b");
+                    bizDirectIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(bizDirectIntent);
+                    return;
+                } catch (Exception ignored) {}
+
+                // 3. Unpackaged whatsapp://send scheme (for dual/cloned WhatsApp apps)
+                try {
+                    Uri schemeUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Intent schemeIntent = new Intent(Intent.ACTION_VIEW, schemeUri);
+                    schemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(schemeIntent);
+                    return;
+                } catch (Exception ignored) {}
+
+                // 4. Fallback to api.whatsapp.com / wa.me
+                try {
+                    Uri webUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
+                    webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(webIntent);
+                } catch (Exception ignored) {}
+            }, 320);
+
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
