@@ -50,6 +50,9 @@ export const QUICK_NOTE_CHIPS = [
   { label: '💊 Medicine / Pharmacy', note: 'Medicine / Pharmacy', category: 'medical', tag: 'Personal' },
 ];
 
+export const PAYMENT_METHODS = PAYMENT_APPS;
+export const QUICK_NOTE_TEMPLATES = QUICK_NOTE_CHIPS;
+
 export function formatINR(amount) {
   const num = Number(amount) || 0;
   return num.toLocaleString('en-IN', {

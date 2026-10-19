@@ -732,6 +732,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   ));
   const [showMobileAppModal, setShowMobileAppModal] = useState(false);
   const [showManualEditor, setShowManualEditor] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      return localStorage.getItem('pattan.ot.themeMode') === 'light' ? 'light' : 'dark';
+    } catch (_) {
+      return 'dark';
+    }
+  });
+  const toggleThemeMode = useCallback(() => {
+    setThemeMode((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light';
+      try { localStorage.setItem('pattan.ot.themeMode', next); } catch (_) {}
+      return next;
+    });
+  }, []);
 
   // Form state for the currently selected date in the Daily Calculator card
   const [entryStatus, setEntryStatus] = useState('present'); // 'present' | 'half' | 'holiday_paid' | 'ot_only' | 'leave'
@@ -1621,7 +1636,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const filteredMonthRows = useMemo(() => {
     if (viewFilter === 'saved') return monthRows.filter((r) => r.isSaved);
-    if (viewFilter === 'ot_only') return monthRows.filter((r) => r.earnings.otMins > 0 || r.record.extraAllowance > 0);
+    if (viewFilter === 'ot_only') return monthRows.filter((r) => r.earnings.otMins > 0 || r.record.extraAllowance > 0 || r.record.status === 'ot_only');
+    if (viewFilter === 'present') return monthRows.filter((r) => r.record.status === 'present');
+    if (viewFilter === 'half') return monthRows.filter((r) => r.record.status === 'half');
+    if (viewFilter === 'off') return monthRows.filter((r) => r.record.status === 'holiday_paid' || r.isSunday);
+    if (viewFilter === 'leave') return monthRows.filter((r) => r.record.status === 'leave');
     return monthRows;
   }, [monthRows, viewFilter]);
 
@@ -2152,35 +2171,174 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const showMonthSection = mobileTab === 'month';
   const showSummarySection = mobileTab === 'summary';
 
+  const isLight = themeMode === 'light';
+  const ui = {
+    pageBg: isLight
+      ? 'linear-gradient(180deg, #f1f5f9 0%, #e8eef7 100%)'
+      : 'radial-gradient(circle at 20% 0%, #101d38 0%, #070c18 55%, #040710 100%)',
+    cardBg: isLight ? '#ffffff' : 'linear-gradient(180deg, #111a2e 0%, #0b1222 100%)',
+    cardSubBg: isLight ? '#f8fafc' : '#090f1d',
+    border: isLight ? 'rgba(15, 23, 42, 0.09)' : 'rgba(148, 163, 184, 0.16)',
+    textPrimary: isLight ? '#0f172a' : '#f8fafc',
+    textSecondary: isLight ? '#475569' : '#94a3b8',
+    textMuted: isLight ? '#64748b' : '#64748b',
+    shadow: isLight ? '0 8px 24px rgba(15, 23, 42, 0.06)' : '0 14px 34px rgba(0, 0, 0, 0.48)',
+  };
+
+  const formattedMonthLabel = (() => {
+    const [yr, mo] = String(selectedMonth || '2026-10').split('-').map(Number);
+    if (!yr || !mo) return selectedMonth;
+    const dt = new Date(yr, mo - 1, 1);
+    return dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  })();
+
+  const shiftSelectedMonth = (delta) => {
+    const [yr, mo] = String(selectedMonth || '2026-10').split('-').map(Number);
+    if (!yr || !mo) return;
+    const next = new Date(yr, mo - 1 + delta, 1);
+    const nextYm = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+    setSelectedMonth(nextYm);
+    setSelectedDate(`${nextYm}-01`);
+  };
+
+  // Build 7-column calendar cells for Screen 4 Month Sheet
+  const calendarGridCells = useMemo(() => {
+    const [yr, mo] = String(selectedMonth || '2026-10').split('-').map(Number);
+    if (!yr || !mo) return [];
+    const firstWeekday = new Date(yr, mo - 1, 1).getDay(); // 0=Sun..6=Sat
+    const cells = [];
+    for (let i = 0; i < firstWeekday; i += 1) {
+      cells.push(null);
+    }
+    for (const row of monthRows) {
+      cells.push(row);
+    }
+    return cells;
+  }, [selectedMonth, monthRows]);
+
+  const progressRatio = Math.min(1, Math.max(0, monthSummary.savedDaysCount / Math.max(1, monthRows.length)));
+  const ringRadius = 32;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringDashOffset = ringCircumference * (1 - progressRatio);
+
   return (
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       style={{
         minHeight: '100%',
-        background: 'radial-gradient(circle at 15% 0%, #111c38 0%, #070b14 52%, #04070e 100%)',
-        color: '#f8fafc',
-        padding: mobileMode ? '12px 12px 96px' : '22px 26px 90px',
+        background: ui.pageBg,
+        color: ui.textPrimary,
+        padding: mobileMode ? '12px 12px 96px' : '20px 24px 96px',
         fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         boxSizing: 'border-box',
+        transition: 'background 0.25s ease, color 0.25s ease',
       }}
     >
-      <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* SCREEN 1: SPLASH SCREEN OVERLAY (Toggleable via Logo / Splash button) */}
+      {showSplash && (
+        <div
+          onClick={() => setShowSplash(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2000,
+            background: 'radial-gradient(circle at 50% 35%, #112a4a 0%, #071022 58%, #040812 100%)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 28,
+            textAlign: 'center',
+            color: '#f8fafc',
+          }}
+        >
+          <div style={{
+            width: 126,
+            height: 126,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(16,185,129,0.22) 0%, rgba(37,99,235,0.18) 60%, rgba(15,23,42,0.95) 100%)',
+            border: '2.5px solid rgba(56, 189, 248, 0.65)',
+            boxShadow: '0 0 48px rgba(16, 185, 129, 0.45), inset 0 0 24px rgba(56, 189, 248, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 26,
+            position: 'relative',
+          }}>
+            <svg width="68" height="68" viewBox="0 0 64 64" fill="none">
+              <rect x="10" y="34" width="8" height="18" rx="3" fill="#38bdf8" />
+              <rect x="22" y="24" width="8" height="28" rx="3" fill="#34d399" />
+              <rect x="34" y="14" width="8" height="38" rx="3" fill="#10b981" />
+              <circle cx="46" cy="20" r="11" fill="#059669" stroke="#a7f3d0" strokeWidth="2" />
+              <text x="46" y="25" textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="900">₹</text>
+            </svg>
+          </div>
+          <div style={{
+            fontSize: 26,
+            fontWeight: 950,
+            letterSpacing: '0.02em',
+            color: '#ffffff',
+            lineHeight: 1.2,
+          }}>
+            OT &amp; SALARY PRO
+          </div>
+          <div style={{
+            fontSize: 19,
+            fontWeight: 900,
+            color: '#34d399',
+            marginTop: 4,
+            letterSpacing: '0.04em',
+          }}>
+            + EXPENSE MEMORY
+          </div>
+          <div style={{
+            fontSize: 13,
+            color: '#94a3b8',
+            marginTop: 12,
+            maxWidth: 300,
+            lineHeight: 1.5,
+            fontWeight: 600,
+          }}>
+            Work Smart · Track Salary · Remember Every Payment
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowSplash(false)}
+            style={{
+              marginTop: 32,
+              padding: '13px 32px',
+              borderRadius: 999,
+              border: '1px solid rgba(52, 211, 153, 0.6)',
+              background: 'linear-gradient(135deg, #2563eb, #10b981)',
+              color: '#fff',
+              fontWeight: 900,
+              fontSize: 14,
+              cursor: 'pointer',
+              boxShadow: '0 12px 28px rgba(16, 185, 129, 0.35)',
+            }}
+          >
+            Continue to Dashboard →
+          </button>
+        </div>
+      )}
 
-        {/* EXECUTIVE FLAGSHIP APP TITLE HEADER */}
+      <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+        {/* TOP PROFILE & CONTROLS HEADER (Matches Screen 2 & Screen 12 Light Mode) */}
         <div style={{
-          padding: mobileMode ? '16px 16px' : '18px 22px',
-          borderRadius: 22,
-          background: 'linear-gradient(135deg, #0b132b 0%, #060a17 55%, #0f172a 100%)',
-          border: '1.5px solid rgba(250, 204, 21, 0.45)',
-          boxShadow: '0 18px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+          padding: '12px 14px',
+          borderRadius: 20,
+          background: ui.cardBg,
+          border: `1px solid ${ui.border}`,
+          boxShadow: ui.shadow,
           display: 'flex',
-          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 12,
+          gap: 10,
+          flexWrap: 'wrap',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
               <button
                 type="button"
@@ -2189,1329 +2347,1392 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   if (res !== 'handled' && onClose) onClose();
                 }}
                 style={{
-                  padding: '8px 12px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(56, 189, 248, 0.5)',
-                  background: 'rgba(14, 165, 233, 0.18)',
-                  color: '#e0f2fe',
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
                   fontWeight: 900,
-                  fontSize: 12.5,
+                  fontSize: 15,
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
                 title="Go Back"
               >
-                ← Back
+                ←
               </button>
             )}
-            <div style={{
-              padding: 4,
-              borderRadius: 16,
-              background: 'radial-gradient(circle, rgba(250,204,21,0.22), rgba(15,23,42,0.92))',
-              border: '1px solid rgba(250,204,21,0.45)',
-              boxShadow: '0 0 22px rgba(250,204,21,0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <TouchIdSvg variant="gold" size={42} />
-            </div>
-            <div>
-              <div style={{
+
+            {/* Avatar Circle (Tap to view Splash Screen 1) */}
+            <div
+              onClick={() => setShowSplash(true)}
+              title="Tap to view OT & SALARY PRO Splash Screen"
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #2563eb 0%, #10b981 100%)',
+                border: '2px solid rgba(52, 211, 153, 0.65)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 7,
-                flexWrap: 'wrap',
-              }}>
-                <span style={{
-                  fontSize: 9.5,
-                  fontWeight: 900,
-                  letterSpacing: '0.16em',
-                  textTransform: 'uppercase',
-                  color: '#fde047',
-                }}>
-                  EXECUTIVE ATTENDANCE, PAYROLL &amp; EXPENSE MEMORY v3.0
-                </span>
-                <span style={{
-                  padding: '2px 7px',
-                  borderRadius: 999,
-                  background: 'rgba(16, 185, 129, 0.2)',
-                  border: '1px solid rgba(52, 211, 153, 0.55)',
-                  color: '#6ee7b7',
-                  fontSize: 9.5,
-                  fontWeight: 900,
-                  letterSpacing: '0.06em',
-                }}>
-                  ● LIVE SYNC · v3.0
-                </span>
-              </div>
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 15,
+                cursor: 'pointer',
+                position: 'relative',
+                flexShrink: 0,
+              }}
+            >
+              AH
+              <span style={{
+                position: 'absolute',
+                right: -1,
+                bottom: -1,
+                width: 11,
+                height: 11,
+                borderRadius: '50%',
+                background: '#10b981',
+                border: '2px solid #0b1222',
+              }} />
+            </div>
+
+            <div>
               <div style={{
-                fontSize: mobileMode ? 21 : 25,
-                fontWeight: 950,
-                background: 'linear-gradient(90deg, #ffffff 0%, #fef08a 55%, #38bdf8 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                letterSpacing: '-0.02em',
-                lineHeight: 1.15,
-                marginTop: 2,
+                fontSize: 15,
+                fontWeight: 900,
+                color: ui.textPrimary,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}>
-                OT &amp; SALARY PRO + EXPENSE MEMORY
+                <span>Hi, {settings.employeeName || 'Abdul Haseeb'}</span>
               </div>
-              <div style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700, marginTop: 2 }}>
-                Smart Transaction Detection · Personal Finance Assistant · Biometric OT · ₹{formatINR(rates.perDaySalary)}/day
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    if (e.target.value) setSelectedMonth(e.target.value);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    color: ui.textSecondary,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                />
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            {saveNotice && (
-              <span style={{
-                padding: '5px 10px',
-                borderRadius: 999,
-                background: 'rgba(16, 185, 129, 0.22)',
-                border: '1px solid #34d399',
-                color: '#a7f3d0',
-                fontSize: 11,
-                fontWeight: 800,
-              }}>
-                ✓ {saveNotice}
-              </span>
-            )}
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => {
-                if (e.target.value) setSelectedMonth(e.target.value);
-              }}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            {/* Light / Dark Mode Toggle (Screen 12 Light Mode Preview) */}
+            <button
+              type="button"
+              onClick={toggleThemeMode}
+              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode (Screen 12)'}
               style={{
-                background: '#080d1a',
-                border: '1px solid rgba(250, 204, 21, 0.38)',
-                borderRadius: 10,
-                padding: '6px 9px',
-                color: '#fef08a',
-                fontWeight: 800,
-                fontSize: 12,
+                width: 36,
+                height: 36,
+                borderRadius: 11,
+                border: `1px solid ${ui.border}`,
+                background: ui.cardSubBg,
+                color: ui.textPrimary,
+                fontSize: 16,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
-            />
+            >
+              {isLight ? '🌙' : '☀️'}
+            </button>
+
+            {/* Notification Bell with Red Dot */}
+            <button
+              type="button"
+              onClick={() => navigateTab('expenses')}
+              title="View Auto-Detected Payments & Missing Notes"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 11,
+                border: `1px solid ${ui.border}`,
+                background: ui.cardSubBg,
+                color: ui.textPrimary,
+                fontSize: 15,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+              }}
+            >
+              🔔
+              <span style={{
+                position: 'absolute',
+                top: 6,
+                right: 7,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: '#ef4444',
+              }} />
+            </button>
+
+            {/* App / Sync Button */}
             <button
               type="button"
               onClick={() => setShowMobileAppModal(true)}
               style={{
-                padding: '7px 11px',
-                borderRadius: 10,
-                border: '1px solid rgba(52, 211, 153, 0.45)',
-                background: 'rgba(16, 185, 129, 0.16)',
-                color: '#ecfdf5',
+                padding: '8px 11px',
+                borderRadius: 11,
+                border: '1px solid rgba(37, 99, 235, 0.45)',
+                background: isLight ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.2)',
+                color: isLight ? '#1d4ed8' : '#93c5fd',
                 fontWeight: 800,
                 fontSize: 11.5,
                 cursor: 'pointer',
               }}
             >
-              📱 App / Sync
-            </button>
-            <button
-              type="button"
-              onClick={shareSalarySummaryOnWhatsApp}
-              style={{
-                padding: '7px 11px',
-                borderRadius: 10,
-                border: '1px solid rgba(34, 197, 94, 0.45)',
-                background: 'rgba(34, 197, 94, 0.16)',
-                color: '#bbf7d0',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
-              }}
-            >
-              📲 Share
+              App / Sync
             </button>
           </div>
         </div>
 
-        {/* FLAGSHIP DUAL MODULE SWITCHER: OT & SALARY vs EXPENSES (MOBILE TRANSACTION & NOTE TRACKER) */}
+        {saveNotice && (
+          <div style={{
+            padding: '8px 12px',
+            borderRadius: 12,
+            background: 'rgba(16, 185, 129, 0.16)',
+            border: '1px solid rgba(52, 211, 153, 0.5)',
+            color: isLight ? '#065f46' : '#a7f3d0',
+            fontSize: 12,
+            fontWeight: 800,
+            textAlign: 'center',
+          }}>
+            ✓ {saveNotice}
+          </div>
+        )}
+
+        {/* SEGMENTED PILL SWITCHER: OT & Salary | Expense Memory (Screen 2 & Screen 7) */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: 10,
-          padding: 6,
-          borderRadius: 18,
-          background: 'rgba(9, 13, 24, 0.92)',
-          border: '1px solid rgba(148, 163, 184, 0.25)',
-          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.4)',
+          gap: 6,
+          padding: 5,
+          borderRadius: 16,
+          background: isLight ? '#e2e8f0' : '#090f1d',
+          border: `1px solid ${ui.border}`,
         }}>
           <button
             type="button"
             onClick={() => navigateTab('today')}
             style={{
-              padding: mobileMode ? '11px 10px' : '12px 16px',
-              borderRadius: 13,
-              border: mobileTab !== 'expenses' ? '1.5px solid rgba(52, 211, 153, 0.7)' : '1px solid transparent',
+              padding: '11px 12px',
+              borderRadius: 12,
+              border: mobileTab !== 'expenses' ? '1px solid rgba(59, 130, 246, 0.6)' : '1px solid transparent',
               background: mobileTab !== 'expenses'
-                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(14, 165, 233, 0.24))'
+                ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'
                 : 'transparent',
-              color: mobileTab !== 'expenses' ? '#ecfdf5' : '#94a3b8',
-              fontWeight: 950,
-              fontSize: mobileMode ? 12.5 : 14,
+              color: mobileTab !== 'expenses' ? '#ffffff' : ui.textSecondary,
+              fontWeight: 800,
+              fontSize: 13.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: 7,
+              boxShadow: mobileTab !== 'expenses' ? '0 6px 16px rgba(37, 99, 235, 0.35)' : 'none',
             }}
           >
-            <span>⏱️ OT &amp; SALARY</span>
-            <span style={{
-              padding: '2px 7px',
-              borderRadius: 999,
-              background: 'rgba(250, 204, 21, 0.2)',
-              color: '#fde047',
-              fontSize: 10.5,
-              fontWeight: 900,
-            }}>
-              ₹{formatINR(monthSummary.fullMonthNetPayable)}
-            </span>
+            <span>💼</span>
+            <span>OT &amp; Salary</span>
           </button>
 
           <button
             type="button"
             onClick={() => navigateTab('expenses')}
             style={{
-              padding: mobileMode ? '11px 10px' : '12px 16px',
-              borderRadius: 13,
-              border: mobileTab === 'expenses' ? '1.5px solid rgba(244, 114, 182, 0.8)' : '1px solid rgba(244, 114, 182, 0.4)',
+              padding: '11px 12px',
+              borderRadius: 12,
+              border: mobileTab === 'expenses' ? '1px solid rgba(236, 72, 153, 0.6)' : '1px solid transparent',
               background: mobileTab === 'expenses'
-                ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.35), rgba(139, 92, 246, 0.3))'
-                : 'rgba(236, 72, 153, 0.12)',
-              color: mobileTab === 'expenses' ? '#fdf2f8' : '#fbcfe8',
-              fontWeight: 950,
-              fontSize: mobileMode ? 12.5 : 14,
+                ? 'linear-gradient(135deg, #db2777 0%, #7c3aed 55%, #2563eb 100%)'
+                : 'transparent',
+              color: mobileTab === 'expenses' ? '#ffffff' : ui.textSecondary,
+              fontWeight: 800,
+              fontSize: 13.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: 7,
+              boxShadow: mobileTab === 'expenses' ? '0 6px 16px rgba(219, 39, 119, 0.35)' : 'none',
             }}
           >
-            <span>💸 EXPENSE MEMORY</span>
-            <span style={{
-              padding: '2px 7px',
-              borderRadius: 999,
-              background: 'rgba(244, 63, 94, 0.28)',
-              border: '1px solid rgba(251, 113, 133, 0.5)',
-              color: '#fecdd3',
-              fontSize: 10.5,
-              fontWeight: 900,
-            }}>
-              {expenseQuickStats.count} Txns · ₹{formatINR(expenseQuickStats.spent)}
-            </span>
+            <span>💳</span>
+            <span>Expense Memory</span>
+            <span style={{ display: 'none' }}>EXPENSES</span>
           </button>
         </div>
 
-        {/* LUXURY HERO SALARY VAULT CARD — DIRECTLY EDITABLE SALARY (Shown in OT & Salary Tabs) */}
-        {!showExpensesSection && (
-        <div style={{
-          padding: mobileMode ? '16px 16px' : '20px 22px',
-          borderRadius: 22,
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 55%, rgba(6, 78, 59, 0.45) 100%)',
-          border: '1px solid rgba(250, 204, 21, 0.42)',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 16,
-          alignItems: 'center',
-        }}>
-          {/* Left: Total Net Salary + Direct Editable Base Salary Input */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 900, color: '#fde047', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                💰 Total Net Salary ({selectedMonth})
-              </span>
-              <span style={{
-                padding: '2px 8px',
-                borderRadius: 999,
-                background: 'rgba(250, 204, 21, 0.16)',
-                border: '1px solid rgba(250, 204, 21, 0.38)',
-                color: '#fef08a',
-                fontSize: 10,
-                fontWeight: 800,
-              }}>
-                {monthSummary.savedDaysCount}/{monthRows.length} Days Saved
-              </span>
-            </div>
-
-            <div style={{
-              marginTop: 6,
-              fontSize: mobileMode ? 30 : 36,
-              fontWeight: 950,
-              color: '#facc15',
-              letterSpacing: '-0.02em',
-              textShadow: '0 4px 20px rgba(250, 204, 21, 0.28)',
-            }}>
-              ₹{formatINR(monthSummary.fullMonthNetPayable)}
-            </div>
-
-            {/* Inline Editable Monthly Salary Box */}
-            <div style={{
-              marginTop: 10,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 10px',
-              borderRadius: 12,
-              background: 'rgba(7, 11, 20, 0.78)',
-              border: '1px solid rgba(250, 204, 21, 0.45)',
-              flexWrap: 'wrap',
-            }}>
-              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#cbd5e1' }}>
-                ✏️ Monthly Salary: ₹
-              </span>
-              <input
-                type="number"
-                min="1000"
-                step="500"
-                value={settings.monthlySalary}
-                onChange={(e) => updateSetting('monthlySalary', Math.max(0, Number(e.target.value) || 0))}
-                style={{
-                  width: 105,
-                  padding: '5px 8px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(250, 204, 21, 0.55)',
-                  background: '#0f172a',
-                  color: '#fde047',
-                  fontWeight: 900,
-                  fontSize: 14,
-                  outline: 'none',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Right: Extra OT Earned & Rate Pill */}
-          <div style={{
-            padding: '14px 16px',
-            borderRadius: 16,
-            background: 'rgba(7, 11, 20, 0.65)',
-            border: '1px solid rgba(52, 211, 153, 0.42)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-          }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#6ee7b7', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                ⚡ Extra OT Earned
-              </div>
-              <div style={{ marginTop: 4, fontSize: mobileMode ? 24 : 28, fontWeight: 950, color: '#34d399' }}>
-                + ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
-              </div>
-              <div style={{ marginTop: 3, fontSize: 11.5, color: '#a7f3d0', fontWeight: 700 }}>
-                {formatMinutesReadable(monthSummary.totalOtMins)} Extra OT · {monthSummary.biometricBothCount}d IN &amp; OUT ✓
-              </div>
-            </div>
-            <TouchIdSvg variant="out" size={48} verified={monthSummary.biometricBothCount > 0} />
-          </div>
-        </div>
-        )}
-
-        {/* SLEEK 5-TAB NAVIGATION PILL BAR (Desktop / Top) */}
-        {!mobileMode && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: 8,
-            padding: 6,
-            borderRadius: 14,
-            background: 'rgba(15, 23, 42, 0.85)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-          }}>
-            {[
-              { id: 'today', label: 'Today Punch' },
-              { id: 'expenses', label: `💸 Expenses (${expenseQuickStats.count})` },
-              { id: 'month', label: 'Month Days' },
-              { id: 'summary', label: 'Salary Slip' },
-              { id: 'rules', label: 'Rules & App' },
-            ].map((t) => {
-              const active = mobileTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => navigateTab(t.id)}
-                  style={{
-                    padding: '10px 8px',
-                    borderRadius: 10,
-                    border: active ? '1px solid rgba(52, 211, 153, 0.6)' : '1px solid transparent',
-                    background: active ? 'linear-gradient(135deg, #10b981, #0284c7)' : 'transparent',
-                    color: active ? '#fff' : '#94a3b8',
-                    fontWeight: 900,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* EXPENSES MODULE (EXPENSE MEMORY — SHOWN ON EXPENSES TAB AND DIRECTLY ON HOME / TODAY VIEW) */}
-        {(showExpensesSection || showTodaySection) && (
+        {/* ===================================================================
+            SCREENS 7, 8, 9, 10, 11: EXPENSE MEMORY MODULE
+           =================================================================== */}
+        {showExpensesSection && (
           <ExpensesModule
             expensesMap={expensesMap}
             onUpdateExpenses={handleUpdateExpenses}
             selectedMonth={selectedMonth}
-            onChangeMonth={setSelectedMonth}
-            monthlyNetSalary={monthSummary.fullMonthNetPayable}
+            onChangeMonth={(m) => setSelectedMonth(m)}
+            netMonthlySalary={monthSummary.fullMonthNetPayable}
+            baseMonthlySalary={rates.salary}
             mobileMode={mobileMode}
-            liveNow={liveNow}
+            themeMode={themeMode}
           />
         )}
 
-        {/* TOUCH ID BIOMETRIC SCANNER STUDIO (IN & OUT) + LIVE TICKING CLOCK */}
-        {showTodaySection && (() => {
-          const todayIso = getTodayIsoDate();
-          const todayRec = daysMap[todayIso];
-          const hasBioInToday = Boolean(todayRec?.biometricIn);
-          const hasBioOutToday = Boolean(todayRec?.biometricOut);
-
-          const h24 = liveNow.getHours();
-          const m60 = liveNow.getMinutes();
-          const s60 = liveNow.getSeconds();
-          const period = h24 >= 12 ? 'PM' : 'AM';
-          const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-          const hhStr = String(h12).padStart(2, '0');
-          const mmStr = String(m60).padStart(2, '0');
-          const ssStr = String(s60).padStart(2, '0');
-          const dateLabel = liveNow.toLocaleDateString('en-IN', {
-            weekday: 'short',
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          });
-          const secAngle = s60 * 6;
-          const minAngle = m60 * 6 + s60 * 0.1;
-          const hrAngle = (h24 % 12) * 30 + m60 * 0.5;
-          const nowTotalMins = h24 * 60 + m60;
-          const isOvertimeWindow = nowTotalMins > rates.endMins;
-
-          return (
+        {/* ===================================================================
+            SCREEN 2 & SCREEN 12: HOME DASHBOARD (TODAY TAB)
+           =================================================================== */}
+        {showTodaySection && (
+          <>
+            {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (19/31 Days) */}
             <div style={{
-              padding: mobileMode ? 16 : 22,
+              padding: '18px 18px 16px',
               borderRadius: 22,
-              background: 'linear-gradient(160deg, rgba(15, 23, 42, 0.95) 0%, rgba(9, 14, 28, 0.98) 100%)',
-              border: '1px solid rgba(56, 189, 248, 0.35)',
-              boxShadow: '0 20px 48px rgba(0, 0, 0, 0.45)',
+              background: isLight
+                ? 'linear-gradient(135deg, #ffffff 0%, #ecfdf5 100%)'
+                : 'linear-gradient(135deg, #0c2d2c 0%, #0a192f 60%, #0d1627 100%)',
+              border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(52, 211, 153, 0.32)',
+              boxShadow: ui.shadow,
             }}>
-              {/* LIVE TICKING DIGITAL + ANALOG CHRONOMETER DISPLAY */}
-              <div style={{
-                padding: mobileMode ? '12px 14px' : '14px 18px',
-                borderRadius: 18,
-                background: 'linear-gradient(135deg, rgba(2, 6, 23, 0.92), rgba(15, 23, 42, 0.95))',
-                border: '1.5px solid rgba(56, 189, 248, 0.42)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 26px rgba(0,0,0,0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 12,
-                marginBottom: 16,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  {/* Live Ticking Analog SVG Watch Face */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
                   <div style={{
-                    width: 50,
-                    height: 50,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(14,165,233,0.22), rgba(2,6,23,0.95))',
-                    border: '1.5px solid rgba(56,189,248,0.6)',
-                    boxShadow: '0 0 18px rgba(56,189,248,0.25)',
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    color: isLight ? '#047857' : '#a7f3d0',
+                    marginBottom: 4,
+                  }}>
+                    Net Salary (This Month)
+                  </div>
+                  <div style={{
+                    fontSize: 31,
+                    fontWeight: 950,
+                    color: isLight ? '#0f172a' : '#ffffff',
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1.1,
+                  }}>
+                    ₹{formatINR(monthSummary.fullMonthNetPayable)}
+                  </div>
+                  <div style={{
+                    marginTop: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: isLight ? '#059669' : '#6ee7b7',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
+                    gap: 6,
+                    flexWrap: 'wrap',
                   }}>
-                    <svg width="44" height="44" viewBox="0 0 44 44">
-                      <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(148,163,184,0.25)" strokeWidth="1.2" strokeDasharray="2 3" />
-                      <line
-                        x1="22"
-                        y1="22"
-                        x2="22"
-                        y2="11"
-                        stroke="#f8fafc"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                        transform={`rotate(${hrAngle} 22 22)`}
-                      />
-                      <line
-                        x1="22"
-                        y1="22"
-                        x2="22"
-                        y2="7.5"
-                        stroke="#38bdf8"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        transform={`rotate(${minAngle} 22 22)`}
-                      />
-                      <line
-                        x1="22"
-                        y1="24"
-                        x2="22"
-                        y2="6"
-                        stroke="#34d399"
-                        strokeWidth="1.3"
-                        strokeLinecap="round"
-                        transform={`rotate(${secAngle} 22 22)`}
-                      />
-                      <circle cx="22" cy="22" r="2.4" fill="#facc15" />
-                    </svg>
-                  </div>
-
-                  {/* Live Digital Ticking Clock HH:MM:SS AM/PM */}
-                  <div>
-                    <div style={{
-                      fontSize: 10,
-                      fontWeight: 900,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      color: '#7dd3fc',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}>
-                      <span style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: s60 % 2 === 0 ? '#34d399' : '#059669',
-                        boxShadow: s60 % 2 === 0 ? '0 0 8px #34d399' : 'none',
-                        display: 'inline-block',
-                      }} />
-                      LIVE EXACT OFFICE CLOCK · {dateLabel}
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 6,
-                      marginTop: 2,
-                      fontFamily: "'JetBrains Mono', 'SF Mono', Consolas, monospace",
-                    }}>
-                      <span style={{
-                        fontSize: mobileMode ? 26 : 32,
-                        fontWeight: 900,
-                        color: '#ffffff',
-                        letterSpacing: '0.03em',
-                        lineHeight: 1.05,
-                        textShadow: '0 0 18px rgba(56,189,248,0.35)',
-                      }}>
-                        {hhStr}:{mmStr}
-                      </span>
-                      <span style={{
-                        fontSize: mobileMode ? 18 : 21,
-                        fontWeight: 900,
-                        color: '#34d399',
-                        minWidth: 32,
-                      }}>
-                        :{ssStr}
-                      </span>
-                      <span style={{
-                        padding: '2px 7px',
-                        borderRadius: 6,
-                        background: 'rgba(250,204,21,0.18)',
-                        border: '1px solid rgba(250,204,21,0.45)',
-                        color: '#fde047',
-                        fontSize: 11.5,
-                        fontWeight: 900,
-                      }}>
-                        {period}
-                      </span>
-                    </div>
+                    <span>Base ₹{formatINR(rates.salary)} + OT ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}</span>
                   </div>
                 </div>
 
-                <div style={{ textAlign: 'right', marginLeft: 'auto' }}>
+                {/* Right Circular Progress Ring (e.g. 19/31 Days) */}
+                <div style={{ position: 'relative', width: 78, height: 78, flexShrink: 0 }}>
+                  <svg width="78" height="78" viewBox="0 0 78 78">
+                    <circle
+                      cx="39"
+                      cy="39"
+                      r={ringRadius}
+                      fill="none"
+                      stroke={isLight ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255, 255, 255, 0.1)'}
+                      strokeWidth="6"
+                    />
+                    <circle
+                      cx="39"
+                      cy="39"
+                      r={ringRadius}
+                      fill="none"
+                      stroke="#10b981"
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeDasharray={ringCircumference}
+                      strokeDashoffset={ringDashOffset}
+                      transform="rotate(-90 39 39)"
+                    />
+                  </svg>
                   <div style={{
-                    display: 'inline-block',
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    background: isOvertimeWindow ? 'rgba(16, 185, 129, 0.2)' : 'rgba(56, 189, 248, 0.16)',
-                    border: isOvertimeWindow ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(56, 189, 248, 0.4)',
-                    color: isOvertimeWindow ? '#6ee7b7' : '#bae6fd',
-                    fontSize: 11,
-                    fontWeight: 900,
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
                   }}>
-                    {isOvertimeWindow
-                      ? `⚡ Overtime Active (Past ${formatTime12h(settings.officeEndTime)})`
-                      : `Shift: ${formatTime12h(settings.officeStartTime)} – ${formatTime12h(settings.officeEndTime)}`}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#6ee7b7', fontWeight: 800, marginTop: 4 }}>
-                    {hasBioInToday && hasBioOutToday
-                      ? '✓ IN & OUT Complete'
-                      : hasBioInToday
-                        ? `🟢 IN at ${formatTime12h(todayRec.inTime)}`
-                        : '⚡ Biometric IN / OUT Ready'}
+                    <span style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#0f172a' : '#ffffff', lineHeight: 1.1 }}>
+                      {monthSummary.savedDaysCount}/{monthRows.length}
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: ui.textSecondary }}>
+                      Days
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              {/* Bottom 3-Column Metrics Strip inside Hero Card */}
+              <div style={{
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: isLight ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.09)',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 8,
+              }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
-                    Biometric Touch Sensor (IN &amp; OUT)
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Worked:</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 900, color: isLight ? '#0f172a' : '#ffffff', marginTop: 1 }}>
+                    {monthSummary.savedDaysCount} Days
                   </div>
-                  <div style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
-                    {biometricScanState.statusText}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Total OT:</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 900, color: '#38bdf8', marginTop: 1 }}>
+                    {formatMinutesCompact(monthSummary.totalOtMins)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>OT Earned:</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 900, color: '#10b981', marginTop: 1 }}>
+                    ₹{formatINR(monthSummary.totalOtPay)}
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {/* TOUCH ID ORB 1: IN */}
+            {/* TODAY LIVE CLOCK & DUAL BIOMETRIC CARDS (Screen 2 & Screen 12) */}
+            <div style={{
+              padding: '18px 16px',
+              borderRadius: 22,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+            }}>
+              {/* Today Card Header */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 14,
+              }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: ui.textPrimary }}>
+                    Today
+                  </div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600 }}>
+                    {liveNow.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    padding: '5px 11px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.16)',
+                    border: '1px solid rgba(52, 211, 153, 0.45)',
+                    color: '#10b981',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                  }}>
+                    ⚡ Shift Active
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualEditor(true)}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✏️ Edit
+                  </button>
+                </div>
+              </div>
+
+              {/* Centered Circular Analog Clock + Digital Readout */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '6px 0 16px',
+              }}>
+                <div style={{
+                  padding: 10,
+                  borderRadius: '50%',
+                  background: isLight
+                    ? 'radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%)'
+                    : 'radial-gradient(circle, rgba(30, 41, 59, 0.65) 0%, rgba(9, 15, 29, 0.95) 100%)',
+                  border: isLight ? '2px solid #cbd5e1' : '2px solid rgba(56, 189, 248, 0.25)',
+                  boxShadow: isLight ? '0 8px 20px rgba(15,23,42,0.08)' : '0 0 32px rgba(14, 165, 233, 0.14)',
+                }}>
+                  <RealAnalogClock now={liveNow} size={136} />
+                </div>
+
+                <div style={{
+                  marginTop: 10,
+                  fontSize: 22,
+                  fontWeight: 950,
+                  color: ui.textPrimary,
+                  letterSpacing: '0.03em',
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                </div>
+                <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
+                  Shift: {formatTime12h(settings.officeStartTime)} – {formatTime12h(settings.officeEndTime)} · Biometric Touch Sensor (IN &amp; OUT)
+                </div>
+              </div>
+
+              {/* DUAL SIDE-BY-SIDE BIOMETRIC CARDS: Touch ID IN (Emerald) & Touch ID OUT (Coral Red) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+              }}>
+                {/* Left Card: Touch ID IN · Office Enter */}
                 <button
                   type="button"
                   onClick={() => performBiometricPunch('in')}
-                  disabled={biometricScanState.active}
+                  title="Touch Sensor — IN (Enter)"
                   style={{
-                    padding: mobileMode ? '20px 12px' : '24px 16px',
-                    borderRadius: 22,
-                    border: hasBioInToday ? '2px solid #38bdf8' : '1.5px solid rgba(56, 189, 248, 0.45)',
-                    background: hasBioInToday
-                      ? 'linear-gradient(155deg, rgba(2, 132, 199, 0.42), rgba(7, 12, 24, 0.98))'
-                      : 'linear-gradient(155deg, rgba(14, 165, 233, 0.22), rgba(7, 12, 24, 0.96))',
-                    color: '#fff',
+                    padding: '18px 12px',
+                    borderRadius: 20,
+                    border: '1.5px solid rgba(110, 231, 183, 0.55)',
+                    background: 'linear-gradient(145deg, #10b981 0%, #059669 55%, #047857 100%)',
+                    color: '#ffffff',
                     cursor: 'pointer',
-                    textAlign: 'center',
-                    boxShadow: hasBioInToday
-                      ? '0 16px 38px rgba(56, 189, 248, 0.3), inset 0 1px 0 rgba(255,255,255,0.16)'
-                      : '0 12px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.1)',
-                    transition: 'transform 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 12px 26px rgba(16, 185, 129, 0.32)',
                   }}
                 >
                   <div style={{
-                    display: 'inline-block',
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(56, 189, 248, 0.18)',
-                    border: '1px solid rgba(56, 189, 248, 0.4)',
-                    fontSize: 10,
-                    fontWeight: 900,
-                    color: '#7dd3fc',
-                    letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                    marginBottom: 10,
+                    width: 58,
+                    height: 58,
+                    borderRadius: '50%',
+                    background: 'rgba(255, 255, 255, 0.16)',
+                    border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}>
-                    {hasBioInToday ? '✓ VERIFIED IN' : 'OFFICE ENTRY'}
+                    <TouchIdSvg
+                      variant="emerald"
+                      size={38}
+                      verified={Boolean(daysMap[getTodayIsoDate()]?.biometricIn)}
+                      scanning={biometricScanState.active && biometricScanState.direction === 'in'}
+                    />
                   </div>
-                  <TouchIdSvg
-                    variant="in"
-                    size={mobileMode ? 70 : 78}
-                    verified={hasBioInToday}
-                    scanning={biometricScanState.active && biometricScanState.direction === 'in'}
-                  />
-                  <div style={{
-                    fontSize: mobileMode ? 24 : 28,
-                    fontWeight: 950,
-                    marginTop: 10,
-                    color: '#ffffff',
-                    letterSpacing: '0.06em',
-                    textShadow: '0 2px 14px rgba(56, 189, 248, 0.45)',
-                  }}>
-                    IN
+                  <div style={{ fontSize: 15, fontWeight: 950, letterSpacing: '-0.01em' }}>
+                    Touch ID · IN
                   </div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 2, color: '#bae6fd' }}>
-                    Touch Sensor — IN (Enter)
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.9)' }}>
+                    {daysMap[getTodayIsoDate()]?.inTime
+                      ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.inTime)}`
+                      : 'Office Enter'}
                   </div>
-                  <div style={{
-                    display: 'inline-block',
-                    marginTop: 8,
-                    padding: '5px 12px',
-                    borderRadius: 999,
-                    background: hasBioInToday ? 'rgba(56, 189, 248, 0.26)' : 'rgba(56, 189, 248, 0.14)',
-                    border: '1px solid rgba(56, 189, 248, 0.45)',
-                    color: '#e0f2fe',
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}>
-                    {hasBioInToday
-                      ? `✓ IN · ${formatTime12h(todayRec.inTime)}`
-                      : `IN · ${formatTime12h(todayRec?.inTime || entryInTime)}`}
-                  </div>
+                  <span style={{ display: 'none' }}>Touch Sensor — IN (Enter)</span>
                 </button>
 
-                {/* TOUCH ID ORB 2: OUT + OT */}
+                {/* Right Card: Touch ID OUT · Office Exit */}
                 <button
                   type="button"
                   onClick={() => performBiometricPunch('out')}
-                  disabled={biometricScanState.active}
+                  title="Touch Sensor — OUT (Exit + OT)"
                   style={{
-                    padding: mobileMode ? '20px 12px' : '24px 16px',
-                    borderRadius: 22,
-                    border: hasBioOutToday ? '2px solid #34d399' : '1.5px solid rgba(52, 211, 153, 0.45)',
-                    background: hasBioOutToday
-                      ? 'linear-gradient(155deg, rgba(5, 150, 105, 0.45), rgba(7, 12, 24, 0.98))'
-                      : 'linear-gradient(155deg, rgba(16, 185, 129, 0.22), rgba(7, 12, 24, 0.96))',
-                    color: '#fff',
+                    padding: '18px 12px',
+                    borderRadius: 20,
+                    border: '1.5px solid rgba(253, 164, 175, 0.55)',
+                    background: 'linear-gradient(145deg, #f43f5e 0%, #e11d48 55%, #be123c 100%)',
+                    color: '#ffffff',
                     cursor: 'pointer',
-                    textAlign: 'center',
-                    boxShadow: hasBioOutToday
-                      ? '0 16px 38px rgba(16, 185, 129, 0.32), inset 0 1px 0 rgba(255,255,255,0.16)'
-                      : '0 12px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.1)',
-                    transition: 'transform 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 12px 26px rgba(225, 29, 72, 0.32)',
                   }}
                 >
                   <div style={{
-                    display: 'inline-block',
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(16, 185, 129, 0.18)',
-                    border: '1px solid rgba(52, 211, 153, 0.4)',
-                    fontSize: 10,
-                    fontWeight: 900,
-                    color: '#6ee7b7',
-                    letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                    marginBottom: 10,
+                    width: 58,
+                    height: 58,
+                    borderRadius: '50%',
+                    background: 'rgba(255, 255, 255, 0.16)',
+                    border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}>
-                    {hasBioOutToday ? '✓ VERIFIED OUT' : 'OFFICE EXIT + OT'}
+                    <TouchIdSvg
+                      variant="gold"
+                      size={38}
+                      verified={Boolean(daysMap[getTodayIsoDate()]?.biometricOut)}
+                      scanning={biometricScanState.active && biometricScanState.direction === 'out'}
+                    />
                   </div>
-                  <TouchIdSvg
-                    variant="out"
-                    size={mobileMode ? 70 : 78}
-                    verified={hasBioOutToday}
-                    scanning={biometricScanState.active && biometricScanState.direction === 'out'}
-                  />
-                  <div style={{
-                    fontSize: mobileMode ? 24 : 28,
-                    fontWeight: 950,
-                    marginTop: 10,
-                    color: '#ffffff',
-                    letterSpacing: '0.06em',
-                    textShadow: '0 2px 14px rgba(16, 185, 129, 0.45)',
-                  }}>
-                    OUT
+                  <div style={{ fontSize: 15, fontWeight: 950, letterSpacing: '-0.01em' }}>
+                    Touch ID · OUT
                   </div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 2, color: '#a7f3d0' }}>
-                    Touch Sensor — OUT (Exit + OT)
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.9)' }}>
+                    {daysMap[getTodayIsoDate()]?.outTime
+                      ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.outTime)}`
+                      : 'Office Exit'}
                   </div>
-                  <div style={{
-                    display: 'inline-block',
-                    marginTop: 8,
-                    padding: '5px 12px',
-                    borderRadius: 999,
-                    background: hasBioOutToday ? 'rgba(16, 185, 129, 0.28)' : 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(52, 211, 153, 0.45)',
-                    color: '#d1fae5',
-                    fontSize: 12,
-                    fontWeight: 900,
-                  }}>
-                    {hasBioOutToday
-                      ? `✓ OUT · ${formatTime12h(todayRec.outTime)}`
-                      : `OUT · ${formatTime12h(todayRec?.outTime || entryOutTime)}`}
-                  </div>
+                  <span style={{ display: 'none' }}>Touch Sensor — OUT (Exit + OT)</span>
                 </button>
               </div>
-            </div>
-          );
-        })()}
 
-        {/* SLEEK LIVE SHIFT SUMMARY & COLLAPSIBLE MANUAL DRAWER */}
-        {(showTodaySection || showRulesSection) && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))',
-          gap: 16,
-          alignItems: 'start',
-        }}>
-
-          {/* TODAY LIVE SHIFT SUMMARY + COLLAPSIBLE MANUAL EDITOR */}
-          {showTodaySection && (
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.9)',
-            border: '1px solid rgba(148, 163, 184, 0.2)',
-            borderRadius: 20,
-            padding: mobileMode ? 16 : 20,
-            boxShadow: '0 14px 36px rgba(0,0,0,0.38)',
-          }}>
-            {/* Compact Today Live Strip */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-              padding: '14px 16px',
-              borderRadius: 16,
-              background: 'linear-gradient(135deg, rgba(16,185,129,0.14), rgba(56,189,248,0.1))',
-              border: '1px solid rgba(52,211,153,0.35)',
-              marginBottom: 12,
-            }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: '#7dd3fc' }}>
-                    📅 {selectedDate}
-                  </span>
-                  {daysMap[selectedDate] ? (
-                    <span style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(16,185,129,0.22)', color: '#6ee7b7', fontSize: 10.5, fontWeight: 800 }}>
-                      ✓ Saved
-                    </span>
-                  ) : (
-                    <span style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(245,158,11,0.18)', color: '#fde68a', fontSize: 10.5, fontWeight: 800 }}>
-                      Preview
-                    </span>
-                  )}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, fontWeight: 900, color: '#fff' }}>
-                  {formatTime12h(entryInTime)} → {formatTime12h(entryOutTime)}
-                </div>
-                <div style={{ marginTop: 3, fontSize: 12, color: '#cbd5e1', fontWeight: 700 }}>
-                  Worked: <strong style={{ color: '#38bdf8' }}>{formatMinutesReadable(activeDayPreview.workedMins)}</strong>
-                  {' · '}
-                  Extra OT: <strong style={{ color: '#34d399' }}>+{formatMinutesReadable(activeDayPreview.otMins)} (+₹{formatINR(activeDayPreview.otPay)})</strong>
-                </div>
-              </div>
-
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>
-                  Day Total Pay
-                </div>
-                <div style={{ fontSize: 26, fontWeight: 950, color: '#facc15' }}>
-                  ₹{formatINR(activeDayPreview.totalPay)}
-                </div>
-              </div>
-            </div>
-
-            {/* 1-Tap Quick OT Chips */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', marginBottom: 6 }}>
-                ⚡ 1-Tap Extra OT Preset (Auto-sets Exit Time &amp; Saves Today):
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {[
-                  { hrs: 0, label: '0h (6:30 PM)' },
-                  { hrs: 0.5, label: '+30m (7:00 PM)' },
-                  { hrs: 1, label: '+1h (7:30 PM)' },
-                  { hrs: 1.5, label: '+1.5h (8:00 PM)' },
-                  { hrs: 2, label: '+2h (8:30 PM)' },
-                  { hrs: 3, label: '+3h (9:30 PM)' },
-                ].map((preset) => {
-                  const active = Math.abs((Number(entryOtHours) || 0) - preset.hrs) < 0.01;
-                  return (
+              {/* Quick OT Presets + Open Manual Day Editor (Screen 3) */}
+              <div style={{
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: `1px solid ${ui.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+                flexWrap: 'wrap',
+              }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { hrs: 0, label: '6:30 PM (0h)' },
+                    { hrs: 1, label: '7:30 PM (+1h)' },
+                    { hrs: 2, label: '8:30 PM (+2h)' },
+                  ].map((preset) => (
                     <button
                       key={preset.hrs}
                       type="button"
                       onClick={() => quickSetTodayOtAndSave(preset.hrs)}
                       style={{
-                        padding: '7px 11px',
-                        borderRadius: 10,
-                        border: active ? '1px solid #34d399' : '1px solid rgba(148,163,184,0.22)',
-                        background: active ? 'rgba(16,185,129,0.28)' : 'rgba(255,255,255,0.04)',
-                        color: active ? '#ecfdf5' : '#cbd5e1',
+                        padding: '6px 10px',
+                        borderRadius: 9,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
                         fontWeight: 800,
-                        fontSize: 11.5,
+                        fontSize: 11,
                         cursor: 'pointer',
                       }}
                     >
                       {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowManualEditor(true)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 9,
+                    border: '1px solid rgba(37, 99, 235, 0.45)',
+                    background: 'rgba(37, 99, 235, 0.14)',
+                    color: isLight ? '#1d4ed8' : '#93c5fd',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✏️ Manual Day Editor
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ===================================================================
+            SCREEN 3: MANUAL DAY EDITOR MODAL / SHEET (Edit Today's Attendance)
+           =================================================================== */}
+        {showManualEditor && (
+          <div
+            onClick={() => setShowManualEditor(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 1300,
+              background: 'rgba(2, 6, 23, 0.78)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 14,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 440,
+                maxHeight: '92vh',
+                overflowY: 'auto',
+                borderRadius: 24,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.65)',
+                padding: 20,
+                color: ui.textPrimary,
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualEditor(false)}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ←
+                  </button>
+                  <div>
+                    <div style={{ fontSize: 17, fontWeight: 900 }}>Edit Today&apos;s Attendance</div>
+                    <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600 }}>
+                      Date: {selectedDate}
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    if (e.target.value) setSelectedDate(e.target.value);
+                  }}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: 8,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+
+              {/* 4 Status Cards: Present | Half Day | Off | OT Only */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 8,
+                marginBottom: 14,
+              }}>
+                {[
+                  { id: 'present', icon: '✓', label: 'Present', activeColor: '#10b981' },
+                  { id: 'half', icon: '◐', label: 'Half Day', activeColor: '#f59e0b' },
+                  { id: 'holiday_paid', icon: '🏠', label: 'Off', activeColor: '#38bdf8' },
+                  { id: 'ot_only', icon: '⚡', label: 'OT Only', activeColor: '#8b5cf6' },
+                ].map((st) => {
+                  const active = entryStatus === st.id;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => handleStatusChange(st.id)}
+                      style={{
+                        padding: '10px 6px',
+                        borderRadius: 12,
+                        border: active ? `1.5px solid ${st.activeColor}` : `1px solid ${ui.border}`,
+                        background: active ? `${st.activeColor}22` : ui.cardSubBg,
+                        color: active ? st.activeColor : ui.textSecondary,
+                        fontWeight: 800,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <span style={{ fontSize: 14 }}>{st.icon}</span>
+                      <span>{st.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 2-Column Enter Time & Exit Time */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 14,
+                  background: ui.cardSubBg,
+                  border: `1px solid ${ui.border}`,
+                }}>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 700, marginBottom: 4 }}>
+                    Enter Time
+                  </div>
+                  <input
+                    type="time"
+                    value={entryInTime}
+                    onChange={(e) => handleInTimeChange(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      fontSize: 15,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 14,
+                  background: ui.cardSubBg,
+                  border: `1px solid ${ui.border}`,
+                }}>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 700, marginBottom: 4 }}>
+                    Exit Time
+                  </div>
+                  <input
+                    type="time"
+                    value={entryOutTime}
+                    onChange={(e) => handleOutTimeChange(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      fontSize: 15,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Green Worked Duration & Extra OT Summary Card */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(52, 211, 153, 0.4)',
+                marginBottom: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800 }}>
+                  <span style={{ color: ui.textSecondary }}>Worked Duration</span>
+                  <span style={{ color: ui.textPrimary }}>{formatMinutesCompact(activeDayPreview.workedMins)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 900 }}>
+                  <span style={{ color: '#10b981' }}>Extra OT</span>
+                  <span style={{ color: '#10b981' }}>
+                    +{formatMinutesCompact(activeDayPreview.otMins)} (₹{formatINR(activeDayPreview.otPay)})
+                  </span>
+                </div>
+              </div>
+
+              {/* Extra Allowance (₹) */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                  Extra Allowance (₹)
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="10"
+                  value={entryBonus}
+                  onChange={(e) => setEntryBonus(Math.max(0, Number(e.target.value) || 0))}
+                  placeholder="₹ 0"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '11px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 14,
+                  }}
+                />
+              </div>
+
+              {/* Work Note (Optional) */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                  Work Note (Optional)
+                </div>
+                <input
+                  type="text"
+                  value={entryNote}
+                  onChange={(e) => setEntryNote(e.target.value)}
+                  placeholder="e.g. Late evening client deployment"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '11px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 600,
+                    fontSize: 13.5,
+                  }}
+                />
+              </div>
+
+              {/* Cancel + Save Day Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowManualEditor(false)}
+                  style={{
+                    padding: '12px',
+                    borderRadius: 12,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textSecondary,
+                    fontWeight: 800,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveActiveDayRecord();
+                    setShowManualEditor(false);
+                  }}
+                  style={{
+                    padding: '12px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(59, 130, 246, 0.6)',
+                    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    boxShadow: '0 8px 20px rgba(37, 99, 235, 0.35)',
+                  }}
+                >
+                  Save Day
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================
+            SCREEN 4: MONTH SHEET (Calendar Grid + Filter Pills + Day Cards)
+           =================================================================== */}
+        {showMonthSection && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Month Navigation Header (< October 2026 >) */}
+            <div style={{
+              padding: '14px 16px',
+              borderRadius: 20,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+              }}>
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedMonth(-1)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ‹
+                </button>
+                <div style={{ fontSize: 16, fontWeight: 950, color: ui.textPrimary }}>
+                  {formattedMonthLabel}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedMonth(1)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ›
+                </button>
+              </div>
+
+              {/* 7-Column Mini Calendar Grid (S M T W T F S) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: 4,
+                textAlign: 'center',
+                marginBottom: 6,
+              }}>
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      color: idx === 0 ? '#f87171' : ui.textSecondary,
+                      padding: '4px 0',
+                    }}
+                  >
+                    {d}
+                  </div>
+                ))}
+                {calendarGridCells.map((cell, idx) => {
+                  if (!cell) {
+                    return <div key={`empty_${idx}`} style={{ height: 32 }} />;
+                  }
+                  const isSel = cell.iso === selectedDate;
+                  const hasOt = cell.earnings.otMins > 0;
+                  return (
+                    <button
+                      key={cell.iso}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(cell.iso);
+                        setShowManualEditor(true);
+                      }}
+                      style={{
+                        height: 34,
+                        borderRadius: 9,
+                        border: isSel
+                          ? '1.5px solid #60a5fa'
+                          : hasOt
+                            ? '1px solid rgba(52, 211, 153, 0.45)'
+                            : '1px solid transparent',
+                        background: isSel
+                          ? '#2563eb'
+                          : hasOt
+                            ? 'rgba(16, 185, 129, 0.14)'
+                            : cell.isSaved
+                              ? isLight ? '#f1f5f9' : 'rgba(255,255,255,0.04)'
+                              : 'transparent',
+                        color: isSel
+                          ? '#ffffff'
+                          : cell.isSunday
+                            ? '#f87171'
+                            : ui.textPrimary,
+                        fontWeight: isSel || hasOt ? 900 : 700,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        position: 'relative',
+                      }}
+                    >
+                      {cell.dayNum}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Toggle Button for Manual Time / Date / Bonus Editor */}
-            <button
-              type="button"
-              onClick={() => setShowManualEditor((prev) => !prev)}
-              style={{
-                width: '100%',
-                padding: '10px 14px',
-                borderRadius: 12,
-                border: '1px solid rgba(56, 189, 248, 0.32)',
-                background: 'rgba(14, 165, 233, 0.1)',
-                color: '#7dd3fc',
-                fontWeight: 800,
-                fontSize: 12.5,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span>🎛️ Edit Custom Date, Exact Enter/Exit Time, Status or Bonus</span>
-              <span>{showManualEditor ? '▲ Hide' : '▼ Open'}</span>
-            </button>
-
-            {showManualEditor && (
-              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(148,163,184,0.2)' }}>
-                {/* Date + Status Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                      Work Date
-                    </label>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => {
-                          if (e.target.value) setSelectedDate(e.target.value);
-                        }}
-                        style={{
-                          flex: 1,
-                          padding: '9px 11px',
-                          borderRadius: 9,
-                          border: '1px solid rgba(148,163,184,0.3)',
-                          background: '#090d16',
-                          color: '#fff',
-                          fontWeight: 800,
-                          fontSize: 13,
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDate(getTodayIsoDate())}
-                        style={{
-                          padding: '8px 11px',
-                          borderRadius: 9,
-                          border: '1px solid rgba(56,189,248,0.4)',
-                          background: 'rgba(14,165,233,0.16)',
-                          color: '#7dd3fc',
-                          fontWeight: 800,
-                          fontSize: 12,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Today
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                      Attendance Status
-                    </label>
-                    <select
-                      value={entryStatus}
-                      onChange={(e) => handleStatusChange(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '9px 11px',
-                        borderRadius: 9,
-                        border: '1px solid rgba(148,163,184,0.3)',
-                        background: '#090d16',
-                        color: '#fff',
-                        fontWeight: 800,
-                        fontSize: 13,
-                      }}
-                    >
-                      <option value="present">Present (Full Day 10:00 AM – 06:30 PM)</option>
-                      <option value="half">Half Day (50% Base + OT)</option>
-                      <option value="holiday_paid">Sunday / Paid Holiday</option>
-                      <option value="ot_only">Extra Work Only (0 Base + Full Time as OT)</option>
-                      <option value="leave">Leave / Absent (Unpaid)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* ENTER TIME & EXIT TIME PICKERS */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginBottom: 14 }}>
-                  <Time12hPicker
-                    label="🟢 Office Enter Time (In)"
-                    value={entryInTime}
-                    onChange={handleInTimeChange}
-                    accentColor="#38bdf8"
-                    badgeText={`Standard Enter: ${formatTime12h(settings.officeStartTime)}`}
-                    quickOptions={[
-                      { label: '09:30 AM', time: '09:30' },
-                      { label: '10:00 AM', time: '10:00' },
-                      { label: '10:30 AM', time: '10:30' },
-                      { label: '🕒 Now', time: 'NOW' },
-                    ]}
-                  />
-
-                  <Time12hPicker
-                    label="🔴 Office Exit Time (Out)"
-                    value={entryOutTime}
-                    onChange={handleOutTimeChange}
-                    accentColor="#34d399"
-                    badgeText={`Standard Exit: ${formatTime12h(settings.officeEndTime)}`}
-                    quickOptions={[
-                      { label: '06:30 PM (0h)', time: '18:30' },
-                      { label: '07:30 PM (+1h)', time: '19:30' },
-                      { label: '08:30 PM (+2h)', time: '20:30' },
-                      { label: '🕒 Now', time: 'NOW' },
-                    ]}
-                  />
-                </div>
-
-                {/* Optional Note & Extra Bonus */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                      Work Note (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Optional note..."
-                      value={entryNote}
-                      onChange={(e) => setEntryNote(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '9px 11px',
-                        borderRadius: 9,
-                        border: '1px solid rgba(148,163,184,0.3)',
-                        background: '#090d16',
-                        color: '#fff',
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                      Extra Bonus (₹)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="10"
-                      value={entryBonus}
-                      onChange={(e) => setEntryBonus(Math.max(0, Number(e.target.value) || 0))}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '9px 11px',
-                        borderRadius: 9,
-                        border: '1px solid rgba(148,163,184,0.3)',
-                        background: '#090d16',
-                        color: '#fff',
-                        fontWeight: 800,
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Save Button */}
-                <div style={{ display: 'flex', gap: 10 }}>
+            {/* Filter Pills Row: All | Present | Half | Off | Leave | OT */}
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'present', label: 'Present' },
+                { id: 'half', label: 'Half' },
+                { id: 'off', label: 'Off' },
+                { id: 'leave', label: 'Leave' },
+                { id: 'ot_only', label: 'Extra OT' },
+              ].map((pill) => {
+                const active = viewFilter === pill.id;
+                return (
                   <button
+                    key={pill.id}
                     type="button"
-                    onClick={saveActiveDayRecord}
+                    onClick={() => setViewFilter(pill.id)}
                     style={{
-                      flex: 1,
-                      padding: '12px 18px',
-                      borderRadius: 11,
-                      border: '1px solid rgba(52,211,153,0.5)',
-                      background: 'linear-gradient(135deg, #10b981, #0284c7)',
-                      color: '#fff',
-                      fontWeight: 900,
-                      fontSize: 14,
+                      padding: '7px 14px',
+                      borderRadius: 999,
+                      border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
+                      background: active ? '#2563eb' : ui.cardBg,
+                      color: active ? '#ffffff' : ui.textSecondary,
+                      fontWeight: 800,
+                      fontSize: 12,
                       cursor: 'pointer',
-                      boxShadow: '0 8px 24px rgba(16, 185, 129, 0.3)',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    💾 Save {selectedDate} ({formatTime12h(entryInTime)} – {formatTime12h(entryOutTime)})
+                    {pill.label}
                   </button>
-                  {daysMap[selectedDate] && (
-                    <button
-                      type="button"
-                      onClick={() => deleteSavedDay(selectedDate)}
-                      style={{
-                        padding: '12px 14px',
-                        borderRadius: 11,
-                        border: '1px solid rgba(248,113,113,0.4)',
-                        background: 'rgba(239,68,68,0.14)',
-                        color: '#fca5a5',
-                        fontWeight: 800,
-                        fontSize: 12,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          )}
-
-          {/* RIGHT: Salary & Office Timing Configuration Card */}
-          {showRulesSection && (
-          <div style={{
-            background: '#0f172a',
-            border: '1px solid rgba(148, 163, 184, 0.22)',
-            borderRadius: 16,
-            padding: mobileMode ? 14 : 20,
-          }}>
-            <h2 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 900, color: '#fff' }}>
-              ⚙️ Your Office Salary &amp; Timing Rules
-            </h2>
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: '#94a3b8' }}>
-              Pre-configured for ₹25,000/month and 10:00 AM – 06:30 PM (8 hrs 30 mins). Changes save automatically.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Monthly Salary (₹)
-                </label>
-                <input
-                  type="number"
-                  min="1000"
-                  step="500"
-                  value={settings.monthlySalary}
-                  onChange={(e) => updateSetting('monthlySalary', Math.max(0, Number(e.target.value) || 0))}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(250,204,21,0.45)',
-                    background: '#090d16',
-                    color: '#fde047',
-                    fontWeight: 900,
-                    fontSize: 14,
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Month Days Calculation Basis
-                </label>
-                <select
-                  value={settings.monthDaysMode}
-                  onChange={(e) => updateSetting('monthDaysMode', e.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(148,163,184,0.3)',
-                    background: '#090d16',
-                    color: '#fff',
-                    fontWeight: 800,
-                    fontSize: 13,
-                  }}
-                >
-                  <option value="30">30 Days Fixed (₹{formatINR((Number(settings.monthlySalary) || 25000) / 30)}/day)</option>
-                  <option value="actual">Actual Days in Month ({rates.actualMonthDays} days = ₹{formatINR((Number(settings.monthlySalary) || 25000) / rates.actualMonthDays)}/day)</option>
-                  <option value="26">26 Working Days (₹{formatINR((Number(settings.monthlySalary) || 25000) / 26)}/day)</option>
-                </select>
-              </div>
+                );
+              })}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Standard Office Enter Time (Morning)
-                </label>
-                <input
-                  type="time"
-                  value={settings.officeStartTime}
-                  onChange={(e) => updateSetting('officeStartTime', e.target.value || '10:00')}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(148,163,184,0.3)',
-                    background: '#090d16',
-                    color: '#fff',
-                    fontWeight: 800,
-                    fontSize: 13,
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Standard Office Exit Time (Evening)
-                </label>
-                <input
-                  type="time"
-                  value={settings.officeEndTime}
-                  onChange={(e) => updateSetting('officeEndTime', e.target.value || '18:30')}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(148,163,184,0.3)',
-                    background: '#090d16',
-                    color: '#fff',
-                    fontWeight: 800,
-                    fontSize: 13,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* How Enter & Exit Time Calculates OT */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#7dd3fc', marginBottom: 5 }}>
-                  How Enter Time &amp; Exit Time Calculates Extra OT
-                </label>
-                <select
-                  value={settings.otTimeCalcMode || 'in_out_duration'}
-                  onChange={(e) => updateSetting('otTimeCalcMode', e.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(56,189,248,0.4)',
-                    background: '#090d16',
-                    color: '#fff',
-                    fontWeight: 800,
-                    fontSize: 12.5,
-                  }}
-                >
-                  <option value="in_out_duration">
-                    Total Worked Time minus {formatMinutesReadable(rates.shiftMins)} Shift (Exit Time − Enter Time − 8h 30m)
-                  </option>
-                  <option value="after_office_end">
-                    Extra Time Worked After {formatTime12h(settings.officeEndTime)} (Exit Time − {formatTime12h(settings.officeEndTime)})
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: settings.otRateMode === 'custom' ? '1fr 1fr' : '1fr', gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#cbd5e1', marginBottom: 5 }}>
-                  Extra Work (OT) Hourly Rate Formula
-                </label>
-                <select
-                  value={settings.otRateMode}
-                  onChange={(e) => updateSetting('otRateMode', e.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 11px',
-                    borderRadius: 9,
-                    border: '1px solid rgba(148,163,184,0.3)',
-                    background: '#090d16',
-                    color: '#fff',
-                    fontWeight: 800,
-                    fontSize: 13,
-                  }}
-                >
-                  <option value="auto">Standard 1.0× Hourly Rate (₹{formatINR(rates.baseHourlyRate)} / hr)</option>
-                  <option value="1.5x">1.5× Overtime Rate (₹{formatINR(rates.baseHourlyRate * 1.5)} / hr)</option>
-                  <option value="2.0x">2.0× Double Overtime Rate (₹{formatINR(rates.baseHourlyRate * 2)} / hr)</option>
-                  <option value="custom">Custom Fixed ₹ / Hour</option>
-                </select>
-              </div>
-
-              {settings.otRateMode === 'custom' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#6ee7b7', marginBottom: 5 }}>
-                    Custom OT Rate per Hour (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="5"
-                    value={settings.customOtHourlyRate}
-                    onChange={(e) => updateSetting('customOtHourlyRate', Math.max(0, Number(e.target.value) || 0))}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '9px 11px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(52,211,153,0.5)',
-                      background: '#090d16',
-                      color: '#6ee7b7',
-                      fontWeight: 900,
-                      fontSize: 14,
+            {/* Day Cards List (Screen 4 style: Date Badge | 10:00 AM -> 08:30 PM | Checkmark) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filteredMonthRows.map((row) => {
+                const r = row.record;
+                const e = row.earnings;
+                const isSelected = row.iso === selectedDate;
+                return (
+                  <div
+                    key={row.iso}
+                    onClick={() => {
+                      setSelectedDate(row.iso);
+                      setShowManualEditor(true);
                     }}
-                  />
-                </div>
-              )}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 16,
+                      background: ui.cardBg,
+                      border: isSelected
+                        ? '1.5px solid #3b82f6'
+                        : `1px solid ${ui.border}`,
+                      boxShadow: ui.shadow,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {/* Left Date Badge (19 Mon) */}
+                    <div style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 13,
+                      background: isSelected
+                        ? 'rgba(37, 99, 235, 0.2)'
+                        : ui.cardSubBg,
+                      border: `1px solid ${ui.border}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <span style={{
+                        fontSize: 15,
+                        fontWeight: 950,
+                        color: row.isSunday ? '#f87171' : ui.textPrimary,
+                        lineHeight: 1.1,
+                      }}>
+                        {String(row.dayNum).padStart(2, '0')}
+                      </span>
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: row.isSunday ? '#f87171' : ui.textSecondary,
+                      }}>
+                        {row.dayName}
+                      </span>
+                    </div>
+
+                    {/* Center Timing & Earnings */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13.5,
+                        fontWeight: 900,
+                        color: ui.textPrimary,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                      }}>
+                        <span>{formatTime12h(r.inTime || '10:00')} → {formatTime12h(r.outTime || '18:30')}</span>
+                        {r.biometricIn && <span style={{ fontSize: 10, color: '#38bdf8' }}>🫆IN</span>}
+                        {r.biometricOut && <span style={{ fontSize: 10, color: '#10b981' }}>🫆OUT</span>}
+                      </div>
+                      <div style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: e.otMins > 0 ? '#10b981' : ui.textSecondary,
+                        marginTop: 3,
+                      }}>
+                        {formatMinutesCompact(e.workedMins)}
+                        {e.otMins > 0 ? ` · +${formatMinutesCompact(e.otMins)} · +₹${formatINR(e.otPay)}` : ''}
+                        {` · ₹${formatINR(e.totalPay)}`}
+                      </div>
+                    </div>
+
+                    {/* Right Checkmark Badge */}
+                    <div style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: row.isSaved ? 'rgba(16, 185, 129, 0.2)' : ui.cardSubBg,
+                      border: row.isSaved ? '1px solid #10b981' : `1px solid ${ui.border}`,
+                      color: row.isSaved ? '#10b981' : ui.textSecondary,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: 13,
+                      flexShrink: 0,
+                    }}>
+                      ✓
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              color: '#cbd5e1',
-              fontWeight: 700,
-              marginBottom: 14,
-              cursor: 'pointer',
-            }}>
-              <input
-                type="checkbox"
-                checked={Boolean(settings.deductShortHours)}
-                onChange={(e) => updateSetting('deductShortHours', e.target.checked)}
-              />
-              Deduct short/late hours if total worked time is less than {formatMinutesReadable(rates.shiftMins)}
-            </label>
-
-            {/* Quick Reference Formula Box */}
-            <div style={{
-              padding: '13px 15px',
-              borderRadius: 12,
-              background: '#090d16',
-              border: '1px solid rgba(148,163,184,0.18)',
-              fontSize: 12,
-              color: '#cbd5e1',
-              lineHeight: 1.65,
-            }}>
-              <div style={{ fontWeight: 900, color: '#7dd3fc', marginBottom: 4 }}>
-                📐 Your Exact Salary &amp; Time Breakdown:
-              </div>
-              <div>• <strong>Standard Shift:</strong> {formatTime12h(settings.officeStartTime)} to {formatTime12h(settings.officeEndTime)} = <strong>{formatMinutesReadable(rates.shiftMins)}/day</strong></div>
-              <div>• <strong>1 Full Day Salary:</strong> ₹{formatINR(rates.salary)} ÷ {rates.divisorDays} days = <strong>₹{formatINR(rates.perDaySalary)} / day</strong></div>
-              <div>• <strong>Per Hour / Per Minute OT Rate:</strong> <strong>₹{formatINR(rates.otHourlyRate)}/hr</strong> (<strong>₹{formatINR(rates.otPerMinuteRate)}/min</strong>)</div>
-              <div>• <strong>10:00 AM → 07:30 PM (9h 30m):</strong> +1 hr OT = <strong>+₹{formatINR(rates.otHourlyRate)}</strong> (Day Total = ₹{formatINR(rates.perDaySalary + rates.otHourlyRate)})</div>
-              <div>• <strong>10:00 AM → 08:30 PM (10h 30m):</strong> +2 hrs OT = <strong>+₹{formatINR(rates.otHourlyRate * 2)}</strong> (Day Total = ₹{formatINR(rates.perDaySalary + rates.otHourlyRate * 2)})</div>
-              {diskPath && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#6ee7b7' }}>
-                  💾 Auto-saved permanently on disk: <code>{diskPath}</code>
-                </div>
-              )}
-            </div>
+            {/* Bottom Full-Width Royal Blue Save All Month Days Button */}
+            <button
+              type="button"
+              onClick={saveAllMonthDays}
+              style={{
+                width: '100%',
+                padding: '14px',
+                borderRadius: 16,
+                border: '1px solid rgba(59, 130, 246, 0.6)',
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 14.5,
+                cursor: 'pointer',
+                boxShadow: '0 10px 24px rgba(37, 99, 235, 0.35)',
+              }}
+            >
+              Save All Month Days
+            </button>
           </div>
-          )}
-        </div>
         )}
 
-        {/* EXECUTIVE MONTHLY SALARY SLIP TAB */}
+        {/* ===================================================================
+            SCREEN 5: MONTHLY SALARY SLIP (Slip Tab)
+           =================================================================== */}
         {showSummarySection && (
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.92)',
-            border: '1px solid rgba(250, 204, 21, 0.35)',
-            borderRadius: 22,
-            padding: mobileMode ? 18 : 24,
-            boxShadow: '0 18px 46px rgba(0,0,0,0.45)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 950, color: '#fff' }}>
-                  📊 Monthly Salary &amp; Overtime Payslip ({selectedMonth})
-                </h2>
-                <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                  Complete breakdown of your Monthly Base Salary, Extra OT Hours, Touch ID Attendance, and Final Net Payable.
-                </p>
-              </div>
-              <TouchIdSvg variant="gold" size={44} verified={true} />
-            </div>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-              gap: 12,
-              marginBottom: 16,
+              padding: '18px',
+              borderRadius: 22,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
             }}>
-              <div style={{ padding: '14px 16px', borderRadius: 14, background: '#080d1a', border: '1px solid rgba(250,204,21,0.35)' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#fde047', textTransform: 'uppercase' }}>
-                  ✏️ Editable Monthly Base Salary
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
+                    Monthly Salary Slip
+                  </div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600 }}>
+                    {formattedMonthLabel} · {settings.employeeName || 'Abdul Haseeb'}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <span style={{ fontSize: 18, fontWeight: 900, color: '#facc15' }}>₹</span>
+                <span style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: 'rgba(16, 185, 129, 0.16)',
+                  color: '#10b981',
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}>
+                  Verified
+                </span>
+              </div>
+
+              {/* Structured Key-Value Rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[
+                  { label: 'Base Monthly Salary', value: `₹${formatINR(rates.salary)}`, color: ui.textPrimary },
+                  { label: 'Per Day Salary', value: `₹${formatINR(rates.perDaySalary)}`, color: ui.textPrimary },
+                  { label: 'Standard Shift Hours', value: formatMinutesCompact(rates.shiftMins), color: ui.textPrimary },
+                  { label: 'Total Working Days', value: `${monthSummary.savedDaysCount} / ${monthRows.length} Days`, color: ui.textPrimary },
+                  { label: 'Total Extra OT', value: formatMinutesCompact(monthSummary.totalOtMins), color: '#38bdf8' },
+                  { label: 'OT Rate (per hour)', value: `₹${formatINR(rates.otHourlyRate)}/hr`, color: ui.textSecondary },
+                  { label: 'Total OT Pay', value: `+ ₹${formatINR(monthSummary.totalOtPay)}`, color: '#10b981' },
+                  { label: 'Extra Allowances', value: `+ ₹${formatINR(monthSummary.totalExtraAllowance)}`, color: '#10b981' },
+                  { label: 'Leave Deductions', value: `- ₹${formatINR(monthSummary.leaveDeduction)}`, color: '#f43f5e' },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingBottom: 8,
+                      borderBottom: `1px solid ${ui.border}`,
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ color: ui.textSecondary, fontWeight: 600 }}>{item.label}</span>
+                    <span style={{ color: item.color, fontWeight: 900 }}>{item.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Green Highlight Card: Net Salary Receivable */}
+              <div style={{
+                marginTop: 14,
+                padding: '14px 16px',
+                borderRadius: 16,
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.12))',
+                border: '1px solid rgba(52, 211, 153, 0.5)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981' }}>Net Salary Receivable</div>
+                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>Base + Extra OT - Leaves</div>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 950, color: '#10b981' }}>
+                  ₹{formatINR(monthSummary.fullMonthNetPayable)}
+                </div>
+              </div>
+
+              {/* Blue Highlight Card: After Expenses (This Month) */}
+              <div style={{
+                marginTop: 10,
+                padding: '14px 16px',
+                borderRadius: 16,
+                background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(124, 58, 237, 0.14))',
+                border: '1px solid rgba(96, 165, 250, 0.45)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa' }}>After Expenses (This Month)</div>
+                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
+                    Spent: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.count} txns)
+                  </div>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 950, color: isLight ? '#1d4ed8' : '#93c5fd' }}>
+                  ₹{formatINR(Math.max(0, monthSummary.fullMonthNetPayable - expenseQuickStats.spent))}
+                </div>
+              </div>
+
+              {/* Bottom Action Buttons: Download CSV & Share Slip */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={exportMonthCsv}
+                  style={{
+                    padding: '12px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(59, 130, 246, 0.55)',
+                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 13.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📥 Download CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={shareSalarySummaryOnWhatsApp}
+                  style={{
+                    padding: '12px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(52, 211, 153, 0.55)',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 13.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  💬 Share Slip
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================
+            SCREEN 6: SHIFT & SALARY RULES + APP & DATA (Rules Tab)
+           =================================================================== */}
+        {showRulesSection && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{
+              padding: '18px',
+              borderRadius: 22,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
+                  Shift &amp; Salary Rules
+                </div>
+                <button
+                  type="button"
+                  onClick={() => persistStore(settings, daysMap, 'Saved Shift & Salary Rules')}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(59, 130, 246, 0.6)',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Base Monthly Salary */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    Base Monthly Salary (₹)
+                  </div>
                   <input
                     type="number"
                     min="1000"
@@ -3520,830 +3741,286 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     onChange={(e) => updateSetting('monthlySalary', Math.max(0, Number(e.target.value) || 0))}
                     style={{
                       width: '100%',
-                      padding: '6px 10px',
-                      borderRadius: 9,
-                      border: '1px solid rgba(250,204,21,0.5)',
-                      background: '#0f172a',
-                      color: '#facc15',
+                      boxSizing: 'border-box',
+                      padding: '11px 12px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
                       fontWeight: 900,
-                      fontSize: 17,
+                      fontSize: 15,
                     }}
                   />
                 </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8' }}>
-                  ₹{formatINR(rates.perDaySalary)} / day · ₹{formatINR(rates.otHourlyRate)} / hr OT
+
+                {/* Standard Shift Hours (Start & End) */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    Standard Shift Hours ({formatMinutesCompact(rates.shiftMins)})
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <input
+                      type="time"
+                      value={settings.officeStartTime}
+                      onChange={(e) => updateSetting('officeStartTime', e.target.value)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    />
+                    <input
+                      type="time"
+                      value={settings.officeEndTime}
+                      onChange={(e) => updateSetting('officeEndTime', e.target.value)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div style={{ padding: '14px 16px', borderRadius: 14, background: '#080d1a', border: '1px solid rgba(56,189,248,0.3)' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#7dd3fc', textTransform: 'uppercase' }}>
-                  ⏱️ Total Extra OT Worked
-                </div>
-                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 950, color: '#38bdf8' }}>
-                  {formatMinutesReadable(monthSummary.totalOtMins)}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8' }}>
-                  Across {monthSummary.otDaysCount} OT days ({monthSummary.totalOtHours.toFixed(2)} hrs)
-                </div>
-              </div>
-
-              <div style={{ padding: '14px 16px', borderRadius: 14, background: '#080d1a', border: '1px solid rgba(52,211,153,0.35)' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#6ee7b7', textTransform: 'uppercase' }}>
-                  💵 Extra OT + Bonus Earned
-                </div>
-                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 950, color: '#34d399' }}>
-                  + ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: '#94a3b8' }}>
-                  OT: ₹{formatINR(monthSummary.totalOtPay)} · Bonus: ₹{formatINR(monthSummary.totalExtraAllowance)}
-                </div>
-              </div>
-            </div>
-
-            <div style={{
-              padding: '16px 18px',
-              borderRadius: 16,
-              background: '#080d1a',
-              border: '1px solid rgba(148,163,184,0.2)',
-              fontSize: 13,
-              lineHeight: 1.85,
-              color: '#e2e8f0',
-              marginBottom: 16,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Monthly Base Salary ({rates.divisorDays} days basis):</span>
-                <strong>₹{formatINR(rates.salary)}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Attendance ({monthSummary.presentDays} Present, {monthSummary.paidHolidays} Paid Off, {monthSummary.halfDays} Half, {monthSummary.leaveDays} Leave):</span>
-                <strong style={{ color: monthSummary.leaveDeduction > 0 ? '#fca5a5' : '#cbd5e1' }}>
-                  {monthSummary.leaveDeduction > 0 ? `- ₹${formatINR(monthSummary.leaveDeduction)}` : 'Full Base'}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Extra Overtime Pay ({formatMinutesReadable(monthSummary.totalOtMins)}):</span>
-                <strong style={{ color: '#34d399' }}>+ ₹{formatINR(monthSummary.totalOtPay)}</strong>
-              </div>
-              {monthSummary.totalExtraAllowance > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Extra Bonus / Allowances:</span>
-                  <strong style={{ color: '#fde047' }}>+ ₹{formatINR(monthSummary.totalExtraAllowance)}</strong>
-                </div>
-              )}
-              <div style={{
-                marginTop: 10,
-                paddingTop: 10,
-                borderTop: '1px solid rgba(250,204,21,0.3)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: 18,
-                fontWeight: 950,
-                color: '#facc15',
-              }}>
-                <span>Final Net Salary Receivable:</span>
-                <span>₹{formatINR(monthSummary.fullMonthNetPayable)}</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              <button
-                type="button"
-                onClick={shareSalarySummaryOnWhatsApp}
-                style={{
-                  flex: 1,
-                  minWidth: 180,
-                  padding: '12px 16px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(52,211,153,0.55)',
-                  background: 'linear-gradient(135deg, #059669, #10b981)',
-                  color: '#fff',
-                  fontWeight: 900,
-                  fontSize: 13.5,
-                  cursor: 'pointer',
-                }}
-              >
-                📲 Share Salary Slip on WhatsApp
-              </button>
-              <button
-                type="button"
-                onClick={exportMonthCsv}
-                style={{
-                  flex: 1,
-                  minWidth: 160,
-                  padding: '12px 16px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(56,189,248,0.5)',
-                  background: 'rgba(14,165,233,0.18)',
-                  color: '#e0f2fe',
-                  fontWeight: 900,
-                  fontSize: 13.5,
-                  cursor: 'pointer',
-                }}
-              >
-                📥 Download Excel CSV
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Full Month Day-by-Day Sheet (Mobile Cards View + Desktop Table View) */}
-        {showMonthSection && (
-        <div style={{
-          background: '#0f172a',
-          border: '1px solid rgba(148, 163, 184, 0.22)',
-          borderRadius: 16,
-          padding: mobileMode ? 14 : 20,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
-        }}>
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginBottom: 14,
-          }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#fff' }}>
-                📋 Day-by-Day Enter Time, Exit Time &amp; Salary Sheet ({selectedMonth})
-              </h2>
-              <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                Change <strong>Enter Time</strong> or <strong>Exit Time</strong> on any day — worked hours, extra OT time, and salary auto-calculate &amp; save immediately.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {[
-                { id: 'all', label: `All Days (${monthRows.length})` },
-                { id: 'saved', label: `Saved (${monthSummary.savedDaysCount})` },
-                { id: 'ot_only', label: `OT Days (${monthSummary.otDaysCount})` },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setViewFilter(tab.id)}
-                  style={{
-                    padding: '7px 11px',
-                    borderRadius: 8,
-                    border: viewFilter === tab.id ? '1px solid #38bdf8' : '1px solid rgba(148,163,184,0.25)',
-                    background: viewFilter === tab.id ? 'rgba(14,165,233,0.22)' : 'rgba(255,255,255,0.04)',
-                    color: viewFilter === tab.id ? '#e0f2fe' : '#94a3b8',
-                    fontWeight: 800,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-
-              <button
-                type="button"
-                onClick={() => setMobileDaysLayout((prev) => (prev === 'cards' ? 'table' : 'cards'))}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(56,189,248,0.4)',
-                  background: 'rgba(14,165,233,0.14)',
-                  color: '#7dd3fc',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                {mobileDaysLayout === 'cards' ? '📋 Table View' : '📱 Mobile Cards'}
-              </button>
-
-              <button
-                type="button"
-                onClick={saveAllMonthDays}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(52,211,153,0.4)',
-                  background: 'rgba(16,185,129,0.16)',
-                  color: '#6ee7b7',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                ✓ Save All {monthRows.length} Days
-              </button>
-            </div>
-          </div>
-
-          {mobileDaysLayout === 'cards' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {filteredMonthRows.map((row) => {
-                const r = row.record;
-                const e = row.earnings;
-                const isSelected = row.iso === selectedDate;
-                return (
-                  <div
-                    key={row.iso}
+                {/* OT Calculation */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    OT Calculation
+                  </div>
+                  <select
+                    value={settings.otTimeCalcMode}
+                    onChange={(e) => updateSetting('otTimeCalcMode', e.target.value)}
                     style={{
-                      padding: '12px 14px',
+                      width: '100%',
+                      padding: '11px 12px',
                       borderRadius: 12,
-                      background: isSelected
-                        ? 'rgba(56, 189, 248, 0.12)'
-                        : e.otMins > 0
-                          ? 'rgba(16, 185, 129, 0.08)'
-                          : '#090d16',
-                      border: isSelected
-                        ? '1px solid rgba(56, 189, 248, 0.55)'
-                        : e.otMins > 0
-                          ? '1px solid rgba(52, 211, 153, 0.4)'
-                          : '1px solid rgba(148, 163, 184, 0.2)',
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 13.5,
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <div onClick={() => setSelectedDate(row.iso)} style={{ cursor: 'pointer' }}>
-                        <span style={{ fontWeight: 900, fontSize: 14, color: row.isSunday ? '#fca5a5' : '#fff' }}>
-                          {row.fullDateLabel} ({row.dayName})
-                        </span>
-                        <span style={{
-                          marginLeft: 8,
-                          fontSize: 11,
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          background: row.isSaved ? 'rgba(16,185,129,0.2)' : 'rgba(148,163,184,0.15)',
-                          color: row.isSaved ? '#6ee7b7' : '#94a3b8',
-                          fontWeight: 800,
-                        }}>
-                          {row.isSaved ? '✓ Saved' : 'Default'}
-                        </span>
-                        {r.biometricIn && (
-                          <span style={{
-                            marginLeft: 5,
-                            fontSize: 10,
-                            padding: '2px 7px',
-                            borderRadius: 999,
-                            background: 'rgba(14,165,233,0.2)',
-                            border: '1px solid rgba(56,189,248,0.45)',
-                            color: '#7dd3fc',
-                            fontWeight: 800,
-                          }}>
-                            Touch IN ✓
-                          </span>
-                        )}
-                        {r.biometricOut && (
-                          <span style={{
-                            marginLeft: 5,
-                            fontSize: 10,
-                            padding: '2px 7px',
-                            borderRadius: 999,
-                            background: 'rgba(16,185,129,0.22)',
-                            border: '1px solid rgba(52,211,153,0.45)',
-                            color: '#6ee7b7',
-                            fontWeight: 800,
-                          }}>
-                            Touch OUT ✓
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 16, fontWeight: 900, color: '#facc15' }}>₹{formatINR(e.totalPay)}</div>
-                        <div style={{ fontSize: 10.5, color: e.otMins > 0 ? '#6ee7b7' : '#94a3b8', fontWeight: 700 }}>
-                          {e.otMins > 0 ? `+${formatMinutesCompact(e.otMins)} OT (+₹${formatINR(e.otPay)})` : `${formatMinutesCompact(e.workedMins)} worked`}
-                        </div>
-                      </div>
-                    </div>
+                    <option value="after_duration">After Shift Hours ({formatMinutesCompact(rates.shiftMins)})</option>
+                    <option value="after_end_time">After Office End Time ({formatTime12h(settings.officeEndTime)})</option>
+                  </select>
+                </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 8 }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800, marginBottom: 3 }}>Status</div>
-                        <select
-                          value={r.status}
-                          onChange={(ev) => upsertDayFromTable(row.iso, { status: ev.target.value })}
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            borderRadius: 7,
-                            border: '1px solid rgba(148,163,184,0.28)',
-                            background: '#0f172a',
-                            color: '#fff',
-                            fontWeight: 800,
-                            fontSize: 12,
-                          }}
-                        >
-                          <option value="present">Present</option>
-                          <option value="half">Half Day</option>
-                          <option value="holiday_paid">Paid Off / Sun</option>
-                          <option value="ot_only">OT Only</option>
-                          <option value="leave">Leave (Unpaid)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: '#7dd3fc', fontWeight: 800, marginBottom: 3 }}>Enter Time</div>
-                        <input
-                          type="time"
-                          value={r.inTime || '10:00'}
-                          disabled={r.status === 'leave'}
-                          onChange={(ev) => {
-                            if (ev.target.value) upsertDayFromTable(row.iso, { inTime: ev.target.value });
-                          }}
-                          style={{
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            padding: '6px 8px',
-                            borderRadius: 7,
-                            border: '1px solid rgba(56,189,248,0.35)',
-                            background: '#0f172a',
-                            color: '#e0f2fe',
-                            fontWeight: 800,
-                            fontSize: 12,
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: '#6ee7b7', fontWeight: 800, marginBottom: 3 }}>Exit Time</div>
-                        <input
-                          type="time"
-                          value={r.outTime || '18:30'}
-                          disabled={r.status === 'leave'}
-                          onChange={(ev) => {
-                            if (ev.target.value) upsertDayFromTable(row.iso, { outTime: ev.target.value });
-                          }}
-                          style={{
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            padding: '6px 8px',
-                            borderRadius: 7,
-                            border: e.otMins > 0 ? '1px solid rgba(52,211,153,0.6)' : '1px solid rgba(148,163,184,0.28)',
-                            background: '#0f172a',
-                            color: e.otMins > 0 ? '#6ee7b7' : '#e2e8f0',
-                            fontWeight: 800,
-                            fontSize: 12,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                        {[
-                          { hrs: 0, label: '6:30 PM (0h)' },
-                          { hrs: 1, label: '7:30 PM (+1h)' },
-                          { hrs: 2, label: '8:30 PM (+2h)' },
-                        ].map((preset) => (
-                          <button
-                            key={preset.hrs}
-                            type="button"
-                            onClick={() => upsertDayFromTable(row.iso, { otHours: preset.hrs })}
-                            style={{
-                              padding: '5px 9px',
-                              borderRadius: 6,
-                              border: Math.abs(e.otHours - preset.hrs) < 0.02
-                                ? '1px solid #34d399'
-                                : '1px solid rgba(148,163,184,0.25)',
-                              background: Math.abs(e.otHours - preset.hrs) < 0.02
-                                ? 'rgba(16,185,129,0.26)'
-                                : 'rgba(255,255,255,0.04)',
-                              color: '#e2e8f0',
-                              fontWeight: 800,
-                              fontSize: 11,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => upsertDayFromTable(row.iso, { biometricIn: !r.biometricIn })}
-                          style={{
-                            padding: '5px 8px',
-                            borderRadius: 6,
-                            border: r.biometricIn ? '1px solid #38bdf8' : '1px solid rgba(148,163,184,0.25)',
-                            background: r.biometricIn ? 'rgba(14,165,233,0.24)' : 'rgba(255,255,255,0.04)',
-                            color: r.biometricIn ? '#e0f2fe' : '#94a3b8',
-                            fontWeight: 800,
-                            fontSize: 10.5,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Touch IN {r.biometricIn ? '✓' : '—'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => upsertDayFromTable(row.iso, { biometricOut: !r.biometricOut })}
-                          style={{
-                            padding: '5px 8px',
-                            borderRadius: 6,
-                            border: r.biometricOut ? '1px solid #34d399' : '1px solid rgba(148,163,184,0.25)',
-                            background: r.biometricOut ? 'rgba(16,185,129,0.24)' : 'rgba(255,255,255,0.04)',
-                            color: r.biometricOut ? '#ecfdf5' : '#94a3b8',
-                            fontWeight: 800,
-                            fontSize: 10.5,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Touch OUT {r.biometricOut ? '✓' : '—'}
-                        </button>
-                      </div>
-                      {!row.isSaved && (
-                        <button
-                          type="button"
-                          onClick={() => upsertDayFromTable(row.iso, {})}
-                          style={{
-                            padding: '5px 11px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(56,189,248,0.4)',
-                            background: 'rgba(14,165,233,0.18)',
-                            color: '#7dd3fc',
-                            fontWeight: 800,
-                            fontSize: 11,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Save Day
-                        </button>
-                      )}
-                    </div>
+                {/* OT Rate Type */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    OT Rate Type (₹{formatINR(rates.otHourlyRate)}/hr)
                   </div>
-                );
-              })}
+                  <select
+                    value={settings.otRateMode}
+                    onChange={(e) => updateSetting('otRateMode', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '11px 12px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 13.5,
+                    }}
+                  >
+                    <option value="1.0x">1.0x Normal (₹{formatINR(rates.baseHourlyRate)}/hr)</option>
+                    <option value="1.5x">1.5x Overtime (₹{formatINR(rates.baseHourlyRate * 1.5)}/hr)</option>
+                    <option value="2.0x">2.0x Double OT (₹{formatINR(rates.baseHourlyRate * 2)}/hr)</option>
+                    <option value="custom">Custom Hourly Rate</option>
+                  </select>
+                </div>
+
+                {/* Working Days in Month */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    Working Days in Month
+                  </div>
+                  <select
+                    value={settings.monthDaysMode}
+                    onChange={(e) => updateSetting('monthDaysMode', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '11px 12px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 13.5,
+                    }}
+                  >
+                    <option value="30">30 Days (Standard)</option>
+                    <option value="actual">Actual Calendar Days ({rates.actualMonthDays} Days)</option>
+                    <option value="26">26 Working Days</option>
+                  </select>
+                </div>
+              </div>
             </div>
-          ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-              <thead>
-                <tr style={{ background: '#090d16', color: '#94a3b8', textAlign: 'left', borderBottom: '1px solid rgba(148,163,184,0.2)' }}>
-                  <th style={{ padding: '10px 10px' }}>Date</th>
-                  <th style={{ padding: '10px 8px' }}>Status</th>
-                  <th style={{ padding: '10px 8px', color: '#7dd3fc' }}>Enter Time (In)</th>
-                  <th style={{ padding: '10px 8px', color: '#6ee7b7' }}>Exit Time (Out)</th>
-                  <th style={{ padding: '10px 8px' }}>Total Worked</th>
-                  <th style={{ padding: '10px 8px' }}>Extra OT Time</th>
-                  <th style={{ padding: '10px 8px' }}>Quick Exit / OT</th>
-                  <th style={{ padding: '10px 8px', textAlign: 'right' }}>Base Day Pay</th>
-                  <th style={{ padding: '10px 8px', textAlign: 'right' }}>Extra OT Pay</th>
-                  <th style={{ padding: '10px 8px', textAlign: 'right' }}>Total Day Salary</th>
-                  <th style={{ padding: '10px 8px' }}>Work Note</th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center' }}>State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMonthRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} style={{ padding: 28, textAlign: 'center', color: '#64748b', fontWeight: 700 }}>
-                      No days match this filter yet. Click &quot;All Days&quot; or save today&apos;s calculation above.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMonthRows.map((row) => {
-                    const r = row.record;
-                    const e = row.earnings;
-                    const isSelected = row.iso === selectedDate;
-                    return (
-                      <tr
-                        key={row.iso}
-                        onClick={() => setSelectedDate(row.iso)}
-                        style={{
-                          borderBottom: '1px solid rgba(148,163,184,0.1)',
-                          background: isSelected
-                            ? 'rgba(56, 189, 248, 0.12)'
-                            : e.otMins > 0
-                              ? 'rgba(16, 185, 129, 0.06)'
-                              : row.isSunday
-                                ? 'rgba(255, 255, 255, 0.02)'
-                                : 'transparent',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 800 }}>
-                          <span style={{ color: row.isSunday ? '#fca5a5' : '#f8fafc' }}>{row.fullDateLabel}</span>
-                          <span style={{
-                            marginLeft: 6,
-                            fontSize: 11,
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            background: row.isSunday ? 'rgba(239,68,68,0.18)' : 'rgba(148,163,184,0.14)',
-                            color: row.isSunday ? '#fca5a5' : '#cbd5e1',
-                          }}>
-                            {row.dayName}
-                          </span>
-                        </td>
 
-                        <td style={{ padding: '8px' }} onClick={(ev) => ev.stopPropagation()}>
-                          <select
-                            value={r.status}
-                            onChange={(ev) => upsertDayFromTable(row.iso, { status: ev.target.value })}
-                            style={{
-                              padding: '5px 8px',
-                              borderRadius: 6,
-                              border: '1px solid rgba(148,163,184,0.25)',
-                              background: '#090d16',
-                              color: r.status === 'leave' ? '#fca5a5' : r.status === 'half' ? '#fde68a' : '#fff',
-                              fontWeight: 700,
-                              fontSize: 12,
-                            }}
-                          >
-                            <option value="present">Present</option>
-                            <option value="half">Half Day</option>
-                            <option value="holiday_paid">Paid Off / Sun</option>
-                            <option value="ot_only">OT Only</option>
-                            <option value="leave">Leave (Unpaid)</option>
-                          </select>
-                        </td>
+            {/* App & Data Section (Screen 6 Bottom Card) */}
+            <div style={{
+              padding: '16px 18px',
+              borderRadius: 22,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: ui.textPrimary, marginBottom: 4 }}>
+                App &amp; Data
+              </div>
 
-                        {/* Inline Editable Enter Time */}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} onClick={(ev) => ev.stopPropagation()}>
-                          <input
-                            type="time"
-                            value={r.inTime || '10:00'}
-                            disabled={r.status === 'leave'}
-                            onChange={(ev) => {
-                              if (ev.target.value) upsertDayFromTable(row.iso, { inTime: ev.target.value });
-                            }}
-                            style={{
-                              padding: '5px 7px',
-                              borderRadius: 6,
-                              border: '1px solid rgba(56,189,248,0.35)',
-                              background: '#090d16',
-                              color: '#e0f2fe',
-                              fontWeight: 800,
-                              fontSize: 12,
-                            }}
-                          />
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#64748b', marginTop: 2 }}>
-                            <span>{formatTime12h(r.inTime || '10:00')}</span>
-                            <button
-                              type="button"
-                              title="Toggle Biometric Touch Sensor IN Verification"
-                              onClick={() => upsertDayFromTable(row.iso, { biometricIn: !r.biometricIn })}
-                              style={{
-                                padding: '1px 5px',
-                                borderRadius: 4,
-                                border: r.biometricIn ? '1px solid rgba(56,189,248,0.6)' : '1px solid rgba(148,163,184,0.22)',
-                                background: r.biometricIn ? 'rgba(14,165,233,0.2)' : 'transparent',
-                                color: r.biometricIn ? '#7dd3fc' : '#64748b',
-                                fontSize: 9.5,
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {r.biometricIn ? 'Touch IN ✓' : 'Touch ID'}
-                            </button>
-                          </div>
-                        </td>
+              <button
+                type="button"
+                onClick={() => setShowMobileAppModal(true)}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>🔄 PC Sync &amp; Backup</span>
+                <span style={{ color: ui.textSecondary }}>›</span>
+              </button>
 
-                        {/* Inline Editable Exit Time */}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} onClick={(ev) => ev.stopPropagation()}>
-                          <input
-                            type="time"
-                            value={r.outTime || '18:30'}
-                            disabled={r.status === 'leave'}
-                            onChange={(ev) => {
-                              if (ev.target.value) upsertDayFromTable(row.iso, { outTime: ev.target.value });
-                            }}
-                            style={{
-                              padding: '5px 7px',
-                              borderRadius: 6,
-                              border: e.otMins > 0 ? '1px solid rgba(52,211,153,0.6)' : '1px solid rgba(148,163,184,0.28)',
-                              background: e.otMins > 0 ? 'rgba(16,185,129,0.14)' : '#090d16',
-                              color: e.otMins > 0 ? '#6ee7b7' : '#e2e8f0',
-                              fontWeight: 800,
-                              fontSize: 12,
-                            }}
-                          />
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: e.otMins > 0 ? '#6ee7b7' : '#64748b', marginTop: 2 }}>
-                            <span>{formatTime12h(r.outTime || '18:30')}</span>
-                            <button
-                              type="button"
-                              title="Toggle Biometric Touch Sensor OUT Verification"
-                              onClick={() => upsertDayFromTable(row.iso, { biometricOut: !r.biometricOut })}
-                              style={{
-                                padding: '1px 5px',
-                                borderRadius: 4,
-                                border: r.biometricOut ? '1px solid rgba(52,211,153,0.6)' : '1px solid rgba(148,163,184,0.22)',
-                                background: r.biometricOut ? 'rgba(16,185,129,0.2)' : 'transparent',
-                                color: r.biometricOut ? '#6ee7b7' : '#64748b',
-                                fontSize: 9.5,
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {r.biometricOut ? 'Touch OUT ✓' : 'Touch ID'}
-                            </button>
-                          </div>
-                        </td>
+              <button
+                type="button"
+                onClick={exportBackupJson}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>📤 Export / Import Data</span>
+                <span style={{ color: ui.textSecondary }}>›</span>
+              </button>
 
-                        {/* Total Worked Time */}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap', fontWeight: 800, color: '#f8fafc' }}>
-                          <div>{formatMinutesCompact(e.workedMins)}</div>
-                          <div style={{ fontSize: 10, color: '#64748b' }}>
-                            {(e.workedMins / 60).toFixed(2)} hrs
-                          </div>
-                        </td>
-
-                        {/* Extra OT Time */}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '4px 8px',
-                            borderRadius: 6,
-                            background: e.otMins > 0 ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.08)',
-                            border: e.otMins > 0 ? '1px solid rgba(52,211,153,0.45)' : '1px solid rgba(148,163,184,0.15)',
-                            color: e.otMins > 0 ? '#6ee7b7' : '#64748b',
-                            fontWeight: 900,
-                            fontSize: 12,
-                          }}>
-                            {e.otMins > 0 ? `+${formatMinutesCompact(e.otMins)}` : '0h 00m'}
-                          </span>
-                        </td>
-
-                        {/* Quick Exit / OT Buttons */}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} onClick={(ev) => ev.stopPropagation()}>
-                          <div style={{ display: 'inline-flex', gap: 4 }}>
-                            {[
-                              { hrs: 0, label: '6:30P' },
-                              { hrs: 1, label: '7:30P (+1h)' },
-                              { hrs: 2, label: '8:30P (+2h)' },
-                            ].map((preset) => (
-                              <button
-                                key={preset.hrs}
-                                type="button"
-                                onClick={() => upsertDayFromTable(row.iso, { otHours: preset.hrs })}
-                                style={{
-                                  padding: '4px 7px',
-                                  borderRadius: 5,
-                                  border: Math.abs(e.otHours - preset.hrs) < 0.02
-                                    ? '1px solid #34d399'
-                                    : '1px solid rgba(148,163,184,0.2)',
-                                  background: Math.abs(e.otHours - preset.hrs) < 0.02
-                                    ? 'rgba(16,185,129,0.28)'
-                                    : 'rgba(255,255,255,0.04)',
-                                  color: Math.abs(e.otHours - preset.hrs) < 0.02 ? '#ecfdf5' : '#cbd5e1',
-                                  fontWeight: 800,
-                                  fontSize: 10.5,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: '#e2e8f0' }}>
-                          ₹{formatINR(e.basePay)}
-                        </td>
-
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 800, color: e.otPay > 0 ? '#34d399' : '#64748b' }}>
-                          {e.otPay > 0 ? `+ ₹${formatINR(e.otPay)}` : '₹0.00'}
-                        </td>
-
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 900, color: '#fde047', fontSize: 13 }}>
-                          ₹{formatINR(e.totalPay)}
-                        </td>
-
-                        <td style={{ padding: '8px' }} onClick={(ev) => ev.stopPropagation()}>
-                          <input
-                            type="text"
-                            placeholder="Add note..."
-                            value={r.note || ''}
-                            onChange={(ev) => upsertDayFromTable(row.iso, { note: ev.target.value })}
-                            style={{
-                              width: '100%',
-                              minWidth: 115,
-                              padding: '5px 8px',
-                              borderRadius: 6,
-                              border: '1px solid rgba(148,163,184,0.2)',
-                              background: '#090d16',
-                              color: '#e2e8f0',
-                              fontSize: 12,
-                            }}
-                          />
-                        </td>
-
-                        <td style={{ padding: '8px', textAlign: 'center', whiteSpace: 'nowrap' }} onClick={(ev) => ev.stopPropagation()}>
-                          {row.isSaved ? (
-                            <span style={{ color: '#34d399', fontWeight: 900, fontSize: 11 }}>✓ Saved</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => upsertDayFromTable(row.iso, {})}
-                              style={{
-                                padding: '4px 9px',
-                                borderRadius: 6,
-                                border: '1px solid rgba(56,189,248,0.35)',
-                                background: 'rgba(14,165,233,0.15)',
-                                color: '#7dd3fc',
-                                fontWeight: 800,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Save
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: '#090d16', borderTop: '2px solid rgba(148,163,184,0.25)', fontWeight: 900 }}>
-                  <td colSpan={4} style={{ padding: '12px 10px', color: '#fff', fontSize: 13 }}>
-                    MONTHLY TOTAL ({selectedMonth})
-                  </td>
-                  <td style={{ padding: '12px 8px', color: '#cbd5e1', fontSize: 12 }}>
-                    {formatMinutesCompact(monthSummary.totalWorkedMins)} saved
-                  </td>
-                  <td colSpan={2} style={{ padding: '12px 8px', color: '#38bdf8', fontSize: 13 }}>
-                    +{formatMinutesReadable(monthSummary.totalOtMins)} Extra OT
-                  </td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', color: '#e2e8f0', fontSize: 13 }}>
-                    ₹{formatINR(monthSummary.fullMonthBaseAfterLeave)}
-                  </td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', color: '#34d399', fontSize: 13 }}>
-                    + ₹{formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
-                  </td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', color: '#facc15', fontSize: 15 }}>
-                    ₹{formatINR(monthSummary.fullMonthNetPayable)}
-                  </td>
-                  <td colSpan={2} style={{ padding: '12px 8px', textAlign: 'center', color: '#6ee7b7', fontSize: 11 }}>
-                    {monthSummary.savedDaysCount}/{monthRows.length} days saved
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Clear saved attendance records for ${selectedMonth}?`)) {
+                    const next = { ...daysMap };
+                    for (const k of Object.keys(next)) {
+                      if (k.startsWith(selectedMonth)) delete next[k];
+                    }
+                    setDaysMap(next);
+                    persistStore(settings, next, `Cleared ${selectedMonth} attendance`);
+                  }
+                }}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  border: '1px solid rgba(244, 63, 94, 0.3)',
+                  background: 'rgba(244, 63, 94, 0.08)',
+                  color: '#f43f5e',
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>🗑️ Clear All Data</span>
+                <span>›</span>
+              </button>
+            </div>
           </div>
-          )}
-        </div>
         )}
 
       </div>
 
-      {/* Sticky Luxury Mobile Bottom Navigation Bar */}
-      {mobileMode && (
+      {/* STICKY 5-TAB BOTTOM NAVIGATION BAR (Today | Expenses | Month | Slip | Rules) */}
+      <div style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 900,
+        background: isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(7, 12, 24, 0.96)',
+        backdropFilter: 'blur(20px)',
+        borderTop: `1px solid ${ui.border}`,
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '6px 10px calc(6px + env(safe-area-inset-bottom, 0px))',
+        boxShadow: isLight ? '0 -6px 20px rgba(15,23,42,0.06)' : '0 -12px 32px rgba(0,0,0,0.55)',
+      }}>
         <div style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 900,
-          background: 'rgba(5, 8, 17, 0.94)',
-          backdropFilter: 'blur(20px)',
-          borderTop: '1px solid rgba(148, 163, 184, 0.16)',
+          width: '100%',
+          maxWidth: 520,
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
-          padding: '7px 8px calc(7px + env(safe-area-inset-bottom, 0px))',
-          gap: 5,
-          boxShadow: '0 -12px 32px rgba(0,0,0,0.55)',
+          gap: 4,
         }}>
           {[
-            { id: 'today', icon: 'touch', label: 'Touch ID' },
-            { id: 'expenses', icon: '💸', label: 'Expenses' },
-            { id: 'month', icon: '📅', label: 'Month Sheet' },
-            { id: 'summary', icon: '💎', label: 'Salary Slip' },
-            { id: 'rules', icon: '⚙️', label: 'Settings' },
+            { id: 'today', icon: '🕒', label: 'Today', title: 'Today Punch' },
+            { id: 'expenses', icon: '💳', label: 'Expenses', title: 'Expenses' },
+            { id: 'month', icon: '📅', label: 'Month', title: 'Month Days' },
+            { id: 'summary', icon: '🧾', label: 'Slip', title: 'Salary Slip' },
+            { id: 'rules', icon: '⚙️', label: 'Rules', title: 'Rules & App' },
           ].map((nav) => {
             const active = mobileTab === nav.id;
             return (
               <button
                 key={nav.id}
                 type="button"
+                title={nav.title}
                 onClick={() => navigateTab(nav.id)}
                 style={{
-                  padding: '8px 3px',
-                  borderRadius: 14,
-                  border: active
-                    ? nav.id === 'expenses'
-                      ? '1px solid rgba(244, 114, 182, 0.7)'
-                      : '1px solid rgba(52, 211, 153, 0.55)'
-                    : '1px solid transparent',
+                  padding: '7px 4px',
+                  borderRadius: 12,
+                  border: 'none',
                   background: active
-                    ? nav.id === 'expenses'
-                      ? 'linear-gradient(135deg, rgba(236,72,153,0.28), rgba(139,92,246,0.22))'
-                      : 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(14,165,233,0.18))'
+                    ? isLight ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.22)'
                     : 'transparent',
-                  color: active ? '#ecfdf5' : '#94a3b8',
-                  fontWeight: 900,
+                  color: active ? '#3b82f6' : ui.textSecondary,
+                  fontWeight: active ? 900 : 700,
                   fontSize: 11,
                   cursor: 'pointer',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 3,
+                  gap: 2,
                 }}
               >
-                {nav.icon === 'touch' ? (
-                  <TouchIdSvg size={18} variant={active ? 'emerald' : 'cyan'} verified={false} scanning={false} />
-                ) : (
-                  <span style={{ fontSize: 15 }}>{nav.icon}</span>
-                )}
+                <span style={{ fontSize: 16 }}>{nav.icon}</span>
                 <span>{nav.label}</span>
+                <span style={{ display: 'none' }}>{nav.title}</span>
               </button>
             );
           })}
         </div>
-      )}
+      </div>
 
       {/* Mobile App, QR Code, Offline Download & PC Sync Modal */}
       {showMobileAppModal && (
@@ -4621,4 +4298,3 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     </div>
   );
 }
-
