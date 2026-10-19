@@ -10,10 +10,20 @@ import {
   computeExpenseAnalytics,
   answerNaturalLanguageFinanceQuery,
   formatTransactionsCsv,
+  launchUpiPayment,
   ALLOWED_PAYMENT_PACKAGES,
   buildDemoPreviewTransactions,
   getExpenseStorageStatus,
 } from '../../../frontend/expense-memory.js';
+
+const SMART_QA_CHIPS = [
+  'How much did I spend yesterday?',
+  'How many transactions did I make this month?',
+  'Show my food expenses.',
+  "Which payments don't have notes?",
+  'How much did I receive this week?',
+  'Find my transactions above ₹1,000.',
+];
 
 const formatINR = (num) => {
   const n = Number(num) || 0;
@@ -323,9 +333,11 @@ export default function ExpensesModule({
   // Sub-screens matching Screens 7, 8, 9, 10, 11:
   // 'overview' (Screen 7) | 'transactions' (Screen 8) | 'insights' (Screen 10) | 'missing-notes' (Screen 11) | 'settings'
   const [subTab, setSubTab] = useState('overview');
-  const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Trends'
+  const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Methods' | 'Trends'
   const [missingFilterWindow, setMissingFilterWindow] = useState('all'); // 'all' | 'today' | 'week'
   const [demoPreviewMode, setDemoPreviewMode] = useState(false);
+  const [dismissedSamplePreview, setDismissedSamplePreview] = useState(false);
+  const [inlineNoteDrafts, setInlineNoteDrafts] = useState({});
 
   // Detailed Transaction Viewer (Screen 9)
   const [selectedTxId, setSelectedTxId] = useState(null);
@@ -338,9 +350,10 @@ export default function ExpensesModule({
   const [formAmount, setFormAmount] = useState('');
   const [formType, setFormType] = useState('debit');
   const [formMerchant, setFormMerchant] = useState('');
+  const [formPayeeVpa, setFormPayeeVpa] = useState('');
   const [formNote, setFormNote] = useState('');
   const [formPaymentRemark, setFormPaymentRemark] = useState('');
-  const [formCategory, setFormCategory] = useState('food');
+  const [formCategory, setFormCategory] = useState('Food & Dining');
   const [formPaymentMethod, setFormPaymentMethod] = useState('UPI');
   const [formApp, setFormApp] = useState('GPay');
   const [formDate, setFormDate] = useState(getTodayIso);
@@ -354,6 +367,13 @@ export default function ExpensesModule({
   const [searchQuery, setSearchQuery] = useState('');
   const [methodPillFilter, setMethodPillFilter] = useState('All'); // 'All' | 'Money Out' | 'Money In' | 'UPI' | 'Bank' | 'Card' | 'Wallet'
   const [filterCategory, setFilterCategory] = useState('all');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterNoteStatus, setFilterNoteStatus] = useState('all'); // 'all' | 'has_note' | 'missing_note'
+  const [filterReviewStatus, setFilterReviewStatus] = useState('all'); // 'all' | 'confirmed' | 'needs_review'
+  const [filterMinAmount, setFilterMinAmount] = useState('');
+  const [filterMaxAmount, setFilterMaxAmount] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
 
   // Natural Language Assistant Query
   const [nlQuery, setNlQuery] = useState('');
@@ -367,6 +387,7 @@ export default function ExpensesModule({
   const [scanStatus, setScanStatus] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [notifGranted, setNotifGranted] = useState(false);
+  const [smsGranted, setSmsGranted] = useState(false);
   const [undoBanner, setUndoBanner] = useState(null);
 
   const storageStatus = useMemo(() => getExpenseStorageStatus(), [notifGranted, expensesMap]);
@@ -408,6 +429,9 @@ export default function ExpensesModule({
         if (typeof window.PattanBiometric.isNotificationListenerEnabled === 'function') {
           setNotifGranted(Boolean(window.PattanBiometric.isNotificationListenerEnabled()));
         }
+        if (typeof window.PattanBiometric.hasSmsPermission === 'function') {
+          setSmsGranted(Boolean(window.PattanBiometric.hasSmsPermission()));
+        }
       }
     } catch (_) {}
   }, []);
@@ -418,7 +442,6 @@ export default function ExpensesModule({
 
   const mergeDetectedTransactions = useCallback(
     (incomingList, sourceLabel = 'mobile-auto') => {
-      if (demoPreviewMode) return 0;
       if (!Array.isArray(incomingList) || incomingList.length === 0) return 0;
       const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
         expensesMap || {},
@@ -434,7 +457,7 @@ export default function ExpensesModule({
       }
       return totalChanges;
     },
-    [expensesMap, onUpdateExpenses, demoPreviewMode]
+    [expensesMap, onUpdateExpenses]
   );
 
   useEffect(() => {
@@ -443,6 +466,7 @@ export default function ExpensesModule({
       setIsScanning(false);
       if (!detail) return;
       if (typeof detail.notifGranted === 'boolean') setNotifGranted(detail.notifGranted);
+      if (typeof detail.smsGranted === 'boolean') setSmsGranted(detail.smsGranted);
       const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
       if (txList.length > 0) {
         const added = mergeDetectedTransactions(txList, 'android-notif');
@@ -478,6 +502,10 @@ export default function ExpensesModule({
     setIsScanning(true);
     checkNativePermissions();
     try {
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileSmsInbox === 'function') {
+        window.PattanBiometric.scanMobileSmsInbox(45);
+        return;
+      }
       if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
         const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
         const savedArr = JSON.parse(savedRaw || '[]');
@@ -499,17 +527,29 @@ export default function ExpensesModule({
 
   const todayIso = getTodayIso();
 
+  const hasRealActiveTransactions = useMemo(() => {
+    if (!expensesMap || typeof expensesMap !== 'object') return false;
+    return Object.values(expensesMap).some((tx) => tx && typeof tx === 'object' && !tx._deleted);
+  }, [expensesMap]);
+
+  const isShowingSamplePreview = demoPreviewMode || (!hasRealActiveTransactions && !dismissedSamplePreview);
+
   const effectiveExpensesSource = useMemo(() => {
-    if (demoPreviewMode) {
-      const demoList = buildDemoPreviewTransactions(todayIso);
-      const demoMap = {};
-      for (const item of demoList) {
-        demoMap[item.id] = item;
+    if (isShowingSamplePreview) {
+      const demoRes = buildDemoPreviewTransactions(todayIso);
+      if (Array.isArray(demoRes)) {
+        const demoMap = {};
+        for (const item of demoRes) {
+          if (item && item.id) demoMap[item.id] = item;
+        }
+        return demoMap;
       }
-      return demoMap;
+      if (demoRes && typeof demoRes === 'object') {
+        return demoRes;
+      }
     }
     return expensesMap || {};
-  }, [demoPreviewMode, expensesMap, todayIso]);
+  }, [isShowingSamplePreview, expensesMap, todayIso]);
 
   const analytics = useMemo(
     () => computeExpenseAnalytics(effectiveExpensesSource, { selectedMonth, todayIso, monthlyNetSalary: effectiveMonthlySalary }),
@@ -544,9 +584,9 @@ export default function ExpensesModule({
     const othersTotal = Math.max(0, analytics.grossExpenses - foodTotal - transportTotal - shoppingTotal);
 
     return [
-      { id: 'food', label: 'Food', amount: foodTotal, color: '#eab308' },
-      { id: 'fuel', label: 'Transport', amount: transportTotal, color: '#3b82f6' },
-      { id: 'shopping', label: 'Shopping', amount: shoppingTotal, color: '#10b981' },
+      { id: 'Food & Dining', label: 'Food', amount: foodTotal, color: '#eab308' },
+      { id: 'Fuel & Commute', label: 'Transport', amount: transportTotal, color: '#3b82f6' },
+      { id: 'Shopping', label: 'Shopping', amount: shoppingTotal, color: '#10b981' },
       { id: 'all', label: 'Others', amount: othersTotal, color: '#a855f7' },
     ];
   }, [analytics]);
@@ -583,9 +623,12 @@ export default function ExpensesModule({
     return list;
   }, [analytics]);
 
-  // Filtered Transactions for Screen 8
+  // Filtered Transactions for Screen 8 (including Advanced Filters)
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const minAmt = filterMinAmount !== '' ? Number(filterMinAmount) : null;
+    const maxAmt = filterMaxAmount !== '' ? Number(filterMaxAmount) : null;
+
     return analytics.monthActiveList.filter((tx) => {
       if (filterCategory !== 'all' && tx.category !== filterCategory && !String(tx.category || '').toLowerCase().includes(String(filterCategory).toLowerCase())) return false;
       if (methodPillFilter !== 'All') {
@@ -597,6 +640,18 @@ export default function ExpensesModule({
         if (methodPillFilter === 'Card' && !mStr.includes('card')) return false;
         if (methodPillFilter === 'Wallet' && !mStr.includes('wallet') && !mStr.includes('cash')) return false;
       }
+      const hasNote = Boolean(String(tx.personalNote || tx.note || '').trim());
+      if (filterNoteStatus === 'has_note' && !hasNote) return false;
+      if (filterNoteStatus === 'missing_note' && hasNote) return false;
+
+      if (filterReviewStatus === 'confirmed' && tx.reconciliationStatus === 'needs_review') return false;
+      if (filterReviewStatus === 'needs_review' && tx.reconciliationStatus !== 'needs_review') return false;
+
+      if (minAmt !== null && Number.isFinite(minAmt) && Number(tx.amount) < minAmt) return false;
+      if (maxAmt !== null && Number.isFinite(maxAmt) && Number(tx.amount) > maxAmt) return false;
+      if (filterDateFrom && tx.date < filterDateFrom) return false;
+      if (filterDateTo && tx.date > filterDateTo) return false;
+
       if (!q) return true;
       const hay = [
         tx.merchant,
@@ -607,6 +662,7 @@ export default function ExpensesModule({
         tx.app,
         tx.paymentMethod,
         tx.refId,
+        ...(tx.tags || []),
         String(tx.amount),
       ]
         .filter(Boolean)
@@ -614,7 +670,18 @@ export default function ExpensesModule({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [analytics.monthActiveList, filterCategory, methodPillFilter, searchQuery]);
+  }, [
+    analytics.monthActiveList,
+    filterCategory,
+    methodPillFilter,
+    filterNoteStatus,
+    filterReviewStatus,
+    filterMinAmount,
+    filterMaxAmount,
+    filterDateFrom,
+    filterDateTo,
+    searchQuery,
+  ]);
 
   const groupedByDay = useMemo(() => {
     const groups = [];
@@ -622,11 +689,17 @@ export default function ExpensesModule({
     for (const tx of filteredTransactions) {
       const d = tx.date || todayIso;
       if (!map.has(d)) {
-        const g = { date: d, label: formatFriendlyDate(d, todayIso), items: [] };
+        const g = { date: d, label: formatFriendlyDate(d, todayIso), items: [], daySpent: 0, dayReceived: 0 };
         map.set(d, g);
         groups.push(g);
       }
-      map.get(d).items.push(tx);
+      const grp = map.get(d);
+      grp.items.push(tx);
+      if (tx.type === 'credit' || tx.type === 'refund') {
+        grp.dayReceived += Number(tx.amount) || 0;
+      } else {
+        grp.daySpent += Number(tx.amount) || 0;
+      }
     }
     return groups;
   }, [filteredTransactions, todayIso]);
@@ -654,9 +727,23 @@ export default function ExpensesModule({
   }, [analytics.missingNotesList, missingFilterWindow, todayIso]);
 
   const merchantSuggestions = useMemo(
-    () => suggestNotesAndCategoryForMerchant(expensesMap, formMerchant || selectedTx?.merchant || ''),
-    [expensesMap, formMerchant, selectedTx]
+    () => suggestNotesAndCategoryForMerchant(effectiveExpensesSource, formMerchant || selectedTx?.merchant || ''),
+    [effectiveExpensesSource, formMerchant, selectedTx]
   );
+
+  // Helper to materialize sample preview transactions into real store when the user edits/deletes one
+  const getMaterializedBaseMap = useCallback(() => {
+    if (hasRealActiveTransactions) return { ...(expensesMap || {}) };
+    const materialized = {};
+    for (const [k, v] of Object.entries(effectiveExpensesSource || {})) {
+      if (v && typeof v === 'object') {
+        const copy = { ...v };
+        delete copy._demoPreview;
+        materialized[k] = copy;
+      }
+    }
+    return materialized;
+  }, [hasRealActiveTransactions, expensesMap, effectiveExpensesSource]);
 
   const openQuickAddModal = (txToEdit = null) => {
     if (txToEdit) {
@@ -665,6 +752,7 @@ export default function ExpensesModule({
       setFormAmount(String(norm.amount));
       setFormType(norm.type || 'debit');
       setFormMerchant(norm.merchant || '');
+      setFormPayeeVpa(norm.payeeVpa || norm.vpa || '');
       setFormNote(norm.personalNote || '');
       setFormPaymentRemark(norm.paymentRemark || '');
       setFormCategory(norm.category || 'Food & Dining');
@@ -679,6 +767,7 @@ export default function ExpensesModule({
       setFormAmount('');
       setFormType('debit');
       setFormMerchant('');
+      setFormPayeeVpa('');
       setFormNote('');
       setFormPaymentRemark('');
       setFormCategory('Food & Dining');
@@ -700,8 +789,9 @@ export default function ExpensesModule({
     }
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const baseMap = getMaterializedBaseMap();
     const txId = editingTxId || `tx_manual_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
-    const existing = editingTxId ? (expensesMap || {})[editingTxId] : null;
+    const existing = editingTxId ? baseMap[editingTxId] : null;
     const cleanNote = formNote.trim();
     const cleanMerchant = formMerchant.trim() || (cleanNote ? cleanNote.slice(0, 32) : 'Mobile Payment');
     const tags = formTagsInput
@@ -716,6 +806,7 @@ export default function ExpensesModule({
       currency: 'INR',
       type: formType,
       merchant: cleanMerchant,
+      payeeVpa: formPayeeVpa.trim(),
       personalNote: cleanNote,
       paymentRemark: formPaymentRemark.trim(),
       note: cleanNote || formPaymentRemark.trim(),
@@ -734,8 +825,10 @@ export default function ExpensesModule({
       updatedAt: nowIso,
       updatedAtMs: nowMs,
     });
+    delete record._demoPreview;
 
-    const nextMap = { ...(expensesMap || {}), [txId]: record };
+    const nextMap = { ...baseMap, [txId]: record };
+    setDemoPreviewMode(false);
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(
         nextMap,
@@ -746,8 +839,24 @@ export default function ExpensesModule({
     setEditingTxId(null);
   };
 
+  const handleLaunchUpiAndSave = () => {
+    const amt = Number(formAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setScanStatus('⚠️ Enter an amount first to launch UPI payment.');
+      return;
+    }
+    launchUpiPayment({
+      payeeVpa: formPayeeVpa.trim(),
+      payeeName: formMerchant.trim() || 'Merchant',
+      amount: amt,
+      note: formNote.trim() || formPaymentRemark.trim() || 'Payment',
+    });
+    handleSaveTransactionForm();
+  };
+
   const handleUpdatePersonalNote = (txId, newPersonalNote, markReviewed = true, newMerchant = null) => {
-    const existing = (expensesMap || {})[txId];
+    const baseMap = getMaterializedBaseMap();
+    const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
     if (!existing) return;
     const nowMs = Date.now();
     const clean = String(newPersonalNote || '').trim();
@@ -760,26 +869,36 @@ export default function ExpensesModule({
       updatedAt: new Date(nowMs).toISOString(),
       updatedAtMs: nowMs,
     });
-    const nextMap = { ...(expensesMap || {}), [txId]: updated };
+    delete updated._demoPreview;
+    const nextMap = { ...baseMap, [txId]: updated };
+    setDemoPreviewMode(false);
+    setInlineNoteDrafts((prev) => {
+      const next = { ...prev };
+      delete next[txId];
+      return next;
+    });
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(nextMap, clean ? `📝 Saved note: "${clean}"` : '✓ Marked transaction reviewed');
     }
   };
 
   const handleDeleteTransaction = (txId) => {
-    const existing = (expensesMap || {})[txId];
+    const baseMap = getMaterializedBaseMap();
+    const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
     if (!existing) return;
-    const prevSnapshot = { ...(expensesMap || {}) };
+    const prevSnapshot = { ...baseMap };
     const nowMs = Date.now();
     const nextMap = {
-      ...(expensesMap || {}),
+      ...baseMap,
       [txId]: {
         ...existing,
+        _demoPreview: false,
         _deleted: true,
         updatedAt: new Date(nowMs).toISOString(),
         updatedAtMs: nowMs,
       },
     };
+    setDemoPreviewMode(false);
     setUndoBanner({
       message: `Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Transaction'})`,
       snapshot: prevSnapshot,
@@ -816,11 +935,52 @@ export default function ExpensesModule({
     setScanStatus('✅ Your CSV report is ready.');
   };
 
+  const handleExportExpensesJson = () => {
+    const payload = JSON.stringify(
+      {
+        selectedMonth,
+        exportedAt: new Date().toISOString(),
+        transactions: analytics.monthActiveList,
+      },
+      null,
+      2
+    );
+    const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Expense-Memory-Backup-${selectedMonth}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setScanStatus('✅ Exported JSON backup of your Expense Memory.');
+  };
+
+  const handleClearAllExpenses = () => {
+    if (!window.confirm('Clear all transactions from your statement? You can undo immediately after.')) return;
+    const prevSnapshot = { ...(expensesMap || {}) };
+    setDismissedSamplePreview(true);
+    setDemoPreviewMode(false);
+    setUndoBanner({
+      message: 'Cleared all transactions from Expense Memory',
+      snapshot: prevSnapshot,
+    });
+    if (typeof onUpdateExpenses === 'function') {
+      onUpdateExpenses({}, '🗑️ Cleared Expense Memory');
+    }
+  };
+
+  const handleAskQuestion = (questionText) => {
+    const q = String(questionText ?? nlQuery).trim();
+    if (!q) return;
+    setNlQuery(q);
+    setNlResponse(answerNaturalLanguageFinanceQuery(q, effectiveExpensesSource, selectedMonth, todayIso));
+  };
+
   const remainingSalary = Math.max(0, effectiveMonthlySalary - analytics.netSpending + analytics.totalIncome);
 
   const handleConfirmReviewItem = (txId) => {
-    if (demoPreviewMode) return;
-    const existing = (expensesMap || {})[txId];
+    const baseMap = getMaterializedBaseMap();
+    const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
     if (!existing) return;
     const nowMs = Date.now();
     const updated = migrateAndNormalizeExpenseRecord({
@@ -831,7 +991,9 @@ export default function ExpensesModule({
       updatedAt: new Date(nowMs).toISOString(),
       updatedAtMs: nowMs,
     });
-    const nextMap = { ...(expensesMap || {}), [txId]: updated };
+    delete updated._demoPreview;
+    const nextMap = { ...baseMap, [txId]: updated };
+    setDemoPreviewMode(false);
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(nextMap, `✅ Confirmed ₹${formatINR(updated.amount)} (${updated.merchant})`);
     }
@@ -1106,54 +1268,71 @@ export default function ExpensesModule({
         })}
       </div>
 
-      {/* Demo Preview Mode Banner (Clearly separated from real statement) */}
-      {demoPreviewMode && (
+      {/* Sample / Demo Preview Banner */}
+      {isShowingSamplePreview && (
         <div style={{
           padding: '10px 14px',
           borderRadius: 14,
-          background: 'rgba(245, 158, 11, 0.16)',
-          border: '1px solid rgba(245, 158, 11, 0.45)',
+          background: isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(59, 130, 246, 0.14)',
+          border: '1px solid rgba(59, 130, 246, 0.38)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 10,
+          flexWrap: 'wrap',
           fontSize: 12,
           fontWeight: 800,
-          color: isLight ? '#92400e' : '#fde68a',
+          color: isLight ? '#1e40af' : '#bfdbfe',
         }}>
-          <span>🧪 Demo Preview Mode — Showing sample rows only (never saved to your real statement).</span>
-          <button
-            type="button"
-            onClick={() => setDemoPreviewMode(false)}
-            style={{
-              padding: '5px 10px',
-              borderRadius: 8,
-              border: 'none',
-              background: '#d97706',
-              color: '#fff',
-              fontWeight: 900,
-              fontSize: 11,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Exit Demo
-          </button>
-        </div>
-      )}
-
-      {/* Storage Privacy Setup Required Banner if Native Encrypted Store is missing on Android */}
-      {storageStatus.setupRequired && (
-        <div style={{
-          padding: '12px 14px',
-          borderRadius: 14,
-          background: 'rgba(239, 68, 68, 0.14)',
-          border: '1px solid rgba(239, 68, 68, 0.4)',
-          fontSize: 12,
-          fontWeight: 700,
-          color: isLight ? '#991b1b' : '#fecaca',
-        }}>
-          🔒 <strong>Encrypted On-Device Storage Setup Required:</strong> {storageStatus.reason} Transactions are not written to plaintext localStorage.
+          <span>
+            ✨ {demoPreviewMode ? 'Demo Preview Mode — Isolated sample statement.' : 'Sample Preview Data — Tap any payment to add/edit notes or add your own entry.'}
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {!hasRealActiveTransactions && !demoPreviewMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  const baseMap = getMaterializedBaseMap();
+                  if (typeof onUpdateExpenses === 'function') {
+                    onUpdateExpenses(baseMap, '💾 Kept sample transactions in statement');
+                  }
+                }}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Keep Sample
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDemoPreviewMode(false);
+                setDismissedSamplePreview(true);
+              }}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                background: palette.surface,
+                color: palette.textSub,
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {demoPreviewMode ? 'Exit Demo' : 'Start Empty'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1324,6 +1503,87 @@ export default function ExpensesModule({
             ))}
           </div>
 
+          {/* 4 Quick Stat Cards: Spent Today | Received Today | Month Txns | Missing Notes */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 8,
+          }}>
+            <div style={{
+              padding: '10px 9px',
+              borderRadius: 14,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+            }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Spent Today</div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#f43f5e', marginTop: 3 }}>
+                ₹{formatINRShort(analytics.todaySpent)}
+              </div>
+              <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
+                {analytics.todayCount} txn{analytics.todayCount === 1 ? '' : 's'}
+              </div>
+            </div>
+
+            <div style={{
+              padding: '10px 9px',
+              borderRadius: 14,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+            }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Received Today</div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#10b981', marginTop: 3 }}>
+                +₹{formatINRShort(analytics.todayReceived)}
+              </div>
+              <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
+                In: ₹{formatINRShort(analytics.totalIncome)}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSubTab('transactions')}
+              style={{
+                padding: '10px 9px',
+                borderRadius: 14,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>This Month</div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: palette.text, marginTop: 3 }}>
+                {analytics.totalCount} Txns
+              </div>
+              <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginTop: 1 }}>
+                View all ›
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSubTab('missing-notes')}
+              style={{
+                padding: '10px 9px',
+                borderRadius: 14,
+                background: analytics.missingNotesCount > 0 ? 'rgba(245, 158, 11, 0.12)' : palette.surface,
+                border: analytics.missingNotesCount > 0 ? '1px solid rgba(245, 158, 11, 0.45)' : `1px solid ${palette.border}`,
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: analytics.missingNotesCount > 0 ? '#fbbf24' : palette.textMuted }}>
+                Missing Notes
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: analytics.missingNotesCount > 0 ? '#f59e0b' : '#10b981', marginTop: 3 }}>
+                {analytics.missingNotesCount} Pending
+              </div>
+              <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
+                {analytics.missingNotesCount > 0 ? 'Add memory ›' : 'All noted ✓'}
+              </div>
+            </button>
+          </div>
+
           {/* Fast Action Bar: + Add Spend, Sync Alerts, Paste Receipt */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <button
@@ -1375,6 +1635,143 @@ export default function ExpensesModule({
             >
               📋 Paste Alert
             </button>
+          </div>
+
+          {/* 🧠 Ask Expense Memory (Natural-Language Q&A with Smart Question Chips) */}
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 20,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#60a5fa' }}>
+                🧠 Ask Expense Memory
+              </div>
+              {nlResponse && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNlResponse(null);
+                    setNlQuery('');
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: palette.textMuted,
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Clear ✕
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={nlQuery}
+                onChange={(e) => setNlQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAskQuestion(nlQuery);
+                }}
+                placeholder="Ask e.g. How much did I spend on food?"
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => handleAskQuestion(nlQuery)}
+                style={{
+                  padding: '9px 15px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Ask
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingTop: 9, paddingBottom: 2 }}>
+              {SMART_QA_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => handleAskQuestion(chip)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 999,
+                    border: `1px solid ${palette.border}`,
+                    background: nlQuery === chip ? 'rgba(37, 99, 235, 0.2)' : palette.surfaceAlt,
+                    color: nlQuery === chip ? '#60a5fa' : palette.textSub,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+            {nlResponse && (
+              <div style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: isLight ? '#eff6ff' : 'rgba(37, 99, 235, 0.14)',
+                border: '1px solid rgba(59, 130, 246, 0.35)',
+                fontSize: 12.5,
+                fontWeight: 800,
+                color: palette.text,
+                lineHeight: 1.5,
+              }}>
+                <div>💡 {nlResponse.answer}</div>
+                {Array.isArray(nlResponse.matches) && nlResponse.matches.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                    {nlResponse.matches.slice(0, 4).map((m) => (
+                      <div
+                        key={m.id}
+                        onClick={() => setSelectedTxId(m.id)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 9,
+                          background: palette.surface,
+                          border: `1px solid ${palette.border}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span>
+                          <strong>{m.merchant || m.app}</strong>
+                          {m.personalNote || m.note ? ` · 📝 ${m.personalNote || m.note}` : ''}
+                        </span>
+                        <span style={{ fontWeight: 900, color: m.type === 'credit' ? palette.credit : '#f43f5e' }}>
+                          ₹{formatINRShort(m.amount)} ›
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Review-Needed Section for Ambiguous / Pending / Possible-Duplicate Notices */}
@@ -1490,7 +1887,10 @@ export default function ExpensesModule({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDemoPreviewMode(true)}
+                  onClick={() => {
+                    setDismissedSamplePreview(false);
+                    setDemoPreviewMode(true);
+                  }}
                   style={{
                     marginTop: 12,
                     padding: '8px 14px',
@@ -1503,7 +1903,7 @@ export default function ExpensesModule({
                     cursor: 'pointer',
                   }}
                 >
-                  🧪 Preview Demo Statement (Isolated)
+                  🧪 Load Sample Preview Data
                 </button>
               </div>
             ) : (
@@ -1511,42 +1911,104 @@ export default function ExpensesModule({
                 {analytics.monthActiveList.slice(0, 6).map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
                   const hasNote = Boolean(String(tx.personalNote || tx.note || '').trim());
+                  const inlineDraft = inlineNoteDrafts[tx.id] ?? '';
                   return (
                     <div
                       key={tx.id}
-                      onClick={() => setSelectedTxId(tx.id)}
                       style={{
                         padding: '12px 14px',
                         borderRadius: 16,
                         background: palette.surfaceAlt,
                         border: `1px solid ${palette.border}`,
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 12,
-                        cursor: 'pointer',
+                        flexDirection: 'column',
+                        gap: 8,
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                        <BrandPaymentAvatar tx={tx} size={42} />
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {tx.merchant || tx.app || 'Google Pay'}
+                      <div
+                        onClick={() => setSelectedTxId(tx.id)}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                          <BrandPaymentAvatar tx={tx} size={42} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {tx.merchant || tx.app || 'Google Pay'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                              {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}
+                              {hasNote ? ` · 📝 ${tx.personalNote || tx.note}` : ''}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}
-                            {hasNote ? ` · 📝 ${tx.personalNote || tx.note}` : ''}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                            {isCredit ? `+ ₹${formatINRShort(tx.amount)}` : `- ₹${formatINRShort(tx.amount)}`}
+                          </div>
+                          <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            {tx.paymentMethod === 'UPI' ? 'UPI Payment ›' : `${tx.category || 'Payment'} ›`}
                           </div>
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                          {isCredit ? `+ ₹${formatINRShort(tx.amount)}` : `- ₹${formatINRShort(tx.amount)}`}
+
+                      {/* Fast Inline Note Entry for Un-Noted Debit Transactions */}
+                      {!hasNote && !isCredit && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            display: 'flex',
+                            gap: 6,
+                            alignItems: 'center',
+                            paddingTop: 6,
+                            borderTop: `1px dashed ${palette.border}`,
+                          }}
+                        >
+                          <input
+                            type="text"
+                            value={inlineDraft}
+                            onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && inlineDraft.trim()) {
+                                handleUpdatePersonalNote(tx.id, inlineDraft);
+                              }
+                            }}
+                            placeholder="📌 What was this payment for? (Add quick note...)"
+                            style={{
+                              flex: 1,
+                              padding: '6px 10px',
+                              borderRadius: 9,
+                              border: `1px solid ${palette.border}`,
+                              background: palette.surface,
+                              color: palette.text,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              outline: 'none',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Reviewed')}
+                            style={{
+                              padding: '6px 11px',
+                              borderRadius: 9,
+                              border: 'none',
+                              background: '#2563eb',
+                              color: '#fff',
+                              fontWeight: 800,
+                              fontSize: 11,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save
+                          </button>
                         </div>
-                        <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                          {tx.paymentMethod === 'UPI' ? 'UPI Payment ›' : `${tx.category || 'Payment'} ›`}
-                        </div>
-                      </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1569,7 +2031,7 @@ export default function ExpensesModule({
           flexDirection: 'column',
           gap: 12,
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 type="button"
@@ -1587,24 +2049,44 @@ export default function ExpensesModule({
               >
                 ←
               </button>
-              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>Transactions</span>
+              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>
+                Transactions ({filteredTransactions.length})
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => openQuickAddModal(null)}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 10,
-                border: 'none',
-                background: '#2563eb',
-                color: '#fff',
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              + Add
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters((prev) => !prev)}
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: showAdvancedFilters ? 'rgba(37, 99, 235, 0.2)' : palette.surfaceAlt,
+                  color: showAdvancedFilters ? '#60a5fa' : palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                }}
+              >
+                ⚙️ Filters
+              </button>
+              <button
+                type="button"
+                onClick={() => openQuickAddModal(null)}
+                style={{
+                  padding: '7px 12px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                + Add
+              </button>
+            </div>
           </div>
 
           {/* Search Bar (Screen 8) */}
@@ -1654,6 +2136,185 @@ export default function ExpensesModule({
             })}
           </div>
 
+          {/* Collapsible Advanced Filters Panel */}
+          {showAdvancedFilters && (
+            <div style={{
+              padding: '12px',
+              borderRadius: 14,
+              background: palette.surfaceAlt,
+              border: `1px solid ${palette.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Category</label>
+                  <select
+                    value={filterCategory}
+                    onChange={(e) => setFilterCategory(e.target.value)}
+                    style={{
+                      width: '100%',
+                      marginTop: 3,
+                      padding: '8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <option value="all">All Categories</option>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.icon} {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Memory Note Status</label>
+                  <select
+                    value={filterNoteStatus}
+                    onChange={(e) => setFilterNoteStatus(e.target.value)}
+                    style={{
+                      width: '100%',
+                      marginTop: 3,
+                      padding: '8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <option value="all">All Notes</option>
+                    <option value="has_note">Has Personal Note</option>
+                    <option value="missing_note">Missing Note</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Min Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={filterMinAmount}
+                    onChange={(e) => setFilterMinAmount(e.target.value)}
+                    placeholder="0"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Max Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={filterMaxAmount}
+                    onChange={(e) => setFilterMaxAmount(e.target.value)}
+                    placeholder="Any"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>From Date</label>
+                  <input
+                    type="date"
+                    value={filterDateFrom}
+                    onChange={(e) => setFilterDateFrom(e.target.value)}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '7px 8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>To Date</label>
+                  <input
+                    type="date"
+                    value={filterDateTo}
+                    onChange={(e) => setFilterDateTo(e.target.value)}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      marginTop: 3,
+                      padding: '7px 8px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700 }}>
+                  Showing {filteredTransactions.length} of {analytics.totalCount} transactions
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterCategory('all');
+                    setMethodPillFilter('All');
+                    setFilterNoteStatus('all');
+                    setFilterReviewStatus('all');
+                    setFilterMinAmount('');
+                    setFilterMaxAmount('');
+                    setFilterDateFrom('');
+                    setFilterDateTo('');
+                    setSearchQuery('');
+                  }}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 8,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: '#60a5fa',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Grouped Transactions List (Screen 8) */}
           {groupedByDay.length === 0 ? (
             <div style={{ padding: '26px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
@@ -1662,8 +2323,21 @@ export default function ExpensesModule({
           ) : (
             groupedByDay.map((group) => (
               <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: palette.textMuted, marginTop: 4 }}>
-                  {group.label}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: palette.textMuted,
+                  marginTop: 4,
+                }}>
+                  <span>{group.label}</span>
+                  <span>
+                    {group.daySpent > 0 ? `-₹${formatINRShort(group.daySpent)}` : ''}
+                    {group.daySpent > 0 && group.dayReceived > 0 ? ' · ' : ''}
+                    {group.dayReceived > 0 ? `+₹${formatINRShort(group.dayReceived)}` : ''}
+                  </span>
                 </div>
                 {group.items.map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
@@ -1714,7 +2388,7 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          SCREEN 10: EXPENSE INSIGHTS (DONUT CHART + SMART INSIGHT + Q&A)
+          SCREEN 10: EXPENSE INSIGHTS (OVERVIEW | CATEGORIES | METHODS | TRENDS)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'insights' && (
         <div style={{
@@ -1759,17 +2433,17 @@ export default function ExpensesModule({
             </span>
           </div>
 
-          {/* Segmented Sub-Tabs: Overview | Categories | Trends (Screen 10) */}
+          {/* Segmented Sub-Tabs: Overview | Categories | Methods | Trends (Screen 10) */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
+            gridTemplateColumns: 'repeat(4, 1fr)',
             gap: 6,
             padding: 4,
             borderRadius: 12,
             background: palette.surfaceAlt,
             border: `1px solid ${palette.border}`,
           }}>
-            {['Overview', 'Categories', 'Trends'].map((view) => {
+            {['Overview', 'Categories', 'Methods', 'Trends'].map((view) => {
               const active = insightSubView === view;
               return (
                 <button
@@ -1777,13 +2451,13 @@ export default function ExpensesModule({
                   type="button"
                   onClick={() => setInsightSubView(view)}
                   style={{
-                    padding: '8px',
+                    padding: '8px 6px',
                     borderRadius: 9,
                     border: 'none',
                     background: active ? '#2563eb' : 'transparent',
                     color: active ? '#ffffff' : palette.textMuted,
                     fontWeight: 800,
-                    fontSize: 12,
+                    fontSize: 11.5,
                     cursor: 'pointer',
                   }}
                 >
@@ -1793,7 +2467,7 @@ export default function ExpensesModule({
             })}
           </div>
 
-          {/* Total Spent Comparison Card (Screen 10) */}
+          {/* Total Spent Comparison Card (Always visible in Insights) */}
           <div style={{
             padding: '16px',
             borderRadius: 18,
@@ -1829,56 +2503,257 @@ export default function ExpensesModule({
             </span>
           </div>
 
-          {/* Multi-Segment Donut Chart + Legend Card (Screen 10) */}
-          <div style={{
-            padding: '18px 16px',
-            borderRadius: 18,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-around',
-            gap: 16,
-            flexWrap: 'wrap',
-          }}>
-            <SpendingDonutChart
-              segments={donutSegments}
-              totalSpent={analytics.netSpending}
-              isLight={isLight}
-            />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9, minWidth: 135 }}>
-              {donutSegments.map((seg) => (
-                <div key={seg.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: seg.color, display: 'inline-block' }} />
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: palette.textSub }}>{seg.label}</span>
-                  </div>
-                  <span style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>{seg.pct}%</span>
+          {/* SUB-VIEW 1: OVERVIEW (Donut Chart + Smart Insight + Highlights + Q&A) */}
+          {insightSubView === 'Overview' && (
+            <>
+              <div style={{
+                padding: '18px 16px',
+                borderRadius: 18,
+                background: palette.surfaceAlt,
+                border: `1px solid ${palette.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-around',
+                gap: 16,
+                flexWrap: 'wrap',
+              }}>
+                <SpendingDonutChart
+                  segments={donutSegments}
+                  totalSpent={analytics.netSpending}
+                  isLight={isLight}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9, minWidth: 135 }}>
+                  {donutSegments.map((seg) => (
+                    <div key={seg.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 999, background: seg.color, display: 'inline-block' }} />
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: palette.textSub }}>{seg.label}</span>
+                      </div>
+                      <span style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>{seg.pct}%</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Smart Bulb Insight Card (Screen 10) */}
-          <div style={{
-            padding: '14px 16px',
-            borderRadius: 16,
-            background: isLight ? '#fefce8' : 'rgba(234, 179, 8, 0.12)',
-            border: '1px solid rgba(234, 179, 8, 0.35)',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12,
-          }}>
-            <span style={{ fontSize: 22 }}>💡</span>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#854d0e' : '#fde047' }}>Insight</div>
-              <div style={{ fontSize: 12.5, color: isLight ? '#713f12' : '#fef08a', fontWeight: 700, marginTop: 2, lineHeight: 1.45 }}>
-                {analytics.categoryBreakdown.length > 0
-                  ? `Top category is ${analytics.categoryBreakdown[0].category} (₹${formatINRShort(analytics.categoryBreakdown[0].total)}, ${Math.round(analytics.categoryBreakdown[0].sharePct)}% of spending).`
-                  : 'Record or scan your transactions to unlock personalized category insights.'}
               </div>
+
+              {/* Smart Bulb Insight Card (Screen 10) */}
+              <div style={{
+                padding: '14px 16px',
+                borderRadius: 16,
+                background: isLight ? '#fefce8' : 'rgba(234, 179, 8, 0.12)',
+                border: '1px solid rgba(234, 179, 8, 0.35)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+              }}>
+                <span style={{ fontSize: 22 }}>💡</span>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#854d0e' : '#fde047' }}>Insight</div>
+                  <div style={{ fontSize: 12.5, color: isLight ? '#713f12' : '#fef08a', fontWeight: 700, marginTop: 2, lineHeight: 1.45 }}>
+                    {analytics.insights && analytics.insights.length > 0
+                      ? analytics.insights[0]
+                      : analytics.categoryBreakdown.length > 0
+                        ? `Top category is ${analytics.categoryBreakdown[0].category} (₹${formatINRShort(analytics.categoryBreakdown[0].total)}, ${Math.round(analytics.categoryBreakdown[0].sharePct)}% of spending).`
+                        : 'Record or scan your transactions to unlock personalized category insights.'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Merchant & Highest Spend Day Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  background: palette.surfaceAlt,
+                  border: `1px solid ${palette.border}`,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Top Merchant</div>
+                  <div style={{ fontSize: 14, fontWeight: 950, color: palette.text, marginTop: 3 }}>
+                    {analytics.topMerchant ? analytics.topMerchant.merchant : '—'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#60a5fa', fontWeight: 800, marginTop: 2 }}>
+                    {analytics.topMerchant ? `₹${formatINRShort(analytics.topMerchant.total)} (${analytics.topMerchant.count}x)` : 'No spend yet'}
+                  </div>
+                </div>
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  background: palette.surfaceAlt,
+                  border: `1px solid ${palette.border}`,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Highest Spend Day</div>
+                  <div style={{ fontSize: 14, fontWeight: 950, color: palette.text, marginTop: 3 }}>
+                    {analytics.highestSpendingDay ? formatShortDate(analytics.highestSpendingDay.date) : '—'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#f43f5e', fontWeight: 800, marginTop: 2 }}>
+                    {analytics.highestSpendingDay ? `₹${formatINRShort(analytics.highestSpendingDay.total)}` : 'No spend yet'}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* SUB-VIEW 2: CATEGORIES (Full Category Breakdown Bars — Tap to filter) */}
+          {insightSubView === 'Categories' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {analytics.categoryBreakdown.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
+                  No category spending recorded for {selectedMonth}.
+                </div>
+              ) : (
+                analytics.categoryBreakdown.map((cat) => (
+                  <button
+                    key={cat.category}
+                    type="button"
+                    onClick={() => {
+                      setFilterCategory(cat.category);
+                      setSubTab('transactions');
+                    }}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 16,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{cat.icon}</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 900, color: palette.text }}>{cat.category}</span>
+                        <span style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700 }}>
+                          ({cat.count} txn{cat.count === 1 ? '' : 's'})
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 950, color: palette.text }}>
+                        ₹{formatINRShort(cat.total)} <span style={{ fontSize: 11, color: palette.textMuted }}>({Math.round(cat.sharePct)}%)</span>
+                      </div>
+                    </div>
+                    <div style={{
+                      height: 6,
+                      width: '100%',
+                      borderRadius: 999,
+                      background: isLight ? '#e2e8f0' : 'rgba(148,163,184,0.16)',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(6, cat.sharePct))}%`,
+                        background: cat.color || '#3b82f6',
+                        borderRadius: 999,
+                      }} />
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
-          </div>
+          )}
+
+          {/* SUB-VIEW 3: METHODS (Payment Method & App Breakdown) */}
+          {insightSubView === 'Methods' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.textSub }}>
+                💳 Payment Method &amp; App Breakdown
+              </div>
+              {(!analytics.methodBreakdown || analytics.methodBreakdown.length === 0) ? (
+                <div style={{ padding: 20, textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
+                  No payment methods recorded for {selectedMonth}.
+                </div>
+              ) : (
+                analytics.methodBreakdown.map((m) => (
+                  <div
+                    key={m.method}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 16,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 900, color: palette.text }}>
+                        {m.method} <span style={{ fontSize: 11, color: palette.textMuted }}>({m.count}x)</span>
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 950, color: '#60a5fa' }}>
+                        ₹{formatINRShort(m.total)} ({Math.round(m.sharePct)}%)
+                      </span>
+                    </div>
+                    <div style={{
+                      height: 6,
+                      width: '100%',
+                      borderRadius: 999,
+                      background: isLight ? '#e2e8f0' : 'rgba(148,163,184,0.16)',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(8, m.sharePct))}%`,
+                        background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                        borderRadius: 999,
+                      }} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* SUB-VIEW 4: TRENDS (Daily Spending Trend Bars + Insights List) */}
+          {insightSubView === 'Trends' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.textSub }}>
+                📈 Daily Spending Trend ({selectedMonth})
+              </div>
+              {(!analytics.dailyTrend || analytics.dailyTrend.length === 0) ? (
+                <div style={{ padding: 20, textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
+                  No daily spending trend data for {selectedMonth}.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {analytics.dailyTrend.map((dayItem) => {
+                    const maxDay = Math.max(...analytics.dailyTrend.map((d) => d.total), 1);
+                    const pct = Math.min(100, Math.max(8, (dayItem.total / maxDay) * 100));
+                    return (
+                      <div
+                        key={dayItem.date}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 12,
+                          background: palette.surfaceAlt,
+                          border: `1px solid ${palette.border}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+                          <span style={{ color: palette.text }}>{formatFriendlyDate(dayItem.date, todayIso)}</span>
+                          <span style={{ color: '#f43f5e' }}>₹{formatINRShort(dayItem.total)}</span>
+                        </div>
+                        <div style={{
+                          height: 6,
+                          width: '100%',
+                          borderRadius: 999,
+                          background: isLight ? '#e2e8f0' : 'rgba(148,163,184,0.16)',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${pct}%`,
+                            background: 'linear-gradient(90deg, #f43f5e, #d946ef)',
+                            borderRadius: 999,
+                          }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Natural-Language Money Assistant Q&A */}
           <div style={{
@@ -1896,9 +2771,7 @@ export default function ExpensesModule({
                 value={nlQuery}
                 onChange={(e) => setNlQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    setNlResponse(answerNaturalLanguageFinanceQuery(nlQuery, expensesMap, selectedMonth, todayIso));
-                  }
+                  if (e.key === 'Enter') handleAskQuestion(nlQuery);
                 }}
                 placeholder="e.g. How much did I spend on food?"
                 style={{
@@ -1914,7 +2787,7 @@ export default function ExpensesModule({
               />
               <button
                 type="button"
-                onClick={() => setNlResponse(answerNaturalLanguageFinanceQuery(nlQuery, expensesMap, selectedMonth, todayIso))}
+                onClick={() => handleAskQuestion(nlQuery)}
                 style={{
                   padding: '9px 14px',
                   borderRadius: 10,
@@ -1928,6 +2801,28 @@ export default function ExpensesModule({
               >
                 Ask
               </button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingTop: 8 }}>
+              {SMART_QA_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => handleAskQuestion(chip)}
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.textSub,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chip}
+                </button>
+              ))}
             </div>
             {nlResponse && (
               <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 800, color: palette.text, lineHeight: 1.5 }}>
@@ -2009,43 +2904,117 @@ export default function ExpensesModule({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {filteredMissingNotes.active.map((tx) => (
-                <div
-                  key={tx.id}
-                  onClick={() => setSelectedTxId(tx.id)}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 16,
-                    background: palette.surfaceAlt,
-                    border: `1px solid ${palette.border}`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <BrandPaymentAvatar tx={tx} size={42} />
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
-                        {tx.merchant || tx.app || 'Payment'}
+              {filteredMissingNotes.active.map((tx) => {
+                const draft = inlineNoteDrafts[tx.id] ?? '';
+                return (
+                  <div
+                    key={tx.id}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 16,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div
+                      onClick={() => setSelectedTxId(tx.id)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <BrandPaymentAvatar tx={tx} size={42} />
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
+                            {tx.merchant || tx.app || 'Payment'}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            {formatShortDate(tx.date)}, {formatTime12h(tx.time)}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                        {formatShortDate(tx.date)}, {formatTime12h(tx.time)}
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 15, fontWeight: 950, color: palette.text }}>
+                          - ₹{formatINRShort(tx.amount)}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: '#60a5fa', fontWeight: 800, marginTop: 3 }}>
+                          Details ✏️
+                        </div>
                       </div>
+                    </div>
+
+                    {/* Fast Inline Note Entry + Quick Templates */}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="text"
+                        value={draft}
+                        onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && draft.trim()) {
+                            handleUpdatePersonalNote(tx.id, draft);
+                          }
+                        }}
+                        placeholder="What was this payment for? (e.g. Office lunch, Petrol...)"
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.text,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePersonalNote(tx.id, draft || 'Reviewed')}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: 'none',
+                          background: '#2563eb',
+                          color: '#fff',
+                          fontWeight: 800,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Save Note
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {QUICK_NOTE_TEMPLATES.slice(0, 5).map((tpl) => (
+                        <button
+                          key={tpl.label}
+                          type="button"
+                          onClick={() => handleUpdatePersonalNote(tx.id, tpl.label)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 999,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surface,
+                            color: palette.textSub,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          + {tpl.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 15, fontWeight: 950, color: palette.text }}>
-                      - ₹{formatINRShort(tx.amount)}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: '#60a5fa', fontWeight: 800, marginTop: 3 }}>
-                      Add note ✏️
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -2137,6 +3106,44 @@ export default function ExpensesModule({
             </button>
           </div>
 
+          {/* Bank SMS Inbox Scanner (Android Optional Helper) */}
+          <div style={{
+            padding: '12px 14px',
+            borderRadius: 14,
+            background: palette.surfaceAlt,
+            border: `1px solid ${palette.border}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>📲 Bank &amp; UPI SMS Inbox Scan</div>
+              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
+                {smsGranted
+                  ? '🟢 SMS Permission Active — Scan recent bank debit/credit alerts'
+                  : 'Scan recent bank SMS alerts on-device or paste any receipt manually'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => triggerMobileTransactionScan()}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 10,
+                border: `1px solid ${palette.border}`,
+                background: palette.surface,
+                color: '#60a5fa',
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              {isScanning ? 'Scanning...' : 'Scan Now'}
+            </button>
+          </div>
+
           {/* Isolated Demo Preview Toggle */}
           <div style={{
             padding: '12px 14px',
@@ -2156,7 +3163,10 @@ export default function ExpensesModule({
             </div>
             <button
               type="button"
-              onClick={() => setDemoPreviewMode((prev) => !prev)}
+              onClick={() => {
+                setDismissedSamplePreview(false);
+                setDemoPreviewMode((prev) => !prev);
+              }}
               style={{
                 padding: '8px 14px',
                 borderRadius: 10,
@@ -2191,6 +3201,22 @@ export default function ExpensesModule({
             </button>
             <button
               type="button"
+              onClick={handleExportExpensesJson}
+              style={{
+                padding: '12px',
+                borderRadius: 14,
+                border: `1px solid ${palette.border}`,
+                background: palette.surfaceAlt,
+                color: palette.text,
+                fontWeight: 800,
+                fontSize: 12.5,
+                cursor: 'pointer',
+              }}
+            >
+              📤 Export JSON Backup
+            </button>
+            <button
+              type="button"
               onClick={() => setShowSmsPasteModal(true)}
               style={{
                 padding: '12px',
@@ -2204,6 +3230,22 @@ export default function ExpensesModule({
               }}
             >
               📩 Paste Payment Alert
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllExpenses}
+              style={{
+                padding: '12px',
+                borderRadius: 14,
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: '#f87171',
+                fontWeight: 800,
+                fontSize: 12.5,
+                cursor: 'pointer',
+              }}
+            >
+              🗑️ Clear All Expenses
             </button>
           </div>
         </div>
@@ -2232,6 +3274,8 @@ export default function ExpensesModule({
             onSubmit={handleSaveTransactionForm}
             style={{
               width: 'min(480px, 100%)',
+              maxHeight: '92vh',
+              overflowY: 'auto',
               background: palette.surface,
               borderRadius: 24,
               border: `1px solid ${palette.border}`,
@@ -2341,26 +3385,49 @@ export default function ExpensesModule({
               </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Paid To / Merchant</label>
-              <input
-                type="text"
-                value={formMerchant}
-                onChange={(e) => setFormMerchant(e.target.value)}
-                placeholder="e.g. Google Pay, Swiggy, Sreeram Traders..."
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  marginTop: 4,
-                  padding: '10px 12px',
-                  borderRadius: 12,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 13,
-                  fontWeight: 800,
-                }}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Paid To / Merchant</label>
+                <input
+                  type="text"
+                  value={formMerchant}
+                  onChange={(e) => setFormMerchant(e.target.value)}
+                  placeholder="e.g. Zomato, Rahul, Swiggy..."
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 4,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13,
+                    fontWeight: 800,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>UPI ID (Optional)</label>
+                <input
+                  type="text"
+                  value={formPayeeVpa}
+                  onChange={(e) => setFormPayeeVpa(e.target.value)}
+                  placeholder="merchant@okaxis"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 4,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
             </div>
 
             <div>
@@ -2467,22 +3534,106 @@ export default function ExpensesModule({
               </div>
             </div>
 
-            <button
-              type="submit"
-              style={{
-                marginTop: 4,
-                padding: '14px',
-                borderRadius: 14,
-                border: 'none',
-                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                color: '#fff',
-                fontWeight: 900,
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              Save Transaction
-            </button>
+            {/* Date, Time & Tags Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Date</label>
+                <input
+                  type="date"
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 3,
+                    padding: '8px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Time</label>
+                <input
+                  type="time"
+                  value={formTime}
+                  onChange={(e) => setFormTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 3,
+                    padding: '8px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Tags</label>
+                <input
+                  type="text"
+                  value={formTagsInput}
+                  onChange={(e) => setFormTagsInput(e.target.value)}
+                  placeholder="#lunch, #office"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    marginTop: 3,
+                    padding: '8px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: formType === 'debit' ? '1fr 1.15fr' : '1fr', gap: 8, marginTop: 4 }}>
+              <button
+                type="submit"
+                style={{
+                  padding: '13px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                  color: '#fff',
+                  fontWeight: 900,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                }}
+              >
+                💾 Save Entry
+              </button>
+              {formType === 'debit' && (
+                <button
+                  type="button"
+                  onClick={handleLaunchUpiAndSave}
+                  style={{
+                    padding: '13px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(16, 185, 129, 0.5)',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#fff',
+                    fontWeight: 900,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  💸 Pay via UPI &amp; Save
+                </button>
+              )}
+            </div>
           </form>
         </div>
       )}

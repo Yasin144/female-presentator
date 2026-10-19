@@ -1002,3 +1002,32 @@ export function formatTransactionsCsv(transactions = [], analytics = null) {
 
   return rows.join('\r\n');
 }
+
+/**
+ * Launches a local Android UPI Intent (upi://pay) with pre-filled payee, amount, and note.
+ * Does not make any HTTP/network request.
+ */
+export function launchUpiPayment({ pa = '', pn = '', am = '', tn = '' } = {}) {
+  const cleanPa = String(pa || '').trim();
+  if (!cleanPa) return false;
+  const params = new URLSearchParams();
+  params.set('pa', cleanPa);
+  if (pn) params.set('pn', String(pn).trim());
+  if (am && Number(am) > 0) params.set('am', Number(am).toFixed(2));
+  if (tn) params.set('tn', String(tn).trim());
+  params.set('cu', 'INR');
+  const upiUri = `upi://pay?${params.toString()}`;
+  try {
+    if (typeof window !== 'undefined') {
+      if (window.PattanBiometric?.launchUpiUri) {
+        return Boolean(window.PattanBiometric.launchUpiUri(upiUri));
+      }
+      window.location.href = upiUri;
+      return true;
+    }
+  } catch (_) {
+    // ignore
+  }
+  return false;
+}
+

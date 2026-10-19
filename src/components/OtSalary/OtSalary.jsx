@@ -4,6 +4,7 @@ import ExpensesModule from './ExpensesModule.jsx';
 import {
   loadEncryptedExpenseStore,
   saveEncryptedExpenseStore,
+  buildDemoPreviewTransactions,
 } from '../../../frontend/expense-memory.js';
 import {
   WHATSAPP_FIXED_RECIPIENT_DISPLAY,
@@ -320,21 +321,33 @@ function buildMonthDates(yearMonth) {
 
 function loadInitialStore() {
   const encryptedRes = loadEncryptedExpenseStore();
+  let resolvedExpenses = encryptedRes.expenses && typeof encryptedRes.expenses === 'object' ? encryptedRes.expenses : {};
   try {
     const raw = localStorage.getItem(LS_OT_SALARY_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (
+        Object.keys(resolvedExpenses).length === 0 &&
+        parsed?.expenses &&
+        typeof parsed.expenses === 'object' &&
+        Object.keys(parsed.expenses).length > 0
+      ) {
+        resolvedExpenses = parsed.expenses;
+        try {
+          saveEncryptedExpenseStore(resolvedExpenses);
+        } catch (_) {}
+      }
       return {
         settings: { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) },
         days: parsed?.days && typeof parsed.days === 'object' ? parsed.days : {},
-        expenses: encryptedRes.expenses || {},
+        expenses: resolvedExpenses,
       };
     }
   } catch (_) {}
   return {
     settings: { ...DEFAULT_SETTINGS },
     days: {},
-    expenses: encryptedRes.expenses || {},
+    expenses: resolvedExpenses,
   };
 }
 
@@ -2199,18 +2212,45 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     event.target.value = '';
   };
 
+  const printMonthSalarySlip = () => {
+    try {
+      if (typeof window !== 'undefined' && typeof window.print === 'function') {
+        window.print();
+      }
+    } catch (_) {}
+  };
+
   const expenseQuickStats = useMemo(() => {
+    const todayIso = getTodayIsoDate();
+    const rawValues = Object.values(expensesMap || {}).filter((tx) => tx && typeof tx === 'object' && !tx._deleted);
+    const activeSource =
+      rawValues.length > 0
+        ? expensesMap
+        : buildDemoPreviewTransactions(todayIso);
+
     let count = 0;
     let spent = 0;
-    for (const tx of Object.values(expensesMap || {})) {
+    let income = 0;
+    let todaySpent = 0;
+    let missingNotesCount = 0;
+    for (const tx of Object.values(activeSource || {})) {
       if (!tx || tx._deleted || !(Number(tx.amount) > 0)) continue;
       if (selectedMonth && !String(tx.date || '').startsWith(selectedMonth)) continue;
       count += 1;
-      if (tx.type !== 'credit') {
-        spent += Number(tx.amount) || 0;
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'credit') {
+        income += amt;
+      } else if (tx.type === 'refund') {
+        spent = Math.max(0, spent - amt);
+      } else {
+        spent += amt;
+        if (tx.date === todayIso) todaySpent += amt;
+        if (!String(tx.personalNote || tx.note || '').trim() && !tx.noteReviewed) {
+          missingNotesCount += 1;
+        }
       }
     }
-    return { count, spent };
+    return { count, spent, income, todaySpent, missingNotesCount };
   }, [expensesMap, selectedMonth]);
 
   const showTodaySection = mobileTab === 'today';
@@ -3067,6 +3107,118 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
               </div>
             </div>
+
+            {/* Restored: Today's Live Shift & Pay Breakdown Card */}
+            <div style={{
+              padding: '14px 16px',
+              borderRadius: 20,
+              background: ui.cardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 13.5, fontWeight: 900, color: ui.textPrimary }}>
+                  📊 Today&apos;s Shift &amp; Pay Breakdown ({selectedDate})
+                </div>
+                <span style={{
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  background: activeDayPreview.otMins > 0 ? 'rgba(16, 185, 129, 0.16)' : ui.cardSubBg,
+                  color: activeDayPreview.otMins > 0 ? '#10b981' : ui.textSecondary,
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                }}>
+                  {entryStatus === 'present' ? 'Present' : entryStatus === 'half' ? 'Half Day' : entryStatus === 'holiday_paid' ? 'Paid Off' : entryStatus === 'ot_only' ? 'OT Only' : 'Leave'}
+                </span>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 6,
+              }}>
+                <div style={{ padding: '8px', borderRadius: 12, background: ui.cardSubBg, border: `1px solid ${ui.border}` }}>
+                  <div style={{ fontSize: 10, color: ui.textSecondary, fontWeight: 700 }}>Worked</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: ui.textPrimary, marginTop: 2 }}>
+                    {formatMinutesCompact(activeDayPreview.workedMins)}
+                  </div>
+                </div>
+                <div style={{ padding: '8px', borderRadius: 12, background: ui.cardSubBg, border: `1px solid ${ui.border}` }}>
+                  <div style={{ fontSize: 10, color: ui.textSecondary, fontWeight: 700 }}>Base Pay</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: ui.textPrimary, marginTop: 2 }}>
+                    ₹{formatINR(activeDayPreview.basePay)}
+                  </div>
+                </div>
+                <div style={{ padding: '8px', borderRadius: 12, background: ui.cardSubBg, border: `1px solid ${ui.border}` }}>
+                  <div style={{ fontSize: 10, color: ui.textSecondary, fontWeight: 700 }}>Extra OT</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
+                    +₹{formatINR(activeDayPreview.otPay)}
+                  </div>
+                </div>
+                <div style={{ padding: '8px', borderRadius: 12, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(52, 211, 153, 0.35)' }}>
+                  <div style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>Day Total</div>
+                  <div style={{ fontSize: 13, fontWeight: 950, color: '#10b981', marginTop: 2 }}>
+                    ₹{formatINR(activeDayPreview.totalPay)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Restored: Expense Memory Quick Home Summary Card */}
+            <div style={{
+              padding: '14px 16px',
+              borderRadius: 20,
+              background: isLight
+                ? 'linear-gradient(135deg, #f5f3ff 0%, #eff6ff 100%)'
+                : 'linear-gradient(135deg, rgba(124, 58, 237, 0.16) 0%, rgba(37, 99, 235, 0.14) 100%)',
+              border: '1px solid rgba(139, 92, 246, 0.35)',
+              boxShadow: ui.shadow,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 900, color: ui.textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>💳 Expense Memory</span>
+                  {expenseQuickStats.missingNotesCount > 0 && (
+                    <span style={{
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      color: '#f59e0b',
+                      fontSize: 10,
+                      fontWeight: 900,
+                    }}>
+                      ⚠️ {expenseQuickStats.missingNotesCount} un-noted
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 700, marginTop: 3 }}>
+                  Spent Today: <strong style={{ color: '#f43f5e' }}>₹{formatINR(expenseQuickStats.todaySpent)}</strong> · Month: <strong style={{ color: ui.textPrimary }}>₹{formatINR(expenseQuickStats.spent)}</strong> ({expenseQuickStats.count} txns)
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppMode('expenses')}
+                style={{
+                  padding: '8px 13px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(139, 92, 246, 0.5)',
+                  background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                }}
+              >
+                Open Expenses →
+              </button>
+            </div>
           </>
         )}
 
@@ -3481,148 +3633,237 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             </div>
 
-            {/* Filter Pills Row: All | Present | Half | Off | Leave | OT */}
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'present', label: 'Present' },
-                { id: 'half', label: 'Half' },
-                { id: 'off', label: 'Off' },
-                { id: 'leave', label: 'Leave' },
-                { id: 'ot_only', label: 'Extra OT' },
-              ].map((pill) => {
-                const active = viewFilter === pill.id;
-                return (
-                  <button
-                    key={pill.id}
-                    type="button"
-                    onClick={() => setViewFilter(pill.id)}
-                    style={{
-                      padding: '7px 14px',
-                      borderRadius: 999,
-                      border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
-                      background: active ? '#2563eb' : ui.cardBg,
-                      color: active ? '#ffffff' : ui.textSecondary,
-                      fontWeight: 800,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {pill.label}
-                  </button>
-                );
-              })}
+            {/* Filter Pills Row: All | Present | Half | Off | Leave | OT + Cards/Table View Toggle */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'present', label: 'Present' },
+                  { id: 'half', label: 'Half' },
+                  { id: 'off', label: 'Off' },
+                  { id: 'leave', label: 'Leave' },
+                  { id: 'ot_only', label: 'Extra OT' },
+                ].map((pill) => {
+                  const active = viewFilter === pill.id;
+                  return (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={() => setViewFilter(pill.id)}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: 999,
+                        border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
+                        background: active ? '#2563eb' : ui.cardBg,
+                        color: active ? '#ffffff' : ui.textSecondary,
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {pill.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Restored: Cards vs Full Table View Toggle */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[
+                  { id: 'cards', label: '📱 Cards' },
+                  { id: 'table', label: '📋 Table' },
+                ].map((mode) => {
+                  const active = mobileDaysLayout === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setMobileDaysLayout(mode.id)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
+                        background: active ? 'rgba(37, 99, 235, 0.16)' : ui.cardBg,
+                        color: active ? (isLight ? '#1d4ed8' : '#93c5fd') : ui.textSecondary,
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {mode.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Day Cards List (Screen 4 style: Date Badge | 10:00 AM -> 08:30 PM | Checkmark) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filteredMonthRows.map((row) => {
-                const r = row.record;
-                const e = row.earnings;
-                const isSelected = row.iso === selectedDate;
-                return (
-                  <div
-                    key={row.iso}
-                    onClick={() => {
-                      setSelectedDate(row.iso);
-                      setShowManualEditor(true);
-                    }}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: 16,
-                      background: ui.cardBg,
-                      border: isSelected
-                        ? '1.5px solid #3b82f6'
-                        : `1px solid ${ui.border}`,
-                      boxShadow: ui.shadow,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {/* Left Date Badge (19 Mon) */}
-                    <div style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 13,
-                      background: isSelected
-                        ? 'rgba(37, 99, 235, 0.2)'
-                        : ui.cardSubBg,
-                      border: `1px solid ${ui.border}`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}>
-                      <span style={{
-                        fontSize: 15,
-                        fontWeight: 950,
-                        color: row.isSunday ? '#f87171' : ui.textPrimary,
-                        lineHeight: 1.1,
-                      }}>
-                        {String(row.dayNum).padStart(2, '0')}
-                      </span>
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        color: row.isSunday ? '#f87171' : ui.textSecondary,
-                      }}>
-                        {row.dayName}
-                      </span>
-                    </div>
-
-                    {/* Center Timing & Earnings */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: 13.5,
-                        fontWeight: 900,
-                        color: ui.textPrimary,
+            {/* Day Cards List OR Full Table View */}
+            {mobileDaysLayout === 'table' ? (
+              <div style={{
+                borderRadius: 18,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                overflowX: 'auto',
+              }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                  <thead>
+                    <tr style={{ background: ui.cardSubBg, color: ui.textSecondary, textAlign: 'left' }}>
+                      <th style={{ padding: '10px 8px', fontWeight: 900 }}>Date</th>
+                      <th style={{ padding: '10px 8px', fontWeight: 900 }}>IN → OUT</th>
+                      <th style={{ padding: '10px 8px', fontWeight: 900 }}>Worked</th>
+                      <th style={{ padding: '10px 8px', fontWeight: 900 }}>OT</th>
+                      <th style={{ padding: '10px 8px', fontWeight: 900, textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMonthRows.map((row) => {
+                      const r = row.record;
+                      const e = row.earnings;
+                      return (
+                        <tr
+                          key={row.iso}
+                          onClick={() => {
+                            setSelectedDate(row.iso);
+                            setShowManualEditor(true);
+                          }}
+                          style={{
+                            borderTop: `1px solid ${ui.border}`,
+                            cursor: 'pointer',
+                            background: row.iso === selectedDate ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                          }}
+                        >
+                          <td style={{ padding: '9px 8px', fontWeight: 900, color: row.isSunday ? '#f87171' : ui.textPrimary }}>
+                            {String(row.dayNum).padStart(2, '0')} {row.dayName}
+                          </td>
+                          <td style={{ padding: '9px 8px', fontWeight: 700, color: ui.textPrimary }}>
+                            {formatTime12h(r.inTime || '10:00')}–{formatTime12h(r.outTime || '18:30')}
+                          </td>
+                          <td style={{ padding: '9px 8px', fontWeight: 700, color: ui.textSecondary }}>
+                            {formatMinutesCompact(e.workedMins)}
+                          </td>
+                          <td style={{ padding: '9px 8px', fontWeight: 800, color: e.otMins > 0 ? '#10b981' : ui.textSecondary }}>
+                            {e.otMins > 0 ? `+${formatMinutesCompact(e.otMins)}` : '-'}
+                          </td>
+                          <td style={{ padding: '9px 8px', fontWeight: 900, color: ui.textPrimary, textAlign: 'right' }}>
+                            ₹{formatINR(e.totalPay)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filteredMonthRows.map((row) => {
+                  const r = row.record;
+                  const e = row.earnings;
+                  const isSelected = row.iso === selectedDate;
+                  return (
+                    <div
+                      key={row.iso}
+                      onClick={() => {
+                        setSelectedDate(row.iso);
+                        setShowManualEditor(true);
+                      }}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 16,
+                        background: ui.cardBg,
+                        border: isSelected
+                          ? '1.5px solid #3b82f6'
+                          : `1px solid ${ui.border}`,
+                        boxShadow: ui.shadow,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 6,
-                        flexWrap: 'wrap',
-                      }}>
-                        <span>{formatTime12h(r.inTime || '10:00')} → {formatTime12h(r.outTime || '18:30')}</span>
-                        {r.biometricIn && <span style={{ fontSize: 10, color: '#38bdf8' }}>🫆IN</span>}
-                        {r.biometricOut && <span style={{ fontSize: 10, color: '#10b981' }}>🫆OUT</span>}
-                      </div>
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {/* Left Date Badge (19 Mon) */}
                       <div style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: e.otMins > 0 ? '#10b981' : ui.textSecondary,
-                        marginTop: 3,
+                        width: 48,
+                        height: 48,
+                        borderRadius: 13,
+                        background: isSelected
+                          ? 'rgba(37, 99, 235, 0.2)'
+                          : ui.cardSubBg,
+                        border: `1px solid ${ui.border}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
                       }}>
-                        {formatMinutesCompact(e.workedMins)}
-                        {e.otMins > 0 ? ` · +${formatMinutesCompact(e.otMins)} · +₹${formatINR(e.otPay)}` : ''}
-                        {` · ₹${formatINR(e.totalPay)}`}
+                        <span style={{
+                          fontSize: 15,
+                          fontWeight: 950,
+                          color: row.isSunday ? '#f87171' : ui.textPrimary,
+                          lineHeight: 1.1,
+                        }}>
+                          {String(row.dayNum).padStart(2, '0')}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          color: row.isSunday ? '#f87171' : ui.textSecondary,
+                        }}>
+                          {row.dayName}
+                        </span>
+                      </div>
+
+                      {/* Center Timing & Earnings */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 13.5,
+                          fontWeight: 900,
+                          color: ui.textPrimary,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          flexWrap: 'wrap',
+                        }}>
+                          <span>{formatTime12h(r.inTime || '10:00')} → {formatTime12h(r.outTime || '18:30')}</span>
+                          {r.biometricIn && <span style={{ fontSize: 10, color: '#38bdf8' }}>🫆IN</span>}
+                          {r.biometricOut && <span style={{ fontSize: 10, color: '#10b981' }}>🫆OUT</span>}
+                        </div>
+                        <div style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: e.otMins > 0 ? '#10b981' : ui.textSecondary,
+                          marginTop: 3,
+                        }}>
+                          {formatMinutesCompact(e.workedMins)}
+                          {e.otMins > 0 ? ` · +${formatMinutesCompact(e.otMins)} · +₹${formatINR(e.otPay)}` : ''}
+                          {` · ₹${formatINR(e.totalPay)}`}
+                        </div>
+                      </div>
+
+                      {/* Right Checkmark Badge */}
+                      <div style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        background: row.isSaved ? 'rgba(16, 185, 129, 0.2)' : ui.cardSubBg,
+                        border: row.isSaved ? '1px solid #10b981' : `1px solid ${ui.border}`,
+                        color: row.isSaved ? '#10b981' : ui.textSecondary,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: 13,
+                        flexShrink: 0,
+                      }}>
+                        ✓
                       </div>
                     </div>
-
-                    {/* Right Checkmark Badge */}
-                    <div style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      background: row.isSaved ? 'rgba(16, 185, 129, 0.2)' : ui.cardSubBg,
-                      border: row.isSaved ? '1px solid #10b981' : `1px solid ${ui.border}`,
-                      color: row.isSaved ? '#10b981' : ui.textSecondary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 900,
-                      fontSize: 13,
-                      flexShrink: 0,
-                    }}>
-                      ✓
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Bottom Full-Width Royal Blue Save All Month Days Button */}
             <button
@@ -3684,8 +3925,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {[
                   { label: 'Base Monthly Salary', value: `₹${formatINR(rates.salary)}`, color: ui.textPrimary },
                   { label: 'Per Day Salary', value: `₹${formatINR(rates.perDaySalary)}`, color: ui.textPrimary },
+                  { label: 'Per Hour / Per Min Rate', value: `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${rates.baseMinuteRate.toFixed(2)}/m`, color: ui.textSecondary },
                   { label: 'Standard Shift Hours', value: formatMinutesCompact(rates.shiftMins), color: ui.textPrimary },
                   { label: 'Total Working Days', value: `${monthSummary.savedDaysCount} / ${monthRows.length} Days`, color: ui.textPrimary },
+                  { label: 'Attendance Breakdown', value: `${monthSummary.presentDays}P · ${monthSummary.halfDays}H · ${monthSummary.paidHolidays} Off · ${monthSummary.unpaidLeaves} Leave`, color: ui.textPrimary },
+                  { label: 'Total Worked Hours', value: formatMinutesCompact(monthSummary.totalWorkedMins), color: ui.textPrimary },
                   { label: 'Total Extra OT', value: formatMinutesCompact(monthSummary.totalOtMins), color: '#38bdf8' },
                   { label: 'OT Rate (per hour)', value: `₹${formatINR(rates.otHourlyRate)}/hr`, color: ui.textSecondary },
                   { label: 'Total OT Pay', value: `+ ₹${formatINR(monthSummary.totalOtPay)}`, color: '#10b981' },
@@ -3751,39 +3995,55 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
 
-              {/* Bottom Action Buttons: Download CSV & Share Slip */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
+              {/* Bottom Action Buttons: Download CSV, Print PDF Slip & Share Slip */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16 }}>
                 <button
                   type="button"
                   onClick={exportMonthCsv}
                   style={{
-                    padding: '12px',
+                    padding: '12px 8px',
                     borderRadius: 14,
                     border: '1px solid rgba(59, 130, 246, 0.55)',
                     background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                     color: '#ffffff',
                     fontWeight: 900,
-                    fontSize: 13.5,
+                    fontSize: 12.5,
                     cursor: 'pointer',
                   }}
                 >
-                  📥 Download CSV
+                  📥 CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={printMonthSalarySlip}
+                  style={{
+                    padding: '12px 8px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(139, 92, 246, 0.55)',
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🖨️ Print / PDF
                 </button>
                 <button
                   type="button"
                   onClick={shareSalarySummaryOnWhatsApp}
                   style={{
-                    padding: '12px',
+                    padding: '12px 8px',
                     borderRadius: 14,
                     border: '1px solid rgba(52, 211, 153, 0.55)',
                     background: 'linear-gradient(135deg, #10b981, #059669)',
                     color: '#ffffff',
                     fontWeight: 900,
-                    fontSize: 13.5,
+                    fontSize: 12.5,
                     cursor: 'pointer',
                   }}
                 >
-                  💬 Share Slip
+                  💬 Share
                 </button>
               </div>
             </div>
@@ -4231,26 +4491,53 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span style={{ color: ui.textSecondary }}>›</span>
               </button>
 
-              <button
-                type="button"
-                onClick={exportBackupJson}
-                style={{
-                  padding: '12px 14px',
-                  borderRadius: 14,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontWeight: 800,
-                  fontSize: 13.5,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span>📤 Export / Import Data</span>
-                <span style={{ color: ui.textSecondary }}>›</span>
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={exportBackupJson}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 14,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>📤 Export JSON</span>
+                  <span style={{ color: ui.textSecondary }}>›</span>
+                </button>
+
+                <label
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 14,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>📥 Import JSON</span>
+                  <span style={{ color: ui.textSecondary }}>›</span>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={importBackupJson}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
 
               <button
                 type="button"
