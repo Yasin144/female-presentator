@@ -68,9 +68,19 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        try {
+            if (getWindow() != null) {
+                int execNavy = android.graphics.Color.parseColor("#070C18");
+                getWindow().setStatusBarColor(execNavy);
+                getWindow().setNavigationBarColor(execNavy);
+            }
+        } catch (Exception ignored) {}
         bridge.setWebViewClient(new RecoveringWebViewClient());
         if (bridge != null && bridge.getWebView() != null) {
             WebView wv = bridge.getWebView();
+            try {
+                wv.setBackgroundColor(android.graphics.Color.parseColor("#070C18"));
+            } catch (Exception ignored) {}
             wv.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
             wv.clearCache(true);
             PattanBiometricBridge bioBridge = new PattanBiometricBridge();

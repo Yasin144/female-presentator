@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
+import './OtSalary.css';
 import {
   loadEncryptedExpenseStore,
   saveEncryptedExpenseStore,
@@ -2879,15 +2880,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const isLight = themeMode === 'light';
   const ui = {
     pageBg: isLight
-      ? 'linear-gradient(180deg, #f1f5f9 0%, #e8eef7 100%)'
-      : 'radial-gradient(circle at 20% 0%, #101d38 0%, #070c18 55%, #040710 100%)',
-    cardBg: isLight ? '#ffffff' : 'linear-gradient(180deg, #111a2e 0%, #0b1222 100%)',
-    cardSubBg: isLight ? '#f8fafc' : '#090f1d',
-    border: isLight ? 'rgba(15, 23, 42, 0.09)' : 'rgba(148, 163, 184, 0.16)',
+      ? 'linear-gradient(180deg, #f8fafc 0%, #eef2f6 50%, #e2e8f0 100%)'
+      : 'radial-gradient(ellipse at 50% -10%, #132347 0%, #091124 48%, #040812 100%)',
+    cardBg: isLight
+      ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+      : 'linear-gradient(165deg, rgba(19, 30, 54, 0.95) 0%, rgba(10, 16, 31, 0.98) 100%)',
+    cardSubBg: isLight ? '#f1f5f9' : 'rgba(9, 15, 29, 0.88)',
+    border: isLight ? 'rgba(15, 23, 42, 0.08)' : 'rgba(148, 163, 184, 0.16)',
     textPrimary: isLight ? '#0f172a' : '#f8fafc',
     textSecondary: isLight ? '#475569' : '#94a3b8',
     textMuted: isLight ? '#64748b' : '#64748b',
-    shadow: isLight ? '0 8px 24px rgba(15, 23, 42, 0.06)' : '0 14px 34px rgba(0, 0, 0, 0.48)',
+    shadow: isLight
+      ? '0 10px 28px -6px rgba(15, 23, 42, 0.07), inset 0 1px 0 #ffffff'
+      : '0 18px 42px -10px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.07)',
   };
 
   const formattedMonthLabel = (() => {
@@ -2928,13 +2933,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   return (
     <div
+      className="ot-pro-shell"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       style={{
         minHeight: '100%',
         background: ui.pageBg,
         color: ui.textPrimary,
-        padding: mobileMode ? '12px 12px 96px' : '20px 24px 96px',
+        padding: mobileMode ? '12px 12px 98px' : '22px 24px 98px',
         fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         boxSizing: 'border-box',
         transition: 'background 0.25s ease, color 0.25s ease',
@@ -3030,20 +3036,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* TOP PROFILE & CONTROLS HEADER (Matches Screen 2 & Screen 12 Light Mode) */}
-        <div style={{
-          padding: '12px 14px',
-          borderRadius: 20,
-          background: ui.cardBg,
-          border: `1px solid ${ui.border}`,
-          boxShadow: ui.shadow,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-          flexWrap: 'wrap',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* TOP PROFILE & CONTROLS HEADER (Executive Fintech Header) */}
+        <div
+          className="ot-no-print"
+          style={{
+            padding: '13px 15px',
+            borderRadius: 22,
+            background: ui.cardBg,
+            border: `1px solid ${ui.border}`,
+            boxShadow: ui.shadow,
+            backdropFilter: 'blur(16px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
             {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
               <button
                 type="button"
@@ -3054,7 +3064,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 style={{
                   width: 34,
                   height: 34,
-                  borderRadius: 10,
+                  borderRadius: 11,
                   border: `1px solid ${ui.border}`,
                   background: ui.cardSubBg,
                   color: ui.textPrimary,
@@ -3076,17 +3086,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               onClick={() => setShowSplash(true)}
               title="Tap to view OT & SALARY PRO Splash Screen"
               style={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #2563eb 0%, #10b981 100%)',
-                border: '2px solid rgba(52, 211, 153, 0.65)',
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, #2563eb 0%, #0ea5e9 52%, #10b981 100%)',
+                border: '1.5px solid rgba(110, 231, 183, 0.7)',
+                boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#ffffff',
-                fontWeight: 900,
+                fontWeight: 950,
                 fontSize: 15,
+                letterSpacing: '0.02em',
                 cursor: 'pointer',
                 position: 'relative',
                 flexShrink: 0,
@@ -3095,13 +3107,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {getEmployeeInitials(settings.employeeName)}
               <span style={{
                 position: 'absolute',
-                right: -1,
-                bottom: -1,
-                width: 11,
-                height: 11,
+                right: -2,
+                bottom: -2,
+                width: 12,
+                height: 12,
                 borderRadius: '50%',
                 background: '#10b981',
-                border: '2px solid #0b1222',
+                border: isLight ? '2px solid #ffffff' : '2px solid #0b1222',
               }} />
             </div>
 
@@ -3113,8 +3125,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
+                flexWrap: 'wrap',
               }}>
                 <span>Hi, {normalizeEmployeeName(settings.employeeName)}</span>
+                <span style={{
+                  padding: '2px 7px',
+                  borderRadius: 999,
+                  background: isLight ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.18)',
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  color: isLight ? '#047857' : '#6ee7b7',
+                  fontSize: 9.5,
+                  fontWeight: 900,
+                  letterSpacing: '0.04em',
+                }}>
+                  PRO · BIOMETRIC
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                 <input
@@ -3752,53 +3777,63 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showTodaySection && (
           <>
-            {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (19/31 Days) */}
-            <div style={{
-              padding: '18px 18px 16px',
-              borderRadius: 22,
-              background: isLight
-                ? 'linear-gradient(135deg, #ffffff 0%, #ecfdf5 100%)'
-                : 'linear-gradient(135deg, #0c2d2c 0%, #0a192f 60%, #0d1627 100%)',
-              border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(52, 211, 153, 0.32)',
-              boxShadow: ui.shadow,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (Executive Vault Card) */}
+            <div
+              className="ot-hero-vault-card"
+              style={{
+                padding: '19px 18px 16px',
+                borderRadius: 24,
+                background: isLight
+                  ? 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 65%, #e0f2fe 100%)'
+                  : 'linear-gradient(140deg, #0b2e2d 0%, #0a192f 55%, #081121 100%)',
+                border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(52, 211, 153, 0.36)',
+                boxShadow: ui.shadow,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
                     flexWrap: 'wrap',
-                    marginBottom: 4,
+                    marginBottom: 5,
                   }}>
                     <span style={{
                       fontSize: 12.5,
-                      fontWeight: 700,
+                      fontWeight: 800,
+                      letterSpacing: '0.01em',
                       color: isLight ? '#047857' : '#a7f3d0',
                     }}>
                       Net Salary (This Month)
                     </span>
                     {renderSalaryEyeButton(false)}
                   </div>
-                  <div style={{
-                    fontSize: 31,
-                    fontWeight: 950,
-                    color: isLight ? '#0f172a' : '#ffffff',
-                    letterSpacing: '-0.02em',
-                    lineHeight: 1.1,
-                  }}>
+                  <div
+                    className="ot-tabular-nums"
+                    style={{
+                      fontSize: 32,
+                      fontWeight: 950,
+                      color: isLight ? '#0f172a' : '#ffffff',
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.1,
+                    }}
+                  >
                     {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                   </div>
-                  <div style={{
-                    marginTop: 6,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: isLight ? '#059669' : '#6ee7b7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    flexWrap: 'wrap',
-                  }}>
+                  <div
+                    className="ot-tabular-nums"
+                    style={{
+                      marginTop: 7,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: isLight ? '#059669' : '#6ee7b7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
                     <span>
                       Base {formatSalaryMask(rates.salary)} + OT {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}
                     </span>
@@ -3807,8 +3842,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
 
                 {/* Right Circular Progress Ring (e.g. 19/31 Days) */}
-                <div style={{ position: 'relative', width: 78, height: 78, flexShrink: 0 }}>
-                  <svg width="78" height="78" viewBox="0 0 78 78">
+                <div style={{ position: 'relative', width: 80, height: 80, flexShrink: 0 }}>
+                  <svg width="80" height="80" viewBox="0 0 78 78">
                     <circle
                       cx="39"
                       cy="39"
@@ -3839,7 +3874,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     justifyContent: 'center',
                     textAlign: 'center',
                   }}>
-                    <span style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#0f172a' : '#ffffff', lineHeight: 1.1 }}>
+                    <span className="ot-tabular-nums" style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#0f172a' : '#ffffff', lineHeight: 1.1 }}>
                       {monthSummary.savedDaysCount}/{monthRows.length}
                     </span>
                     <span style={{ fontSize: 9.5, fontWeight: 700, color: ui.textSecondary }}>
@@ -3857,16 +3892,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: 8,
+                position: 'relative',
+                zIndex: 1,
               }}>
                 <div>
                   <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Worked:</div>
-                  <div style={{ fontSize: 13.5, fontWeight: 900, color: isLight ? '#0f172a' : '#ffffff', marginTop: 1 }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: isLight ? '#0f172a' : '#ffffff', marginTop: 1 }}>
                     {monthSummary.savedDaysCount} Days
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Total OT:</div>
-                  <div style={{ fontSize: 13.5, fontWeight: 900, color: '#38bdf8', marginTop: 1 }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#38bdf8', marginTop: 1 }}>
                     {formatMinutesCompact(monthSummary.totalOtMins)}
                   </div>
                 </div>
@@ -3875,7 +3912,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     <span>OT Earned:</span>
                     {renderSalaryEyeButton(true)}
                   </div>
-                  <div style={{ fontSize: 13.5, fontWeight: 900, color: '#10b981', marginTop: 1 }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#10b981', marginTop: 1 }}>
                     {formatSalaryMask(monthSummary.totalOtPay)}
                   </div>
                 </div>
@@ -3885,7 +3922,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             {/* TODAY LIVE CLOCK & DUAL BIOMETRIC CARDS (Screen 2 & Screen 12) */}
             <div style={{
               padding: '18px 16px',
-              borderRadius: 22,
+              borderRadius: 24,
               background: ui.cardBg,
               border: `1px solid ${ui.border}`,
               boxShadow: ui.shadow,
@@ -3915,8 +3952,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     color: '#10b981',
                     fontSize: 11.5,
                     fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}>
-                    ⚡ Shift Active
+                    <span className="ot-live-dot" />
+                    <span>⚡ Shift Active</span>
                   </span>
                   <button
                     type="button"
@@ -3957,14 +3998,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <RealAnalogClock now={liveNow} size={136} />
                 </div>
 
-                <div style={{
-                  marginTop: 10,
-                  fontSize: 22,
-                  fontWeight: 950,
-                  color: ui.textPrimary,
-                  letterSpacing: '0.03em',
-                  fontVariantNumeric: 'tabular-nums',
-                }}>
+                <div
+                  className="ot-tabular-nums"
+                  style={{
+                    marginTop: 10,
+                    fontSize: 22,
+                    fontWeight: 950,
+                    color: ui.textPrimary,
+                    letterSpacing: '0.03em',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
                   {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                 </div>
                 <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
@@ -3981,12 +4025,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {/* Left Card: Touch ID IN · Office Enter */}
                 <button
                   type="button"
+                  className="ot-biometric-pad-in"
                   onClick={() => performBiometricPunch('in')}
                   title="Touch Sensor — IN (Enter)"
                   style={{
                     padding: '18px 12px',
-                    borderRadius: 20,
-                    border: '1.5px solid rgba(110, 231, 183, 0.55)',
+                    borderRadius: 22,
+                    border: '1.5px solid rgba(110, 231, 183, 0.58)',
                     background: 'linear-gradient(145deg, #10b981 0%, #059669 55%, #047857 100%)',
                     color: '#ffffff',
                     cursor: 'pointer',
@@ -3995,7 +4040,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    boxShadow: '0 12px 26px rgba(16, 185, 129, 0.32)',
+                    boxShadow: '0 14px 28px -6px rgba(16, 185, 129, 0.38)',
                   }}
                 >
                   <div style={{
@@ -4018,7 +4063,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div style={{ fontSize: 15, fontWeight: 950, letterSpacing: '-0.01em' }}>
                     Touch ID · IN
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.9)' }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.92)' }}>
                     {daysMap[getTodayIsoDate()]?.inTime
                       ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.inTime)}`
                       : 'Office Enter'}
@@ -4029,12 +4074,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {/* Right Card: Touch ID OUT · Office Exit */}
                 <button
                   type="button"
+                  className="ot-biometric-pad-out"
                   onClick={() => performBiometricPunch('out')}
                   title="Touch Sensor — OUT (Exit + OT)"
                   style={{
                     padding: '18px 12px',
-                    borderRadius: 20,
-                    border: '1.5px solid rgba(253, 164, 175, 0.55)',
+                    borderRadius: 22,
+                    border: '1.5px solid rgba(253, 164, 175, 0.58)',
                     background: 'linear-gradient(145deg, #f43f5e 0%, #e11d48 55%, #be123c 100%)',
                     color: '#ffffff',
                     cursor: 'pointer',
@@ -4043,7 +4089,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    boxShadow: '0 12px 26px rgba(225, 29, 72, 0.32)',
+                    boxShadow: '0 14px 28px -6px rgba(225, 29, 72, 0.38)',
                   }}
                 >
                   <div style={{
@@ -4066,7 +4112,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div style={{ fontSize: 15, fontWeight: 950, letterSpacing: '-0.01em' }}>
                     Touch ID · OUT
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.9)' }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255, 255, 255, 0.92)' }}>
                     {daysMap[getTodayIsoDate()]?.outTime
                       ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.outTime)}`
                       : 'Office Exit'}
@@ -6294,26 +6340,29 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       </div>
 
       {/* STICKY 5-TAB BOTTOM NAVIGATION BAR (Today | Expenses | Month | Slip | Rules) */}
-      <div style={{
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 900,
-        background: isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(7, 12, 24, 0.96)',
-        backdropFilter: 'blur(20px)',
-        borderTop: `1px solid ${ui.border}`,
-        display: 'flex',
-        justifyContent: 'center',
-        padding: '6px 10px calc(6px + env(safe-area-inset-bottom, 0px))',
-        boxShadow: isLight ? '0 -6px 20px rgba(15,23,42,0.06)' : '0 -12px 32px rgba(0,0,0,0.55)',
-      }}>
+      <div
+        className="ot-no-print"
+        style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 900,
+          background: isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(6, 11, 23, 0.94)',
+          backdropFilter: 'blur(22px)',
+          borderTop: `1px solid ${ui.border}`,
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '6px 10px calc(7px + env(safe-area-inset-bottom, 0px))',
+          boxShadow: isLight ? '0 -8px 24px rgba(15,23,42,0.06)' : '0 -14px 36px rgba(0,0,0,0.65)',
+        }}
+      >
         <div style={{
           width: '100%',
           maxWidth: 520,
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: 4,
+          gap: 5,
         }}>
           {[
             { id: 'today', icon: '🕒', label: 'Today', title: 'Today Punch' },
@@ -6330,13 +6379,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 title={nav.title}
                 onClick={() => navigateTab(nav.id)}
                 style={{
-                  padding: '7px 4px',
-                  borderRadius: 12,
-                  border: 'none',
+                  position: 'relative',
+                  padding: '8px 4px 7px',
+                  borderRadius: 14,
+                  border: active
+                    ? isLight ? '1px solid rgba(37, 99, 235, 0.25)' : '1px solid rgba(56, 189, 248, 0.28)'
+                    : '1px solid transparent',
                   background: active
-                    ? isLight ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.22)'
+                    ? isLight
+                      ? 'linear-gradient(180deg, rgba(37, 99, 235, 0.12) 0%, rgba(16, 185, 129, 0.08) 100%)'
+                      : 'linear-gradient(180deg, rgba(37, 99, 235, 0.24) 0%, rgba(16, 185, 129, 0.12) 100%)'
                     : 'transparent',
-                  color: active ? '#3b82f6' : ui.textSecondary,
+                  color: active ? (isLight ? '#1d4ed8' : '#38bdf8') : ui.textSecondary,
                   fontWeight: active ? 900 : 700,
                   fontSize: 11,
                   cursor: 'pointer',
@@ -6347,6 +6401,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   gap: 2,
                 }}
               >
+                {active && (
+                  <span style={{
+                    position: 'absolute',
+                    top: 0,
+                    width: 22,
+                    height: 3,
+                    borderRadius: 999,
+                    background: 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
+                  }} />
+                )}
                 <span style={{ fontSize: 16 }}>{nav.icon}</span>
                 <span>{nav.label}</span>
                 <span style={{ display: 'none' }}>{nav.title}</span>
