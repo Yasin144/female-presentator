@@ -252,7 +252,7 @@ function buildMonthDates(yearMonth) {
     const dayName = dt.toLocaleDateString('en-US', { weekday: 'short' });
     const fullDateLabel = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     const isSunday = dt.getDay() === 0;
-    list.push({ iso, dayNumber: d, dayName, fullDateLabel, isSunday });
+    list.push({ iso, dayNumber: d, dayNum: d, dayName, fullDateLabel, isSunday });
   }
   return list;
 }
@@ -686,6 +686,100 @@ function TouchIdSvg({ variant = 'in', size = 62, verified = false, scanning = fa
         </span>
       )}
     </div>
+  );
+}
+
+function RealAnalogClock({ now = new Date(), size = 136 }) {
+  const dt = now instanceof Date ? now : new Date();
+  const seconds = dt.getSeconds();
+  const minutes = dt.getMinutes() + seconds / 60;
+  const hours = (dt.getHours() % 12) + minutes / 60;
+
+  const hourAngle = hours * 30;
+  const minuteAngle = minutes * 6;
+  const secondAngle = seconds * 6;
+
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120" style={{ display: 'block' }}>
+      <defs>
+        <radialGradient id="analogDialGrad" cx="50%" cy="45%" r="55%">
+          <stop offset="0%" stopColor="#172544" />
+          <stop offset="100%" stopColor="#091022" />
+        </radialGradient>
+      </defs>
+      {/* Outer Bezel & Dial */}
+      <circle cx="60" cy="60" r="56" fill="url(#analogDialGrad)" stroke="rgba(56, 189, 248, 0.45)" strokeWidth="2.2" />
+      <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(148, 163, 184, 0.16)" strokeWidth="1" strokeDasharray="2 4" />
+
+      {/* 12 Hour Tick Marks */}
+      {Array.from({ length: 12 }, (_, i) => {
+        const angle = (i * 30 * Math.PI) / 180;
+        const isCardinal = i % 3 === 0;
+        const r1 = isCardinal ? 43 : 46;
+        const r2 = 50;
+        const x1 = 60 + r1 * Math.sin(angle);
+        const y1 = 60 - r1 * Math.cos(angle);
+        const x2 = 60 + r2 * Math.sin(angle);
+        const y2 = 60 - r2 * Math.cos(angle);
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke={isCardinal ? '#38bdf8' : 'rgba(148, 163, 184, 0.45)'}
+            strokeWidth={isCardinal ? '2.2' : '1.3'}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* 12 / 3 / 6 / 9 Labels */}
+      <text x="60" y="24" textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="900">12</text>
+      <text x="97" y="63.5" textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="900">3</text>
+      <text x="60" y="102" textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="900">6</text>
+      <text x="23" y="63.5" textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="900">9</text>
+
+      {/* Hour Hand */}
+      <line
+        x1="60"
+        y1="60"
+        x2="60"
+        y2="34"
+        stroke="#ffffff"
+        strokeWidth="3.8"
+        strokeLinecap="round"
+        transform={`rotate(${hourAngle} 60 60)`}
+      />
+
+      {/* Minute Hand */}
+      <line
+        x1="60"
+        y1="60"
+        x2="60"
+        y2="23"
+        stroke="#38bdf8"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        transform={`rotate(${minuteAngle} 60 60)`}
+      />
+
+      {/* Second Hand */}
+      <line
+        x1="60"
+        y1="67"
+        x2="60"
+        y2="19"
+        stroke="#10b981"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        transform={`rotate(${secondAngle} 60 60)`}
+      />
+
+      {/* Center Cap */}
+      <circle cx="60" cy="60" r="4.2" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+    </svg>
   );
 }
 
