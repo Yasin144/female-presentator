@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#070b16" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="OT & Salary" />
-  <title>OT &amp; Salary Tracker Mobile App</title>
+  <meta name="apple-mobile-web-app-title" content="OT, Salary & Expenses" />
+  <title>OT, Salary &amp; Expenses Pro Mobile App</title>
   <style>
     :root {
       --bg: #070b16;
@@ -176,16 +176,16 @@
       backdrop-filter: blur(16px);
       border-top: 1px solid rgba(148,163,184,0.22);
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+      grid-template-columns: repeat(5, 1fr);
+      padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
     }
     .nav-btn {
       background: transparent;
       border: none;
       color: var(--muted);
-      padding: 6px 4px;
+      padding: 6px 2px;
       border-radius: 10px;
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 800;
       display: flex;
       flex-direction: column;
@@ -214,10 +214,25 @@
 </head>
 <body>
   <div id="toast" class="toast"></div>
-  <header class="topbar">
-    <div>
-      <div class="topbar-title">🫆 Biometric OT &amp; Salary Mobile</div>
-      <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
+  <header class="topbar" style="padding:14px 16px;background:linear-gradient(135deg,#0b132b 0%,#060a17 55%,#0f172a 100%);border-bottom:1.5px solid rgba(250,204,21,0.42);box-shadow:0 12px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;align-items:center;gap:11px;">
+      <button type="button" class="chip" id="topBackBtn" style="display:none;border-color:#38bdf8;color:#e0f2fe;">← Back</button>
+      <div style="width:42px;height:42px;border-radius:14px;background:radial-gradient(circle,rgba(250,204,21,0.22),rgba(15,23,42,0.92));border:1px solid rgba(250,204,21,0.5);box-shadow:0 0 18px rgba(250,204,21,0.2);display:flex;align-items:center;justify-content:center;">
+        <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+          <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#facc15" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#fde047" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:9px;font-weight:900;letter-spacing:0.15em;text-transform:uppercase;color:#fde047;">EXECUTIVE ATTENDANCE &amp; EXPENSES</span>
+          <span style="padding:1.5px 6px;border-radius:999px;background:rgba(16,185,129,0.22);border:1px solid rgba(52,211,153,0.5);color:#6ee7b7;font-size:9px;font-weight:900;">● LIVE SYNC</span>
+        </div>
+        <div class="topbar-title" style="font-size:18px;font-weight:950;letter-spacing:-0.02em;color:#fff;margin-top:1px;">OT, SALARY &amp; EXPENSES PRO</div>
+        <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
       <input type="month" id="monthPicker" style="width:auto;padding:6px 8px;font-size:12px;" />
@@ -226,89 +241,116 @@
   </header>
 
   <main class="container">
-    <div class="kpi-grid">
-      <div class="kpi" style="border-color:rgba(250,204,21,0.5);background:linear-gradient(145deg,rgba(234,179,8,0.18),rgba(15,23,42,0.95));">
-        <div class="kpi-label" style="color:#fde047;">💰 Net Salary Receivable</div>
-        <div class="kpi-val" style="color:#facc15;" id="kpiNetPay">₹25,000.00</div>
-        <div class="kpi-sub" id="kpiSavedSub">0 days saved</div>
+    <!-- TOP FLAGSHIP MODULE SWITCHER: OT & SALARY vs EXPENSES -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px;border-radius:16px;background:rgba(9,13,22,0.95);border:1px solid rgba(148,163,184,0.22);">
+      <button type="button" id="topModOtBtn" style="padding:10px 12px;border-radius:12px;border:1.5px solid #34d399;background:linear-gradient(135deg,rgba(16,185,129,0.25),rgba(14,165,233,0.2));color:#ecfdf5;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <span>⏱️</span><span>OT &amp; SALARY</span>
+      </button>
+      <button type="button" id="topModExpBtn" style="padding:10px 12px;border-radius:12px;border:1px solid transparent;background:transparent;color:#94a3b8;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <span>💸</span><span>EXPENSES</span>
+        <span id="topModExpBadge" style="padding:1px 7px;border-radius:999px;background:rgba(244,63,94,0.25);border:1px solid rgba(251,113,133,0.5);color:#fda4af;font-size:10px;font-weight:900;">0</span>
+      </button>
+    </div>
+    <!-- LUXURY HERO SALARY VAULT WITH INLINE EDITABLE SALARY -->
+    <div class="card" style="padding:16px;border-radius:20px;border:1px solid rgba(250,204,21,0.42);background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(9,13,22,0.98));box-shadow:0 16px 36px rgba(0,0,0,0.5);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:10.5px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#fde047;">💎 Total Net Salary Receivable</div>
+          <div style="font-size:28px;font-weight:900;color:#fff;margin-top:4px;letter-spacing:-0.02em;" id="kpiNetPay">₹25,000.00</div>
+          <div class="kpi-sub" id="kpiSavedSub" style="color:#94a3b8;">0 days saved</div>
+        </div>
+        <!-- Inline Editable Monthly Salary Box -->
+        <div style="padding:8px 11px;border-radius:14px;background:rgba(250,204,21,0.1);border:1.5px solid rgba(250,204,21,0.45);min-width:155px;">
+          <div style="font-size:9.5px;font-weight:900;color:#fde047;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;">✏️ Monthly Salary</div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span style="font-size:16px;font-weight:900;color:#facc15;">₹</span>
+            <input type="number" id="heroSalaryInput" min="1000" step="500" value="25000" style="padding:4px 6px;font-size:16px;font-weight:900;color:#fff;background:rgba(2,6,23,0.75);border:1px solid rgba(250,204,21,0.4);border-radius:8px;width:105px;" />
+          </div>
+        </div>
       </div>
-      <div class="kpi" style="border-color:rgba(52,211,153,0.5);background:linear-gradient(145deg,rgba(16,185,129,0.18),rgba(15,23,42,0.95));">
-        <div class="kpi-label" style="color:#6ee7b7;">⚡ Extra OT Earned</div>
-        <div class="kpi-val" style="color:#34d399;" id="kpiOtPay">+ ₹0.00</div>
-        <div class="kpi-sub" id="kpiOtTime">0 hr 00 min OT</div>
+
+      <div class="kpi-grid" style="margin-top:12px;">
+        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
+          <div class="kpi-label" style="color:#6ee7b7;">⚡ Extra OT Earned</div>
+          <div class="kpi-val" style="color:#34d399;font-size:17px;" id="kpiOtPay">+ ₹0.00</div>
+          <div class="kpi-sub" id="kpiOtTime">0 hr 00 min OT</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(56,189,248,0.4);background:rgba(14,165,233,0.1);">
+          <div class="kpi-label" style="color:#7dd3fc;">📈 Per-Day &amp; OT Rate</div>
+          <div class="kpi-val" style="color:#e0f2fe;font-size:16px;" id="kpiPerDayVal">₹833.33/d</div>
+          <div class="kpi-sub" id="kpiOtRateSub" style="color:#bae6fd;">OT: ₹98.04/hr</div>
+        </div>
       </div>
     </div>
 
-    <!-- TAB 1: TODAY PUNCH & CALCULATOR -->
-    <section id="tab-today" class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:15px;font-weight:900;">🫆 Biometric Attendance &amp; Daily OT</div>
+    <!-- TAB 1: TOUCH ID BIOMETRIC SCANNER STUDIO & TODAY PUNCH -->
+    <section id="tab-today" class="card" style="border-radius:20px;">
+      <!-- LIVE TICKING CHRONOMETER CLOCK DISPLAY -->
+      <div id="liveClockWidget" style="padding:12px 14px;border-radius:16px;background:linear-gradient(135deg,rgba(2,6,23,0.94),rgba(15,23,42,0.96));border:1.5px solid rgba(56,189,248,0.45);box-shadow:0 10px 24px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.22),rgba(2,6,23,0.95));border:1.5px solid rgba(56,189,248,0.6);display:flex;align-items:center;justify-content:center;">
+            <svg width="38" height="38" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(148,163,184,0.25)" stroke-width="1.2" stroke-dasharray="2 3" />
+              <line id="analogHrHand" x1="22" y1="22" x2="22" y2="11" stroke="#f8fafc" stroke-width="2.4" stroke-linecap="round" />
+              <line id="analogMinHand" x1="22" y1="22" x2="22" y2="7.5" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" />
+              <line id="analogSecHand" x1="22" y1="24" x2="22" y2="6" stroke="#34d399" stroke-width="1.3" stroke-linecap="round" />
+              <circle cx="22" cy="22" r="2.4" fill="#facc15" />
+            </svg>
+          </div>
+          <div>
+            <div style="font-size:9.5px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;color:#7dd3fc;" id="liveClockDate">LIVE EXACT OFFICE CLOCK</div>
+            <div style="display:flex;align-items:baseline;gap:5px;font-family:monospace;margin-top:2px;">
+              <span id="liveClockHM" style="font-size:25px;font-weight:900;color:#fff;letter-spacing:0.03em;">10:00</span>
+              <span id="liveClockSS" style="font-size:17px;font-weight:900;color:#34d399;">:00</span>
+              <span id="liveClockPeriod" style="padding:2px 6px;border-radius:5px;background:rgba(250,204,21,0.18);border:1px solid rgba(250,204,21,0.45);color:#fde047;font-size:11px;font-weight:900;">AM</span>
+            </div>
+          </div>
+        </div>
         <span id="daySavedBadge" style="font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;"></span>
       </div>
 
       <!-- BIOMETRIC TOUCH SENSOR (IN & OUT) SCANNER HUB -->
-      <div class="bio-hub">
+      <div class="bio-hub" style="border-radius:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">🫆 Biometric Touch Sensor (IN &amp; OUT)</div>
-          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 Sensor Ready</span>
+          <div style="font-size:13px;font-weight:900;color:#ecfdf5;">Biometric Touch Sensor (IN &amp; OUT)</div>
+          <span id="bioStatusBadge" style="font-size:10.5px;font-weight:800;color:#6ee7b7;background:rgba(16,185,129,0.24);border:1px solid rgba(52,211,153,0.5);padding:3px 9px;border-radius:999px;">🟢 IN &amp; OUT Ready</span>
         </div>
         <div class="bio-grid">
-          <div class="bio-pad bio-pad-in" id="bioTouchInBtn">
-            <div style="font-size:9.5px;font-weight:900;color:#7dd3fc;letter-spacing:0.06em;margin-bottom:4px;">STEP 1 · MORNING IN</div>
-            <div class="bio-ring" style="background:rgba(56,189,248,0.22);border:2px solid #38bdf8;">🫆</div>
-            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — IN</div>
-            <div id="bioInStatusSub" style="font-size:10.5px;color:#bae6fd;font-weight:700;margin-top:3px;">Tap when entering</div>
+          <div class="bio-pad bio-pad-in" id="bioTouchInBtn" style="padding:18px 10px;border-radius:20px;">
+            <div style="font-size:9.5px;font-weight:900;letter-spacing:0.12em;color:#7dd3fc;text-transform:uppercase;margin-bottom:8px;">OFFICE ENTRY</div>
+            <div style="width:64px;height:64px;margin:0 auto 8px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,0.28),rgba(2,6,23,0.92));border:2px solid #38bdf8;box-shadow:0 0 22px rgba(56,189,248,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="40" height="40" viewBox="0 0 64 64" fill="none">
+                <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M15 34 C15.8 39.5 18 44.5 21.5 48.5" stroke="#7dd3fc" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#bae6fd" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#7dd3fc" stroke-width="2.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div style="font-size:22px;font-weight:950;color:#fff;letter-spacing:0.06em;">IN</div>
+            <div id="bioInStatusSub" style="font-size:11.5px;color:#e0f2fe;font-weight:800;margin-top:4px;">IN · 10:00 AM</div>
           </div>
-          <div class="bio-pad bio-pad-out" id="bioTouchOutBtn">
-            <div style="font-size:9.5px;font-weight:900;color:#6ee7b7;letter-spacing:0.06em;margin-bottom:4px;">STEP 2 · EVENING OUT</div>
-            <div class="bio-ring" style="background:rgba(16,185,129,0.24);border:2px solid #34d399;">🫆</div>
-            <div style="font-size:12.5px;font-weight:900;color:#fff;">TOUCH SENSOR — OUT</div>
-            <div id="bioOutStatusSub" style="font-size:10.5px;color:#a7f3d0;font-weight:700;margin-top:3px;">Tap when leaving</div>
+          <div class="bio-pad bio-pad-out" id="bioTouchOutBtn" style="padding:18px 10px;border-radius:20px;">
+            <div style="font-size:9.5px;font-weight:900;letter-spacing:0.12em;color:#6ee7b7;text-transform:uppercase;margin-bottom:8px;">OFFICE EXIT + OT</div>
+            <div style="width:64px;height:64px;margin:0 auto 8px;border-radius:50%;background:radial-gradient(circle,rgba(16,185,129,0.3),rgba(2,6,23,0.92));border:2px solid #34d399;box-shadow:0 0 22px rgba(16,185,129,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="40" height="40" viewBox="0 0 64 64" fill="none">
+                <path d="M18 28 C18 19.5 24.3 13 32 13 C39.7 13 46 19.5 46 28 C46 35 44 41 40.5 46.5" stroke="#10b981" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M15 34 C15.8 39.5 18 44.5 21.5 48.5" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M22.5 29 C22.5 22.8 26.8 18 32 18 C37.2 18 41.5 22.8 41.5 29 C41.5 36.2 38.8 42.5 34.5 48.5" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M27 30 C27 26.2 29.2 23.5 32 23.5 C34.8 23.5 37 26.2 37 30 C37 36.8 34.2 43 29.5 49" stroke="#10b981" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M32 29 C32 35.5 29.5 41.5 24.5 46.5" stroke="#34d399" stroke-width="2.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div style="font-size:22px;font-weight:950;color:#fff;letter-spacing:0.06em;">OUT</div>
+            <div id="bioOutStatusSub" style="font-size:11.5px;color:#d1fae5;font-weight:800;margin-top:4px;">OUT · 06:30 PM</div>
           </div>
         </div>
-        <div class="bio-pad bio-pad-auto" id="bioTouchAutoBtn">
-          <div style="font-size:13px;font-weight:900;color:#fde047;">🫆 Smart 1-Touch Sensor Pad (Auto IN → OUT)</div>
-          <div id="bioAutoStatusSub" style="font-size:11px;color:#e2e8f0;font-weight:700;margin-top:3px;">1st Touch = Biometric IN · 2nd Touch = Biometric OUT + Auto OT</div>
-        </div>
       </div>
 
-      <div class="punch-grid">
-        <button type="button" class="btn btn-in" id="punchInNowBtn">🟢 Punch Enter Now</button>
-        <button type="button" class="btn btn-out" id="punchOutNowBtn">🔴 Punch Exit Now</button>
-      </div>
+      <div id="liveBreakdownBox" style="padding:12px;border-radius:14px;background:var(--card-dark);border:1px solid rgba(52,211,153,0.35);margin-bottom:12px;font-size:12.5px;line-height:1.6;"></div>
 
-      <div class="row-2">
-        <div>
-          <label class="lbl">Work Date</label>
-          <input type="date" id="entryDate" />
-        </div>
-        <div>
-          <label class="lbl">Attendance Status</label>
-          <select id="entryStatus">
-            <option value="present">Present (Full Day)</option>
-            <option value="half">Half Day (50%)</option>
-            <option value="holiday_paid">Sunday / Paid Off</option>
-            <option value="ot_only">Extra Work Only (OT)</option>
-            <option value="leave">Leave (Unpaid)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row-2">
-        <div>
-          <label class="lbl" style="color:#7dd3fc;">🟢 Enter Time (In)</label>
-          <input type="time" id="entryInTime" value="10:00" />
-          <div id="inTime12Label" style="font-size:11px;color:#7dd3fc;margin-top:3px;font-weight:800;">10:00 AM</div>
-        </div>
-        <div>
-          <label class="lbl" style="color:#6ee7b7;">🔴 Exit Time (Out)</label>
-          <input type="time" id="entryOutTime" value="18:30" />
-          <div id="outTime12Label" style="font-size:11px;color:#6ee7b7;margin-top:3px;font-weight:800;">06:30 PM</div>
-        </div>
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <label class="lbl">⚡ 1-Tap Extra OT Presets (Auto-sets Exit Time):</label>
+      <div style="margin-bottom:12px;">
+        <label class="lbl">⚡ 1-Tap Extra OT Presets (Auto-sets Exit Time &amp; Saves):</label>
         <div class="chips" id="otPresetChips">
           <button type="button" class="chip" data-ot="0">0h (6:30 PM)</button>
           <button type="button" class="chip" data-ot="0.5">+30m (7:00 PM)</button>
@@ -319,20 +361,132 @@
         </div>
       </div>
 
-      <div class="row-2">
-        <div>
-          <label class="lbl">Extra Bonus / Allowance (₹)</label>
-          <input type="number" id="entryBonus" min="0" step="10" value="0" />
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <button type="button" class="chip" id="toggleManualEditorBtn" style="width:100%;padding:9px;text-align:center;">✏️ Manual Time &amp; Date Override ▼</button>
+      </div>
+
+      <div id="manualEditorDrawer" style="display:none;padding:12px;border-radius:14px;background:rgba(2,6,23,0.65);border:1px solid rgba(148,163,184,0.22);margin-bottom:10px;">
+        <div class="row-2">
+          <div>
+            <label class="lbl">Work Date</label>
+            <input type="date" id="entryDate" />
+          </div>
+          <div>
+            <label class="lbl">Attendance Status</label>
+            <select id="entryStatus">
+              <option value="present">Present (Full Day)</option>
+              <option value="half">Half Day (50%)</option>
+              <option value="holiday_paid">Sunday / Paid Off</option>
+              <option value="ot_only">Extra Work Only (OT)</option>
+              <option value="leave">Leave (Unpaid)</option>
+            </select>
+          </div>
         </div>
+
+        <div class="row-2">
+          <div>
+            <label class="lbl" style="color:#7dd3fc;">🟢 Enter Time (In)</label>
+            <input type="time" id="entryInTime" value="10:00" />
+            <div id="inTime12Label" style="font-size:11px;color:#7dd3fc;margin-top:3px;font-weight:800;">10:00 AM</div>
+          </div>
+          <div>
+            <label class="lbl" style="color:#6ee7b7;">🔴 Exit Time (Out)</label>
+            <input type="time" id="entryOutTime" value="18:30" />
+            <div id="outTime12Label" style="font-size:11px;color:#6ee7b7;margin-top:3px;font-weight:800;">06:30 PM</div>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div>
+            <label class="lbl">Extra Bonus / Allowance (₹)</label>
+            <input type="number" id="entryBonus" min="0" step="10" value="0" />
+          </div>
+          <div>
+            <label class="lbl">Work Note</label>
+            <input type="text" id="entryNote" placeholder="Optional note..." />
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-save" id="saveDayBtn">💾 Save Day Calculation</button>
+      </div>
+    </section>
+
+    <!-- TAB EXPENSES: AUTO MOBILE TRANSACTIONS & NOTES LEDGER -->
+    <section id="tab-expenses" class="card" style="display:none;border-color:rgba(244,63,94,0.45);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
         <div>
-          <label class="lbl">Work Note</label>
-          <input type="text" id="entryNote" placeholder="Optional note..." />
+          <div style="font-size:10px;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#fda4af;">💸 SMART MOBILE EXPENSE &amp; TRANSACTION TRACKER</div>
+          <div style="font-size:16px;font-weight:900;color:#fff;margin-top:2px;">Every Spend, Note &amp; Transaction Count</div>
+        </div>
+        <button type="button" class="chip active" id="expScanMobileBtn" style="border-color:#fbbf24;background:rgba(245,158,11,0.22);color:#fef3c7;">📲 Auto-Scan Mobile SMS</button>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+        <div class="kpi" style="border-color:rgba(244,63,94,0.45);background:rgba(244,63,94,0.1);">
+          <div class="kpi-label" style="color:#fda4af;">💸 Total Spent</div>
+          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalSpent">₹0.00</div>
+          <div class="kpi-sub" id="expKpiTodaySpent" style="color:#fecdd3;">Today: ₹0.00</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(56,189,248,0.45);background:rgba(14,165,233,0.1);">
+          <div class="kpi-label" style="color:#7dd3fc;">🔢 Transactions</div>
+          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalCount">0 Done</div>
+          <div class="kpi-sub" id="expKpiTodayCount" style="color:#bae6fd;">Today: 0 txns</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
+          <div class="kpi-label" style="color:#6ee7b7;">🏦 Balance Left</div>
+          <div class="kpi-val" style="color:#34d399;font-size:16px;" id="expKpiBalanceLeft">₹25,000.00</div>
+          <div class="kpi-sub" style="color:#a7f3d0;">After Expenses</div>
         </div>
       </div>
 
-      <div id="liveBreakdownBox" style="padding:12px;border-radius:12px;background:var(--card-dark);border:1px solid rgba(52,211,153,0.35);margin-bottom:12px;font-size:12.5px;line-height:1.6;"></div>
+      <div style="padding:12px;border-radius:14px;background:rgba(2,6,23,0.75);border:1px solid rgba(52,211,153,0.4);margin-bottom:12px;">
+        <div style="font-size:12.5px;font-weight:900;color:#ecfdf5;margin-bottom:8px;">✍️ Record Spend &amp; Note (Or Pay via UPI App)</div>
+        <div class="row-2">
+          <div>
+            <label class="lbl" style="color:#fda4af;">Amount (₹) *</label>
+            <input type="number" id="expQuickAmt" placeholder="e.g. 120" min="1" step="any" />
+          </div>
+          <div>
+            <label class="lbl" style="color:#fde047;">What was this spend for? (Note) *</label>
+            <input type="text" id="expQuickNote" placeholder="e.g. Tea &amp; Snacks, Petrol..." />
+          </div>
+        </div>
+        <div class="chips" id="expQuickNoteChips" style="margin-bottom:10px;">
+          <button type="button" class="chip" data-note="Tea & Snacks" data-cat="Food & Tea">☕ Tea &amp; Snacks</button>
+          <button type="button" class="chip" data-note="Lunch / Dinner" data-cat="Food & Tea">🍱 Lunch / Dinner</button>
+          <button type="button" class="chip" data-note="Petrol / Fuel" data-cat="Fuel & Travel">⛽ Petrol / Fuel</button>
+          <button type="button" class="chip" data-note="Groceries & Milk" data-cat="Groceries">🛒 Groceries</button>
+          <button type="button" class="chip" data-note="Mobile Recharge" data-cat="Bills & Recharge">📱 Recharge</button>
+          <button type="button" class="chip" data-note="Sent to Family" data-cat="Family & Transfer">👨‍👩‍👧 Family</button>
+        </div>
+        <div class="row-2">
+          <div>
+            <label class="lbl">Paid To (Merchant / Person)</label>
+            <input type="text" id="expQuickMerchant" placeholder="e.g. Bakery, Friend..." />
+          </div>
+          <div>
+            <label class="lbl">Payment App</label>
+            <select id="expQuickApp">
+              <option value="GPay">Google Pay (GPay)</option>
+              <option value="PhonePe">PhonePe</option>
+              <option value="Paytm">Paytm</option>
+              <option value="UPI">BHIM / UPI</option>
+              <option value="Cash">Cash</option>
+              <option value="Bank / Card">Bank / Card</option>
+            </select>
+          </div>
+        </div>
+        <div class="row-2" style="margin-bottom:0;">
+          <button type="button" class="btn btn-out" id="expAddNowBtn">💾 Save Spend &amp; Note</button>
+          <button type="button" class="btn btn-in" id="expUpiPayBtn">🚀 Pay in UPI App + Save Note</button>
+        </div>
+      </div>
 
-      <button type="button" class="btn btn-save" id="saveDayBtn">💾 Save Day Calculation</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:13.5px;font-weight:900;color:#fff;" id="expListHeaderTitle">📋 Mobile Transactions &amp; Notes (0)</div>
+        <button type="button" class="chip" id="expEnableNotifBtn" style="font-size:10.5px;">🔔 Enable Live App Alerts</button>
+      </div>
+      <div id="expTransactionsList"></div>
     </section>
 
     <!-- TAB 2: MONTH DAYS LIST -->
@@ -393,14 +547,15 @@
   </main>
 
   <nav class="bottom-nav">
-    <button type="button" class="nav-btn active" data-tab="today"><span>⏱️</span><span>Today Punch</span></button>
+    <button type="button" class="nav-btn active" data-tab="today"><span>⏱️</span><span>Touch ID</span></button>
+    <button type="button" class="nav-btn" data-tab="expenses"><span>💸</span><span>Expenses</span></button>
     <button type="button" class="nav-btn" data-tab="days"><span>📅</span><span>Month Days</span></button>
     <button type="button" class="nav-btn" data-tab="summary"><span>📊</span><span>Salary Slip</span></button>
     <button type="button" class="nav-btn" data-tab="settings"><span>⚙️</span><span>Rules &amp; Sync</span></button>
   </nav>
 
   <script>
-    const INITIAL_SEED = {"settings":{},"days":{},"syncUrl":""};
+    const INITIAL_SEED = {"settings":{},"days":{},"expenses":{},"syncUrl":""};
     const LS_KEY = 'pp_ot_salary_tracker_v1';
     const DEFAULT_SETTINGS = {
       monthlySalary: 25000,
@@ -421,16 +576,19 @@
           return {
             settings: Object.assign({}, DEFAULT_SETTINGS, INITIAL_SEED.settings || {}, parsed.settings || {}),
             days: Object.assign({}, INITIAL_SEED.days || {}, parsed.days || {}),
+            expenses: Object.assign({}, INITIAL_SEED.expenses || {}, parsed.expenses || {}),
           };
         }
       } catch (_) {}
       return {
         settings: Object.assign({}, DEFAULT_SETTINGS, INITIAL_SEED.settings || {}),
         days: Object.assign({}, INITIAL_SEED.days || {}),
+        expenses: Object.assign({}, INITIAL_SEED.expenses || {}),
       };
     }
 
     let store = loadStore();
+    if (!store.expenses || typeof store.expenses !== 'object') store.expenses = {};
     const todayIso = () => {
       const n = new Date();
       return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
@@ -507,16 +665,105 @@
       return { workedMins, otMins, otHours, basePay, otPay, extraAllowance, totalPay };
     }
 
+    const CLIENT_ID = 'mob_' + Math.random().toString(36).slice(2, 10);
+    const CLOUD_RELAY_URL = 'https://ntfy.sh/pattan_ot_salary_live_sync_yasin144_v2';
+
+    function mergeIncomingData(incoming) {
+      if (!incoming || typeof incoming !== 'object') return false;
+      if (incoming.clientId && incoming.clientId === CLIENT_ID) return false;
+      let changed = false;
+      const inSettingsTs = Number(incoming.settingsUpdatedAt || incoming.updatedAtMs || 0);
+      const curSettingsTs = Number(store.settingsUpdatedAt || 0);
+      if (incoming.settings && inSettingsTs >= curSettingsTs) {
+        store.settings = Object.assign({}, DEFAULT_SETTINGS, store.settings, incoming.settings);
+        store.settingsUpdatedAt = inSettingsTs;
+        const heroEl = document.getElementById('heroSalaryInput');
+        if (heroEl && document.activeElement !== heroEl) heroEl.value = store.settings.monthlySalary;
+        const setSalEl = document.getElementById('setSalary');
+        if (setSalEl && document.activeElement !== setSalEl) setSalEl.value = store.settings.monthlySalary;
+        changed = true;
+      }
+      if (incoming.days && typeof incoming.days === 'object') {
+        for (const [iso, inRec] of Object.entries(incoming.days)) {
+          if (!inRec || typeof inRec !== 'object') continue;
+          const exRec = store.days[iso];
+          const inTs = Number(inRec.updatedAtMs || Date.parse(inRec.updatedAt || inRec.savedAt || '') || 1);
+          const exTs = exRec ? Number(exRec.updatedAtMs || Date.parse(exRec.updatedAt || exRec.savedAt || '') || 0) : -1;
+          if (!exRec || inTs >= exTs) {
+            store.days[iso] = Object.assign({}, exRec || {}, inRec);
+            changed = true;
+          }
+        }
+      }
+      if (incoming.expenses && typeof incoming.expenses === 'object') {
+        if (!store.expenses) store.expenses = {};
+        for (const [txId, inExp] of Object.entries(incoming.expenses)) {
+          if (!inExp || typeof inExp !== 'object') continue;
+          const exExp = store.expenses[txId];
+          if (inExp.deleted) {
+            if (exExp) { delete store.expenses[txId]; changed = true; }
+            continue;
+          }
+          const inTs = Number(inExp.updatedAtMs || inExp.timestampMs || 1);
+          const exTs = exExp ? Number(exExp.updatedAtMs || exExp.timestampMs || 0) : -1;
+          if (!exExp || inTs >= exTs) {
+            store.expenses[txId] = Object.assign({}, exExp || {}, inExp);
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        localStorage.setItem(LS_KEY, JSON.stringify(store));
+        renderAll();
+      }
+      return changed;
+    }
+
+    function getSyncBases() {
+      const set = new Set();
+      const custom = (document.getElementById('syncServerUrl').value || '').trim().replace(/\/+$/, '');
+      if (custom) {
+        if (/^https?:\/\//i.test(custom)) set.add(custom);
+        else if (custom.includes(':')) set.add('http://' + custom);
+        else { set.add('http://' + custom + ':5173'); set.add('http://' + custom + ':8433'); }
+      }
+      if (window.location.origin && window.location.origin.startsWith('http') && !window.Capacitor) {
+        set.add(window.location.origin);
+      }
+      set.add('http://10.149.161.101:5173');
+      set.add('http://10.149.161.101:8433');
+      set.add('http://192.168.29.161:5173');
+      set.add('http://192.168.29.161:8433');
+      return Array.from(set);
+    }
+
     function saveStore(msg) {
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      store.clientId = CLIENT_ID;
+      store.updatedAt = nowIso;
+      store.updatedAtMs = nowMs;
+      store.settingsUpdatedAt = store.settingsUpdatedAt || nowMs;
       localStorage.setItem(LS_KEY, JSON.stringify(store));
-      if (msg) showToast(msg);
-      const syncBase = (document.getElementById('syncServerUrl').value || '').trim().replace(/\/+$/, '');
-      if (syncBase) {
-        fetch(syncBase + '/api/ot-salary-sync', {
+      if (msg) showToast(msg + ' · ⚡ Live Synced');
+
+      const jsonBody = JSON.stringify(store);
+      for (const base of getSyncBases()) {
+        const url = base + '/api/ot-salary-sync';
+        fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(store),
+          body: jsonBody,
+        }).then(r => r.ok ? r.json() : null).then(j => {
+          if (j && j.data) mergeIncomingData(j.data);
         }).catch(() => {});
+        if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
+          try { window.PattanBiometric.syncHttpPost(url, jsonBody); } catch (_) {}
+        }
+      }
+      fetch(CLOUD_RELAY_URL, { method: 'POST', body: jsonBody }).catch(() => {});
+      if (window.PattanBiometric && typeof window.PattanBiometric.syncHttpPost === 'function') {
+        try { window.PattanBiometric.syncHttpPost(CLOUD_RELAY_URL, jsonBody); } catch (_) {}
       }
       renderAll();
     }
@@ -540,6 +787,14 @@
       document.getElementById('hdrRateSub').textContent =
         '₹' + fmtINR(r.salary) + '/mo · ' + fmt12(store.settings.officeStartTime) + '–' + fmt12(store.settings.officeEndTime) + ' · OT ₹' + fmtINR(r.otHourlyRate) + '/hr';
       document.getElementById('monthPicker').value = selectedMonth;
+      const heroSalEl = document.getElementById('heroSalaryInput');
+      if (heroSalEl && document.activeElement !== heroSalEl) {
+        heroSalEl.value = r.salary;
+      }
+      const perDayEl = document.getElementById('kpiPerDayVal');
+      if (perDayEl) perDayEl.textContent = '₹' + fmtINR(r.perDaySalary) + '/d';
+      const otRateEl = document.getElementById('kpiOtRateSub');
+      if (otRateEl) otRateEl.textContent = 'OT: ₹' + fmtINR(r.otHourlyRate) + '/hr';
 
       const inVal = document.getElementById('entryInTime').value || '10:00';
       const outVal = document.getElementById('entryOutTime').value || '18:30';
@@ -564,19 +819,18 @@
       const bioInEl = document.getElementById('bioInStatusSub');
       const bioOutEl = document.getElementById('bioOutStatusSub');
       if (bioInEl) {
-        bioInEl.textContent = curRec.biometricIn ? ('✓ IN Verified ' + fmt12(inVal)) : 'Tap when entering';
-        bioInEl.style.color = curRec.biometricIn ? '#7dd3fc' : '#cbd5e1';
+        bioInEl.textContent = curRec.biometricIn ? ('✓ IN · ' + fmt12(inVal)) : ('IN · ' + fmt12(inVal));
+        bioInEl.style.color = curRec.biometricIn ? '#7dd3fc' : '#e0f2fe';
       }
       if (bioOutEl) {
-        bioOutEl.textContent = curRec.biometricOut ? ('✓ OUT Verified ' + fmt12(outVal)) : 'Tap when leaving';
-        bioOutEl.style.color = curRec.biometricOut ? '#6ee7b7' : '#cbd5e1';
+        bioOutEl.textContent = curRec.biometricOut ? ('✓ OUT · ' + fmt12(outVal)) : ('OUT · ' + fmt12(outVal));
+        bioOutEl.style.color = curRec.biometricOut ? '#6ee7b7' : '#d1fae5';
       }
 
       document.getElementById('liveBreakdownBox').innerHTML =
-        '<div><strong>Worked:</strong> ' + fmtMins(preview.workedMins) + ' (' + fmt12(inVal) + ' → ' + fmt12(outVal) + ')</div>' +
-        '<div><strong>Extra OT:</strong> <span style="color:#34d399;font-weight:900;">+' + fmtMins(preview.otMins) + ' (+₹' + fmtINR(preview.otPay) + ')</span></div>' +
-        '<div><strong>Base Day Pay:</strong> ₹' + fmtINR(preview.basePay) + '</div>' +
-        '<div><strong>Biometric Sensor:</strong> ' + (curRec.biometricIn ? '🫆 IN ✓ ' : 'IN — ') + ' · ' + (curRec.biometricOut ? '🫆 OUT ✓' : 'OUT —') + '</div>' +
+        '<div><strong>Shift (' + selectedDate + '):</strong> ' + fmt12(inVal) + ' → ' + fmt12(outVal) + ' (' + fmtMins(preview.workedMins) + ')</div>' +
+        '<div><strong>Extra OT:</strong> <span style="color:#34d399;font-weight:900;">+' + fmtMins(preview.otMins) + ' (+₹' + fmtINR(preview.otPay) + ')</span> · <strong>Base:</strong> ₹' + fmtINR(preview.basePay) + '</div>' +
+        '<div><strong>Touch ID Sensor:</strong> ' + (curRec.biometricIn ? 'Touch IN ✓ ' : 'IN — ') + ' · ' + (curRec.biometricOut ? 'Touch OUT ✓' : 'OUT —') + '</div>' +
         '<div style="margin-top:4px;font-size:16px;font-weight:900;color:#facc15;">Day Total: ₹' + fmtINR(preview.totalPay) + '</div>';
 
       // Build month summary
@@ -608,8 +862,8 @@
           '<div style="display:flex;justify-content:space-between;align-items:center;">' +
             '<div><strong>' + iso + ' (' + dayName + ')</strong> ' +
               (saved ? '<span style="color:#34d399;font-size:11px;">✓ Saved</span>' : '<span style="color:#64748b;font-size:11px;">Default</span>') +
-              (rec.biometricIn ? ' <span style="color:#7dd3fc;font-size:10.5px;">🫆IN✓</span>' : '') +
-              (rec.biometricOut ? ' <span style="color:#6ee7b7;font-size:10.5px;">🫆OUT✓</span>' : '') +
+              (rec.biometricIn ? ' <span style="color:#7dd3fc;font-size:10.5px;">Touch IN✓</span>' : '') +
+              (rec.biometricOut ? ' <span style="color:#6ee7b7;font-size:10.5px;">Touch OUT✓</span>' : '') +
             '</div>' +
             '<div style="font-weight:900;color:#facc15;">₹' + fmtINR(c.totalPay) + '</div>' +
           '</div>' +
@@ -637,24 +891,317 @@
         '<div>• <strong>Extra Bonus / Allowances:</strong> + ₹' + fmtINR(totalBonus) + '</div>' +
         '<div>• <strong>Leave Deductions:</strong> - ₹' + fmtINR(leaveDed) + ' (' + leaveDays + ' leave, ' + halfDays + ' half)</div>' +
         '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:18px;font-weight:900;color:#facc15;">Final Net Salary: ₹' + fmtINR(netPayable) + '</div>';
+
+      // Render Expenses KPIs & Ledger
+      const allExp = Object.values(store.expenses || {}).filter(e => e && !e.deleted && Number(e.amount) > 0);
+      const monthExp = allExp.filter(e => String(e.date || '').slice(0, 7) === selectedMonth);
+      monthExp.sort((a, b) => Number(b.timestampMs || 0) - Number(a.timestampMs || 0));
+      const tIso = todayIso();
+      let expTotalSpent = 0, expTotalRecv = 0, expTodaySpent = 0, expTodayCount = 0;
+      for (const tx of monthExp) {
+        const amt = Number(tx.amount) || 0;
+        const isCredit = tx.type === 'credit';
+        if (isCredit) expTotalRecv += amt;
+        else expTotalSpent += amt;
+        if (tx.date === tIso) {
+          expTodayCount++;
+          if (!isCredit) expTodaySpent += amt;
+        }
+      }
+      const badgeEl = document.getElementById('topModExpBadge');
+      if (badgeEl) badgeEl.textContent = String(monthExp.length);
+      const totSpentEl = document.getElementById('expKpiTotalSpent');
+      if (totSpentEl) totSpentEl.textContent = '₹' + fmtINR(expTotalSpent);
+      const todSpentEl = document.getElementById('expKpiTodaySpent');
+      if (todSpentEl) todSpentEl.textContent = 'Today: ₹' + fmtINR(expTodaySpent);
+      const totCntEl = document.getElementById('expKpiTotalCount');
+      if (totCntEl) totCntEl.textContent = monthExp.length + ' Done';
+      const todCntEl = document.getElementById('expKpiTodayCount');
+      if (todCntEl) todCntEl.textContent = 'Today: ' + expTodayCount + ' txns';
+      const balLeftEl = document.getElementById('expKpiBalanceLeft');
+      if (balLeftEl) balLeftEl.textContent = '₹' + fmtINR(netPayable - expTotalSpent + expTotalRecv);
+      const hdrTitleEl = document.getElementById('expListHeaderTitle');
+      if (hdrTitleEl) hdrTitleEl.textContent = '📋 Mobile Transactions & Notes (' + monthExp.length + ')';
+
+      const expListEl = document.getElementById('expTransactionsList');
+      if (expListEl) {
+        if (monthExp.length === 0) {
+          expListEl.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:12.5px;">No transactions recorded for ' + selectedMonth + ' yet. Tap <strong>📲 Auto-Scan Mobile SMS</strong> or record a spend &amp; note above!</div>';
+        } else {
+          expListEl.innerHTML = monthExp.map(tx => {
+            const isCredit = tx.type === 'credit';
+            const safeNote = String(tx.note || '').replace(/"/g, '&quot;');
+            return '<div class="day-card" style="border-color:' + (isCredit ? 'rgba(52,211,153,0.4)' : 'rgba(244,63,94,0.35)') + ';">' +
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+                '<div>' +
+                  '<div style="font-size:13px;font-weight:900;color:#fff;">' + (tx.merchant || 'Mobile Payment') + ' <span style="font-size:10.5px;color:#38bdf8;">[' + (tx.app || 'UPI') + ']</span></div>' +
+                  '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + (tx.date || '') + ' · ' + fmt12(tx.time || '12:00') + (tx.refId ? ' · Ref ' + tx.refId : '') + '</div>' +
+                '</div>' +
+                '<div style="font-size:15px;font-weight:900;color:' + (isCredit ? '#34d399' : '#fda4af') + ';">' + (isCredit ? '+ ₹' : '- ₹') + fmtINR(tx.amount) + '</div>' +
+              '</div>' +
+              '<div style="margin-top:7px;display:flex;gap:6px;align-items:center;">' +
+                '<input type="text" value="' + safeNote + '" placeholder="Add note: what was this spend for?..." onchange="window._updateExpNote(\'' + tx.id + '\', this.value)" style="padding:6px 9px;font-size:12px;border-color:rgba(250,204,21,0.4);" />' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
     }
+
+    let activeTab = 'today';
+    let tabHistory = ['today'];
+
+    function syncBackBtnVisibility() {
+      const btn = document.getElementById('topBackBtn');
+      if (!btn) return;
+      btn.style.display = (activeTab !== 'today' || selectedDate !== todayIso()) ? 'inline-block' : 'none';
+    }
+
+    function updateTopModButtons(tab) {
+      const otBtn = document.getElementById('topModOtBtn');
+      const expBtn = document.getElementById('topModExpBtn');
+      if (!otBtn || !expBtn) return;
+      if (tab === 'expenses') {
+        expBtn.style.border = '1.5px solid #fb7185';
+        expBtn.style.background = 'linear-gradient(135deg,rgba(244,63,94,0.28),rgba(245,158,11,0.22))';
+        expBtn.style.color = '#fff1f2';
+        otBtn.style.border = '1px solid transparent';
+        otBtn.style.background = 'transparent';
+        otBtn.style.color = '#94a3b8';
+      } else {
+        otBtn.style.border = '1.5px solid #34d399';
+        otBtn.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.25),rgba(14,165,233,0.2))';
+        otBtn.style.color = '#ecfdf5';
+        expBtn.style.border = '1px solid transparent';
+        expBtn.style.background = 'transparent';
+        expBtn.style.color = '#94a3b8';
+      }
+    }
+
+    function switchTab(tab, pushHistory = true) {
+      if (pushHistory && tab !== activeTab) {
+        tabHistory.push(tab);
+        if (tabHistory.length > 8) tabHistory.shift();
+        try { window.history.pushState({ otGuard: true, tab }, ''); } catch (_) {}
+      }
+      activeTab = tab;
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      ['today','expenses','days','summary','settings'].forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        if (el) el.style.display = t === tab ? 'block' : 'none';
+      });
+      updateTopModButtons(tab);
+      syncBackBtnVisibility();
+    }
+
+    const topModOtBtn = document.getElementById('topModOtBtn');
+    const topModExpBtn = document.getElementById('topModExpBtn');
+    if (topModOtBtn) topModOtBtn.addEventListener('click', () => switchTab('today'));
+    if (topModExpBtn) topModExpBtn.addEventListener('click', () => switchTab('expenses'));
+
+    window._updateExpNote = function(txId, newNote) {
+      if (!store.expenses || !store.expenses[txId]) return;
+      const nowMs = Date.now();
+      store.expenses[txId].note = String(newNote || '').trim();
+      store.expenses[txId].updatedAtMs = nowMs;
+      store.expenses[txId].updatedAt = new Date(nowMs).toISOString();
+      saveStore('Saved transaction note');
+    };
+
+    function addExpenseEntry(launchUpi) {
+      const amtEl = document.getElementById('expQuickAmt');
+      const noteEl = document.getElementById('expQuickNote');
+      const merchEl = document.getElementById('expQuickMerchant');
+      const appEl = document.getElementById('expQuickApp');
+      const amt = Number(amtEl && amtEl.value);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        showToast('Enter a valid spend amount in ₹');
+        return;
+      }
+      const now = new Date();
+      const nowMs = now.getTime();
+      const dateStr = todayIso();
+      const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      const noteStr = String((noteEl && noteEl.value) || '').trim();
+      const merchStr = String((merchEl && merchEl.value) || '').trim() || (noteStr || 'Expense Spend');
+      const appStr = (appEl && appEl.value) || 'GPay';
+      const id = 'tx_manual_' + nowMs + '_' + Math.random().toString(36).slice(2, 6);
+      if (!store.expenses) store.expenses = {};
+      store.expenses[id] = {
+        id,
+        amount: Number(amt.toFixed(2)),
+        type: 'debit',
+        merchant: merchStr,
+        note: noteStr,
+        category: 'General',
+        app: appStr,
+        date: dateStr,
+        time: timeStr,
+        timestampMs: nowMs,
+        updatedAtMs: nowMs,
+        source: 'manual',
+      };
+      if (amtEl) amtEl.value = '';
+      if (noteEl) noteEl.value = '';
+      if (merchEl) merchEl.value = '';
+      saveStore('Recorded ₹' + fmtINR(amt) + (noteStr ? ' (' + noteStr + ')' : ''));
+      if (launchUpi && window.PattanBiometric && typeof window.PattanBiometric.launchUpiPayment === 'function') {
+        try { window.PattanBiometric.launchUpiPayment('', merchStr, String(amt), noteStr); } catch (_) {}
+      }
+    }
+
+    const expAddNowBtn = document.getElementById('expAddNowBtn');
+    const expUpiPayBtn = document.getElementById('expUpiPayBtn');
+    if (expAddNowBtn) expAddNowBtn.addEventListener('click', () => addExpenseEntry(false));
+    if (expUpiPayBtn) expUpiPayBtn.addEventListener('click', () => addExpenseEntry(true));
+
+    document.querySelectorAll('#expQuickNoteChips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nEl = document.getElementById('expQuickNote');
+        if (nEl) nEl.value = btn.dataset.note || '';
+      });
+    });
+
+    function runMobileSmsScan() {
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        try {
+          const rawJson = window.PattanBiometric.scanMobileTransactions(90);
+          const res = JSON.parse(rawJson || '{}');
+          if (Array.isArray(res.transactions) && res.transactions.length > 0) {
+            let added = 0;
+            if (!store.expenses) store.expenses = {};
+            for (const tx of res.transactions) {
+              if (!tx || !tx.id) continue;
+              const ex = store.expenses[tx.id];
+              if (!ex) {
+                store.expenses[tx.id] = Object.assign({}, tx, { updatedAtMs: Date.now() });
+                added++;
+              } else if (!ex.note && tx.note) {
+                store.expenses[tx.id].note = tx.note;
+                added++;
+              }
+            }
+            if (added > 0) saveStore('Auto-detected ' + added + ' mobile transactions');
+            else showToast('All ' + res.transactions.length + ' mobile transactions are up to date');
+          } else if (res.permissionGranted === false) {
+            showToast('Allow SMS permission on your phone to auto-detect bank/UPI transactions');
+          } else {
+            showToast('Scanned phone SMS inbox');
+          }
+        } catch (_) {}
+      } else {
+        showToast('Open inside the Android APK to auto-scan phone SMS & UPI alerts');
+      }
+    }
+
+    const expScanBtn = document.getElementById('expScanMobileBtn');
+    if (expScanBtn) expScanBtn.addEventListener('click', runMobileSmsScan);
+    const expNotifBtn = document.getElementById('expEnableNotifBtn');
+    if (expNotifBtn) expNotifBtn.addEventListener('click', () => {
+      if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
+        window.PattanBiometric.openNotificationListenerSettings();
+      } else {
+        showToast('Available in the Android APK');
+      }
+    });
+
+    window.addEventListener('pattan-mobile-transactions', (ev) => {
+      const payload = ev && ev.detail;
+      if (payload && Array.isArray(payload.transactions)) {
+        let changed = false;
+        if (!store.expenses) store.expenses = {};
+        for (const tx of payload.transactions) {
+          if (!tx || !tx.id) continue;
+          if (!store.expenses[tx.id]) {
+            store.expenses[tx.id] = Object.assign({}, tx, { updatedAtMs: Date.now() });
+            changed = true;
+          }
+        }
+        if (changed) saveStore('Live mobile transaction captured');
+      }
+    });
+
+    function goBackStep() {
+      const drawer = document.getElementById('manualEditorDrawer');
+      if (drawer && drawer.style.display !== 'none') {
+        drawer.style.display = 'none';
+        return 'handled';
+      }
+      if (tabHistory.length > 1) {
+        tabHistory.pop();
+        const prev = tabHistory[tabHistory.length - 1] || 'today';
+        switchTab(prev, false);
+        return 'handled';
+      }
+      if (activeTab !== 'today') {
+        tabHistory = ['today'];
+        switchTab('today', false);
+        return 'handled';
+      }
+      if (selectedDate !== todayIso()) {
+        loadDateIntoForm(todayIso());
+        syncBackBtnVisibility();
+        showToast('Returned to Today');
+        return 'handled';
+      }
+      return '';
+    }
+
+    window.__handlePattanHardwareBack = goBackStep;
+    document.getElementById('topBackBtn').addEventListener('click', () => goBackStep());
+
+    const toggleDrawerBtn = document.getElementById('toggleManualEditorBtn');
+    if (toggleDrawerBtn) {
+      toggleDrawerBtn.addEventListener('click', () => {
+        const d = document.getElementById('manualEditorDrawer');
+        if (!d) return;
+        const open = d.style.display !== 'none';
+        d.style.display = open ? 'none' : 'block';
+        toggleDrawerBtn.textContent = open ? '✏️ Manual Time & Date Override ▼' : '▲ Hide Manual Time & Date Override';
+      });
+    }
+
+    try {
+      window.history.replaceState({ otBase: true, tab: 'today' }, '');
+      window.history.pushState({ otGuard: true, tab: 'today' }, '');
+    } catch (_) {}
+    window.addEventListener('popstate', () => {
+      goBackStep();
+      try { window.history.pushState({ otGuard: true, tab: activeTab }, ''); } catch (_) {}
+    });
+
+    let touchStart = null;
+    document.addEventListener('touchstart', (e) => {
+      const tag = String((e.target && e.target.tagName) || '').toLowerCase();
+      if (['input','select','textarea','button'].includes(tag)) { touchStart = null; return; }
+      const t = e.touches && e.touches[0];
+      if (t) touchStart = { x: t.clientX, y: t.clientY, time: Date.now() };
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      if (!touchStart) return;
+      const start = touchStart;
+      touchStart = null;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x, dy = t.clientY - start.y, dt = Date.now() - start.time;
+      if (dt > 700 || Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+      const order = ['today','expenses','days','summary','settings'];
+      const idx = order.indexOf(activeTab);
+      if (dx > 0) {
+        if (idx > 0) switchTab(order[idx - 1]);
+        else goBackStep();
+      } else if (dx < 0 && idx >= 0 && idx < order.length - 1) {
+        switchTab(order[idx + 1]);
+      }
+    }, { passive: true });
 
     window._pickDate = function(iso) {
       loadDateIntoForm(iso);
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'today'));
-      ['today','days','summary','settings'].forEach(t => {
-        document.getElementById('tab-' + t).style.display = t === 'today' ? 'block' : 'none';
-      });
+      switchTab('today');
     };
 
     document.querySelectorAll('.nav-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
-        ['today','days','summary','settings'].forEach(t => {
-          document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
-        });
-      });
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
     ['entryInTime','entryOutTime','entryStatus','entryBonus','entryNote'].forEach(id => {
@@ -684,7 +1231,7 @@
         const st = document.getElementById('entryStatus').value;
         const dutyMins = st === 'ot_only' ? 0 : st === 'half' ? Math.round(r.shiftMins / 2) : r.shiftMins;
         document.getElementById('entryOutTime').value = minsToTime(inMins + dutyMins + Math.round(otHrs * 60));
-        renderAll();
+        saveCurrentForm('Saved +' + otHrs + 'h OT for ' + selectedDate);
       });
     });
 
@@ -696,6 +1243,7 @@
       const noteVal = document.getElementById('entryNote').value || '';
       const prev = store.days[selectedDate] || {};
       const c = calcDay({ status: stVal, inTime: inVal, outTime: outVal, extraAllowance: bonusVal });
+      const nowMs = Date.now();
       store.days[selectedDate] = Object.assign({}, prev, {
         date: selectedDate,
         status: stVal,
@@ -705,7 +1253,9 @@
         otHours: Number(c.otHours.toFixed(4)),
         extraAllowance: bonusVal,
         note: noteVal,
-        savedAt: new Date().toISOString(),
+        savedAt: new Date(nowMs).toISOString(),
+        updatedAt: new Date(nowMs).toISOString(),
+        updatedAtMs: nowMs,
       }, bioPatch || {});
       saveStore(customMsg || ('Saved ' + selectedDate));
     }
@@ -736,66 +1286,108 @@
       } catch (_) {}
     }
 
-    function performBioTouchPunch(mode) {
+    function requestMobileUnlockBiometric(target) {
+      return new Promise(async (resolve) => {
+        const title = target === 'in'
+          ? 'Unlock to Punch IN (Enter)'
+          : 'Unlock to Punch OUT (Exit + OT)';
+        const subtitle = 'Use your phone unlock fingerprint, face, or screen lock';
+        if (window.PattanBiometric && typeof window.PattanBiometric.authenticate === 'function') {
+          let done = false;
+          const finish = (res) => {
+            if (done) return;
+            done = true;
+            resolve(res || { ok: false });
+          };
+          window.__pattanBiometricCallback = (res) => finish(res);
+          setTimeout(() => finish({ ok: false, reason: 'Timeout' }), 60000);
+          try {
+            window.PattanBiometric.authenticate(title, subtitle, '__pattanBiometricCallback');
+            return;
+          } catch (_) {}
+        }
+        if (window.PublicKeyCredential && navigator.credentials && typeof navigator.credentials.create === 'function') {
+          try {
+            const challenge = new Uint8Array(32);
+            const userId = new Uint8Array(16);
+            if (window.crypto && window.crypto.getRandomValues) {
+              window.crypto.getRandomValues(challenge);
+              window.crypto.getRandomValues(userId);
+            }
+            const cred = await navigator.credentials.create({
+              publicKey: {
+                challenge,
+                rp: { name: 'OT & Salary Tracker' },
+                user: { id: userId, name: 'employee@otsalary.local', displayName: 'Employee' },
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+                authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+                timeout: 45000,
+              },
+            });
+            if (cred) {
+              resolve({ ok: true });
+              return;
+            }
+          } catch (err) {
+            const name = String((err && err.name) || '');
+            if (name === 'NotAllowedError' || name === 'AbortError') {
+              resolve({ ok: false, cancelled: true });
+              return;
+            }
+          }
+        }
+        resolve({ ok: true });
+      });
+    }
+
+    async function performBioTouchPunch(mode) {
       const iso = todayIso();
       const ex = store.days[iso] || {};
       let target = mode;
       if (mode === 'auto') {
         target = (!ex.biometricIn || ex.biometricOut) ? 'in' : 'out';
       }
+      const statusEl = document.getElementById('bioStatusBadge');
+      if (statusEl) statusEl.textContent = '🔒 Unlock Phone to Verify...';
+      playBioBeep('scan');
+      const authRes = await requestMobileUnlockBiometric(target);
+      if (!authRes || !authRes.ok) {
+        if (statusEl) statusEl.textContent = '⚠️ Biometric Cancelled';
+        showToast('Biometric unlock cancelled');
+        return;
+      }
       const now = new Date();
       const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      const statusEl = document.getElementById('bioStatusBadge');
-      if (statusEl) statusEl.textContent = 'Scanning Touch Sensor...';
-      playBioBeep('scan');
-      setTimeout(() => {
-        loadDateIntoForm(iso);
-        if (target === 'in') {
-          document.getElementById('entryInTime').value = t;
-          playBioBeep('in');
-          if (statusEl) statusEl.textContent = '🫆 Bio IN Verified ' + fmt12(t);
-          saveCurrentForm('🫆 Biometric Touch IN Verified at ' + fmt12(t), {
-            biometricIn: true,
-            biometricInAt: new Date().toISOString(),
-          });
-        } else {
-          document.getElementById('entryOutTime').value = t;
-          playBioBeep('out');
-          if (statusEl) statusEl.textContent = '🫆 Bio OUT Verified ' + fmt12(t);
-          saveCurrentForm('🫆 Biometric Touch OUT Verified at ' + fmt12(t), {
-            biometricIn: true,
-            biometricOut: true,
-            biometricOutAt: new Date().toISOString(),
-          });
-        }
-      }, 240);
+      loadDateIntoForm(iso);
+      if (target === 'in') {
+        document.getElementById('entryInTime').value = t;
+        playBioBeep('in');
+        if (statusEl) statusEl.textContent = '✓ Touch IN Verified ' + fmt12(t);
+        saveCurrentForm('✓ Touch ID IN Verified at ' + fmt12(t), {
+          biometricIn: true,
+          biometricInAt: new Date().toISOString(),
+        });
+      } else {
+        document.getElementById('entryOutTime').value = t;
+        playBioBeep('out');
+        if (statusEl) statusEl.textContent = '✓ Touch OUT Verified ' + fmt12(t);
+        saveCurrentForm('✓ Touch ID OUT Verified at ' + fmt12(t), {
+          biometricIn: true,
+          biometricOut: true,
+          biometricOutAt: new Date().toISOString(),
+        });
+      }
     }
 
     document.getElementById('bioTouchInBtn').addEventListener('click', () => performBioTouchPunch('in'));
     document.getElementById('bioTouchOutBtn').addEventListener('click', () => performBioTouchPunch('out'));
-    document.getElementById('bioTouchAutoBtn').addEventListener('click', () => performBioTouchPunch('auto'));
 
     document.getElementById('saveDayBtn').addEventListener('click', () => saveCurrentForm());
-
-    document.getElementById('punchInNowBtn').addEventListener('click', () => {
-      const now = new Date();
-      const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      loadDateIntoForm(todayIso());
-      document.getElementById('entryInTime').value = t;
-      saveCurrentForm('Punched Enter at ' + fmt12(t));
-    });
-
-    document.getElementById('punchOutNowBtn').addEventListener('click', () => {
-      const now = new Date();
-      const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      loadDateIntoForm(todayIso());
-      document.getElementById('entryOutTime').value = t;
-      saveCurrentForm('Punched Exit at ' + fmt12(t));
-    });
 
     document.getElementById('saveAllMonthBtn').addEventListener('click', () => {
       const [y, m] = selectedMonth.split('-').map(Number);
       const count = new Date(y, m, 0).getDate();
+      const nowMs = Date.now();
       for (let d = 1; d <= count; d++) {
         const iso = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
         if (!store.days[iso]) {
@@ -808,7 +1400,9 @@
             otHours: 0,
             extraAllowance: 0,
             note: '',
-            savedAt: new Date().toISOString(),
+            savedAt: new Date(nowMs).toISOString(),
+            updatedAt: new Date(nowMs).toISOString(),
+            updatedAtMs: nowMs,
           };
         }
       }
@@ -830,12 +1424,38 @@
     document.getElementById('waShareBtn').addEventListener('click', shareReport);
     document.getElementById('shareSummaryBtn').addEventListener('click', shareReport);
 
+    const heroSalaryEl = document.getElementById('heroSalaryInput');
+    if (heroSalaryEl) {
+      let heroSalTimer = null;
+      const syncHeroSal = (pushNow) => {
+        const val = Math.max(0, Number(heroSalaryEl.value) || 0);
+        store.settings.monthlySalary = val;
+        store.settings.settingsUpdatedAt = Date.now();
+        const setSalEl = document.getElementById('setSalary');
+        if (setSalEl) setSalEl.value = val;
+        if (pushNow) {
+          saveStore('Monthly Salary set to ₹' + fmtINR(store.settings.monthlySalary));
+        } else {
+          localStorage.setItem(LS_KEY, JSON.stringify(store));
+          renderAll();
+          if (heroSalTimer) clearTimeout(heroSalTimer);
+          heroSalTimer = setTimeout(() => {
+            saveStore();
+          }, 250);
+        }
+      };
+      heroSalaryEl.addEventListener('input', () => syncHeroSal(false));
+      heroSalaryEl.addEventListener('change', () => syncHeroSal(true));
+    }
+
     ['setSalary','setDaysMode','setStart','setEnd'].forEach(id => {
       document.getElementById(id).addEventListener('change', () => {
         store.settings.monthlySalary = Math.max(1000, Number(document.getElementById('setSalary').value) || 25000);
         store.settings.monthDaysMode = document.getElementById('setDaysMode').value || '30';
         store.settings.officeStartTime = document.getElementById('setStart').value || '10:00';
         store.settings.officeEndTime = document.getElementById('setEnd').value || '18:30';
+        store.settings.settingsUpdatedAt = Date.now();
+        if (heroSalaryEl) heroSalaryEl.value = store.settings.monthlySalary;
         saveStore('Updated office rules');
       });
     });
@@ -873,31 +1493,56 @@
     });
 
     document.getElementById('setSalary').value = store.settings.monthlySalary || 25000;
+    if (heroSalaryEl) heroSalaryEl.value = store.settings.monthlySalary || 25000;
     document.getElementById('setDaysMode').value = store.settings.monthDaysMode || '30';
     document.getElementById('setStart').value = store.settings.officeStartTime || '10:00';
     document.getElementById('setEnd').value = store.settings.officeEndTime || '18:30';
     document.getElementById('syncServerUrl').value = INITIAL_SEED.syncUrl || localStorage.getItem('pattan.ot.syncServerUrl') || '';
-    document.getElementById('syncNowBtn').addEventListener('click', async () => {
+    document.getElementById('syncNowBtn').addEventListener('click', () => {
       const base = (document.getElementById('syncServerUrl').value || '').trim().replace(/\/+$/, '');
-      if (!base) { showToast('Enter PC Wi-Fi URL first'); return; }
-      localStorage.setItem('pattan.ot.syncServerUrl', base);
-      try {
-        const res = await fetch(base + '/api/ot-salary-sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(store),
-        });
-        const json = await res.json();
-        if (json && (json.success || json.ok) && json.data) {
-          store = json.data;
-          localStorage.setItem(LS_KEY, JSON.stringify(store));
-          renderAll();
-          showToast('Synced with PC!');
-        }
-      } catch (e) {
-        showToast('Could not reach PC on Wi-Fi');
-      }
+      if (base) localStorage.setItem('pattan.ot.syncServerUrl', base);
+      saveStore('Syncing now with Web & PC...');
     });
+
+    if (typeof EventSource !== 'undefined') {
+      try {
+        const es = new EventSource(CLOUD_RELAY_URL + '/sse');
+        es.onmessage = (ev) => {
+          try {
+            const outer = JSON.parse(ev.data);
+            if (outer && outer.event === 'message' && typeof outer.message === 'string') {
+              const payload = JSON.parse(outer.message);
+              if (payload && payload.type === 'OT_SALARY_LIVE_SYNC' && payload.data) {
+                mergeIncomingData(payload.data);
+              }
+            }
+          } catch (_) {}
+        };
+      } catch (_) {}
+    }
+
+    function tickLiveClock() {
+      const now = new Date();
+      const h24 = now.getHours(), m60 = now.getMinutes(), s60 = now.getSeconds();
+      const p = h24 >= 12 ? 'PM' : 'AM';
+      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+      const hmEl = document.getElementById('liveClockHM');
+      const ssEl = document.getElementById('liveClockSS');
+      const pEl = document.getElementById('liveClockPeriod');
+      const dEl = document.getElementById('liveClockDate');
+      if (hmEl) hmEl.textContent = String(h12).padStart(2, '0') + ':' + String(m60).padStart(2, '0');
+      if (ssEl) ssEl.textContent = ':' + String(s60).padStart(2, '0');
+      if (pEl) pEl.textContent = p;
+      if (dEl) dEl.textContent = 'LIVE EXACT CLOCK · ' + now.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+      const hrHand = document.getElementById('analogHrHand');
+      const minHand = document.getElementById('analogMinHand');
+      const secHand = document.getElementById('analogSecHand');
+      if (hrHand) hrHand.setAttribute('transform', 'rotate(' + ((h24 % 12) * 30 + m60 * 0.5) + ' 22 22)');
+      if (minHand) minHand.setAttribute('transform', 'rotate(' + (m60 * 6 + s60 * 0.1) + ' 22 22)');
+      if (secHand) secHand.setAttribute('transform', 'rotate(' + (s60 * 6) + ' 22 22)');
+    }
+    tickLiveClock();
+    setInterval(tickLiveClock, 1000);
 
     loadDateIntoForm(selectedDate);
   </script>

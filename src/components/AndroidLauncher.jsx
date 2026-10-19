@@ -200,7 +200,7 @@ export default function AndroidLauncher() {
       <section className="android-card">
         <div className="android-logo">P</div>
         <h1>Pattan Workspace</h1>
-        <p>Native Android companion for your full-quality Windows AI studio &amp; offline OT Salary Tracker.</p>
+        <p>Native Android companion for your full-quality Windows AI studio, offline OT Salary Tracker &amp; Auto Mobile Expenses Ledger.</p>
 
         <button
           type="button"
@@ -213,14 +213,14 @@ export default function AndroidLauncher() {
             cursor: 'pointer',
           }}
         >
-          ⏱️ Open OT &amp; Salary Tracker Mobile App (Works 100% Offline)
+          ⏱️💸 Open OT, Salary &amp; Mobile Expenses App (100% Offline + Sync)
         </button>
 
         <label htmlFor="pattan-server">Secure computer link</label>
         <input id="pattan-server" value={serverUrl} onChange={event => setServerUrl(event.target.value)} placeholder="https://…trycloudflare.com/?mobileToken=…" autoCapitalize="none" autoCorrect="off" inputMode="url" />
         <button type="button" disabled={!validUrl || connecting} onClick={() => connect()}>{connecting ? 'Connecting…' : 'Connect to Pattan Workspace'}</button>
         <div className="android-status" role="status">{status}</div>
-        <div className="android-points"><span>OT &amp; Salary Tracker runs 100% offline on phone + syncs with PC</span><span>Maximum-quality processing stays on your computer</span><span>Uploads, live progress, stop/resume and downloads on mobile</span></div>
+        <div className="android-points"><span>OT &amp; Salary + Auto Mobile Expenses (SMS/UPI/Notes) run 100% offline + sync with PC</span><span>Maximum-quality processing stays on your computer</span><span>Uploads, live progress, stop/resume and downloads on mobile</span></div>
       </section>
     </main>
   );

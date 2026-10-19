@@ -7,6 +7,7 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
   const safeInitialJson = JSON.stringify({
     settings: initialState.settings || {},
     days: initialState.days || {},
+    expenses: initialState.expenses || {},
     syncUrl: defaultSyncUrl || '',
   }).replace(/</g, '\\u003c');
 
@@ -18,8 +19,8 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
   <meta name="theme-color" content="#070b16" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="OT & Salary" />
-  <title>OT &amp; Salary Tracker Mobile App</title>
+  <meta name="apple-mobile-web-app-title" content="OT, Salary & Expenses" />
+  <title>OT, Salary &amp; Expenses Pro Mobile App</title>
   <style>
     :root {
       --bg: #070b16;
@@ -188,16 +189,16 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       backdrop-filter: blur(16px);
       border-top: 1px solid rgba(148,163,184,0.22);
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+      grid-template-columns: repeat(5, 1fr);
+      padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
     }
     .nav-btn {
       background: transparent;
       border: none;
       color: var(--muted);
-      padding: 6px 4px;
+      padding: 6px 2px;
       border-radius: 10px;
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 800;
       display: flex;
       flex-direction: column;
@@ -239,10 +240,10 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       </div>
       <div>
         <div style="display:flex;align-items:center;gap:6px;">
-          <span style="font-size:9px;font-weight:900;letter-spacing:0.15em;text-transform:uppercase;color:#fde047;">EXECUTIVE ATTENDANCE &amp; PAYROLL</span>
+          <span style="font-size:9px;font-weight:900;letter-spacing:0.15em;text-transform:uppercase;color:#fde047;">EXECUTIVE ATTENDANCE &amp; EXPENSES</span>
           <span style="padding:1.5px 6px;border-radius:999px;background:rgba(16,185,129,0.22);border:1px solid rgba(52,211,153,0.5);color:#6ee7b7;font-size:9px;font-weight:900;">● LIVE SYNC</span>
         </div>
-        <div class="topbar-title" style="font-size:19px;font-weight:950;letter-spacing:-0.02em;color:#fff;margin-top:1px;">OT &amp; SALARY PRO</div>
+        <div class="topbar-title" style="font-size:18px;font-weight:950;letter-spacing:-0.02em;color:#fff;margin-top:1px;">OT, SALARY &amp; EXPENSES PRO</div>
         <div class="topbar-sub" id="hdrRateSub">₹25,000/mo · 10:00 AM – 06:30 PM</div>
       </div>
     </div>
@@ -253,6 +254,16 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
   </header>
 
   <main class="container">
+    <!-- TOP FLAGSHIP MODULE SWITCHER: OT & SALARY vs EXPENSES -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px;border-radius:16px;background:rgba(9,13,22,0.95);border:1px solid rgba(148,163,184,0.22);">
+      <button type="button" id="topModOtBtn" style="padding:10px 12px;border-radius:12px;border:1.5px solid #34d399;background:linear-gradient(135deg,rgba(16,185,129,0.25),rgba(14,165,233,0.2));color:#ecfdf5;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <span>⏱️</span><span>OT &amp; SALARY</span>
+      </button>
+      <button type="button" id="topModExpBtn" style="padding:10px 12px;border-radius:12px;border:1px solid transparent;background:transparent;color:#94a3b8;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <span>💸</span><span>EXPENSES</span>
+        <span id="topModExpBadge" style="padding:1px 7px;border-radius:999px;background:rgba(244,63,94,0.25);border:1px solid rgba(251,113,133,0.5);color:#fda4af;font-size:10px;font-weight:900;">0</span>
+      </button>
+    </div>
     <!-- LUXURY HERO SALARY VAULT WITH INLINE EDITABLE SALARY -->
     <div class="card" style="padding:16px;border-radius:20px;border:1px solid rgba(250,204,21,0.42);background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(9,13,22,0.98));box-shadow:0 16px 36px rgba(0,0,0,0.5);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
@@ -413,6 +424,84 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       </div>
     </section>
 
+    <!-- TAB EXPENSES: AUTO MOBILE TRANSACTIONS & NOTES LEDGER -->
+    <section id="tab-expenses" class="card" style="display:none;border-color:rgba(244,63,94,0.45);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#fda4af;">💸 SMART MOBILE EXPENSE &amp; TRANSACTION TRACKER</div>
+          <div style="font-size:16px;font-weight:900;color:#fff;margin-top:2px;">Every Spend, Note &amp; Transaction Count</div>
+        </div>
+        <button type="button" class="chip active" id="expScanMobileBtn" style="border-color:#fbbf24;background:rgba(245,158,11,0.22);color:#fef3c7;">📲 Auto-Scan Mobile SMS</button>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+        <div class="kpi" style="border-color:rgba(244,63,94,0.45);background:rgba(244,63,94,0.1);">
+          <div class="kpi-label" style="color:#fda4af;">💸 Total Spent</div>
+          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalSpent">₹0.00</div>
+          <div class="kpi-sub" id="expKpiTodaySpent" style="color:#fecdd3;">Today: ₹0.00</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(56,189,248,0.45);background:rgba(14,165,233,0.1);">
+          <div class="kpi-label" style="color:#7dd3fc;">🔢 Transactions</div>
+          <div class="kpi-val" style="color:#fff;font-size:16px;" id="expKpiTotalCount">0 Done</div>
+          <div class="kpi-sub" id="expKpiTodayCount" style="color:#bae6fd;">Today: 0 txns</div>
+        </div>
+        <div class="kpi" style="border-color:rgba(52,211,153,0.45);background:rgba(16,185,129,0.1);">
+          <div class="kpi-label" style="color:#6ee7b7;">🏦 Balance Left</div>
+          <div class="kpi-val" style="color:#34d399;font-size:16px;" id="expKpiBalanceLeft">₹25,000.00</div>
+          <div class="kpi-sub" style="color:#a7f3d0;">After Expenses</div>
+        </div>
+      </div>
+
+      <div style="padding:12px;border-radius:14px;background:rgba(2,6,23,0.75);border:1px solid rgba(52,211,153,0.4);margin-bottom:12px;">
+        <div style="font-size:12.5px;font-weight:900;color:#ecfdf5;margin-bottom:8px;">✍️ Record Spend &amp; Note (Or Pay via UPI App)</div>
+        <div class="row-2">
+          <div>
+            <label class="lbl" style="color:#fda4af;">Amount (₹) *</label>
+            <input type="number" id="expQuickAmt" placeholder="e.g. 120" min="1" step="any" />
+          </div>
+          <div>
+            <label class="lbl" style="color:#fde047;">What was this spend for? (Note) *</label>
+            <input type="text" id="expQuickNote" placeholder="e.g. Tea &amp; Snacks, Petrol..." />
+          </div>
+        </div>
+        <div class="chips" id="expQuickNoteChips" style="margin-bottom:10px;">
+          <button type="button" class="chip" data-note="Tea & Snacks" data-cat="Food & Tea">☕ Tea &amp; Snacks</button>
+          <button type="button" class="chip" data-note="Lunch / Dinner" data-cat="Food & Tea">🍱 Lunch / Dinner</button>
+          <button type="button" class="chip" data-note="Petrol / Fuel" data-cat="Fuel & Travel">⛽ Petrol / Fuel</button>
+          <button type="button" class="chip" data-note="Groceries & Milk" data-cat="Groceries">🛒 Groceries</button>
+          <button type="button" class="chip" data-note="Mobile Recharge" data-cat="Bills & Recharge">📱 Recharge</button>
+          <button type="button" class="chip" data-note="Sent to Family" data-cat="Family & Transfer">👨‍👩‍👧 Family</button>
+        </div>
+        <div class="row-2">
+          <div>
+            <label class="lbl">Paid To (Merchant / Person)</label>
+            <input type="text" id="expQuickMerchant" placeholder="e.g. Bakery, Friend..." />
+          </div>
+          <div>
+            <label class="lbl">Payment App</label>
+            <select id="expQuickApp">
+              <option value="GPay">Google Pay (GPay)</option>
+              <option value="PhonePe">PhonePe</option>
+              <option value="Paytm">Paytm</option>
+              <option value="UPI">BHIM / UPI</option>
+              <option value="Cash">Cash</option>
+              <option value="Bank / Card">Bank / Card</option>
+            </select>
+          </div>
+        </div>
+        <div class="row-2" style="margin-bottom:0;">
+          <button type="button" class="btn btn-out" id="expAddNowBtn">💾 Save Spend &amp; Note</button>
+          <button type="button" class="btn btn-in" id="expUpiPayBtn">🚀 Pay in UPI App + Save Note</button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:13.5px;font-weight:900;color:#fff;" id="expListHeaderTitle">📋 Mobile Transactions &amp; Notes (0)</div>
+        <button type="button" class="chip" id="expEnableNotifBtn" style="font-size:10.5px;">🔔 Enable Live App Alerts</button>
+      </div>
+      <div id="expTransactionsList"></div>
+    </section>
+
     <!-- TAB 2: MONTH DAYS LIST -->
     <section id="tab-days" class="card" style="display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
@@ -471,7 +560,8 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
   </main>
 
   <nav class="bottom-nav">
-    <button type="button" class="nav-btn active" data-tab="today"><span>⏱️</span><span>Today Punch</span></button>
+    <button type="button" class="nav-btn active" data-tab="today"><span>⏱️</span><span>Touch ID</span></button>
+    <button type="button" class="nav-btn" data-tab="expenses"><span>💸</span><span>Expenses</span></button>
     <button type="button" class="nav-btn" data-tab="days"><span>📅</span><span>Month Days</span></button>
     <button type="button" class="nav-btn" data-tab="summary"><span>📊</span><span>Salary Slip</span></button>
     <button type="button" class="nav-btn" data-tab="settings"><span>⚙️</span><span>Rules &amp; Sync</span></button>
@@ -499,16 +589,19 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
           return {
             settings: Object.assign({}, DEFAULT_SETTINGS, INITIAL_SEED.settings || {}, parsed.settings || {}),
             days: Object.assign({}, INITIAL_SEED.days || {}, parsed.days || {}),
+            expenses: Object.assign({}, INITIAL_SEED.expenses || {}, parsed.expenses || {}),
           };
         }
       } catch (_) {}
       return {
         settings: Object.assign({}, DEFAULT_SETTINGS, INITIAL_SEED.settings || {}),
         days: Object.assign({}, INITIAL_SEED.days || {}),
+        expenses: Object.assign({}, INITIAL_SEED.expenses || {}),
       };
     }
 
     let store = loadStore();
+    if (!store.expenses || typeof store.expenses !== 'object') store.expenses = {};
     const todayIso = () => {
       const n = new Date();
       return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
@@ -611,6 +704,23 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
           const exTs = exRec ? Number(exRec.updatedAtMs || Date.parse(exRec.updatedAt || exRec.savedAt || '') || 0) : -1;
           if (!exRec || inTs >= exTs) {
             store.days[iso] = Object.assign({}, exRec || {}, inRec);
+            changed = true;
+          }
+        }
+      }
+      if (incoming.expenses && typeof incoming.expenses === 'object') {
+        if (!store.expenses) store.expenses = {};
+        for (const [txId, inExp] of Object.entries(incoming.expenses)) {
+          if (!inExp || typeof inExp !== 'object') continue;
+          const exExp = store.expenses[txId];
+          if (inExp.deleted) {
+            if (exExp) { delete store.expenses[txId]; changed = true; }
+            continue;
+          }
+          const inTs = Number(inExp.updatedAtMs || inExp.timestampMs || 1);
+          const exTs = exExp ? Number(exExp.updatedAtMs || exExp.timestampMs || 0) : -1;
+          if (!exExp || inTs >= exTs) {
+            store.expenses[txId] = Object.assign({}, exExp || {}, inExp);
             changed = true;
           }
         }
@@ -794,6 +904,61 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
         '<div>• <strong>Extra Bonus / Allowances:</strong> + ₹' + fmtINR(totalBonus) + '</div>' +
         '<div>• <strong>Leave Deductions:</strong> - ₹' + fmtINR(leaveDed) + ' (' + leaveDays + ' leave, ' + halfDays + ' half)</div>' +
         '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:18px;font-weight:900;color:#facc15;">Final Net Salary: ₹' + fmtINR(netPayable) + '</div>';
+
+      // Render Expenses KPIs & Ledger
+      const allExp = Object.values(store.expenses || {}).filter(e => e && !e.deleted && Number(e.amount) > 0);
+      const monthExp = allExp.filter(e => String(e.date || '').slice(0, 7) === selectedMonth);
+      monthExp.sort((a, b) => Number(b.timestampMs || 0) - Number(a.timestampMs || 0));
+      const tIso = todayIso();
+      let expTotalSpent = 0, expTotalRecv = 0, expTodaySpent = 0, expTodayCount = 0;
+      for (const tx of monthExp) {
+        const amt = Number(tx.amount) || 0;
+        const isCredit = tx.type === 'credit';
+        if (isCredit) expTotalRecv += amt;
+        else expTotalSpent += amt;
+        if (tx.date === tIso) {
+          expTodayCount++;
+          if (!isCredit) expTodaySpent += amt;
+        }
+      }
+      const badgeEl = document.getElementById('topModExpBadge');
+      if (badgeEl) badgeEl.textContent = String(monthExp.length);
+      const totSpentEl = document.getElementById('expKpiTotalSpent');
+      if (totSpentEl) totSpentEl.textContent = '₹' + fmtINR(expTotalSpent);
+      const todSpentEl = document.getElementById('expKpiTodaySpent');
+      if (todSpentEl) todSpentEl.textContent = 'Today: ₹' + fmtINR(expTodaySpent);
+      const totCntEl = document.getElementById('expKpiTotalCount');
+      if (totCntEl) totCntEl.textContent = monthExp.length + ' Done';
+      const todCntEl = document.getElementById('expKpiTodayCount');
+      if (todCntEl) todCntEl.textContent = 'Today: ' + expTodayCount + ' txns';
+      const balLeftEl = document.getElementById('expKpiBalanceLeft');
+      if (balLeftEl) balLeftEl.textContent = '₹' + fmtINR(netPayable - expTotalSpent + expTotalRecv);
+      const hdrTitleEl = document.getElementById('expListHeaderTitle');
+      if (hdrTitleEl) hdrTitleEl.textContent = '📋 Mobile Transactions & Notes (' + monthExp.length + ')';
+
+      const expListEl = document.getElementById('expTransactionsList');
+      if (expListEl) {
+        if (monthExp.length === 0) {
+          expListEl.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:12.5px;">No transactions recorded for ' + selectedMonth + ' yet. Tap <strong>📲 Auto-Scan Mobile SMS</strong> or record a spend &amp; note above!</div>';
+        } else {
+          expListEl.innerHTML = monthExp.map(tx => {
+            const isCredit = tx.type === 'credit';
+            const safeNote = String(tx.note || '').replace(/"/g, '&quot;');
+            return '<div class="day-card" style="border-color:' + (isCredit ? 'rgba(52,211,153,0.4)' : 'rgba(244,63,94,0.35)') + ';">' +
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+                '<div>' +
+                  '<div style="font-size:13px;font-weight:900;color:#fff;">' + (tx.merchant || 'Mobile Payment') + ' <span style="font-size:10.5px;color:#38bdf8;">[' + (tx.app || 'UPI') + ']</span></div>' +
+                  '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + (tx.date || '') + ' · ' + fmt12(tx.time || '12:00') + (tx.refId ? ' · Ref ' + tx.refId : '') + '</div>' +
+                '</div>' +
+                '<div style="font-size:15px;font-weight:900;color:' + (isCredit ? '#34d399' : '#fda4af') + ';">' + (isCredit ? '+ ₹' : '- ₹') + fmtINR(tx.amount) + '</div>' +
+              '</div>' +
+              '<div style="margin-top:7px;display:flex;gap:6px;align-items:center;">' +
+                '<input type="text" value="' + safeNote + '" placeholder="Add note: what was this spend for?..." onchange="window._updateExpNote(\\'' + tx.id + '\\', this.value)" style="padding:6px 9px;font-size:12px;border-color:rgba(250,204,21,0.4);" />' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
     }
 
     let activeTab = 'today';
@@ -805,6 +970,27 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       btn.style.display = (activeTab !== 'today' || selectedDate !== todayIso()) ? 'inline-block' : 'none';
     }
 
+    function updateTopModButtons(tab) {
+      const otBtn = document.getElementById('topModOtBtn');
+      const expBtn = document.getElementById('topModExpBtn');
+      if (!otBtn || !expBtn) return;
+      if (tab === 'expenses') {
+        expBtn.style.border = '1.5px solid #fb7185';
+        expBtn.style.background = 'linear-gradient(135deg,rgba(244,63,94,0.28),rgba(245,158,11,0.22))';
+        expBtn.style.color = '#fff1f2';
+        otBtn.style.border = '1px solid transparent';
+        otBtn.style.background = 'transparent';
+        otBtn.style.color = '#94a3b8';
+      } else {
+        otBtn.style.border = '1.5px solid #34d399';
+        otBtn.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.25),rgba(14,165,233,0.2))';
+        otBtn.style.color = '#ecfdf5';
+        expBtn.style.border = '1px solid transparent';
+        expBtn.style.background = 'transparent';
+        expBtn.style.color = '#94a3b8';
+      }
+    }
+
     function switchTab(tab, pushHistory = true) {
       if (pushHistory && tab !== activeTab) {
         tabHistory.push(tab);
@@ -813,11 +999,140 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       }
       activeTab = tab;
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-      ['today','days','summary','settings'].forEach(t => {
-        document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+      ['today','expenses','days','summary','settings'].forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        if (el) el.style.display = t === tab ? 'block' : 'none';
       });
+      updateTopModButtons(tab);
       syncBackBtnVisibility();
     }
+
+    const topModOtBtn = document.getElementById('topModOtBtn');
+    const topModExpBtn = document.getElementById('topModExpBtn');
+    if (topModOtBtn) topModOtBtn.addEventListener('click', () => switchTab('today'));
+    if (topModExpBtn) topModExpBtn.addEventListener('click', () => switchTab('expenses'));
+
+    window._updateExpNote = function(txId, newNote) {
+      if (!store.expenses || !store.expenses[txId]) return;
+      const nowMs = Date.now();
+      store.expenses[txId].note = String(newNote || '').trim();
+      store.expenses[txId].updatedAtMs = nowMs;
+      store.expenses[txId].updatedAt = new Date(nowMs).toISOString();
+      saveStore('Saved transaction note');
+    };
+
+    function addExpenseEntry(launchUpi) {
+      const amtEl = document.getElementById('expQuickAmt');
+      const noteEl = document.getElementById('expQuickNote');
+      const merchEl = document.getElementById('expQuickMerchant');
+      const appEl = document.getElementById('expQuickApp');
+      const amt = Number(amtEl && amtEl.value);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        showToast('Enter a valid spend amount in ₹');
+        return;
+      }
+      const now = new Date();
+      const nowMs = now.getTime();
+      const dateStr = todayIso();
+      const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      const noteStr = String((noteEl && noteEl.value) || '').trim();
+      const merchStr = String((merchEl && merchEl.value) || '').trim() || (noteStr || 'Expense Spend');
+      const appStr = (appEl && appEl.value) || 'GPay';
+      const id = 'tx_manual_' + nowMs + '_' + Math.random().toString(36).slice(2, 6);
+      if (!store.expenses) store.expenses = {};
+      store.expenses[id] = {
+        id,
+        amount: Number(amt.toFixed(2)),
+        type: 'debit',
+        merchant: merchStr,
+        note: noteStr,
+        category: 'General',
+        app: appStr,
+        date: dateStr,
+        time: timeStr,
+        timestampMs: nowMs,
+        updatedAtMs: nowMs,
+        source: 'manual',
+      };
+      if (amtEl) amtEl.value = '';
+      if (noteEl) noteEl.value = '';
+      if (merchEl) merchEl.value = '';
+      saveStore('Recorded ₹' + fmtINR(amt) + (noteStr ? ' (' + noteStr + ')' : ''));
+      if (launchUpi && window.PattanBiometric && typeof window.PattanBiometric.launchUpiPayment === 'function') {
+        try { window.PattanBiometric.launchUpiPayment('', merchStr, String(amt), noteStr); } catch (_) {}
+      }
+    }
+
+    const expAddNowBtn = document.getElementById('expAddNowBtn');
+    const expUpiPayBtn = document.getElementById('expUpiPayBtn');
+    if (expAddNowBtn) expAddNowBtn.addEventListener('click', () => addExpenseEntry(false));
+    if (expUpiPayBtn) expUpiPayBtn.addEventListener('click', () => addExpenseEntry(true));
+
+    document.querySelectorAll('#expQuickNoteChips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nEl = document.getElementById('expQuickNote');
+        if (nEl) nEl.value = btn.dataset.note || '';
+      });
+    });
+
+    function runMobileSmsScan() {
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        try {
+          const rawJson = window.PattanBiometric.scanMobileTransactions(90);
+          const res = JSON.parse(rawJson || '{}');
+          if (Array.isArray(res.transactions) && res.transactions.length > 0) {
+            let added = 0;
+            if (!store.expenses) store.expenses = {};
+            for (const tx of res.transactions) {
+              if (!tx || !tx.id) continue;
+              const ex = store.expenses[tx.id];
+              if (!ex) {
+                store.expenses[tx.id] = Object.assign({}, tx, { updatedAtMs: Date.now() });
+                added++;
+              } else if (!ex.note && tx.note) {
+                store.expenses[tx.id].note = tx.note;
+                added++;
+              }
+            }
+            if (added > 0) saveStore('Auto-detected ' + added + ' mobile transactions');
+            else showToast('All ' + res.transactions.length + ' mobile transactions are up to date');
+          } else if (res.permissionGranted === false) {
+            showToast('Allow SMS permission on your phone to auto-detect bank/UPI transactions');
+          } else {
+            showToast('Scanned phone SMS inbox');
+          }
+        } catch (_) {}
+      } else {
+        showToast('Open inside the Android APK to auto-scan phone SMS & UPI alerts');
+      }
+    }
+
+    const expScanBtn = document.getElementById('expScanMobileBtn');
+    if (expScanBtn) expScanBtn.addEventListener('click', runMobileSmsScan);
+    const expNotifBtn = document.getElementById('expEnableNotifBtn');
+    if (expNotifBtn) expNotifBtn.addEventListener('click', () => {
+      if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
+        window.PattanBiometric.openNotificationListenerSettings();
+      } else {
+        showToast('Available in the Android APK');
+      }
+    });
+
+    window.addEventListener('pattan-mobile-transactions', (ev) => {
+      const payload = ev && ev.detail;
+      if (payload && Array.isArray(payload.transactions)) {
+        let changed = false;
+        if (!store.expenses) store.expenses = {};
+        for (const tx of payload.transactions) {
+          if (!tx || !tx.id) continue;
+          if (!store.expenses[tx.id]) {
+            store.expenses[tx.id] = Object.assign({}, tx, { updatedAtMs: Date.now() });
+            changed = true;
+          }
+        }
+        if (changed) saveStore('Live mobile transaction captured');
+      }
+    });
 
     function goBackStep() {
       const drawer = document.getElementById('manualEditorDrawer');
@@ -883,7 +1198,7 @@ export function buildStandaloneOtMobileAppHtml(initialState = {}, defaultSyncUrl
       if (!t) return;
       const dx = t.clientX - start.x, dy = t.clientY - start.y, dt = Date.now() - start.time;
       if (dt > 700 || Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
-      const order = ['today','days','summary','settings'];
+      const order = ['today','expenses','days','summary','settings'];
       const idx = order.indexOf(activeTab);
       if (dx > 0) {
         if (idx > 0) switchTab(order[idx - 1]);

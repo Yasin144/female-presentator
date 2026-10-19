@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
+import ExpensesModule from './ExpensesModule.jsx';
 
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
 
@@ -264,12 +265,14 @@ function loadInitialStore() {
       return {
         settings: { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) },
         days: parsed?.days && typeof parsed.days === 'object' ? parsed.days : {},
+        expenses: parsed?.expenses && typeof parsed.expenses === 'object' ? parsed.expenses : {},
       };
     }
   } catch (_) {}
   return {
     settings: { ...DEFAULT_SETTINGS },
     days: {},
+    expenses: {},
   };
 }
 
@@ -686,10 +689,15 @@ function TouchIdSvg({ variant = 'in', size = 62, verified = false, scanning = fa
   );
 }
 
-export default function OtSalary({ onClose, standaloneMobile = false }) {
+export default function OtSalary({ onClose, standaloneMobile = false, initialTab = 'today' }) {
   const initialStore = useMemo(loadInitialStore, []);
   const [settings, setSettings] = useState(initialStore.settings);
   const [daysMap, setDaysMap] = useState(initialStore.days);
+  const [expensesMap, setExpensesMap] = useState(initialStore.expenses || {});
+  const expensesMapRef = useRef(initialStore.expenses || {});
+  useEffect(() => {
+    expensesMapRef.current = expensesMap;
+  }, [expensesMap]);
   const [selectedDate, setSelectedDate] = useState(getTodayIsoDate);
   const [selectedMonth, setSelectedMonth] = useState(() => getTodayIsoDate().slice(0, 7));
   const [viewFilter, setViewFilter] = useState('all'); // 'all' | 'saved' | 'ot_only'
@@ -710,7 +718,15 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     if (standaloneMobile) return true;
     return typeof window !== 'undefined' && window.innerWidth <= 820;
   });
-  const [mobileTab, setMobileTab] = useState('today'); // 'today' | 'month' | 'summary' | 'rules'
+  const [mobileTab, setMobileTab] = useState(() => {
+    if (initialTab && ['today', 'expenses', 'month', 'summary', 'rules'].includes(initialTab)) return initialTab;
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const t = (params.get('tab') || params.get('module') || '').toLowerCase();
+      if (t === 'expenses' || t === 'expense') return 'expenses';
+    } catch (_) {}
+    return 'today';
+  }); // 'today' | 'expenses' | 'month' | 'summary' | 'rules'
   const [mobileDaysLayout, setMobileDaysLayout] = useState(() => (
     standaloneMobile || (typeof window !== 'undefined' && window.innerWidth <= 820) ? 'cards' : 'table'
   ));
@@ -740,6 +756,12 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   const [liveNow, setLiveNow] = useState(() => new Date());
   const tabHistoryRef = useRef(['today']);
   const touchStartRef = useRef(null);
+
+  useEffect(() => {
+    if (initialTab && ['today', 'expenses', 'month', 'summary', 'rules'].includes(initialTab)) {
+      setMobileTab(initialTab);
+    }
+  }, [initialTab]);
 
   const navigateTab = useCallback((nextTab) => {
     setMobileTab((prev) => {
@@ -840,7 +862,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     const dy = touch.clientY - start.y;
     const dt = Date.now() - start.t;
     if (dt > 700 || Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
-    const order = ['today', 'month', 'summary', 'rules'];
+    const order = ['today', 'expenses', 'month', 'summary', 'rules'];
     const idx = order.indexOf(mobileTab);
     if (dx > 0) {
       // Swipe right -> Go Back
@@ -932,9 +954,6 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     if (data.clientId && data.clientId === clientIdRef.current) return;
 
     const incomingTs = Number(data.updatedAtMs || Date.parse(data.updatedAt || '') || 0);
-    if (incomingTs > 0 && incomingTs <= lastAppliedSyncMsRef.current && !fromCloudRelay) {
-      // Allow day-level inspection even if top-level timestamp matches
-    }
     if (incomingTs > lastAppliedSyncMsRef.current) {
       lastAppliedSyncMsRef.current = incomingTs;
     }
@@ -952,9 +971,41 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       }
     }
 
+    const inExpenses = data.expenses && typeof data.expenses === 'object' ? data.expenses : {};
+    if (Object.keys(inExpenses).length > 0) {
+      setExpensesMap((prevExp) => {
+        let expChanged = false;
+        const mergedExp = { ...prevExp };
+        for (const [txId, inTx] of Object.entries(inExpenses)) {
+          if (!inTx || typeof inTx !== 'object') continue;
+          const exTx = mergedExp[txId];
+          const inTxTs = Number(inTx.updatedAtMs || Date.parse(inTx.updatedAt || '') || inTx.timestampMs || incomingTs || 1);
+          const exTxTs = exTx ? Number(exTx.updatedAtMs || Date.parse(exTx.updatedAt || '') || exTx.timestampMs || 0) : -1;
+          if (!exTx || inTxTs >= exTxTs) {
+            if (inTx._deleted) {
+              if (mergedExp[txId] && !mergedExp[txId]._deleted) {
+                mergedExp[txId] = { ...exTx, ...inTx };
+                expChanged = true;
+              }
+            } else {
+              const combinedTx = { ...exTx, ...inTx };
+              if (JSON.stringify(exTx) !== JSON.stringify(combinedTx)) {
+                mergedExp[txId] = combinedTx;
+                expChanged = true;
+              }
+            }
+          }
+        }
+        if (expChanged) {
+          expensesMapRef.current = mergedExp;
+        }
+        return expChanged ? mergedExp : prevExp;
+      });
+    }
+
     const inDays = data.days && typeof data.days === 'object' ? data.days : {};
     setDaysMap((prev) => {
-      let changed = Boolean(nextSettingsSnapshot);
+      let changed = Boolean(nextSettingsSnapshot) || Object.keys(inExpenses).length > 0;
       const mergedDays = { ...prev };
       for (const [iso, inRec] of Object.entries(inDays)) {
         if (!inRec || typeof inRec !== 'object') continue;
@@ -983,11 +1034,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             settings: nextSettingsSnapshot || currentRaw.settings || DEFAULT_SETTINGS,
             settingsUpdatedAt: settingsUpdatedAtRef.current || Date.now(),
             days: mergedDays,
+            expenses: expensesMapRef.current || currentRaw.expenses || {},
             updatedAt: new Date().toISOString(),
             updatedAtMs: Date.now(),
           };
           localStorage.setItem(LS_OT_SALARY_KEY, JSON.stringify(toSave));
-          // If this is the Web/Desktop app and the update arrived from Mobile via Cloud Relay, also persist to local server disk!
           if (fromCloudRelay) {
             const isWebServer = window.location.origin.startsWith('http') && !window.Capacitor;
             if (isWebServer) {
@@ -1092,7 +1143,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             if (envelope && envelope.event === 'message' && envelope.message) {
               const inner = JSON.parse(envelope.message);
               const storeData = inner && inner.data ? inner.data : inner;
-              if (storeData && (storeData.days || storeData.settings) && mounted) {
+              if (storeData && (storeData.days || storeData.settings || storeData.expenses) && mounted) {
                 applyIncomingStore(storeData, true);
               }
             }
@@ -1130,7 +1181,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             const rawMsg = envelope.message || ev.data;
             const inner = typeof rawMsg === 'string' ? JSON.parse(rawMsg) : rawMsg;
             const storeData = inner && inner.data ? inner.data : inner;
-            if (storeData && (storeData.days || storeData.settings) && mounted) {
+            if (storeData && (storeData.days || storeData.settings || storeData.expenses) && mounted) {
               applyIncomingStore(storeData, true);
             }
           } catch (_) {}
@@ -1156,7 +1207,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     };
   }, [applyIncomingStore, getCandidateLanBases]);
 
-  const persistStore = useCallback((nextSettings, nextDays, message = 'Saved') => {
+  const persistStore = useCallback((nextSettings, nextDays, message = 'Saved', customExpenses = null) => {
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
     const stampedDays = {};
@@ -1168,12 +1219,23 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         updatedAtMs: Number(rec.updatedAtMs || Date.parse(rec.updatedAt || rec.savedAt || '') || nowMs),
       };
     }
+    const activeExpenses = customExpenses !== null ? customExpenses : (expensesMapRef.current || {});
+    const stampedExpenses = {};
+    for (const [txId, tx] of Object.entries(activeExpenses)) {
+      if (!tx) continue;
+      stampedExpenses[txId] = {
+        ...tx,
+        updatedAt: tx.updatedAt || nowIso,
+        updatedAtMs: Number(tx.updatedAtMs || Date.parse(tx.updatedAt || '') || tx.timestampMs || nowMs),
+      };
+    }
     const payload = {
       type: 'OT_SALARY_LIVE_SYNC',
       clientId: clientIdRef.current,
       settings: nextSettings,
       settingsUpdatedAt: settingsUpdatedAtRef.current || nowMs,
       days: stampedDays,
+      expenses: stampedExpenses,
       updatedAt: nowIso,
       updatedAtMs: nowMs,
     };
@@ -1237,6 +1299,12 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       setSaveNotice(`${message} · ⚡ Live Synced (${new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`);
     }
   }, [getCandidateLanBases, applyIncomingStore]);
+
+  const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = 'Updated Expenses') => {
+    expensesMapRef.current = nextExpensesMap;
+    setExpensesMap(nextExpensesMap);
+    persistStore(settings, daysMap, noticeMessage, nextExpensesMap);
+  }, [settings, daysMap, persistStore]);
 
   // Derived rate math
   const rates = useMemo(() => {
@@ -1962,7 +2030,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   };
 
   const downloadStandaloneMobileApp = () => {
-    const htmlContent = generateStandaloneOtMobileHtml({ settings, days: daysMap });
+    const htmlContent = generateStandaloneOtMobileHtml({ settings, days: daysMap, expenses: expensesMap });
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1998,7 +2066,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings, days: daysMap }),
+            body: JSON.stringify({ settings, days: daysMap, expenses: expensesMap }),
           });
           if (res.ok) {
             const json = await res.json();
@@ -2015,10 +2083,11 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
       if (syncedPayload) {
         if (syncedPayload.settings) setSettings((prev) => ({ ...prev, ...syncedPayload.settings }));
         if (syncedPayload.days) setDaysMap(syncedPayload.days);
+        if (syncedPayload.expenses) setExpensesMap(syncedPayload.expenses);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(syncedPayload));
         } catch {}
-        setSyncStatusText(`✓ Synced ${Object.keys(syncedPayload.days || {}).length} saved days with PC`);
+        setSyncStatusText(`✓ Synced ${Object.keys(syncedPayload.days || {}).length} days & ${Object.keys(syncedPayload.expenses || {}).length} expenses with PC`);
       } else {
         setSyncStatusText('⚠️ Could not sync with PC. Check Wi-Fi / IP.');
       }
@@ -2030,7 +2099,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
   };
 
   const exportBackupJson = () => {
-    const payload = JSON.stringify({ settings, days: daysMap, exportedAt: new Date().toISOString() }, null, 2);
+    const payload = JSON.stringify({ settings, days: daysMap, expenses: expensesMap, exportedAt: new Date().toISOString() }, null, 2);
     const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2049,9 +2118,12 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
         const parsed = JSON.parse(String(reader.result || '{}'));
         const nextSettings = parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : settings;
         const nextDays = parsed.days && typeof parsed.days === 'object' ? { ...daysMap, ...parsed.days } : daysMap;
+        const nextExpenses = parsed.expenses && typeof parsed.expenses === 'object' ? { ...expensesMap, ...parsed.expenses } : expensesMap;
         setSettings(nextSettings);
         setDaysMap(nextDays);
-        persistStore(nextSettings, nextDays, `Restored ${Object.keys(nextDays).length} days from backup`);
+        setExpensesMap(nextExpenses);
+        expensesMapRef.current = nextExpenses;
+        persistStore(nextSettings, nextDays, `Restored ${Object.keys(nextDays).length} days & ${Object.keys(nextExpenses).length} expenses`, nextExpenses);
       } catch {
         setSaveNotice('⚠️ Invalid JSON backup file');
       }
@@ -2060,7 +2132,22 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
     event.target.value = '';
   };
 
+  const expenseQuickStats = useMemo(() => {
+    let count = 0;
+    let spent = 0;
+    for (const tx of Object.values(expensesMap || {})) {
+      if (!tx || tx._deleted || !(Number(tx.amount) > 0)) continue;
+      if (selectedMonth && !String(tx.date || '').startsWith(selectedMonth)) continue;
+      count += 1;
+      if (tx.type !== 'credit') {
+        spent += Number(tx.amount) || 0;
+      }
+    }
+    return { count, spent };
+  }, [expensesMap, selectedMonth]);
+
   const showTodaySection = mobileTab === 'today';
+  const showExpensesSection = mobileTab === 'expenses';
   const showRulesSection = mobileTab === 'rules';
   const showMonthSection = mobileTab === 'month';
   const showSummarySection = mobileTab === 'summary';
@@ -2142,7 +2229,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                   textTransform: 'uppercase',
                   color: '#fde047',
                 }}>
-                  EXECUTIVE ATTENDANCE &amp; PAYROLL
+                  EXECUTIVE ATTENDANCE, PAYROLL &amp; EXPENSES
                 </span>
                 <span style={{
                   padding: '2px 7px',
@@ -2170,7 +2257,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                 OT &amp; SALARY PRO
               </div>
               <div style={{ fontSize: 11.5, color: '#cbd5e1', fontWeight: 700, marginTop: 2 }}>
-                Biometric OT &amp; Salary Studio · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
+                Biometric OT &amp; Mobile Expenses Studio · ₹{formatINR(rates.perDaySalary)}/day · OT ₹{formatINR(rates.otHourlyRate)}/hr
               </div>
             </div>
           </div>
@@ -2240,7 +2327,87 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           </div>
         </div>
 
-        {/* LUXURY HERO SALARY VAULT CARD — DIRECTLY EDITABLE SALARY */}
+        {/* FLAGSHIP DUAL MODULE SWITCHER: OT & SALARY vs EXPENSES (MOBILE TRANSACTION & NOTE TRACKER) */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 10,
+          padding: 6,
+          borderRadius: 18,
+          background: 'rgba(9, 13, 24, 0.92)',
+          border: '1px solid rgba(148, 163, 184, 0.25)',
+          boxShadow: '0 10px 26px rgba(0, 0, 0, 0.4)',
+        }}>
+          <button
+            type="button"
+            onClick={() => navigateTab('today')}
+            style={{
+              padding: mobileMode ? '11px 10px' : '12px 16px',
+              borderRadius: 13,
+              border: mobileTab !== 'expenses' ? '1.5px solid rgba(52, 211, 153, 0.7)' : '1px solid transparent',
+              background: mobileTab !== 'expenses'
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(14, 165, 233, 0.24))'
+                : 'transparent',
+              color: mobileTab !== 'expenses' ? '#ecfdf5' : '#94a3b8',
+              fontWeight: 950,
+              fontSize: mobileMode ? 12.5 : 14,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <span>⏱️ OT &amp; SALARY</span>
+            <span style={{
+              padding: '2px 7px',
+              borderRadius: 999,
+              background: 'rgba(250, 204, 21, 0.2)',
+              color: '#fde047',
+              fontSize: 10.5,
+              fontWeight: 900,
+            }}>
+              ₹{formatINR(monthSummary.fullMonthNetPayable)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigateTab('expenses')}
+            style={{
+              padding: mobileMode ? '11px 10px' : '12px 16px',
+              borderRadius: 13,
+              border: mobileTab === 'expenses' ? '1.5px solid rgba(244, 114, 182, 0.8)' : '1px solid rgba(244, 114, 182, 0.25)',
+              background: mobileTab === 'expenses'
+                ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.32), rgba(139, 92, 246, 0.28))'
+                : 'rgba(236, 72, 153, 0.06)',
+              color: mobileTab === 'expenses' ? '#fdf2f8' : '#f9a8d4',
+              fontWeight: 950,
+              fontSize: mobileMode ? 12.5 : 14,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <span>💸 EXPENSES</span>
+            <span style={{
+              padding: '2px 7px',
+              borderRadius: 999,
+              background: 'rgba(244, 63, 94, 0.25)',
+              border: '1px solid rgba(251, 113, 133, 0.45)',
+              color: '#fecdd3',
+              fontSize: 10.5,
+              fontWeight: 900,
+            }}>
+              {expenseQuickStats.count} Txns · ₹{formatINR(expenseQuickStats.spent)}
+            </span>
+          </button>
+        </div>
+
+        {/* LUXURY HERO SALARY VAULT CARD — DIRECTLY EDITABLE SALARY (Shown in OT & Salary Tabs) */}
+        {!showExpensesSection && (
         <div style={{
           padding: mobileMode ? '16px 16px' : '20px 22px',
           borderRadius: 22,
@@ -2343,12 +2510,13 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
             <TouchIdSvg variant="out" size={48} verified={monthSummary.biometricBothCount > 0} />
           </div>
         </div>
+        )}
 
-        {/* SLEEK 4-TAB NAVIGATION PILL BAR (Desktop / Top) */}
+        {/* SLEEK 5-TAB NAVIGATION PILL BAR (Desktop / Top) */}
         {!mobileMode && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(5, 1fr)',
             gap: 8,
             padding: 6,
             borderRadius: 14,
@@ -2357,6 +2525,7 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           }}>
             {[
               { id: 'today', label: 'Today Punch' },
+              { id: 'expenses', label: `💸 Expenses (${expenseQuickStats.count})` },
               { id: 'month', label: 'Month Days' },
               { id: 'summary', label: 'Salary Slip' },
               { id: 'rules', label: 'Rules & App' },
@@ -2383,6 +2552,19 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
               );
             })}
           </div>
+        )}
+
+        {/* EXPENSES MODULE (MOBILE TRANSACTION & NOTE TRACKER) */}
+        {showExpensesSection && (
+          <ExpensesModule
+            expensesMap={expensesMap}
+            onUpdateExpenses={handleUpdateExpenses}
+            selectedMonth={selectedMonth}
+            onChangeMonth={setSelectedMonth}
+            monthlyNetSalary={monthSummary.fullMonthNetPayable}
+            mobileMode={mobileMode}
+            liveNow={liveNow}
+          />
         )}
 
         {/* TOUCH ID BIOMETRIC SCANNER STUDIO (IN & OUT) + LIVE TICKING CLOCK */}
@@ -4109,13 +4291,14 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
           backdropFilter: 'blur(20px)',
           borderTop: '1px solid rgba(148, 163, 184, 0.16)',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          padding: '7px 10px calc(7px + env(safe-area-inset-bottom, 0px))',
-          gap: 6,
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          padding: '7px 8px calc(7px + env(safe-area-inset-bottom, 0px))',
+          gap: 5,
           boxShadow: '0 -12px 32px rgba(0,0,0,0.55)',
         }}>
           {[
             { id: 'today', icon: 'touch', label: 'Touch ID' },
+            { id: 'expenses', icon: '💸', label: 'Expenses' },
             { id: 'month', icon: '📅', label: 'Month Sheet' },
             { id: 'summary', icon: '💎', label: 'Salary Slip' },
             { id: 'rules', icon: '⚙️', label: 'Settings' },
@@ -4127,15 +4310,21 @@ export default function OtSalary({ onClose, standaloneMobile = false }) {
                 type="button"
                 onClick={() => navigateTab(nav.id)}
                 style={{
-                  padding: '8px 4px',
+                  padding: '8px 3px',
                   borderRadius: 14,
-                  border: active ? '1px solid rgba(52, 211, 153, 0.55)' : '1px solid transparent',
+                  border: active
+                    ? nav.id === 'expenses'
+                      ? '1px solid rgba(244, 114, 182, 0.7)'
+                      : '1px solid rgba(52, 211, 153, 0.55)'
+                    : '1px solid transparent',
                   background: active
-                    ? 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(14,165,233,0.18))'
+                    ? nav.id === 'expenses'
+                      ? 'linear-gradient(135deg, rgba(236,72,153,0.28), rgba(139,92,246,0.22))'
+                      : 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(14,165,233,0.18))'
                     : 'transparent',
                   color: active ? '#ecfdf5' : '#94a3b8',
                   fontWeight: 900,
-                  fontSize: 11.5,
+                  fontSize: 11,
                   cursor: 'pointer',
                   display: 'flex',
                   flexDirection: 'column',

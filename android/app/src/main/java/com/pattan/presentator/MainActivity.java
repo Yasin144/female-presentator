@@ -1,18 +1,25 @@
 package com.pattan.presentator;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.KeyguardManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.database.ContentObserver;
 import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
@@ -26,6 +33,7 @@ import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -35,11 +43,32 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.Set;
 
 public class MainActivity extends BridgeActivity {
     private static final int REQ_DEVICE_CREDENTIAL = 9421;
+    private static final int REQ_SMS_PERMISSION = 9422;
     private String pendingBioActionType = "in";
+    private int pendingScanDaysBack = 60;
     private long lastRootBackPressMs = 0L;
+    private ContentObserver smsObserver = null;
+
+    private final BroadcastReceiver paymentNotifReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String txJson = intent.getStringExtra("tx_json");
+            if (txJson != null && !txJson.isEmpty()) {
+                try {
+                    JSONObject single = new JSONObject(txJson);
+                    JSONArray arr = new JSONArray();
+                    arr.put(single);
+                    dispatchMobileTransactionsToJs(true, arr, "");
+                } catch (Exception ignored) {}
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +83,106 @@ public class MainActivity extends BridgeActivity {
                 handleSmartBackGesture();
             }
         });
+        try {
+            IntentFilter filter = new IntentFilter(PaymentNotificationService.ACTION_MOBILE_TXN);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(paymentNotifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(paymentNotifReceiver, filter);
+            }
+        } catch (Exception ignored) {}
+        registerSmsObserverIfPermitted();
+    }
+
+    @Override
+    public void onDestroy() {
+        try {
+            unregisterReceiver(paymentNotifReceiver);
+        } catch (Exception ignored) {}
+        try {
+            if (smsObserver != null) {
+                getContentResolver().unregisterContentObserver(smsObserver);
+            }
+        } catch (Exception ignored) {}
+        super.onDestroy();
+    }
+
+    private boolean hasReadSmsPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        return checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean isNotifListenerEnabledInternal() {
+        try {
+            String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return flat != null && flat.contains(getPackageName());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void registerSmsObserverIfPermitted() {
+        if (!hasReadSmsPermission() || smsObserver != null) return;
+        try {
+            smsObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+                @Override
+                public void onChange(boolean selfChange) {
+                    super.onChange(selfChange);
+                    performMobileTransactionScanAsync(7);
+                }
+            };
+            getContentResolver().registerContentObserver(Uri.parse("content://sms"), true, smsObserver);
+        } catch (Exception ignored) {}
+    }
+
+    private void performMobileTransactionScanAsync(final int daysBack) {
+        new Thread(() -> {
+            try {
+                JSONArray combined = new JSONArray();
+                Set<String> seenIds = new HashSet<>();
+
+                JSONArray savedNotifs = MobileTransactionParser.getSavedCapturedTransactions(getApplicationContext());
+                for (int i = 0; i < savedNotifs.length(); i++) {
+                    JSONObject item = savedNotifs.optJSONObject(i);
+                    if (item == null) continue;
+                    String id = item.optString("id", "");
+                    if (!id.isEmpty() && seenIds.add(id)) {
+                        combined.put(item);
+                    }
+                }
+
+                if (hasReadSmsPermission()) {
+                    JSONArray smsArr = MobileTransactionParser.scanSmsInbox(getApplicationContext(), daysBack);
+                    for (int i = 0; i < smsArr.length(); i++) {
+                        JSONObject item = smsArr.optJSONObject(i);
+                        if (item == null) continue;
+                        String id = item.optString("id", "");
+                        if (!id.isEmpty() && seenIds.add(id)) {
+                            combined.put(item);
+                        }
+                    }
+                }
+
+                dispatchMobileTransactionsToJs(true, combined, "");
+            } catch (Exception ex) {
+                dispatchMobileTransactionsToJs(false, new JSONArray(), String.valueOf(ex.getMessage()));
+            }
+        }).start();
+    }
+
+    private void dispatchMobileTransactionsToJs(boolean ok, JSONArray transactions, String error) {
+        if (bridge == null || bridge.getWebView() == null) return;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("ok", ok);
+            payload.put("smsGranted", hasReadSmsPermission());
+            payload.put("notifGranted", isNotifListenerEnabledInternal());
+            payload.put("transactions", transactions != null ? transactions : new JSONArray());
+            payload.put("error", error != null ? error : "");
+            payload.put("timestamp", System.currentTimeMillis());
+            final String js = "window.dispatchEvent(new CustomEvent('pattan-mobile-transactions', { detail: " + payload.toString() + " }));";
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(js, null));
+        } catch (Exception ignored) {}
     }
 
     private void handleSmartBackGesture() {
@@ -103,6 +232,20 @@ public class MainActivity extends BridgeActivity {
                 sendBiometricEventToJs(pendingBioActionType, true, false, "android-device-unlock", "");
             } else {
                 sendBiometricEventToJs(pendingBioActionType, false, false, "canceled", "Phone unlock was cancelled");
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_SMS_PERMISSION) {
+            if (hasReadSmsPermission()) {
+                registerSmsObserverIfPermitted();
+                performMobileTransactionScanAsync(pendingScanDaysBack);
+            } else {
+                // Still return any notification-captured transactions even if SMS was declined
+                performMobileTransactionScanAsync(pendingScanDaysBack);
             }
         }
     }
@@ -176,6 +319,94 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public boolean isSmsPermissionGranted() {
+            return hasReadSmsPermission();
+        }
+
+        @JavascriptInterface
+        public boolean isNotificationListenerEnabled() {
+            return isNotifListenerEnabledInternal();
+        }
+
+        @JavascriptInterface
+        public void openNotificationListenerSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
+        public void scanMobileTransactions(final int daysBack) {
+            pendingScanDaysBack = daysBack > 0 ? daysBack : 60;
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasReadSmsPermission()) {
+                    try {
+                        requestPermissions(
+                            new String[]{Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS},
+                            REQ_SMS_PERMISSION
+                        );
+                        return;
+                    } catch (Exception ignored) {}
+                }
+                registerSmsObserverIfPermitted();
+                performMobileTransactionScanAsync(pendingScanDaysBack);
+            });
+        }
+
+        @JavascriptInterface
+        public String parseRawTransactionText(final String rawText) {
+            try {
+                JSONObject parsed = MobileTransactionParser.parseSmsOrNotification(
+                    "manual-paste",
+                    "",
+                    rawText != null ? rawText : "",
+                    System.currentTimeMillis(),
+                    "mobile-paste"
+                );
+                return parsed != null ? parsed.toString() : "";
+            } catch (Exception ignored) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean launchUpiPayment(final String vpa, final String payeeName, final String amount, final String note) {
+            try {
+                Uri.Builder builder = Uri.parse("upi://pay").buildUpon();
+                if (vpa != null && !vpa.trim().isEmpty()) {
+                    builder.appendQueryParameter("pa", vpa.trim());
+                }
+                if (payeeName != null && !payeeName.trim().isEmpty()) {
+                    builder.appendQueryParameter("pn", payeeName.trim());
+                }
+                if (amount != null && !amount.trim().isEmpty()) {
+                    builder.appendQueryParameter("am", amount.trim());
+                }
+                builder.appendQueryParameter("cu", "INR");
+                if (note != null && !note.trim().isEmpty()) {
+                    builder.appendQueryParameter("tn", note.trim());
+                }
+                final Uri upiUri = builder.build();
+                runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, upiUri);
+                        Intent chooser = Intent.createChooser(intent, "Pay with UPI App (Note Saved in Expenses)");
+                        startActivity(chooser);
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Expense & Note saved! Open your UPI app to complete payment.", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
         public void vibrate(final int durationMs) {
             triggerNativeVibrate(durationMs);
         }
@@ -227,6 +458,7 @@ public class MainActivity extends BridgeActivity {
                 pendingBioActionType = actionType != null ? actionType : "in";
                 final String safeTitle = title != null && !title.isEmpty() ? title : "Unlock to Punch Attendance";
                 final String safeSub = subtitle != null && !subtitle.isEmpty() ? subtitle : "Use your phone fingerprint, face, or screen unlock";
+
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     try {

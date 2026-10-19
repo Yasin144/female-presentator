@@ -572,10 +572,35 @@ function mergeAndSaveOtSalaryStoreToDisk(incomingPayload = {}, broadcast = true)
       }
     }
   }
+
+  let mergedExpenses = {};
+  if (incomingPayload && incomingPayload.replaceAll === true) {
+    mergedExpenses = incomingPayload.expenses && typeof incomingPayload.expenses === 'object'
+      ? { ...incomingPayload.expenses }
+      : {};
+  } else {
+    const existingExpenses = existing.expenses && typeof existing.expenses === 'object' ? existing.expenses : {};
+    const nextExpenses = incomingPayload?.expenses && typeof incomingPayload?.expenses === 'object' ? incomingPayload.expenses : {};
+    mergedExpenses = { ...existingExpenses };
+    for (const [txId, txRecord] of Object.entries(nextExpenses)) {
+      if (txRecord === null || (txRecord && txRecord._deleted)) {
+        delete mergedExpenses[txId];
+        continue;
+      }
+      const prevTx = mergedExpenses[txId];
+      const inTs = Number(txRecord?.updatedAtMs || Date.parse(txRecord?.updatedAt || '') || txRecord?.timestampMs || 0);
+      const exTs = prevTx ? Number(prevTx?.updatedAtMs || Date.parse(prevTx?.updatedAt || '') || prevTx?.timestampMs || 0) : -1;
+      if (!prevTx || inTs >= exTs) {
+        mergedExpenses[txId] = { ...prevTx, ...txRecord };
+      }
+    }
+  }
+
   const merged = {
     settings: mergedSettings,
     settingsUpdatedAt,
     days: mergedDays,
+    expenses: mergedExpenses,
     updatedAt: new Date().toISOString(),
     updatedAtMs: Date.now(),
   };

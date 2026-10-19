@@ -44,7 +44,7 @@ assert.match(mainJsx, /saveOtSalaryData:/);
 assert.match(mainJsx, /\/ot-sw\.js/);
 
 // 4. Capacitor Android Launcher offline OT Mobile App & Error Boundary check
-assert.match(androidLauncherJsx, /Open OT &amp; Salary Tracker Mobile App/);
+assert.match(androidLauncherJsx, /Open OT, Salary &amp; Mobile Expenses App/);
 assert.match(androidLauncherJsx, /<OtSalary standaloneMobile=\{true\}/);
 assert.match(androidLauncherJsx, /class MobileOtErrorBoundary/);
 assert.match(mainJsx, /<MobileOtErrorBoundary><OtSalary standaloneMobile=\{true\} \/><\/MobileOtErrorBoundary>/);
@@ -75,9 +75,16 @@ assert.match(otSalaryJsx, /OT-Salary-Mobile\.apk/);
 // 7. Biometric Touch Sensor (IN & OUT) & Native Android Real Phone Unlock Biometric Bridge checks
 const androidMainActivity = readText('android/app/src/main/java/com/pattan/presentator/MainActivity.java');
 const androidManifest = readText('android/app/src/main/AndroidManifest.xml');
+const mobileTxParserJava = readText('android/app/src/main/java/com/pattan/presentator/MobileTransactionParser.java');
+const paymentNotifServiceJava = readText('android/app/src/main/java/com/pattan/presentator/PaymentNotificationService.java');
+const expensesModuleJsx = readText('src/components/OtSalary/ExpensesModule.jsx');
+
 assert.match(androidManifest, /android\.permission\.USE_BIOMETRIC/);
 assert.match(androidManifest, /android\.permission\.USE_FINGERPRINT/);
 assert.match(androidManifest, /android\.permission\.VIBRATE/);
+assert.match(androidManifest, /android\.permission\.READ_SMS/);
+assert.match(androidManifest, /android\.permission\.RECEIVE_SMS/);
+assert.match(androidManifest, /PaymentNotificationService/);
 assert.match(androidMainActivity, /PattanBiometric/);
 assert.match(androidMainActivity, /BiometricPrompt/);
 assert.match(androidMainActivity, /DEVICE_CREDENTIAL/);
@@ -111,16 +118,36 @@ assert.match(otSalaryJsx, /BroadcastChannel/);
 assert.match(otSalaryJsx, /settingsUpdatedAt/);
 assert.match(otSalaryJsx, /updatedAtMs/);
 assert.match(otGeneratorJs, /CLOUD_RELAY_URL/);
-assert.match(otGeneratorJs, /OT &amp; SALARY PRO/);
+assert.match(otGeneratorJs, /OT, SALARY &amp; EXPENSES PRO/);
 assert.match(otGeneratorJs, /OT_SALARY_LIVE_SYNC/);
 assert.match(otGeneratorJs, /mergeIncomingData/);
 
-// 9. Standalone Offline Mobile App HTML & Native Android APK checks
+// 9. Expenses Module & Mobile Transaction / Note Auto-Extraction checks
+assert.match(otSalaryJsx, /ExpensesModule/);
+assert.match(otSalaryJsx, /EXPENSES/);
+assert.match(expensesModuleJsx, /pattan-mobile-transactions/);
+assert.match(expensesModuleJsx, /parseSmsOrUpiTextJs/);
+assert.match(expensesModuleJsx, /triggerMobileTransactionScan/);
+assert.match(expensesModuleJsx, /launchUpiPayment/);
+assert.match(expensesModuleJsx, /Total Transactions Done/);
+assert.match(expensesModuleJsx, /remainingSalary/);
+assert.match(mobileTxParserJava, /scanSmsInbox/);
+assert.match(mobileTxParserJava, /saveCapturedTransaction/);
+assert.match(paymentNotifServiceJava, /NotificationListenerService/);
+assert.match(paymentNotifServiceJava, /ACTION_MOBILE_TXN/);
+assert.match(androidMainActivity, /scanMobileTransactions/);
+assert.match(androidMainActivity, /launchUpiPayment/);
+assert.match(androidMainActivity, /openNotificationListenerSettings/);
+assert.match(otGeneratorJs, /tab-expenses/);
+assert.match(otGeneratorJs, /expScanMobileBtn/);
+
+// 10. Standalone Offline Mobile App HTML & Native Android APK checks
 assert.match(otGeneratorJs, /generateStandaloneOtMobileHtml/);
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile-App.html')), 'OT-Salary-Mobile-App.html should exist in root');
 assert.ok(fs.existsSync(path.join(rootDir, 'public/OT-Salary-Mobile-App.html')), 'public/OT-Salary-Mobile-App.html should exist');
 assert.ok(fs.existsSync(path.join(rootDir, 'OT-Salary-Mobile.apk')), 'OT-Salary-Mobile.apk should exist in root');
 assert.ok(fs.statSync(path.join(rootDir, 'OT-Salary-Mobile.apk')).size > 1_000_000, 'OT-Salary-Mobile.apk should be a valid non-empty APK');
 
-console.log('All OT & Salary Mobile App + Biometric Touch Sensor (IN & OUT) + Instant Live Sync + Android APK tests passed!');
+console.log('All OT & Salary + Mobile Expenses Module + Biometric Touch Sensor + Instant Live Sync + Android APK tests passed!');
+
 

@@ -80,10 +80,29 @@ export default defineConfig({
             }
           }
 
+          const exExpenses = existing.expenses && typeof existing.expenses === 'object' ? existing.expenses : {};
+          const inExpenses = incoming.expenses && typeof incoming.expenses === 'object' ? incoming.expenses : {};
+          const mergedExpenses = incoming.replaceAll === true ? {} : { ...exExpenses };
+
+          for (const [txId, inTx] of Object.entries(inExpenses)) {
+            if (!inTx || typeof inTx !== 'object') continue;
+            const exTx = mergedExpenses[txId];
+            const inTs = Number(inTx.updatedAtMs || Date.parse(inTx.updatedAt || '') || inTx.timestampMs || 0);
+            const exTs = exTx ? Number(exTx.updatedAtMs || Date.parse(exTx.updatedAt || '') || exTx.timestampMs || 0) : -1;
+            if (!exTx || inTs >= exTs) {
+              if (inTx._deleted) {
+                delete mergedExpenses[txId];
+              } else {
+                mergedExpenses[txId] = { ...exTx, ...inTx };
+              }
+            }
+          }
+
           return {
             settings: mergedSettings,
             settingsUpdatedAt,
             days: mergedDays,
+            expenses: mergedExpenses,
             updatedAt: new Date().toISOString(),
             updatedAtMs: Date.now(),
           };
