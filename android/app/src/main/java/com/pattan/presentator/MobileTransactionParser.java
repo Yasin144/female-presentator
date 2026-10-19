@@ -9,6 +9,9 @@ import android.util.Base64;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.text.SimpleDateFormat;
@@ -32,6 +35,7 @@ public final class MobileTransactionParser {
     private static final String KEY_TXNS_ENC = "captured_transactions_enc_v2";
     private static final String KEY_EXPENSE_STORE_MAP_ENC = "expense_memory_store_map_enc_v1";
     private static final String KEY_TXNS_LEGACY = "captured_transactions_json";
+    private static final String PERMANENT_VAULT_FILE = "permanent_expense_vault.enc";
     private static final String KEYSTORE_ALIAS = "PattanExpenseMemoryAesKey";
 
     public static final Set<String> ALLOWED_PAYMENT_PACKAGES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -393,26 +397,82 @@ public final class MobileTransactionParser {
         }
     }
 
+    private static String readPermanentVaultEncrypted(Context context) {
+        if (context == null) return "";
+        try {
+            File f = new File(context.getNoBackupFilesDir(), PERMANENT_VAULT_FILE);
+            if (!f.exists() || f.length() <= 0) return "";
+            byte[] buf = new byte[(int) f.length()];
+            try (FileInputStream fis = new FileInputStream(f)) {
+                int read = fis.read(buf);
+                if (read > 0) {
+                    return new String(buf, 0, read, StandardCharsets.UTF_8);
+                }
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    private static void writePermanentVaultEncrypted(Context context, String encrypted) {
+        if (context == null || encrypted == null || encrypted.isEmpty()) return;
+        try {
+            File f = new File(context.getNoBackupFilesDir(), PERMANENT_VAULT_FILE);
+            try (FileOutputStream fos = new FileOutputStream(f, false)) {
+                fos.write(encrypted.getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static void mergeCleanJsonIntoMap(JSONObject target, String plainJson) {
+        if (target == null || plainJson == null || plainJson.isEmpty()) return;
+        try {
+            JSONObject rawObj = new JSONObject(plainJson);
+            java.util.Iterator<String> keys = rawObj.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                if (k == null || k.startsWith("demo_tx_")) continue;
+                JSONObject v = rawObj.optJSONObject(k);
+                if (v != null && !"demo-preview".equals(v.optString("source", ""))) {
+                    v.put("_deleted", false);
+                    v.put("rawText", "");
+                    if (target.has(k)) {
+                        JSONObject existing = target.optJSONObject(k);
+                        if (existing != null) {
+                            // Preserve existing note/purpose if incoming is empty
+                            if (v.optString("personalNote", "").isEmpty() && !existing.optString("personalNote", "").isEmpty()) {
+                                v.put("personalNote", existing.optString("personalNote", ""));
+                            }
+                            if (v.optString("note", "").isEmpty() && !existing.optString("note", "").isEmpty()) {
+                                v.put("note", existing.optString("note", ""));
+                            }
+                        }
+                    }
+                    target.put(k, v);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
     public static String loadEncryptedExpenseStoreJson(Context context) {
         if (context == null) return "{}";
         try {
+            JSONObject mapObj = new JSONObject();
+
+            // 1. Load from permanent file vault first
+            String fileEnc = readPermanentVaultEncrypted(context);
+            if (fileEnc != null && !fileEnc.isEmpty()) {
+                mergeCleanJsonIntoMap(mapObj, decryptJsonString(fileEnc, "{}"));
+            }
+
+            // 2. Load from SharedPreferences encrypted map
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             String encMap = prefs.getString(KEY_EXPENSE_STORE_MAP_ENC, "");
-            JSONObject mapObj = new JSONObject();
             if (encMap != null && !encMap.isEmpty()) {
-                String plain = decryptJsonString(encMap, "{}");
-                JSONObject rawObj = new JSONObject(plain != null && !plain.isEmpty() ? plain : "{}");
-                java.util.Iterator<String> keys = rawObj.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    if (k == null || k.startsWith("demo_tx_")) continue;
-                    JSONObject v = rawObj.optJSONObject(k);
-                    if (v != null && !"demo-preview".equals(v.optString("source", ""))) {
-                        mapObj.put(k, v);
-                    }
-                }
+                mergeCleanJsonIntoMap(mapObj, decryptJsonString(encMap, "{}"));
             }
-            // Merge any captured notification array into the encrypted map if not already present
+
+            // 3. Merge any captured notification array into the encrypted map
             JSONArray captured = getSavedCapturedTransactions(context);
             boolean changed = false;
             for (int i = 0; i < captured.length(); i++) {
@@ -421,6 +481,7 @@ public final class MobileTransactionParser {
                 String id = item.optString("id", "");
                 if (!id.isEmpty() && !id.startsWith("demo_tx_") && !mapObj.has(id)) {
                     item.put("rawText", "");
+                    item.put("_deleted", false);
                     mapObj.put(id, item);
                     changed = true;
                 }
@@ -437,13 +498,26 @@ public final class MobileTransactionParser {
     public static boolean saveEncryptedExpenseStoreJson(Context context, String plainJson) {
         if (context == null || plainJson == null) return false;
         try {
-            String encrypted = encryptJsonString(plainJson);
-            if (encrypted.isEmpty()) return false;
+            // Permanent append-/update-only ledger: never delete existing transactions
+            JSONObject merged = new JSONObject();
+            String fileEnc = readPermanentVaultEncrypted(context);
+            if (fileEnc != null && !fileEnc.isEmpty()) {
+                mergeCleanJsonIntoMap(merged, decryptJsonString(fileEnc, "{}"));
+            }
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String existingPrefEnc = prefs.getString(KEY_EXPENSE_STORE_MAP_ENC, "");
+            if (existingPrefEnc != null && !existingPrefEnc.isEmpty()) {
+                mergeCleanJsonIntoMap(merged, decryptJsonString(existingPrefEnc, "{}"));
+            }
+            mergeCleanJsonIntoMap(merged, plainJson);
+
+            String encrypted = encryptJsonString(merged.toString());
+            if (encrypted.isEmpty()) return false;
             prefs.edit()
                 .putString(KEY_EXPENSE_STORE_MAP_ENC, encrypted)
                 .remove(KEY_TXNS_LEGACY)
                 .apply();
+            writePermanentVaultEncrypted(context, encrypted);
             return true;
         } catch (Exception ignored) {
             return false;
@@ -454,6 +528,7 @@ public final class MobileTransactionParser {
         if (context == null || tx == null) return;
         try {
             tx.put("rawText", "");
+            tx.put("_deleted", false);
             JSONArray arr = getSavedCapturedTransactions(context);
             String id = tx.optString("id", "");
             String refId = tx.optString("refId", "");
@@ -463,6 +538,7 @@ public final class MobileTransactionParser {
                 JSONObject item = arr.optJSONObject(i);
                 if (item == null) continue;
                 item.put("rawText", "");
+                item.put("_deleted", false);
                 boolean sameId = !id.isEmpty() && id.equals(item.optString("id", ""));
                 boolean sameRef = !refId.isEmpty() && refId.equals(item.optString("refId", ""))
                     && Math.abs(tx.optDouble("amount", 0) - item.optDouble("amount", 0)) < 0.01;
@@ -487,11 +563,10 @@ public final class MobileTransactionParser {
             }
 
             // Also merge into the encrypted Expense Memory map
-            String currentMapJson = loadEncryptedExpenseStoreJson(context);
-            JSONObject mapObj = new JSONObject(currentMapJson != null && !currentMapJson.isEmpty() ? currentMapJson : "{}");
+            JSONObject singleMap = new JSONObject();
             if (!id.isEmpty()) {
-                mapObj.put(id, tx);
-                saveEncryptedExpenseStoreJson(context, mapObj.toString());
+                singleMap.put(id, tx);
+                saveEncryptedExpenseStoreJson(context, singleMap.toString());
             }
         } catch (Exception ignored) {}
     }
@@ -513,10 +588,9 @@ public final class MobileTransactionParser {
     public static void clearAllSavedTransactions(Context context) {
         if (context == null) return;
         try {
+            // Never delete real transactions — only remove legacy plaintext key if present
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             prefs.edit()
-                .remove(KEY_TXNS_ENC)
-                .remove(KEY_EXPENSE_STORE_MAP_ENC)
                 .remove(KEY_TXNS_LEGACY)
                 .apply();
         } catch (Exception ignored) {}

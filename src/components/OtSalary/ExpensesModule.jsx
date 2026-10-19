@@ -535,13 +535,14 @@ export default function ExpensesModule({
         if (
           v &&
           typeof v === 'object' &&
-          !v._deleted &&
           !v._demoPreview &&
           !v.isDemoPreview &&
           v.source !== 'demo-preview' &&
           !String(k).startsWith('demo_tx_')
         ) {
-          cleanMap[k] = v;
+          const restored = { ...v };
+          delete restored._deleted;
+          cleanMap[k] = restored;
         }
       }
     }
@@ -552,6 +553,14 @@ export default function ExpensesModule({
     () => computeExpenseAnalytics(effectiveExpensesSource, { selectedMonth, todayIso, monthlyNetSalary: effectiveMonthlySalary }),
     [effectiveExpensesSource, selectedMonth, todayIso, effectiveMonthlySalary]
   );
+
+  // Recent payments list: always show current month's payments, or all saved payments if current month has none
+  const recentPaymentsList = useMemo(() => {
+    if (analytics.monthActiveList && analytics.monthActiveList.length > 0) {
+      return analytics.monthActiveList;
+    }
+    return analytics.allActiveList || [];
+  }, [analytics.monthActiveList, analytics.allActiveList]);
 
   // Sync detail drafts when a transaction is opened in Screen 9
   const selectedTx = useMemo(() => {
@@ -620,13 +629,20 @@ export default function ExpensesModule({
     return list;
   }, [analytics]);
 
-  // Filtered Transactions for Screen 8 (including Advanced Filters)
+  // Filtered Transactions for Screen 8 (including all-time fallback so transactions never disappear)
+  const sourceTransactionsForList = useMemo(() => {
+    if (analytics.monthActiveList && analytics.monthActiveList.length > 0) {
+      return analytics.monthActiveList;
+    }
+    return analytics.allActiveList || [];
+  }, [analytics.monthActiveList, analytics.allActiveList]);
+
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const minAmt = filterMinAmount !== '' ? Number(filterMinAmount) : null;
     const maxAmt = filterMaxAmount !== '' ? Number(filterMaxAmount) : null;
 
-    return analytics.monthActiveList.filter((tx) => {
+    return sourceTransactionsForList.filter((tx) => {
       if (filterCategory !== 'all' && tx.category !== filterCategory && !String(tx.category || '').toLowerCase().includes(String(filterCategory).toLowerCase())) return false;
       if (methodPillFilter !== 'All') {
         if (methodPillFilter === 'Money Out' && tx.type !== 'debit') return false;
@@ -668,7 +684,7 @@ export default function ExpensesModule({
       return hay.includes(q);
     });
   }, [
-    analytics.monthActiveList,
+    sourceTransactionsForList,
     filterCategory,
     methodPillFilter,
     filterNoteStatus,
@@ -732,7 +748,9 @@ export default function ExpensesModule({
     const clean = {};
     for (const [k, v] of Object.entries(expensesMap || {})) {
       if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview) {
-        clean[k] = { ...v };
+        const copy = { ...v };
+        delete copy._deleted;
+        clean[k] = copy;
       }
     }
     return clean;
@@ -820,12 +838,13 @@ export default function ExpensesModule({
     });
     delete record._demoPreview;
     delete record.isDemoPreview;
+    delete record._deleted;
 
     const nextMap = { ...baseMap, [txId]: record };
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(
         nextMap,
-        `${editingTxId ? '✏️ Updated' : '💾 Saved'} ₹${formatINR(amt)} — ${cleanMerchant}`
+        `${editingTxId ? '✏️ Updated' : '💾 Saved'} ₹${formatINR(amt)} — ${cleanMerchant}${cleanNote ? ` (${cleanNote})` : ''}`
       );
     }
     setShowAddModal(false);
@@ -864,6 +883,7 @@ export default function ExpensesModule({
     });
     delete updated._demoPreview;
     delete updated.isDemoPreview;
+    delete updated._deleted;
     const nextMap = { ...baseMap, [txId]: updated };
     setInlineNoteDrafts((prev) => {
       const next = { ...prev };
@@ -875,31 +895,9 @@ export default function ExpensesModule({
     }
   };
 
-  const handleDeleteTransaction = (txId) => {
-    const baseMap = getMaterializedBaseMap();
-    const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
-    if (!existing) return;
-    const prevSnapshot = { ...baseMap };
-    const nowMs = Date.now();
-    const nextMap = {
-      ...baseMap,
-      [txId]: {
-        ...existing,
-        _demoPreview: false,
-        isDemoPreview: false,
-        _deleted: true,
-        updatedAt: new Date(nowMs).toISOString(),
-        updatedAtMs: nowMs,
-      },
-    };
-    setUndoBanner({
-      message: `Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Transaction'})`,
-      snapshot: prevSnapshot,
-    });
-    if (selectedTxId === txId) setSelectedTxId(null);
-    if (typeof onUpdateExpenses === 'function') {
-      onUpdateExpenses(nextMap, '🗑️ Removed transaction');
-    }
+  // Permanent ledger policy: transactions are never deleted
+  const handleDeleteTransaction = () => {
+    setScanStatus('🔒 Permanent Ledger Active: Transactions are protected and never deleted.');
   };
 
   const handlePasteSmsParse = () => {
@@ -917,7 +915,7 @@ export default function ExpensesModule({
   };
 
   const handleExportExpensesCsv = () => {
-    const csv = formatTransactionsCsv(analytics.monthActiveList);
+    const csv = formatTransactionsCsv(sourceTransactionsForList);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -933,7 +931,7 @@ export default function ExpensesModule({
       {
         selectedMonth,
         exportedAt: new Date().toISOString(),
-        transactions: analytics.monthActiveList,
+        transactions: sourceTransactionsForList,
       },
       null,
       2
@@ -949,15 +947,7 @@ export default function ExpensesModule({
   };
 
   const handleClearAllExpenses = () => {
-    if (!window.confirm('Clear all transactions from your statement? You can undo immediately after.')) return;
-    const prevSnapshot = { ...(expensesMap || {}) };
-    setUndoBanner({
-      message: 'Cleared all transactions from Expense Memory',
-      snapshot: prevSnapshot,
-    });
-    if (typeof onUpdateExpenses === 'function') {
-      onUpdateExpenses({}, '🗑️ Cleared Expense Memory');
-    }
+    setScanStatus('🔒 Permanent Ledger Active: Transactions are permanently protected and cannot be deleted.');
   };
 
   const handleAskQuestion = (questionText) => {
@@ -1048,22 +1038,22 @@ export default function ExpensesModule({
             >
               ✏️ Edit Full
             </button>
-            <button
-              type="button"
-              onClick={() => handleDeleteTransaction(selectedTx.id)}
+            <span
               style={{
                 padding: '7px 12px',
                 borderRadius: 10,
-                border: '1px solid rgba(239,68,68,0.35)',
-                background: 'rgba(239,68,68,0.12)',
-                color: '#f87171',
-                fontSize: 11.5,
+                border: '1px solid rgba(16,185,129,0.4)',
+                background: 'rgba(16,185,129,0.12)',
+                color: '#34d399',
+                fontSize: 11,
                 fontWeight: 800,
-                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
+              title="Transactions are permanently saved and never deleted"
             >
-              🗑️
-            </button>
+              🔒 Permanent
+            </span>
           </div>
         </div>
 
@@ -1441,10 +1431,10 @@ export default function ExpensesModule({
             </div>
           </div>
 
-          {/* 4 Category Mini-Cards Row (Food, Transport, Shopping, Others — Screen 7) */}
+          {/* 4 Category Mini-Cards Row (Responsive 2x2 on mobile, 4x1 on desktop — Screen 7) */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: mobileMode ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
             gap: 8,
           }}>
             {screen7CategoryCards.map((cat) => (
@@ -1493,17 +1483,17 @@ export default function ExpensesModule({
           {/* 4 Quick Stat Cards: Spent Today | Received Today | Month Txns | Missing Notes */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: mobileMode ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
             gap: 8,
           }}>
             <div style={{
-              padding: '10px 9px',
+              padding: '10px 12px',
               borderRadius: 14,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
             }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Spent Today</div>
-              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#f43f5e', marginTop: 3 }}>
+              <div style={{ fontSize: 14, fontWeight: 950, color: '#f43f5e', marginTop: 3 }}>
                 ₹{formatINRShort(analytics.todaySpent)}
               </div>
               <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
@@ -1512,13 +1502,13 @@ export default function ExpensesModule({
             </div>
 
             <div style={{
-              padding: '10px 9px',
+              padding: '10px 12px',
               borderRadius: 14,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
             }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Received Today</div>
-              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#10b981', marginTop: 3 }}>
+              <div style={{ fontSize: 14, fontWeight: 950, color: '#10b981', marginTop: 3 }}>
                 +₹{formatINRShort(analytics.todayReceived)}
               </div>
               <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
@@ -1530,7 +1520,7 @@ export default function ExpensesModule({
               type="button"
               onClick={() => setSubTab('transactions')}
               style={{
-                padding: '10px 9px',
+                padding: '10px 12px',
                 borderRadius: 14,
                 background: palette.surface,
                 border: `1px solid ${palette.border}`,
@@ -1538,9 +1528,9 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>This Month</div>
-              <div style={{ fontSize: 13.5, fontWeight: 950, color: palette.text, marginTop: 3 }}>
-                {analytics.totalCount} Txns
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>Saved Ledger</div>
+              <div style={{ fontSize: 14, fontWeight: 950, color: palette.text, marginTop: 3 }}>
+                {recentPaymentsList.length} Txns
               </div>
               <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginTop: 1 }}>
                 View all ›
@@ -1551,7 +1541,7 @@ export default function ExpensesModule({
               type="button"
               onClick={() => setSubTab('missing-notes')}
               style={{
-                padding: '10px 9px',
+                padding: '10px 12px',
                 borderRadius: 14,
                 background: analytics.missingNotesCount > 0 ? 'rgba(245, 158, 11, 0.12)' : palette.surface,
                 border: analytics.missingNotesCount > 0 ? '1px solid rgba(245, 158, 11, 0.45)' : `1px solid ${palette.border}`,
@@ -1562,7 +1552,7 @@ export default function ExpensesModule({
               <div style={{ fontSize: 10.5, fontWeight: 700, color: analytics.missingNotesCount > 0 ? '#fbbf24' : palette.textMuted }}>
                 Missing Notes
               </div>
-              <div style={{ fontSize: 13.5, fontWeight: 950, color: analytics.missingNotesCount > 0 ? '#f59e0b' : '#10b981', marginTop: 3 }}>
+              <div style={{ fontSize: 14, fontWeight: 950, color: analytics.missingNotesCount > 0 ? '#f59e0b' : '#10b981', marginTop: 3 }}>
                 {analytics.missingNotesCount} Pending
               </div>
               <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 1 }}>
@@ -1572,7 +1562,7 @@ export default function ExpensesModule({
           </div>
 
           {/* Fast Action Bar: + Add Spend, Sync Alerts, Paste Receipt */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
             <button
               type="button"
               onClick={() => openQuickAddModal(null)}
@@ -1816,183 +1806,243 @@ export default function ExpensesModule({
                     >
                       Confirm
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTransaction(tx.id)}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(239,68,68,0.4)',
-                        background: 'transparent',
-                        color: '#f87171',
-                        fontWeight: 800,
-                        fontSize: 11,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Dismiss
-                    </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Recent Payments (Auto Detected) List (Screen 7) */}
+          {/* Recent Payments (Auto Detected & Permanent Ledger) List (Screen 7) */}
           <div style={{
             background: palette.surface,
             borderRadius: 22,
             border: `1px solid ${palette.border}`,
-            padding: '16px',
+            padding: mobileMode ? '14px 12px' : '16px',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text }}>
-                Recent Payments (Auto Detected)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text }}>
+                  Recent Payments (Permanent Ledger)
+                </div>
+                <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                  🔒 Never deleted · Shows Name, Time, Purpose/Thing &amp; Amount
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSubTab('transactions')}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#3b82f6',
-                  fontSize: 12.5,
+                  background: 'rgba(59, 130, 246, 0.14)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  borderRadius: 999,
+                  padding: '5px 12px',
+                  color: '#60a5fa',
+                  fontSize: 12,
                   fontWeight: 800,
                   cursor: 'pointer',
                 }}
               >
-                See All ›
+                See All ({recentPaymentsList.length}) ›
               </button>
             </div>
 
-            {analytics.monthActiveList.length === 0 ? (
+            {recentPaymentsList.length === 0 ? (
               <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
-                <div style={{ fontWeight: 800, color: palette.text }}>No payments recorded yet for {selectedMonth}.</div>
+                <div style={{ fontWeight: 800, color: palette.text }}>No payments recorded yet.</div>
                 <div style={{ marginTop: 4 }}>
-                  Pay with any UPI app (GPay, PhonePe, Paytm, BHIM, Super.money, CRED, Bank) and your completed payment &amp; amount will appear here automatically.
+                  Pay with any UPI app (GPay, PhonePe, Paytm, BHIM, Super.money, CRED, Bank) or tap <strong>➕ Add Entry</strong> and your completed payment, time, purpose/thing &amp; amount will stay saved forever.
                 </div>
-                <button
-                  type="button"
-                  onClick={() => triggerMobileTransactionScan()}
-                  style={{
-                    marginTop: 12,
-                    padding: '8px 14px',
-                    borderRadius: 10,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: '#60a5fa',
-                    fontWeight: 800,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📲 Sync UPI &amp; Bank Alerts Now
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => openQuickAddModal(null)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: '#2563eb',
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ➕ Add Payment Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerMobileTransactionScan()}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surfaceAlt,
+                      color: '#60a5fa',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📲 Sync UPI &amp; Bank Alerts
+                  </button>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {analytics.monthActiveList.slice(0, 6).map((tx) => {
+                {recentPaymentsList.slice(0, 10).map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                  const hasNote = Boolean(String(tx.personalNote || tx.note || '').trim());
-                  const inlineDraft = inlineNoteDrafts[tx.id] ?? '';
+                  const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                  const hasNote = Boolean(noteText);
+                  const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                  const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
                   return (
                     <div
                       key={tx.id}
                       style={{
-                        padding: '12px 14px',
+                        padding: mobileMode ? '12px' : '14px',
                         borderRadius: 16,
                         background: palette.surfaceAlt,
                         border: `1px solid ${palette.border}`,
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 8,
+                        gap: 9,
                       }}
                     >
+                      {/* Top Row: Avatar + Name + Time + Amount */}
                       <div
                         onClick={() => setSelectedTxId(tx.id)}
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: 12,
+                          alignItems: 'flex-start',
+                          gap: 10,
                           cursor: 'pointer',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                          <BrandPaymentAvatar tx={tx} size={42} />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {tx.merchant || tx.app || 'Google Pay'}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                          <BrandPaymentAvatar tx={tx} size={40} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{
+                              fontSize: 14,
+                              fontWeight: 900,
+                              color: palette.text,
+                              wordBreak: 'break-word',
+                              lineHeight: 1.25,
+                            }}>
+                              {tx.merchant || tx.app || 'UPI Payment'}
                             </div>
-                            <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                              {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}
-                              {hasNote ? ` · 📝 ${tx.personalNote || tx.note}` : ''}
+                            <div style={{
+                              fontSize: 11.5,
+                              color: palette.textMuted,
+                              fontWeight: 700,
+                              marginTop: 3,
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                              alignItems: 'center',
+                            }}>
+                              <span>🕒 {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}</span>
+                              <span>·</span>
+                              <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
                             </div>
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                            {isCredit ? `+ ₹${formatINRShort(tx.amount)}` : `- ₹${formatINRShort(tx.amount)}`}
+                          <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                            {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                           </div>
-                          <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            {tx.paymentMethod === 'UPI' ? 'UPI Payment ›' : `${tx.category || 'Payment'} ›`}
+                          <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            {tx.category || 'Payment'} ›
                           </div>
                         </div>
                       </div>
 
-                      {/* Fast Inline Note Entry for Un-Noted Debit Transactions */}
-                      {!hasNote && !isCredit && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            display: 'flex',
-                            gap: 6,
-                            alignItems: 'center',
-                            paddingTop: 6,
-                            borderTop: `1px dashed ${palette.border}`,
-                          }}
-                        >
-                          <input
-                            type="text"
-                            value={inlineDraft}
-                            onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && inlineDraft.trim()) {
-                                handleUpdatePersonalNote(tx.id, inlineDraft);
-                              }
-                            }}
-                            placeholder="📌 What was this payment for? (Add quick note...)"
-                            style={{
-                              flex: 1,
-                              padding: '6px 10px',
-                              borderRadius: 9,
-                              border: `1px solid ${palette.border}`,
-                              background: palette.surface,
-                              color: palette.text,
-                              fontSize: 11.5,
-                              fontWeight: 700,
-                              outline: 'none',
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Reviewed')}
-                            style={{
-                              padding: '6px 11px',
-                              borderRadius: 9,
-                              border: 'none',
-                              background: '#2563eb',
-                              color: '#fff',
-                              fontWeight: 800,
-                              fontSize: 11,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Save
-                          </button>
+                      {/* Prominent Purpose / Which Thing Badge */}
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 11,
+                          background: hasNote
+                            ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
+                            : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
+                          border: hasNote
+                            ? '1px solid rgba(59, 130, 246, 0.35)'
+                            : '1px dashed rgba(245, 158, 11, 0.45)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
+                            📌 <strong>For What / Which Thing:</strong>{' '}
+                            {hasNote ? noteText : 'Not noted yet — write what you bought/paid for below'}
+                          </div>
+                          {hasNote && !isEditingInline && (
+                            <button
+                              type="button"
+                              onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: 7,
+                                border: `1px solid ${palette.border}`,
+                                background: palette.surface,
+                                color: '#60a5fa',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ✏️ Edit Note
+                            </button>
+                          )}
                         </div>
-                      )}
+
+                        {(!hasNote || isEditingInline) && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input
+                              type="text"
+                              value={inlineDraft}
+                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && inlineDraft.trim()) {
+                                  handleUpdatePersonalNote(tx.id, inlineDraft);
+                                }
+                              }}
+                              placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch, Grocery)..."
+                              style={{
+                                flex: '1 1 180px',
+                                padding: '7px 10px',
+                                borderRadius: 9,
+                                border: `1px solid ${palette.border}`,
+                                background: palette.surface,
+                                color: palette.text,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                outline: 'none',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                              style={{
+                                padding: '7px 12px',
+                                borderRadius: 9,
+                                border: 'none',
+                                background: '#2563eb',
+                                color: '#fff',
+                                fontWeight: 800,
+                                fontSize: 11.5,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Save Note
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -2325,42 +2375,136 @@ export default function ExpensesModule({
                 </div>
                 {group.items.map((tx) => {
                   const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                  const hasNote = Boolean(String(tx.personalNote || tx.note || '').trim());
+                  const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                  const hasNote = Boolean(noteText);
+                  const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                  const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
                   return (
                     <div
                       key={tx.id}
-                      onClick={() => setSelectedTxId(tx.id)}
                       style={{
-                        padding: '12px 14px',
+                        padding: mobileMode ? '12px' : '14px',
                         borderRadius: 16,
                         background: palette.surfaceAlt,
                         border: `1px solid ${palette.border}`,
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 12,
-                        cursor: 'pointer',
+                        flexDirection: 'column',
+                        gap: 8,
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                        <BrandPaymentAvatar tx={tx} size={42} />
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
-                            {tx.merchant || tx.app || 'Payment'}
+                      <div
+                        onClick={() => setSelectedTxId(tx.id)}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          gap: 10,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                          <BrandPaymentAvatar tx={tx} size={40} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
+                              {tx.merchant || tx.app || 'Payment'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                              🕒 {formatTime12h(tx.time)} · <span style={{ color: '#60a5fa', fontWeight: 800 }}>{tx.app || tx.paymentMethod || 'UPI'}</span>
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            {formatTime12h(tx.time)}
-                            {hasNote ? ` · 📝 ${tx.personalNote || tx.note}` : ' · Tap to add note'}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                            {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                            {tx.category || 'Payment'} ›
                           </div>
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                          {isCredit ? `+ ₹${formatINRShort(tx.amount)}` : `- ₹${formatINRShort(tx.amount)}`}
+
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          padding: '7px 10px',
+                          borderRadius: 10,
+                          background: hasNote
+                            ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
+                            : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
+                          border: hasNote
+                            ? '1px solid rgba(59, 130, 246, 0.35)'
+                            : '1px dashed rgba(245, 158, 11, 0.45)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
+                            📌 <strong>For What / Which Thing:</strong>{' '}
+                            {hasNote ? noteText : 'Not noted yet — write what you bought/paid for'}
+                          </div>
+                          {hasNote && !isEditingInline && (
+                            <button
+                              type="button"
+                              onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: 7,
+                                border: `1px solid ${palette.border}`,
+                                background: palette.surface,
+                                color: '#60a5fa',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ✏️ Edit Note
+                            </button>
+                          )}
                         </div>
-                        <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                          {tx.paymentMethod === 'UPI' ? 'UPI Payment ›' : `${tx.category || 'Online Payment'} ›`}
-                        </div>
+                        {(!hasNote || isEditingInline) && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input
+                              type="text"
+                              value={inlineDraft}
+                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && inlineDraft.trim()) {
+                                  handleUpdatePersonalNote(tx.id, inlineDraft);
+                                }
+                              }}
+                              placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch)..."
+                              style={{
+                                flex: '1 1 180px',
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                border: `1px solid ${palette.border}`,
+                                background: palette.surface,
+                                color: palette.text,
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                outline: 'none',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 8,
+                                border: 'none',
+                                background: '#2563eb',
+                                color: '#fff',
+                                fontWeight: 800,
+                                fontSize: 11,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Save Note
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -3228,22 +3372,23 @@ export default function ExpensesModule({
             >
               📩 Paste Payment Alert
             </button>
-            <button
-              type="button"
-              onClick={handleClearAllExpenses}
+            <div
               style={{
                 padding: '12px',
                 borderRadius: 14,
-                border: '1px solid rgba(239, 68, 68, 0.35)',
-                background: 'rgba(239, 68, 68, 0.1)',
-                color: '#f87171',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                background: 'rgba(16, 185, 129, 0.12)',
+                color: '#34d399',
                 fontWeight: 800,
-                fontSize: 12.5,
-                cursor: 'pointer',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textAlign: 'center',
               }}
             >
-              🗑️ Clear All Expenses
-            </button>
+              🔒 Permanent Ledger (Never Deleted)
+            </div>
           </div>
         </div>
       )}

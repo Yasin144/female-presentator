@@ -400,6 +400,20 @@ function calculateWorkTiming({
   }
 
   const inMins = parseTimeToMinutes(inTime, officeStartMins);
+  if (!outTime || !String(outTime).trim()) {
+    return {
+      inMins,
+      outMins: null,
+      workedMins: 0,
+      standardShiftMins,
+      regularWorkedMins: 0,
+      otMins: 0,
+      shortMins: 0,
+      workedHours: 0,
+      otHours: 0,
+      shortHours: 0,
+    };
+  }
   const outMins = parseTimeToMinutes(outTime, officeEndMins);
   const workedMins = outMins >= inMins ? (outMins - inMins) : (1440 - inMins + outMins);
 
@@ -949,7 +963,20 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   ));
   const [showMobileAppModal, setShowMobileAppModal] = useState(false);
   const [showManualEditor, setShowManualEditor] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
+
+  // Biometric Lock Gate for Expense Memory (requires permission every time user shifts to Expenses)
+  const [expensesBiometricUnlocked, setExpensesBiometricUnlocked] = useState(false);
+  const [expensesUnlockBusy, setExpensesUnlockBusy] = useState(false);
+  const [expensesUnlockError, setExpensesUnlockError] = useState('');
+
+  // Multi-Day Select & Bulk Set IN/OUT Time state
+  const [selectedBulkDates, setSelectedBulkDates] = useState([]);
+  const [bulkInTime, setBulkInTime] = useState(DEFAULT_SETTINGS.officeStartTime);
+  const [bulkOutTime, setBulkOutTime] = useState('');
+  const [bulkStatus, setBulkStatus] = useState('present');
+
   const [themeMode, setThemeMode] = useState(() => {
     try {
       return localStorage.getItem('pattan.ot.themeMode') === 'light' ? 'light' : 'dark';
@@ -965,10 +992,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     });
   }, []);
 
-  // Form state for the currently selected date in the Daily Calculator card
+  // Form state for the currently selected date in the Daily Calculator card (Exit Time is empty by default!)
   const [entryStatus, setEntryStatus] = useState('present'); // 'present' | 'half' | 'holiday_paid' | 'ot_only' | 'leave'
   const [entryInTime, setEntryInTime] = useState(DEFAULT_SETTINGS.officeStartTime);
-  const [entryOutTime, setEntryOutTime] = useState(DEFAULT_SETTINGS.officeEndTime);
+  const [entryOutTime, setEntryOutTime] = useState('');
   const [entryOtHours, setEntryOtHours] = useState(0);
   const [entryBonus, setEntryBonus] = useState(0);
   const [entryNote, setEntryNote] = useState('');
@@ -989,13 +1016,48 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const tabHistoryRef = useRef(['today']);
   const touchStartRef = useRef(null);
 
+  const unlockExpensesWithBiometric = useCallback(async () => {
+    setExpensesUnlockBusy(true);
+    setExpensesUnlockError('');
+    triggerBiometricHaptic(45);
+    const hwRes = await requestAndroidHardwareBiometric(
+      'expenses',
+      'Unlock Private Expense Memory',
+      'Biometric permission required to view Yasin Pattan Expenses'
+    );
+    setExpensesUnlockBusy(false);
+    if (hwRes && hwRes.ok) {
+      playBiometricBeep('in');
+      triggerBiometricHaptic(95);
+      setExpensesBiometricUnlocked(true);
+      setExpensesUnlockError('');
+      setSaveNotice('🔓 Biometric Verified — Expense Memory Unlocked');
+      setTimeout(() => setSaveNotice(''), 2500);
+      return true;
+    }
+    setExpensesBiometricUnlocked(false);
+    setExpensesUnlockError(hwRes?.error || 'Biometric permission is required to view Expense Memory.');
+    return false;
+  }, []);
+
   useEffect(() => {
     if (initialTab && ['today', 'expenses', 'month', 'summary', 'rules'].includes(initialTab)) {
       setMobileTab(initialTab);
+      if (initialTab === 'expenses') {
+        setExpensesBiometricUnlocked(false);
+        unlockExpensesWithBiometric();
+      }
     }
-  }, [initialTab]);
+  }, [initialTab, unlockExpensesWithBiometric]);
 
   const navigateTab = useCallback((nextTab) => {
+    if (nextTab === 'expenses') {
+      setExpensesBiometricUnlocked(false);
+      unlockExpensesWithBiometric();
+    } else {
+      setExpensesBiometricUnlocked(false);
+      setExpensesUnlockError('');
+    }
     setMobileTab((prev) => {
       if (prev === nextTab) return prev;
       tabHistoryRef.current = [...tabHistoryRef.current.slice(-8), nextTab];
@@ -1004,9 +1066,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
       return nextTab;
     });
-  }, []);
+  }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
+    if (showNotificationsModal) {
+      setShowNotificationsModal(false);
+      return 'handled';
+    }
     if (showWaConsentModal) {
       setShowWaConsentModal(false);
       return 'handled';
@@ -1023,11 +1089,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       const nextStack = tabHistoryRef.current.slice(0, -1);
       const prevTab = nextStack[nextStack.length - 1] || 'today';
       tabHistoryRef.current = nextStack;
+      if (prevTab !== 'expenses') setExpensesBiometricUnlocked(false);
       setMobileTab(prevTab);
       return 'handled';
     }
     if (mobileTab !== 'today') {
       tabHistoryRef.current = ['today'];
+      setExpensesBiometricUnlocked(false);
       setMobileTab('today');
       return 'handled';
     }
@@ -1043,7 +1111,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1494,7 +1562,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     if (existing) {
       const st = existing.status || 'present';
       const inT = existing.inTime || settings.officeStartTime || '10:00';
-      const outT = existing.outTime || settings.officeEndTime || '18:30';
+      const outT = existing.outTime || '';
       setEntryStatus(st);
       setEntryInTime(inT);
       setEntryOutTime(outT);
@@ -1520,7 +1588,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       const isSun = !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
       setEntryStatus(isSun ? 'holiday_paid' : 'present');
       setEntryInTime(settings.officeStartTime || '10:00');
-      setEntryOutTime(settings.officeEndTime || '18:30');
+      setEntryOutTime('');
       setEntryOtHours(0);
       setEntryBonus(0);
       setEntryNote('');
@@ -1536,7 +1604,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const computeDayEarnings = useCallback((record) => {
     const status = record?.status || 'present';
     const inTime = record?.inTime || settings.officeStartTime || '10:00';
-    const outTime = record?.outTime || settings.officeEndTime || '18:30';
+    const outTime = record?.outTime || '';
 
     const timing = calculateWorkTiming({
       inTime,
@@ -1679,7 +1747,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       date: isoDate,
       status: new Date(`${isoDate}T00:00:00`).getDay() === 0 ? 'holiday_paid' : 'present',
       inTime: settings.officeStartTime || '10:00',
-      outTime: settings.officeEndTime || '18:30',
+      outTime: '',
       otHours: 0,
       extraAllowance: 0,
       note: '',
@@ -1740,7 +1808,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(next, daysMap, 'Updated salary settings');
   };
 
-  // Build rows for the selected month
+  // Build rows for the selected month (outTime is empty until user sets or punches Exit)
   const monthRows = useMemo(() => {
     const calendarDays = buildMonthDates(selectedMonth);
     return calendarDays.map((dayInfo) => {
@@ -1749,7 +1817,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         date: dayInfo.iso,
         status: dayInfo.isSunday ? 'holiday_paid' : 'present',
         inTime: settings.officeStartTime || '10:00',
-        outTime: settings.officeEndTime || '18:30',
+        outTime: '',
         otHours: 0,
         extraAllowance: 0,
         note: '',
@@ -1773,6 +1841,111 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     if (viewFilter === 'leave') return monthRows.filter((r) => r.record.status === 'leave');
     return monthRows;
   }, [monthRows, viewFilter]);
+
+  // Multi-day bulk selection helpers
+  const toggleBulkSelectDate = (isoDate) => {
+    setSelectedBulkDates((prev) =>
+      prev.includes(isoDate) ? prev.filter((d) => d !== isoDate) : [...prev, isoDate]
+    );
+  };
+
+  const selectAllBulkDates = () => {
+    const allIsos = filteredMonthRows.map((r) => r.iso);
+    const allSelected = allIsos.length > 0 && allIsos.every((iso) => selectedBulkDates.includes(iso));
+    if (allSelected) {
+      setSelectedBulkDates([]);
+    } else {
+      setSelectedBulkDates(allIsos);
+    }
+  };
+
+  const selectWorkingBulkDates = () => {
+    const workingIsos = filteredMonthRows.filter((r) => !r.isSunday).map((r) => r.iso);
+    setSelectedBulkDates(workingIsos);
+  };
+
+  const clearBulkDates = () => {
+    setSelectedBulkDates([]);
+  };
+
+  const applyBulkTimeToSelectedDays = (mode = 'both') => {
+    const targetDates = selectedBulkDates.length > 0
+      ? selectedBulkDates
+      : filteredMonthRows.map((r) => r.iso);
+    if (targetDates.length === 0) return;
+    const nextDays = { ...daysMap };
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
+    for (const iso of targetDates) {
+      const dt = new Date(`${iso}T00:00:00`);
+      const isSun = !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
+      const existing = nextDays[iso] || {
+        date: iso,
+        status: isSun ? 'holiday_paid' : 'present',
+        inTime: settings.officeStartTime || '10:00',
+        outTime: '',
+        otHours: 0,
+        extraAllowance: 0,
+        note: '',
+      };
+
+      const nextStatus = bulkStatus !== 'keep'
+        ? bulkStatus
+        : (existing.status || (isSun ? 'holiday_paid' : 'present'));
+      const nextInTime = (mode === 'in' || mode === 'both')
+        ? (bulkInTime || settings.officeStartTime || '10:00')
+        : (existing.inTime || settings.officeStartTime || '10:00');
+      const nextOutTime = mode === 'clear_out'
+        ? ''
+        : (mode === 'out' || mode === 'both')
+          ? (bulkOutTime || '')
+          : (existing.outTime || '');
+
+      const timing = calculateWorkTiming({
+        inTime: nextInTime,
+        outTime: nextOutTime,
+        status: nextStatus,
+        officeStartTime: settings.officeStartTime,
+        officeEndTime: settings.officeEndTime,
+        otTimeCalcMode: settings.otTimeCalcMode,
+      });
+
+      const merged = {
+        ...existing,
+        date: iso,
+        status: nextStatus,
+        inTime: nextInTime,
+        outTime: nextOutTime,
+        workedMins: timing.workedMins,
+        otHours: Number((timing.otMins / 60).toFixed(4)),
+        savedAt: nowIso,
+        updatedAt: nowIso,
+        updatedAtMs: nowMs,
+      };
+      const calc = computeDayEarnings(merged);
+      merged.basePaySnapshot = Number(calc.basePay.toFixed(2));
+      merged.otPaySnapshot = Number(calc.otPay.toFixed(2));
+      merged.totalPaySnapshot = Number(calc.totalPay.toFixed(2));
+      nextDays[iso] = merged;
+    }
+
+    setDaysMap(nextDays);
+    if (targetDates.includes(selectedDate) && nextDays[selectedDate]) {
+      setEntryStatus(nextDays[selectedDate].status);
+      setEntryInTime(nextDays[selectedDate].inTime);
+      setEntryOutTime(nextDays[selectedDate].outTime || '');
+      setEntryOtHours(nextDays[selectedDate].otHours || 0);
+    }
+    const modeLabel = mode === 'in'
+      ? `IN (${formatTime12h(bulkInTime)})`
+      : mode === 'out'
+        ? `OUT (${formatTime12h(bulkOutTime)})`
+        : mode === 'clear_out'
+          ? 'Cleared OUT time'
+          : `IN ${formatTime12h(bulkInTime)} & OUT ${formatTime12h(bulkOutTime)}`;
+    persistStore(settings, nextDays, `✓ Applied ${modeLabel} to ${targetDates.length} day(s)`);
+  };
 
   // Monthly totals summary
   const monthSummary = useMemo(() => {
@@ -1854,7 +2027,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           date: row.iso,
           status: row.isSunday ? 'holiday_paid' : 'present',
           inTime: settings.officeStartTime || '10:00',
-          outTime: settings.officeEndTime || '18:30',
+          outTime: '',
           workedMins: row.earnings.workedMins,
           otHours: 0,
           extraAllowance: 0,
@@ -1931,18 +2104,108 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     URL.revokeObjectURL(url);
   };
 
+  // Send WhatsApp Attendance (IN / OUT) & Payment Details to +91 7386726193
+  const sendWhatsAppAttendanceAndPaymentAlert = useCallback((direction, payload = {}) => {
+    const targetPhoneE164 = '917386726193';
+    const empName = normalizeEmployeeName(settings.employeeName);
+    const dateStr = payload.date || getTodayIsoDate();
+    const inTimeFormatted = formatTime12h(payload.inTime || settings.officeStartTime || '10:00');
+    const outTimeFormatted = payload.outTime ? formatTime12h(payload.outTime) : '--:-- (Pending OUT)';
+
+    // Collect today's & recent payment/expense records for OUT message
+    const allTxs = Object.values(expensesMapRef.current || {}).filter(
+      (tx) => tx && typeof tx === 'object' && !tx._deleted && Number(tx.amount) > 0
+    );
+    const todayTxs = allTxs
+      .filter((tx) => String(tx.date || '').slice(0, 10) === dateStr)
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+    const recentTxs = (todayTxs.length > 0 ? todayTxs : allTxs)
+      .slice()
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0))
+      .slice(0, 5);
+
+    let messageText = '';
+    if (direction === 'in') {
+      messageText = [
+        `🟢 *ATTENDANCE IN REPORT*`,
+        `👤 *Name:* ${empName}`,
+        `📅 *Date:* ${dateStr}`,
+        `⏰ *IN Time:* ${inTimeFormatted}`,
+        `🚪 *OUT Time:* Pending (On Duty)`,
+        `🔐 *Verification:* ${payload.isBiometric ? 'Biometric Verified' : 'Live Punch'}`,
+        payload.note ? `📝 *Note:* ${payload.note}` : '',
+      ].filter(Boolean).join('\n');
+    } else {
+      const calc = payload.calculation || {};
+      const todaySpendTotal = todayTxs
+        .filter((tx) => String(tx.direction || 'debit').toLowerCase() !== 'credit')
+        .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
+      const paymentLines = recentTxs.length > 0
+        ? recentTxs.map((tx, idx) => {
+            const txNote = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+            const txApp = tx.paymentApp || tx.sourceApp || 'UPI';
+            const txSign = String(tx.direction || 'debit').toLowerCase() === 'credit' ? '+' : '-';
+            return `  ${idx + 1}. ${txSign}₹${formatINR(tx.amount)} → *${tx.merchant || 'Merchant'}* (${tx.time || '--:--'} · ${txApp})${txNote ? ` | 📌 For: ${txNote}` : ''}`;
+          })
+        : ['  • No UPI payments recorded today'];
+
+      messageText = [
+        `🔴 *ATTENDANCE OUT & PAYMENT REPORT*`,
+        `👤 *Name:* ${empName}`,
+        `📅 *Date:* ${dateStr}`,
+        `🟢 *IN Time:* ${inTimeFormatted}`,
+        `🔴 *OUT Time:* ${outTimeFormatted}`,
+        `⏱️ *Worked Time:* ${formatMinutesReadable(payload.workedMins || 0)} (Extra OT: ${formatMinutesReadable(payload.otMins || 0)})`,
+        payload.note ? `📝 *Shift Note:* ${payload.note}` : '',
+        ``,
+        `💰 *TODAY SALARY & OT PAYMENT DETAILS:*`,
+        `  • Base Day Pay: ₹${formatINR(calc.basePay || 0)}`,
+        `  • Extra OT Pay: +₹${formatINR(calc.otPay || 0)}`,
+        (Number(calc.extraAllowance) || 0) > 0 ? `  • Extra Bonus: +₹${formatINR(calc.extraAllowance)}` : '',
+        `  • *Total Day Earnings:* *₹${formatINR(calc.totalPay || 0)}*`,
+        ``,
+        `💳 *PAYMENT & EXPENSE DETAILS (${todayTxs.length > 0 ? `Today ₹${formatINR(todaySpendTotal)}` : 'Recent Payments'}):*`,
+        ...paymentLines,
+      ].filter(Boolean).join('\n');
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        if (
+          window.PattanBiometricBridge &&
+          typeof window.PattanBiometricBridge.sendWhatsAppMessageToNumber === 'function'
+        ) {
+          window.PattanBiometricBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
+          return true;
+        }
+      } catch (_) {}
+      try {
+        const waUrl = `https://wa.me/${targetPhoneE164}?text=${encodeURIComponent(messageText)}`;
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }, [settings.employeeName, settings.officeStartTime]);
+
   // 1-Tap & Biometric Touch Sensor Live Mobile Punch Actions
   const punchEnterNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
     const todayIso = getTodayIsoDate();
     const nowHHMM = getNowTimeHHMM();
     setLiveClockHHMM(nowHHMM);
     const existing = daysMap[todayIso];
-    const outTime = existing?.outTime || settings.officeEndTime || '18:30';
+    const outTime = existing?.outTime || '';
     const status = existing?.status || 'present';
-    const inM = parseTimeMinutes(nowHHMM, 10 * 60);
-    const outM = parseTimeMinutes(outTime, 18 * 60 + 30);
-    const worked = Math.max(0, outM - inM);
-    const otMins = status === 'ot_only' ? worked : Math.max(0, worked - rates.shiftMins);
+    const timing = calculateWorkTiming({
+      inTime: nowHHMM,
+      outTime,
+      status,
+      officeStartTime: settings.officeStartTime,
+      officeEndTime: settings.officeEndTime,
+      otTimeCalcMode: settings.otTimeCalcMode,
+    });
+    const worked = timing.workedMins;
+    const otMins = timing.otMins;
     const extraAllowance = Number(existing?.extraAllowance ?? existing?.extraBonus) || 0;
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -1970,15 +2233,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     setSelectedDate(todayIso);
     setSelectedMonth(todayIso.slice(0, 7));
     setEntryInTime(nowHHMM);
+    setEntryOutTime(outTime);
     if (isBiometric) setEntryBiometricIn(true);
     setDaysMap(nextDays);
     persistStore(
       settings,
       nextDays,
       isBiometric
-        ? `✓ Touch ID IN Verified at ${formatTime12h(nowHHMM)} (${todayIso})`
-        : `🟢 Punched Enter at ${formatTime12h(nowHHMM)} (${todayIso})`
+        ? `✓ Touch ID IN Verified at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp Sent`
+        : `🟢 Punched Enter at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp Sent`
     );
+    sendWhatsAppAttendanceAndPaymentAlert('in', {
+      date: todayIso,
+      inTime: nowHHMM,
+      outTime,
+      status,
+      isBiometric,
+      note: existing?.note || entryNote || '',
+    });
     return { todayIso, nowHHMM, otMins, worked };
   };
 
@@ -2040,9 +2312,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       settings,
       nextDays,
       isBiometric
-        ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
-        : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved)`
+        ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp Sent`
+        : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp Sent`
     );
+
+    sendWhatsAppAttendanceAndPaymentAlert('out', {
+      date: todayIso,
+      inTime,
+      outTime: nowHHMM,
+      workedMins: worked,
+      otMins,
+      status,
+      isBiometric,
+      note: savedDayRecord.note || entryNote || '',
+      calculation: existingCalcDayResult,
+    });
 
     if (typeof window !== 'undefined') {
       try {
@@ -2649,11 +2933,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {isLight ? '🌙' : '☀️'}
             </button>
 
-            {/* Notification Bell with Red Dot */}
+            {/* Notification Bell with Red Dot (Opens Activity & Notification Center Modal, does NOT force-redirect to Expenses) */}
             <button
               type="button"
-              onClick={() => navigateTab('expenses')}
-              title="View Auto-Detected Payments & Missing Notes"
+              onClick={() => setShowNotificationsModal(true)}
+              title="Open Attendance & Payment Notifications Center"
               style={{
                 width: 36,
                 height: 36,
@@ -2716,6 +3000,233 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
+        {/* 🔔 NOTIFICATIONS & ACTIVITY CENTER MODAL (Attendance + WhatsApp + Payments) */}
+        {showNotificationsModal && (
+          <div
+            onClick={() => setShowNotificationsModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9999,
+              background: 'rgba(2, 6, 23, 0.78)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 14,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                maxHeight: '86vh',
+                overflowY: 'auto',
+                borderRadius: 20,
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${ui.border}`,
+                boxShadow: '0 22px 50px rgba(0, 0, 0, 0.55)',
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: ui.textPrimary }}>
+                    🔔 Notifications &amp; Activity Center
+                  </div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary }}>
+                    Attendance IN/OUT alerts, WhatsApp (+91 7386726193) &amp; UPI Payment notifications
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowNotificationsModal(false)}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 9,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              {/* Quick WhatsApp Share for Today IN / OUT */}
+              <div style={{
+                padding: 12,
+                borderRadius: 14,
+                background: isLight ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#065f46' : '#6ee7b7' }}>
+                  📲 WhatsApp Live Attendance &amp; Payment Alert (+91 7386726193)
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary, lineHeight: 1.4 }}>
+                  Whenever you punch IN or OUT, a WhatsApp message is prepared for <strong>+91 7386726193</strong>. You can also send or re-send now:
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayIso = getTodayIsoDate();
+                      const rec = daysMap[todayIso] || {};
+                      sendWhatsAppAttendanceAndPaymentAlert('in', {
+                        date: todayIso,
+                        inTime: rec.inTime || entryInTime || settings.officeStartTime || '10:00',
+                        outTime: rec.outTime || '',
+                        status: rec.status || 'present',
+                        isBiometric: Boolean(rec.biometricIn),
+                        note: rec.note || entryNote || '',
+                      });
+                    }}
+                    style={{
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🟢 Send IN Time on WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayIso = getTodayIsoDate();
+                      const rec = daysMap[todayIso] || {
+                        date: todayIso,
+                        status: entryStatus || 'present',
+                        inTime: entryInTime || settings.officeStartTime || '10:00',
+                        outTime: entryOutTime || getNowTimeHHMM(),
+                      };
+                      const calc = computeDayEarnings(rec);
+                      sendWhatsAppAttendanceAndPaymentAlert('out', {
+                        date: todayIso,
+                        inTime: rec.inTime || settings.officeStartTime || '10:00',
+                        outTime: rec.outTime || getNowTimeHHMM(),
+                        workedMins: calc.workedMins,
+                        otMins: calc.otMins,
+                        status: rec.status || 'present',
+                        isBiometric: Boolean(rec.biometricOut),
+                        note: rec.note || entryNote || '',
+                        calculation: calc,
+                      });
+                    }}
+                    style={{
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(37, 99, 235, 0.5)',
+                      background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔴 Send OUT + Payment on WhatsApp
+                  </button>
+                </div>
+              </div>
+
+              {/* Recent Attendance Activity Log */}
+              <div style={{
+                padding: 12,
+                borderRadius: 14,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: ui.textPrimary, marginBottom: 8 }}>
+                  🕒 Recent Attendance Activity ({normalizeEmployeeName(settings.employeeName)})
+                </div>
+                {Object.values(daysMap || {})
+                  .filter((d) => d && d.date)
+                  .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+                  .slice(0, 5)
+                  .map((d) => (
+                    <div
+                      key={d.date}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '7px 0',
+                        borderBottom: `1px solid ${ui.border}`,
+                        fontSize: 11.5,
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: ui.textPrimary }}>{d.date}</strong>{' '}
+                        <span style={{ color: ui.textSecondary }}>({d.status || 'present'})</span>
+                      </div>
+                      <div style={{ fontWeight: 800, color: '#34d399' }}>
+                        IN: {formatTime12h(d.inTime)} · OUT: {d.outTime ? formatTime12h(d.outTime) : '--:-- (Pending)'}
+                      </div>
+                    </div>
+                  ))}
+                {Object.keys(daysMap || {}).length === 0 && (
+                  <div style={{ fontSize: 11.5, color: ui.textMuted }}>
+                    No attendance punches saved yet. Tap IN or OUT on the Today screen.
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Auto-Detected Payment Notifications Summary */}
+              <div style={{
+                padding: 12,
+                borderRadius: 14,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: ui.textPrimary }}>
+                    💳 Auto-Detected Payment Notifications ({Object.keys(expensesMap || {}).length} Permanent)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNotificationsModal(false);
+                      navigateTab('expenses');
+                    }}
+                    style={{
+                      padding: '5px 9px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(219, 39, 119, 0.45)',
+                      background: 'rgba(219, 39, 119, 0.14)',
+                      color: '#f472b6',
+                      fontWeight: 800,
+                      fontSize: 10.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔐 Unlock Expense Memory →
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary }}>
+                  Expense Memory is protected by your Fingerprint / Biometric lock. Tap above to authenticate and view full payment details.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* SEGMENTED PILL SWITCHER: OT & Salary | Expense Memory (Screen 2 & Screen 7) */}
         <div style={{
           display: 'grid',
@@ -2772,27 +3283,148 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               boxShadow: mobileTab === 'expenses' ? '0 6px 16px rgba(219, 39, 119, 0.35)' : 'none',
             }}
           >
-            <span>💳</span>
+            <span>{expensesBiometricUnlocked ? '💳' : '🔐'}</span>
             <span>Expense Memory</span>
             <span style={{ display: 'none' }}>EXPENSES</span>
           </button>
         </div>
 
         {/* ===================================================================
-            SCREENS 7, 8, 9, 10, 11: EXPENSE MEMORY MODULE
+            SCREENS 7, 8, 9, 10, 11: EXPENSE MEMORY MODULE (BIOMETRIC GATED)
            =================================================================== */}
         {showExpensesSection && (
           <ExpensesSectionBoundary>
-            <ExpensesModule
-              expensesMap={expensesMap}
-              onUpdateExpenses={handleUpdateExpenses}
-              selectedMonth={selectedMonth}
-              onChangeMonth={(m) => setSelectedMonth(m)}
-              netMonthlySalary={monthSummary.fullMonthNetPayable}
-              baseMonthlySalary={rates.salary}
-              mobileMode={mobileMode}
-              themeMode={themeMode}
-            />
+            {!expensesBiometricUnlocked ? (
+              <div style={{
+                padding: '28px 20px',
+                borderRadius: 22,
+                background: isLight
+                  ? 'linear-gradient(145deg, #ffffff 0%, #fdf2f8 100%)'
+                  : 'linear-gradient(145deg, #0f172a 0%, #1e1b4b 60%, #170d2b 100%)',
+                border: '1px solid rgba(236, 72, 153, 0.45)',
+                boxShadow: ui.shadow,
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 14,
+              }}>
+                <div style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #db2777 0%, #7c3aed 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 32,
+                  boxShadow: '0 10px 25px rgba(219, 39, 119, 0.4)',
+                }}>
+                  🔐
+                </div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 950, color: ui.textPrimary }}>
+                    Private Expense Vault Locked
+                  </div>
+                  <div style={{ fontSize: 12.5, color: ui.textSecondary, marginTop: 4, maxWidth: 340, lineHeight: 1.5 }}>
+                    Biometric permission is required to view <strong>{normalizeEmployeeName(settings.employeeName)}&apos;s</strong> payments, notes, and permanent transaction ledger. No one can open this tab without your fingerprint or device unlock.
+                  </div>
+                </div>
+
+                {expensesUnlockError && (
+                  <div style={{
+                    padding: '9px 14px',
+                    borderRadius: 12,
+                    background: 'rgba(239, 68, 68, 0.16)',
+                    border: '1px solid rgba(248, 113, 113, 0.45)',
+                    color: '#fca5a5',
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}>
+                    ⚠️ {expensesUnlockError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+                  <button
+                    type="button"
+                    disabled={expensesUnlockBusy}
+                    onClick={() => unlockExpensesWithBiometric()}
+                    style={{
+                      padding: '13px 20px',
+                      borderRadius: 14,
+                      border: '1px solid rgba(236, 72, 153, 0.65)',
+                      background: 'linear-gradient(135deg, #db2777 0%, #7c3aed 55%, #2563eb 100%)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 13.5,
+                      cursor: expensesUnlockBusy ? 'wait' : 'pointer',
+                      boxShadow: '0 8px 22px rgba(219, 39, 119, 0.38)',
+                    }}
+                  >
+                    {expensesUnlockBusy ? '🔄 Verifying Fingerprint...' : '🔓 Unlock Expenses with Biometric'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateTab('today')}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ← Back to OT &amp; Salary
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
+                    🔓 Biometric Verified · Permanent Non-Deletable Ledger Active
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setExpensesBiometricUnlocked(false)}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(239, 68, 68, 0.45)',
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: isLight ? '#b91c1c' : '#fca5a5',
+                      fontWeight: 800,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔒 Lock Now
+                  </button>
+                </div>
+                <ExpensesModule
+                  expensesMap={expensesMap}
+                  onUpdateExpenses={handleUpdateExpenses}
+                  selectedMonth={selectedMonth}
+                  onChangeMonth={(m) => setSelectedMonth(m)}
+                  netMonthlySalary={monthSummary.fullMonthNetPayable}
+                  baseMonthlySalary={rates.salary}
+                  mobileMode={mobileMode}
+                  themeMode={themeMode}
+                />
+              </div>
+            )}
           </ExpensesSectionBoundary>
         )}
 
@@ -3803,6 +4435,247 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             </div>
 
+            {/* ☑️ MULTI-DAY SELECT & SELECT ALL DAYS (Bulk Set IN / OUT Time) */}
+            <div style={{
+              padding: '12px 14px',
+              borderRadius: 18,
+              background: isLight
+                ? 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)'
+                : 'linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(16, 185, 129, 0.12) 100%)',
+              border: '1px solid rgba(59, 130, 246, 0.4)',
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 950, color: ui.textPrimary }}>
+                    ☑️ Select &amp; Select All Days — Set IN / OUT Time
+                  </div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>
+                    {selectedBulkDates.length > 0
+                      ? `${selectedBulkDates.length} day(s) selected`
+                      : `Tap checkboxes below or "Select All Days" (${filteredMonthRows.length} days)`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={selectAllBulkDates}
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: 9,
+                      border: '1px solid rgba(37, 99, 235, 0.5)',
+                      background: '#2563eb',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {filteredMonthRows.length > 0 && filteredMonthRows.every((r) => selectedBulkDates.includes(r.iso))
+                      ? '✕ Deselect All'
+                      : `☑️ Select All Days (${filteredMonthRows.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectWorkingBulkDates}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 9,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🗓️ Mon–Sat
+                  </button>
+                  {selectedBulkDates.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearBulkDates}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 9,
+                        border: '1px solid rgba(239, 68, 68, 0.45)',
+                        background: 'rgba(239, 68, 68, 0.14)',
+                        color: '#f87171',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Clear ({selectedBulkDates.length})
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Bulk IN Time, OUT Time, Status Inputs */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 8,
+              }}>
+                <div style={{
+                  padding: '7px 9px',
+                  borderRadius: 11,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#10b981', marginBottom: 3 }}>
+                    🟢 Bulk IN Time
+                  </div>
+                  <input
+                    type="time"
+                    value={bulkInTime}
+                    onChange={(e) => setBulkInTime(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      fontSize: 12.5,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <div style={{
+                  padding: '7px 9px',
+                  borderRadius: 11,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#f43f5e', marginBottom: 3 }}>
+                    🔴 Bulk OUT Time
+                  </div>
+                  <input
+                    type="time"
+                    value={bulkOutTime}
+                    onChange={(e) => setBulkOutTime(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      fontSize: 12.5,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <div style={{
+                  padding: '7px 9px',
+                  borderRadius: 11,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
+                    📋 Day Status
+                  </div>
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 11.5,
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="keep" style={{ color: '#0f172a' }}>Keep Status</option>
+                    <option value="present" style={{ color: '#0f172a' }}>Present</option>
+                    <option value="half" style={{ color: '#0f172a' }}>Half Day</option>
+                    <option value="holiday_paid" style={{ color: '#0f172a' }}>Paid Off</option>
+                    <option value="leave" style={{ color: '#0f172a' }}>Leave</option>
+                    <option value="ot_only" style={{ color: '#0f172a' }}>OT Only</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Bulk Apply Action Buttons */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 7,
+              }}>
+                <button
+                  type="button"
+                  onClick={() => applyBulkTimeToSelectedDays('in')}
+                  style={{
+                    padding: '9px 10px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(16, 185, 129, 0.5)',
+                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🟢 Set IN Time ({selectedBulkDates.length || filteredMonthRows.length} Days)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyBulkTimeToSelectedDays('out')}
+                  style={{
+                    padding: '9px 10px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(244, 63, 94, 0.5)',
+                    background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔴 Set OUT Time ({selectedBulkDates.length || filteredMonthRows.length} Days)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyBulkTimeToSelectedDays('both')}
+                  style={{
+                    padding: '9px 10px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(37, 99, 235, 0.5)',
+                    background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚡ Set Both IN &amp; OUT ({selectedBulkDates.length || filteredMonthRows.length} Days)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyBulkTimeToSelectedDays('clear_out')}
+                  style={{
+                    padding: '9px 10px',
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardBg,
+                    color: ui.textSecondary,
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🚫 Clear OUT Time ({selectedBulkDates.length || filteredMonthRows.length} Days)
+                </button>
+              </div>
+            </div>
+
             {/* Day Cards List OR Full Table View */}
             {mobileDaysLayout === 'table' ? (
               <div style={{
@@ -3815,6 +4688,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
                   <thead>
                     <tr style={{ background: ui.cardSubBg, color: ui.textSecondary, textAlign: 'left' }}>
+                      <th style={{ padding: '10px 6px', fontWeight: 900, width: 28 }}>
+                        <input
+                          type="checkbox"
+                          checked={filteredMonthRows.length > 0 && filteredMonthRows.every((r) => selectedBulkDates.includes(r.iso))}
+                          onChange={selectAllBulkDates}
+                        />
+                      </th>
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>Date</th>
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>IN → OUT</th>
                       <th style={{ padding: '10px 8px', fontWeight: 900 }}>Worked</th>
@@ -3826,6 +4706,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     {filteredMonthRows.map((row) => {
                       const r = row.record;
                       const e = row.earnings;
+                      const isBulkChecked = selectedBulkDates.includes(row.iso);
                       return (
                         <tr
                           key={row.iso}
@@ -3836,14 +4717,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           style={{
                             borderTop: `1px solid ${ui.border}`,
                             cursor: 'pointer',
-                            background: row.iso === selectedDate ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                            background: isBulkChecked
+                              ? 'rgba(16, 185, 129, 0.12)'
+                              : row.iso === selectedDate
+                                ? 'rgba(37, 99, 235, 0.1)'
+                                : 'transparent',
                           }}
                         >
+                          <td
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              toggleBulkSelectDate(row.iso);
+                            }}
+                            style={{ padding: '9px 6px' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isBulkChecked}
+                              onChange={() => {}}
+                            />
+                          </td>
                           <td style={{ padding: '9px 8px', fontWeight: 900, color: row.isSunday ? '#f87171' : ui.textPrimary }}>
                             {String(row.dayNum).padStart(2, '0')} {row.dayName}
                           </td>
                           <td style={{ padding: '9px 8px', fontWeight: 700, color: ui.textPrimary }}>
-                            {formatTime12h(r.inTime || '10:00')}–{formatTime12h(r.outTime || '18:30')}
+                            {formatTime12h(r.inTime || '10:00')} → {r.outTime ? formatTime12h(r.outTime) : '--:-- (Pending)'}
                           </td>
                           <td style={{ padding: '9px 8px', fontWeight: 700, color: ui.textSecondary }}>
                             {formatMinutesCompact(e.workedMins)}
@@ -3866,6 +4764,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   const r = row.record;
                   const e = row.earnings;
                   const isSelected = row.iso === selectedDate;
+                  const isBulkChecked = selectedBulkDates.includes(row.iso);
                   return (
                     <div
                       key={row.iso}
@@ -3876,18 +4775,49 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       style={{
                         padding: '12px 14px',
                         borderRadius: 16,
-                        background: ui.cardBg,
-                        border: isSelected
-                          ? '1.5px solid #3b82f6'
-                          : `1px solid ${ui.border}`,
+                        background: isBulkChecked
+                          ? (isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.1)')
+                          : ui.cardBg,
+                        border: isBulkChecked
+                          ? '1.5px solid #10b981'
+                          : isSelected
+                            ? '1.5px solid #3b82f6'
+                            : `1px solid ${ui.border}`,
                         boxShadow: ui.shadow,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        gap: 12,
+                        gap: 10,
                         cursor: 'pointer',
                       }}
                     >
+                      {/* Multi-Day Select Checkbox */}
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          toggleBulkSelectDate(row.iso);
+                        }}
+                        title="Select day for bulk IN/OUT time update"
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: 8,
+                          border: isBulkChecked ? '1.5px solid #10b981' : `1.5px solid ${ui.border}`,
+                          background: isBulkChecked ? '#10b981' : ui.cardSubBg,
+                          color: isBulkChecked ? '#ffffff' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 900,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        ✓
+                      </button>
+
                       {/* Left Date Badge (19 Mon) */}
                       <div style={{
                         width: 48,
@@ -3931,7 +4861,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           gap: 6,
                           flexWrap: 'wrap',
                         }}>
-                          <span>{formatTime12h(r.inTime || '10:00')} → {formatTime12h(r.outTime || '18:30')}</span>
+                          <span>
+                            {formatTime12h(r.inTime || '10:00')} →{' '}
+                            <span style={{ color: r.outTime ? ui.textPrimary : '#f59e0b' }}>
+                              {r.outTime ? formatTime12h(r.outTime) : '--:-- (Pending OUT)'}
+                            </span>
+                          </span>
                           {r.biometricIn && <span style={{ fontSize: 10, color: '#38bdf8' }}>🫆IN</span>}
                           {r.biometricOut && <span style={{ fontSize: 10, color: '#10b981' }}>🫆OUT</span>}
                         </div>
@@ -3947,7 +4882,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         </div>
                       </div>
 
-                      {/* Right Checkmark Badge */}
+                      {/* Right Saved Badge */}
                       <div style={{
                         width: 28,
                         height: 28,
@@ -4694,13 +5629,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm(`Clear saved attendance records for ${selectedMonth}?`)) {
+                  if (window.confirm(`Clear saved attendance records for ${selectedMonth}?\n\n🔒 Note: Your Payment & Expense Transactions are permanently protected and will NEVER be deleted.`)) {
                     const next = { ...daysMap };
                     for (const k of Object.keys(next)) {
                       if (k.startsWith(selectedMonth)) delete next[k];
                     }
                     setDaysMap(next);
-                    persistStore(settings, next, `Cleared ${selectedMonth} attendance`);
+                    persistStore(
+                      settings,
+                      next,
+                      `Cleared ${selectedMonth} attendance (Permanent Payment Transactions preserved)`,
+                      expensesMapRef.current
+                    );
                   }
                 }}
                 style={{
@@ -4717,7 +5657,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   alignItems: 'center',
                 }}
               >
-                <span>🗑️ Clear All Data</span>
+                <span>🗑️ Clear Attendance Data (Payments Protected 🔒)</span>
                 <span>›</span>
               </button>
             </div>

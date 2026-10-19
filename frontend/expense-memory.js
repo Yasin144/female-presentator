@@ -347,7 +347,11 @@ export function loadEncryptedExpenseStore() {
             ) {
               continue;
             }
-            cleanMap[id] = tx._deleted ? tx : migrateAndNormalizeExpenseRecord({ ...tx, rawText: '' });
+            const normalized = migrateAndNormalizeExpenseRecord({ ...tx, _deleted: false, rawText: '' });
+            if (normalized) {
+              delete normalized._deleted;
+              cleanMap[id] = normalized;
+            }
           }
         }
       }
@@ -395,8 +399,9 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
     ) {
       continue;
     }
-    // Never persist full raw notification text in production storage
-    const cleanTx = { ...tx, rawText: '' };
+    // Never persist full raw notification text or _deleted flag in production storage
+    const cleanTx = { ...tx, _deleted: false, rawText: '' };
+    delete cleanTx._deleted;
     sanitizedMap[id] = cleanTx;
   }
 

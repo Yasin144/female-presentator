@@ -666,6 +666,43 @@ public class MainActivity extends BridgeActivity {
                 if (conn != null) conn.disconnect();
             }
         }
+
+        @JavascriptInterface
+        public boolean sendWhatsAppMessageToNumber(final String phoneE164, final String messageText) {
+            try {
+                final String digits = (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
+                final String targetPhone = digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits);
+                final String msg = messageText != null ? messageText : "";
+                final String encodedMsg = Uri.encode(msg);
+                runOnUiThread(() -> {
+                    try {
+                        Uri waUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
+                        Intent waIntent = new Intent(Intent.ACTION_VIEW, waUri);
+                        waIntent.setPackage("com.whatsapp");
+                        waIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(waIntent);
+                        return;
+                    } catch (Exception ignored) {}
+                    try {
+                        Uri waBizUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
+                        Intent waBizIntent = new Intent(Intent.ACTION_VIEW, waBizUri);
+                        waBizIntent.setPackage("com.whatsapp.w4b");
+                        waBizIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(waBizIntent);
+                        return;
+                    } catch (Exception ignored) {}
+                    try {
+                        Uri webUri = Uri.parse("https://wa.me/" + targetPhone + "?text=" + encodedMsg);
+                        Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
+                        webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(webIntent);
+                    } catch (Exception ignored) {}
+                });
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
     }
 
     private final class RecoveringWebViewClient extends BridgeWebViewClient {

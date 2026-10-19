@@ -711,6 +711,61 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(analytics.grossExpenses, 150 + 480 + 95 + 1250 + 200);
       assert.ok(analytics.topMerchant && analytics.topMerchant.merchant);
     });
+
+    it('verifies all 7 v6.6 enhancements: no default Exit Time, Multi-Day Select All, Notification Center, WhatsApp IN/OUT+Payment, Permanent Ledger, Prominent Notes & Biometric Expense Lock', () => {
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      const mainActivitySrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/java/com/pattan/presentator/MainActivity.java'),
+        'utf8'
+      );
+      const parserJavaSrc = fs.readFileSync(
+        path.join(process.cwd(), 'android/app/src/main/java/com/pattan/presentator/MobileTransactionParser.java'),
+        'utf8'
+      );
+
+      // 1. Default Exit Time is empty ('') instead of '18:30'
+      assert.equal(otSalarySrc.includes("const [entryOutTime, setEntryOutTime] = useState('')"), true);
+      assert.equal(otSalarySrc.includes('--:-- (Pending OUT)'), true);
+
+      // 2. Multi-Day Select & Select All Days for IN/OUT Time
+      assert.equal(otSalarySrc.includes('selectAllBulkDates'), true);
+      assert.equal(otSalarySrc.includes('selectWorkingBulkDates'), true);
+      assert.equal(otSalarySrc.includes('applyBulkTimeToSelectedDays'), true);
+      assert.equal(otSalarySrc.includes('Select &amp; Select All Days — Set IN / OUT Time'), true);
+
+      // 3. Notification Bell opens Notifications & Activity Center Modal instead of force-redirecting to Expenses
+      assert.equal(otSalarySrc.includes('onClick={() => setShowNotificationsModal(true)}'), true);
+      assert.equal(otSalarySrc.includes('Notifications &amp; Activity Center'), true);
+
+      // 4. WhatsApp message on BOTH IN and OUT (+ Payment Details) to +91 7386726193
+      assert.equal(otSalarySrc.includes('sendWhatsAppAttendanceAndPaymentAlert'), true);
+      assert.equal(otSalarySrc.includes("sendWhatsAppAttendanceAndPaymentAlert('in'"), true);
+      assert.equal(otSalarySrc.includes("sendWhatsAppAttendanceAndPaymentAlert('out'"), true);
+      assert.equal(mainActivitySrc.includes('sendWhatsAppMessageToNumber'), true);
+
+      // 5. Prominent Notes ("For What / Which Thing") & Responsive Recent Payments
+      assert.equal(expensesSrc.includes('recentPaymentsList'), true);
+      assert.equal(expensesSrc.includes('sourceTransactionsForList'), true);
+      assert.equal(expensesSrc.includes('Recent Payments (Permanent Ledger)'), true);
+      assert.equal(expensesSrc.includes('For What / Which Thing:'), true);
+
+      // 6. Permanent Non-Deletable Transactions (even on Clear All Data)
+      assert.equal(parserJavaSrc.includes('permanent_expense_vault.enc'), true);
+      assert.equal(expensesSrc.includes('Permanent Ledger (Never Deleted)'), true);
+      assert.equal(otSalarySrc.includes('Clear Attendance Data (Payments Protected 🔒)'), true);
+
+      // 7. Biometric Lock when shifting to Expenses
+      assert.equal(otSalarySrc.includes('unlockExpensesWithBiometric'), true);
+      assert.equal(otSalarySrc.includes('Private Expense Vault Locked'), true);
+    });
   });
 });
+
 

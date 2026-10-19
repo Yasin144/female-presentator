@@ -866,6 +866,7 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     byApp,
     byDay,
     refundHistory,
+    allActiveList: activeAll,
     monthActiveList,
     monthTxList: monthActiveList,
     categoryBreakdown,
