@@ -3777,19 +3777,113 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showTodaySection && (
           <>
-            {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (Executive Vault Card) */}
+            {/* EXECUTIVE CORPORATE BRAND RIBBON (v7.0) */}
+            <div style={{
+              padding: '9px 14px',
+              borderRadius: 16,
+              background: isLight
+                ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+                : 'linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(16, 185, 129, 0.14) 55%, rgba(37, 99, 235, 0.16) 100%)',
+              border: '1px solid rgba(251, 191, 36, 0.42)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              flexWrap: 'wrap',
+              boxShadow: '0 8px 20px -6px rgba(0, 0, 0, 0.35)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  color: '#040812',
+                  fontSize: 10,
+                  fontWeight: 950,
+                  letterSpacing: '0.06em',
+                }}>
+                  YASIN SALARY PRO v7.0
+                </span>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: isLight ? '#f8fafc' : '#fde68a',
+                  letterSpacing: '0.02em',
+                }}>
+                  Executive Biometric &amp; Fintech Suite
+                </span>
+              </div>
+              <span style={{
+                fontSize: 10.5,
+                fontWeight: 800,
+                color: '#34d399',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}>
+                <span className="ot-live-dot" />
+                <span>WhatsApp +91 7386726193 Ready</span>
+              </span>
+            </div>
+
+            {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (Executive Banking Vault Card) */}
             <div
               className="ot-hero-vault-card"
               style={{
-                padding: '19px 18px 16px',
+                padding: '20px 18px 16px',
                 borderRadius: 24,
                 background: isLight
-                  ? 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 65%, #e0f2fe 100%)'
-                  : 'linear-gradient(140deg, #0b2e2d 0%, #0a192f 55%, #081121 100%)',
-                border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(52, 211, 153, 0.36)',
-                boxShadow: ui.shadow,
+                  ? 'linear-gradient(135deg, #0f172a 0%, #064e3b 65%, #0c4a6e 100%)'
+                  : 'linear-gradient(140deg, #071925 0%, #0a2829 48%, #0f172a 100%)',
+                border: '1.5px solid rgba(251, 191, 36, 0.42)',
+                boxShadow: '0 20px 44px -10px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+                color: '#ffffff',
               }}
             >
+              {/* Top Metallic Vault Chip & Security Badge Strip */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 12,
+                paddingBottom: 10,
+                borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                position: 'relative',
+                zIndex: 1,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    width: 28,
+                    height: 20,
+                    borderRadius: 5,
+                    background: 'linear-gradient(135deg, #fde68a 0%, #f59e0b 55%, #b45309 100%)',
+                    border: '1px solid rgba(255, 255, 255, 0.45)',
+                    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.5)',
+                  }} />
+                  <span style={{
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    letterSpacing: '0.08em',
+                    color: '#fde68a',
+                    textTransform: 'uppercase',
+                  }}>
+                    CORPORATE PAYROLL VAULT · {normalizeEmployeeName(settings.employeeName)}
+                  </span>
+                </div>
+                <span style={{
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                  background: salaryBiometricVisible ? 'rgba(244, 63, 94, 0.22)' : 'rgba(16, 185, 129, 0.22)',
+                  border: salaryBiometricVisible ? '1px solid rgba(244, 63, 94, 0.5)' : '1px solid rgba(52, 211, 153, 0.45)',
+                  color: salaryBiometricVisible ? '#fda4af' : '#6ee7b7',
+                  fontSize: 10,
+                  fontWeight: 900,
+                }}>
+                  {salaryBiometricVisible ? '🔓 Salary Unlocked' : '🔒 Biometric Protected'}
+                </span>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
@@ -3803,7 +3897,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       fontSize: 12.5,
                       fontWeight: 800,
                       letterSpacing: '0.01em',
-                      color: isLight ? '#047857' : '#a7f3d0',
+                      color: '#a7f3d0',
                     }}>
                       Net Salary (This Month)
                     </span>
@@ -3812,11 +3906,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div
                     className="ot-tabular-nums"
                     style={{
-                      fontSize: 32,
+                      fontSize: 33,
                       fontWeight: 950,
-                      color: isLight ? '#0f172a' : '#ffffff',
+                      color: '#ffffff',
                       letterSpacing: '-0.02em',
                       lineHeight: 1.1,
+                      textShadow: '0 2px 12px rgba(16, 185, 129, 0.28)',
                     }}
                   >
                     {formatSalaryMask(monthSummary.fullMonthNetPayable)}
@@ -3827,7 +3922,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       marginTop: 7,
                       fontSize: 12,
                       fontWeight: 700,
-                      color: isLight ? '#059669' : '#6ee7b7',
+                      color: '#6ee7b7',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6,
@@ -3849,7 +3944,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       cy="39"
                       r={ringRadius}
                       fill="none"
-                      stroke={isLight ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255, 255, 255, 0.1)'}
+                      stroke="rgba(255, 255, 255, 0.14)"
                       strokeWidth="6"
                     />
                     <circle
@@ -3857,7 +3952,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       cy="39"
                       r={ringRadius}
                       fill="none"
-                      stroke="#10b981"
+                      stroke="#fbbf24"
                       strokeWidth="6"
                       strokeLinecap="round"
                       strokeDasharray={ringCircumference}
@@ -3874,10 +3969,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     justifyContent: 'center',
                     textAlign: 'center',
                   }}>
-                    <span className="ot-tabular-nums" style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#0f172a' : '#ffffff', lineHeight: 1.1 }}>
+                    <span className="ot-tabular-nums" style={{ fontSize: 13, fontWeight: 950, color: '#ffffff', lineHeight: 1.1 }}>
                       {monthSummary.savedDaysCount}/{monthRows.length}
                     </span>
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: ui.textSecondary }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#cbd5e1' }}>
                       Days
                     </span>
                   </div>
@@ -3888,7 +3983,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <div style={{
                 marginTop: 14,
                 paddingTop: 12,
-                borderTop: isLight ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.09)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.12)',
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: 8,
@@ -3896,26 +3991,103 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 zIndex: 1,
               }}>
                 <div>
-                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Worked:</div>
-                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: isLight ? '#0f172a' : '#ffffff', marginTop: 1 }}>
+                  <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600 }}>Worked:</div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#ffffff', marginTop: 1 }}>
                     {monthSummary.savedDaysCount} Days
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>Total OT:</div>
+                  <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600 }}>Total OT:</div>
                   <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#38bdf8', marginTop: 1 }}>
                     {formatMinutesCompact(monthSummary.totalOtMins)}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span>OT Earned:</span>
                     {renderSalaryEyeButton(true)}
                   </div>
-                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#10b981', marginTop: 1 }}>
+                  <div className="ot-tabular-nums" style={{ fontSize: 13.5, fontWeight: 900, color: '#fbbf24', marginTop: 1 }}>
                     {formatSalaryMask(monthSummary.totalOtPay)}
                   </div>
                 </div>
+              </div>
+
+              {/* 4-Button Executive Quick Action Dock */}
+              <div style={{
+                marginTop: 12,
+                paddingTop: 10,
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 6,
+                position: 'relative',
+                zIndex: 1,
+              }}>
+                <button
+                  type="button"
+                  onClick={() => toggleSalaryVisibilityWithBiometric()}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(251, 191, 36, 0.45)',
+                    background: 'rgba(251, 191, 36, 0.14)',
+                    color: '#fde68a',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {salaryBiometricVisible ? '🙈 Hide Pay' : '👁️ Show Pay'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTab('month')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    background: 'rgba(56, 189, 248, 0.14)',
+                    color: '#bae6fd',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📅 Bulk Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTab('summary')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(52, 211, 153, 0.4)',
+                    background: 'rgba(16, 185, 129, 0.16)',
+                    color: '#a7f3d0',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🧾 Pay Slip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTab('expenses')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(244, 114, 182, 0.45)',
+                    background: 'rgba(219, 39, 119, 0.18)',
+                    color: '#fbcfe8',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔐 Expenses
+                </button>
               </div>
             </div>
 
