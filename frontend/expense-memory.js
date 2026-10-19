@@ -29,9 +29,25 @@ export const ALLOWED_PAYMENT_PACKAGES = Object.freeze([
   { pkg: 'com.phonepe.app', label: 'PhonePe', appLabel: 'PhonePe' },
   { pkg: 'net.one97.paytm', label: 'Paytm', appLabel: 'Paytm' },
   { pkg: 'in.org.npci.upiapp', label: 'BHIM UPI', appLabel: 'BHIM UPI' },
-  { pkg: 'in.amazon.mShop.android.shopping', label: 'Amazon Pay', appLabel: 'Amazon Pay' },
+  { pkg: 'money.super.payments', label: 'Super.money', appLabel: 'Super.money' },
   { pkg: 'com.dreamplug.androidapp', label: 'CRED', appLabel: 'CRED' },
+  { pkg: 'com.naviapp', label: 'Navi UPI', appLabel: 'Navi UPI' },
+  { pkg: 'in.amazon.mShop.android.shopping', label: 'Amazon Pay', appLabel: 'Amazon Pay' },
   { pkg: 'com.whatsapp', label: 'WhatsApp Pay', appLabel: 'WhatsApp Pay' },
+  { pkg: 'com.whatsapp.w4b', label: 'WhatsApp Business Pay', appLabel: 'WhatsApp Pay' },
+  { pkg: 'com.mobikwik_new', label: 'MobiKwik', appLabel: 'MobiKwik' },
+  { pkg: 'com.freecharge.android', label: 'Freecharge', appLabel: 'Freecharge' },
+  { pkg: 'indwin.c3.shareapp', label: 'slice UPI', appLabel: 'slice UPI' },
+  { pkg: 'com.fampay.in', label: 'FamPay', appLabel: 'FamPay' },
+  { pkg: 'money.jupiter', label: 'Jupiter', appLabel: 'Jupiter' },
+  { pkg: 'com.epifi.paisa', label: 'Fi Money', appLabel: 'Fi Money' },
+  { pkg: 'com.tatadigital.tcp', label: 'Tata Neu UPI', appLabel: 'Tata Neu' },
+  { pkg: 'org.altruist.BajajExperia', label: 'Bajaj Pay UPI', appLabel: 'Bajaj Pay' },
+  { pkg: 'com.samsung.android.spay', label: 'Samsung Pay', appLabel: 'Samsung Pay' },
+  { pkg: 'com.samsung.android.spaymini', label: 'Samsung Pay Mini', appLabel: 'Samsung Pay' },
+  { pkg: 'com.myairtelapp', label: 'Airtel Thanks UPI', appLabel: 'Airtel Thanks' },
+  { pkg: 'com.airtel.PaymentsBank', label: 'Airtel Payments Bank', appLabel: 'Airtel Payments Bank' },
+  { pkg: 'com.jio.myjio', label: 'JioPay', appLabel: 'JioPay' },
   { pkg: 'com.snapwork.hdfc', label: 'HDFC Bank', appLabel: 'HDFC Bank' },
   { pkg: 'com.Snapwork.hdfc', label: 'HDFC Bank', appLabel: 'HDFC Bank' },
   { pkg: 'com.sbi.lotusintouch', label: 'SBI YONO', appLabel: 'SBI YONO' },
@@ -45,10 +61,14 @@ export const ALLOWED_PAYMENT_PACKAGES = Object.freeze([
   { pkg: 'com.idfcfirstbank.optimus', label: 'IDFC FIRST Bank', appLabel: 'IDFC FIRST Bank' },
   { pkg: 'com.indusind.indie', label: 'IndusInd Bank', appLabel: 'IndusInd Bank' },
   { pkg: 'com.finopaymentbank.mobile', label: 'Fino Bank', appLabel: 'Fino Bank' },
-  { pkg: 'com.airtel.PaymentsBank', label: 'Airtel Payments Bank', appLabel: 'Airtel Payments Bank' },
-  { pkg: 'com.jio.myjio', label: 'JioPay', appLabel: 'JioPay' },
-  { pkg: 'com.mobikwik_new', label: 'MobiKwik', appLabel: 'MobiKwik' },
-  { pkg: 'com.freecharge.android', label: 'Freecharge', appLabel: 'Freecharge' },
+  { pkg: 'com.Version1', label: 'PNB One', appLabel: 'PNB One' },
+  { pkg: 'com.infrasoft.uboi', label: 'Union Bank', appLabel: 'Union Bank' },
+  { pkg: 'com.fedmobile', label: 'Federal Bank', appLabel: 'Federal Bank' },
+  { pkg: 'com.iris.yesbank', label: 'YES Bank', appLabel: 'YES Bank' },
+  { pkg: 'com.ippb.mobilebanking', label: 'IPPB Mobile', appLabel: 'IPPB' },
+  { pkg: 'com.google.android.apps.messaging', label: 'Bank/UPI SMS (Messages)', appLabel: 'Bank SMS' },
+  { pkg: 'com.samsung.android.messaging', label: 'Bank/UPI SMS (Samsung)', appLabel: 'Bank SMS' },
+  { pkg: 'com.android.mms', label: 'Bank/UPI SMS', appLabel: 'Bank SMS' },
 ]);
 
 const ALLOWED_PACKAGE_SET = new Set(
@@ -317,7 +337,16 @@ export function loadEncryptedExpenseStore() {
         const parsed = JSON.parse(rawJson);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
           for (const [id, tx] of Object.entries(parsed)) {
-            if (!tx || typeof tx !== 'object' || tx.isDemoPreview || tx._demoPreview) continue;
+            if (
+              !tx ||
+              typeof tx !== 'object' ||
+              tx.isDemoPreview ||
+              tx._demoPreview ||
+              tx.source === 'demo-preview' ||
+              String(id).startsWith('demo_tx_')
+            ) {
+              continue;
+            }
             cleanMap[id] = tx._deleted ? tx : migrateAndNormalizeExpenseRecord({ ...tx, rawText: '' });
           }
         }
@@ -356,7 +385,16 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
 
   const sanitizedMap = {};
   for (const [id, tx] of Object.entries(expensesMap || {})) {
-    if (!tx || typeof tx !== 'object' || tx.isDemoPreview || tx._demoPreview) continue;
+    if (
+      !tx ||
+      typeof tx !== 'object' ||
+      tx.isDemoPreview ||
+      tx._demoPreview ||
+      tx.source === 'demo-preview' ||
+      String(id).startsWith('demo_tx_')
+    ) {
+      continue;
+    }
     // Never persist full raw notification text in production storage
     const cleanTx = { ...tx, rawText: '' };
     sanitizedMap[id] = cleanTx;

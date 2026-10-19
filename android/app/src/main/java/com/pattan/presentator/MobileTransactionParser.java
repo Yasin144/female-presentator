@@ -39,25 +39,56 @@ public final class MobileTransactionParser {
         "com.phonepe.app",
         "net.one97.paytm",
         "in.org.npci.upiapp",
-        "in.amazon.mShop.android.shopping",
+        "money.super.payments",
         "com.dreamplug.androidapp",
+        "com.naviapp",
+        "in.amazon.mShop.android.shopping",
+        "in.amazon.mshop.android.shopping",
         "com.whatsapp",
+        "com.whatsapp.w4b",
+        "com.mobikwik_new",
+        "com.freecharge.android",
+        "indwin.c3.shareapp",
+        "com.fampay.in",
+        "money.jupiter",
+        "com.epifi.paisa",
+        "com.tatadigital.tcp",
+        "org.altruist.BajajExperia",
+        "org.altruist.bajajexperia",
+        "com.samsung.android.spay",
+        "com.samsung.android.spaymini",
+        "com.myairtelapp",
+        "com.airtel.PaymentsBank",
+        "com.airtel.paymentsbank",
+        "com.jio.myjio",
         "com.csam.icici.bank.imobile",
         "com.snapwork.hdfc",
+        "com.Snapwork.hdfc",
         "com.sbi.lotusintouch",
         "com.sbi.SBIFreedomPlus",
+        "com.sbi.sbifreedomplus",
         "com.axis.mobile",
         "com.msf.kbank.mobile",
+        "com.bankofbaroda.mconnect",
+        "com.bob.world",
         "com.infrasofttech.CentralBank",
+        "com.infrasofttech.centralbank",
         "com.infrasoft.uboi",
         "com.canarabank.mobility",
         "com.Version1",
-        "com.bob.world",
+        "com.version1",
         "com.idfcfirstbank.optimus",
         "com.indusind.indie",
+        "com.finopaymentbank.mobile",
         "com.rblbank.mobank",
         "com.yesbank",
-        "com.federalbank.fedmobile"
+        "com.iris.yesbank",
+        "com.fedmobile",
+        "com.federalbank.fedmobile",
+        "com.ippb.mobilebanking",
+        "com.google.android.apps.messaging",
+        "com.samsung.android.messaging",
+        "com.android.mms"
     )));
 
     private static final Pattern AMOUNT_PATTERN_PREFIX = Pattern.compile(
@@ -65,6 +96,9 @@ public final class MobileTransactionParser {
     );
     private static final Pattern AMOUNT_PATTERN_SUFFIX = Pattern.compile(
         "(?i)([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:rs\\.?|inr|₹)"
+    );
+    private static final Pattern AMOUNT_PATTERN_VERB = Pattern.compile(
+        "(?i)(?:debited|credited|paid|sent|received|spent|transferred|deducted)\\s+(?:by|for|with|of)?\\s*(?:₹|rs\\.?|inr)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)"
     );
     private static final Pattern REF_PATTERN = Pattern.compile(
         "(?i)(?:upi\\s*(?:ref)?(?:\\s*no\\.?|\\s*id)?|utr|ref(?:erence)?(?:\\s*no\\.?)?|txn\\s*(?:id|no\\.?)?)\\s*[:\\-/]?\\s*([0-9]{9,14})"
@@ -76,7 +110,7 @@ public final class MobileTransactionParser {
         "(?i)(?:note|remarks?|purpose|for|comment|message|description)\\s*[:\\-]\\s*([^\\n\\r.;]{2,80})"
     );
     private static final Pattern MERCHANT_PATTERN = Pattern.compile(
-        "(?i)(?:paid\\s+to|sent\\s+to|trf\\s+to|transferred\\s+to|to\\s+vpa|received\\s+from|from\\s+vpa|at|towards|to)\\s+([A-Za-z0-9@._\\-\\s&]{2,38}?)(?=\\s+(?:on|ref|upi|utr|txn|via|for|note|remarks|a/c|ac|acct|avl|bal|using|from|\\.|,|\\n|$))"
+        "(?i)(?:paid\\s+to|sent\\s+to|trf\\s+to|transferred\\s+to|to\\s+vpa|received\\s+from|from\\s+vpa|at|towards|to)\\s+([A-Za-z0-9@._\\-\\s&]{2,38}?)(?=\\s+(?:is\\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a/c|ac|acct|avl|bal|using|from|\\.|,|\\n|$))"
     );
 
     private MobileTransactionParser() {}
@@ -84,7 +118,8 @@ public final class MobileTransactionParser {
     public static boolean isAllowedPaymentPackage(String packageName) {
         if (packageName == null) return false;
         String clean = packageName.trim();
-        return !clean.isEmpty() && ALLOWED_PAYMENT_PACKAGES.contains(clean);
+        if (clean.isEmpty()) return false;
+        return ALLOWED_PAYMENT_PACKAGES.contains(clean) || ALLOWED_PAYMENT_PACKAGES.contains(clean.toLowerCase(Locale.ROOT));
     }
 
     public static JSONObject parseSmsOrNotification(
@@ -112,18 +147,23 @@ public final class MobileTransactionParser {
                 || lower.contains("upi pin")
                 || lower.contains("never share your pin");
             boolean hasCompletionWord = lower.contains("debited") || lower.contains("credited")
-                || lower.contains("paid") || lower.contains("sent ")
+                || lower.contains("paid") || lower.contains("sent")
                 || lower.contains("received") || lower.contains("spent")
                 || lower.contains("withdrawn") || lower.contains("transferred")
+                || lower.contains("deducted") || lower.contains("trf to")
+                || lower.contains("payment of") || lower.contains("payment to")
+                || lower.contains("payment successful") || lower.contains("payment completed")
+                || lower.contains("money sent") || lower.contains("money received")
                 || lower.contains("refund") || lower.contains("reversed")
-                || lower.contains("failed") || lower.contains("declined");
+                || lower.contains("failed") || lower.contains("declined")
+                || lower.contains("pending") || lower.contains("processing");
 
             if (hasOtpWord && !hasCompletionWord) return null;
 
             // Ignore promotional offers / loan spam
             if ((lower.contains("pre-approved") || lower.contains("apply now") || lower.contains("loan up to")
                 || lower.contains("get flat") || lower.contains("win up to") || lower.contains("click http"))
-                && !lower.contains("debited") && !lower.contains("credited")) {
+                && !lower.contains("debited") && !lower.contains("credited") && !lower.contains("paid")) {
                 return null;
             }
 
@@ -140,6 +180,11 @@ public final class MobileTransactionParser {
                 Matcher mSuffix = AMOUNT_PATTERN_SUFFIX.matcher(fullText);
                 if (mSuffix.find()) {
                     amount = parseDoubleSafe(mSuffix.group(1));
+                } else {
+                    Matcher mVerb = AMOUNT_PATTERN_VERB.matcher(fullText);
+                    if (mVerb.find()) {
+                        amount = parseDoubleSafe(mVerb.group(1));
+                    }
                 }
             }
             if (amount <= 0.0 || amount > 100000000.0) return null;
@@ -158,11 +203,13 @@ public final class MobileTransactionParser {
             boolean isRefund = lower.contains("refund") || lower.contains("reversed") || lower.contains("reversal") || lower.contains("cashback");
             boolean isSelfTransfer = lower.contains("self transfer") || lower.contains("to self") || lower.contains("own account") || lower.contains("between your accounts");
             boolean isCredit = lower.contains("credited") || lower.contains("received")
-                || lower.contains("deposited") || lower.contains("added to your") || lower.contains("upi/cr/");
+                || lower.contains("deposited") || lower.contains("added to your") || lower.contains("upi/cr/")
+                || lower.contains("money received");
             boolean isDebit = lower.contains("debited") || lower.contains("spent")
                 || lower.contains("paid") || lower.contains("sent")
                 || lower.contains("withdrawn") || lower.contains("deducted")
-                || lower.contains("trf to") || lower.contains("upi/dr/");
+                || lower.contains("trf to") || lower.contains("upi/dr/")
+                || lower.contains("payment of") || lower.contains("payment to") || lower.contains("money sent");
 
             String type = "debit";
             if (isSelfTransfer) {
@@ -191,9 +238,12 @@ public final class MobileTransactionParser {
                 }
             }
 
-            // 5. Extract Merchant / Payee
+            // 5. Identify Payment App & Method
+            String app = detectPaymentApp(senderOrPkg, fullText);
+            String paymentMethod = detectPaymentMethod(app, fullText);
+
+            // 6. Extract Merchant / Payee
             String merchant = "";
-            boolean merchantUncertain = false;
             Matcher mMerch = MERCHANT_PATTERN.matcher(fullText);
             if (mMerch.find()) {
                 merchant = cleanMerchantName(mMerch.group(1));
@@ -204,21 +254,24 @@ public final class MobileTransactionParser {
             if (merchant.isEmpty() && title != null && !title.trim().isEmpty()) {
                 String cleanTitle = title.trim();
                 if (!cleanTitle.equalsIgnoreCase("Google Pay")
+                    && !cleanTitle.equalsIgnoreCase("GPay")
                     && !cleanTitle.equalsIgnoreCase("PhonePe")
                     && !cleanTitle.equalsIgnoreCase("Paytm")
-                    && !cleanTitle.equalsIgnoreCase("BHIM")) {
+                    && !cleanTitle.equalsIgnoreCase("BHIM")
+                    && !cleanTitle.equalsIgnoreCase("Super.money")
+                    && !cleanTitle.equalsIgnoreCase("CRED")
+                    && !cleanTitle.equalsIgnoreCase("Navi")) {
                     merchant = cleanMerchantName(cleanTitle);
                 }
             }
             if (merchant.isEmpty()) {
-                merchantUncertain = true;
                 if ("refund".equals(type)) merchant = "Refund / Reversal";
                 else if ("transfer".equals(type)) merchant = "Self Account Transfer";
-                else if ("credit".equals(type)) merchant = "Bank / UPI Credit";
-                else merchant = "UPI / Merchant Payment";
+                else if ("credit".equals(type)) merchant = !app.equals("Bank Notice") ? app + " Received" : "UPI / Bank Credit";
+                else merchant = !app.equals("Bank Notice") ? app + " Payment" : "UPI Payment";
             }
 
-            // 6. Extract Original Payment Remark (never fabricated if missing!)
+            // 7. Extract Original Payment Remark (never fabricated if missing!)
             String originalRemark = "";
             Matcher mNote = NOTE_EXPLICIT_PATTERN.matcher(fullText);
             if (mNote.find()) {
@@ -234,10 +287,6 @@ public final class MobileTransactionParser {
                     originalRemark = candidate;
                 }
             }
-
-            // 7. Identify Payment Method & App
-            String app = detectPaymentApp(senderOrPkg, fullText);
-            String paymentMethod = detectPaymentMethod(app, fullText);
 
             // 8. Auto-detect Category
             String category = detectCategory(merchant, originalRemark, fullText, type);
@@ -258,7 +307,7 @@ public final class MobileTransactionParser {
                 ? "mob_ref_" + refId + "_" + Math.round(amount)
                 : "mob_ts_" + (ts / 120000L) + "_" + Math.round(amount * 100);
 
-            String reconciliationStatus = (merchantUncertain || !"completed".equals(status))
+            String reconciliationStatus = !"completed".equals(status)
                 ? "needs_review"
                 : "auto_detected";
 
@@ -349,26 +398,37 @@ public final class MobileTransactionParser {
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             String encMap = prefs.getString(KEY_EXPENSE_STORE_MAP_ENC, "");
+            JSONObject mapObj = new JSONObject();
             if (encMap != null && !encMap.isEmpty()) {
-                return decryptJsonString(encMap, "{}");
-            }
-            // Migrate any captured notification array into the encrypted map if present
-            JSONArray captured = getSavedCapturedTransactions(context);
-            if (captured.length() > 0) {
-                JSONObject migrated = new JSONObject();
-                for (int i = 0; i < captured.length(); i++) {
-                    JSONObject item = captured.optJSONObject(i);
-                    if (item == null) continue;
-                    String id = item.optString("id", "");
-                    if (!id.isEmpty()) {
-                        item.put("rawText", "");
-                        migrated.put(id, item);
+                String plain = decryptJsonString(encMap, "{}");
+                JSONObject rawObj = new JSONObject(plain != null && !plain.isEmpty() ? plain : "{}");
+                java.util.Iterator<String> keys = rawObj.keys();
+                while (keys.hasNext()) {
+                    String k = keys.next();
+                    if (k == null || k.startsWith("demo_tx_")) continue;
+                    JSONObject v = rawObj.optJSONObject(k);
+                    if (v != null && !"demo-preview".equals(v.optString("source", ""))) {
+                        mapObj.put(k, v);
                     }
                 }
-                saveEncryptedExpenseStoreJson(context, migrated.toString());
-                return migrated.toString();
             }
-            return "{}";
+            // Merge any captured notification array into the encrypted map if not already present
+            JSONArray captured = getSavedCapturedTransactions(context);
+            boolean changed = false;
+            for (int i = 0; i < captured.length(); i++) {
+                JSONObject item = captured.optJSONObject(i);
+                if (item == null) continue;
+                String id = item.optString("id", "");
+                if (!id.isEmpty() && !id.startsWith("demo_tx_") && !mapObj.has(id)) {
+                    item.put("rawText", "");
+                    mapObj.put(id, item);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                saveEncryptedExpenseStoreJson(context, mapObj.toString());
+            }
+            return mapObj.toString();
         } catch (Exception ignored) {
             return "{}";
         }
@@ -509,7 +569,13 @@ public final class MobileTransactionParser {
         if (lower.contains("neft") || lower.contains("imps") || lower.contains("rtgs")) {
             return "Bank Transfer";
         }
-        if (app.contains("GPay") || app.contains("PhonePe") || app.contains("Paytm") || app.contains("BHIM") || lower.contains("upi") || lower.contains("vpa")) {
+        if (app.contains("GPay") || app.contains("PhonePe") || app.contains("Paytm") || app.contains("BHIM")
+            || app.contains("Super.money") || app.contains("CRED") || app.contains("Navi")
+            || app.contains("Amazon Pay") || app.contains("WhatsApp") || app.contains("MobiKwik")
+            || app.contains("Freecharge") || app.contains("slice") || app.contains("FamPay")
+            || app.contains("Jupiter") || app.contains("Fi Money") || app.contains("Tata Neu")
+            || app.contains("Bajaj") || app.contains("Samsung Pay") || app.contains("JioPay")
+            || lower.contains("upi") || lower.contains("vpa")) {
             return "UPI";
         }
         return "Bank Account";
@@ -529,21 +595,65 @@ public final class MobileTransactionParser {
         if (s.contains("npci.upiapp") || s.contains("bhim")) {
             return "BHIM UPI";
         }
+        if (s.contains("money.super") || s.contains("super.money") || s.contains("supermoney")) {
+            return "Super.money";
+        }
         if (s.contains("dreamplug") || s.contains("cred")) {
             return "CRED";
+        }
+        if (s.contains("naviapp") || s.contains("navi ")) {
+            return "Navi UPI";
         }
         if (s.contains("amazon")) {
             return "Amazon Pay";
         }
+        if (s.contains("whatsapp")) {
+            return "WhatsApp Pay";
+        }
+        if (s.contains("mobikwik")) {
+            return "MobiKwik";
+        }
+        if (s.contains("freecharge")) {
+            return "Freecharge";
+        }
+        if (s.contains("indwin") || s.contains("slice")) {
+            return "slice UPI";
+        }
+        if (s.contains("fampay")) {
+            return "FamPay";
+        }
+        if (s.contains("jupiter")) {
+            return "Jupiter";
+        }
+        if (s.contains("epifi") || s.contains("fi money")) {
+            return "Fi Money";
+        }
+        if (s.contains("tatadigital") || s.contains("tata neu")) {
+            return "Tata Neu";
+        }
+        if (s.contains("bajaj")) {
+            return "Bajaj Pay";
+        }
+        if (s.contains("spay") || s.contains("samsung pay")) {
+            return "Samsung Pay";
+        }
+        if (s.contains("myjio") || s.contains("jiopay")) {
+            return "JioPay";
+        }
+        if (s.contains("airtel")) return "Airtel Pay";
         if (s.contains("hdfc")) return "HDFC Bank";
         if (s.contains("sbi")) return "SBI Bank";
         if (s.contains("icici")) return "ICICI Bank";
         if (s.contains("axis")) return "Axis Bank";
         if (s.contains("kotak")) return "Kotak Bank";
-        if (s.contains("union")) return "Union Bank";
+        if (s.contains("union") || s.contains("uboi")) return "Union Bank";
         if (s.contains("canara")) return "Canara Bank";
-        if (s.contains("pnb")) return "PNB Bank";
+        if (s.contains("pnb") || s.contains("version1")) return "PNB Bank";
         if (s.contains("bob") || s.contains("baroda")) return "Bank of Baroda";
+        if (s.contains("idfc")) return "IDFC FIRST Bank";
+        if (s.contains("indusind")) return "IndusInd Bank";
+        if (s.contains("fedmobile") || s.contains("federal")) return "Federal Bank";
+        if (s.contains("yesbank")) return "YES Bank";
         if (s.contains("upi")) return "UPI";
         return "Bank Notice";
     }

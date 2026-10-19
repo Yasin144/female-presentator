@@ -187,13 +187,13 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
 
   // Ignore pure OTP / PIN / verification messages
   const hasOtpWord = /(?:^|\W)(otp|one time password|verification code|upi pin|never share your pin)(?:\W|$)/i.test(lower);
-  const hasCompletionWord = /(debited|credited|paid|sent\s|received|spent|withdrawn|transferred|deducted|trf to|refund|reversed|reversal|failed|declined|pending|processing|payment of)/i.test(lower);
+  const hasCompletionWord = /(debited|credited|paid|sent\b|received|spent|withdrawn|transferred|deducted|trf to|refund|reversed|reversal|failed|declined|pending|processing|payment of|payment to|payment successful|payment completed|money sent|money received)/i.test(lower);
   if (hasOtpWord && !hasCompletionWord) return null;
 
   // Ignore promotional / loan spam
   if (
     /(pre-approved|apply now|loan up to|get flat|win up to|click http)/i.test(lower) &&
-    !/(debited|credited)/i.test(lower)
+    !/(debited|credited|paid)/i.test(lower)
   ) {
     return null;
   }
@@ -206,10 +206,13 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   let amount = 0;
   const mPrefix = /(?:₹|rs\.?|inr|amt)\s*[:\-]?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(text);
   const mSuffix = /([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:rs\.?|inr|₹)/i.exec(text);
+  const mVerb = /(?:debited|credited|paid|sent|received|spent|transferred|deducted)\s+(?:by|for|with|of)?\s*(?:₹|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i.exec(text);
   if (mPrefix) {
     amount = parseFloat(mPrefix[1].replace(/,/g, '')) || 0;
   } else if (mSuffix) {
     amount = parseFloat(mSuffix[1].replace(/,/g, '')) || 0;
+  } else if (mVerb) {
+    amount = parseFloat(mVerb[1].replace(/,/g, '')) || 0;
   }
   if (amount <= 0 || amount > 100000000) return null;
 
@@ -226,8 +229,8 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   // 3. Transaction Type (debit, credit, transfer, refund)
   const isRefund = /(refund|reversed|reversal|cashback)/i.test(lower);
   const isSelfTransfer = /(self transfer|to self|own account|between your accounts)/i.test(lower);
-  const isCredit = /(credited|received|deposited|added to your|upi\/cr\/)/i.test(lower);
-  const isDebit = /(debited|spent|paid|sent|withdrawn|deducted|trf to|upi\/dr\/|payment of)/i.test(lower);
+  const isCredit = /(credited|received|deposited|added to your|upi\/cr\/|money received)/i.test(lower);
+  const isDebit = /(debited|spent|paid|sent|withdrawn|deducted|trf to|upi\/dr\/|payment of|payment to|money sent)/i.test(lower);
 
   let type = 'debit';
   if (isSelfTransfer) type = 'transfer';
@@ -249,38 +252,23 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     if (mRef) refId = mRef[1].trim();
   }
 
-  // 5. Merchant / Recipient
-  let merchant = '';
-  let merchantUncertain = false;
-  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|refund\s+from|at|towards|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:is\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|\.|,|\n|$))/i.exec(text);
-  if (mMerch) {
-    merchant = mMerch[1].replace(/^(mr\.?|mrs\.?|ms\.?|m\/s)\s+/i, '').trim();
-  } else if (slashMerchant) {
-    merchant = slashMerchant.trim();
-  }
-  if (!merchant) {
-    merchantUncertain = true;
-    if (type === 'refund') merchant = 'Refund / Reversal';
-    else if (type === 'transfer') merchant = 'Self Account Transfer';
-    else if (type === 'credit') merchant = 'UPI / Bank Credit';
-    else merchant = 'UPI / Merchant Payment';
-  }
-
-  // 6. Original Payment Remark (only if genuinely present in message; never fabricated)
-  let originalRemark = '';
-  const mNote = /(?:note|remarks?|purpose|for|comment|message|description)\s*[:\-]\s*([^\n\r.;]{2,80})/i.exec(text);
-  if (mNote) {
-    originalRemark = mNote[1].trim();
-  } else if (slashNote && !/^(upi|na|nil|payment|[0-9]+)$/i.test(slashNote.trim())) {
-    originalRemark = slashNote.trim();
-  }
-
-  // 7. Payment App & Method
+  // 5. Payment App & Method
   let app = 'Bank SMS';
-  if (/(google pay|gpay|okaxis|okhdfcbank|okicici|oksbi)/i.test(lower)) app = 'GPay';
+  if (/(google pay|gpay|paisa\.user|okaxis|okhdfcbank|okicici|oksbi)/i.test(lower)) app = 'GPay';
   else if (/(phonepe|@ybl|@ibl|@axl)/i.test(lower)) app = 'PhonePe';
-  else if (/paytm/i.test(lower)) app = 'Paytm';
-  else if (/bhim/i.test(lower)) app = 'BHIM UPI';
+  else if (/(paytm|one97)/i.test(lower)) app = 'Paytm';
+  else if (/(bhim|npci)/i.test(lower)) app = 'BHIM UPI';
+  else if (/(super\.money|supermoney|money\.super)/i.test(lower)) app = 'Super.money';
+  else if (/(cred\b|dreamplug)/i.test(lower)) app = 'CRED';
+  else if (/(navi\b|naviapp)/i.test(lower)) app = 'Navi UPI';
+  else if (/(amazon pay|amazon\.mshop)/i.test(lower)) app = 'Amazon Pay';
+  else if (/(whatsapp)/i.test(lower)) app = 'WhatsApp Pay';
+  else if (/(mobikwik)/i.test(lower)) app = 'MobiKwik';
+  else if (/(freecharge)/i.test(lower)) app = 'Freecharge';
+  else if (/(slice|indwin)/i.test(lower)) app = 'slice UPI';
+  else if (/(fampay)/i.test(lower)) app = 'FamPay';
+  else if (/(jupiter)/i.test(lower)) app = 'Jupiter';
+  else if (/(fi money|epifi)/i.test(lower)) app = 'Fi Money';
   else if (/hdfc/i.test(lower)) app = 'HDFC Bank';
   else if (/sbi/i.test(lower)) app = 'SBI Bank';
   else if (/icici/i.test(lower)) app = 'ICICI Bank';
@@ -291,7 +279,31 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   let paymentMethod = 'Bank Account';
   if (/(credit card|debit card|card ending|pos\s)/i.test(lower)) paymentMethod = 'Card';
   else if (/(atm|cash withdrawal)/i.test(lower)) paymentMethod = 'Cash';
-  else if (/(GPay|PhonePe|Paytm|BHIM UPI|UPI)/i.test(app) || /(upi|vpa)/i.test(lower)) paymentMethod = 'UPI';
+  else if (/(GPay|PhonePe|Paytm|BHIM UPI|Super\.money|CRED|Navi UPI|Amazon Pay|WhatsApp Pay|MobiKwik|Freecharge|slice UPI|FamPay|Jupiter|Fi Money|UPI)/i.test(app) || /(upi|vpa)/i.test(lower)) paymentMethod = 'UPI';
+
+  // 6. Merchant / Recipient
+  let merchant = '';
+  const mMerch = /(?:paid\s+to|sent\s+to|trf\s+to|transferred\s+to|to\s+vpa|received\s+from|from\s+vpa|refund\s+from|at|towards|to)\s+([A-Za-z0-9@._\-\s&]{2,36}?)(?=\s+(?:is\s+pending|on|ref|upi|utr|txn|via|for|note|remarks|a\/c|ac|acct|avl|bal|using|from|\.|,|\n|$))/i.exec(text);
+  if (mMerch) {
+    merchant = mMerch[1].replace(/^(mr\.?|mrs\.?|ms\.?|m\/s)\s+/i, '').trim();
+  } else if (slashMerchant) {
+    merchant = slashMerchant.trim();
+  }
+  if (!merchant) {
+    if (type === 'refund') merchant = 'Refund / Reversal';
+    else if (type === 'transfer') merchant = 'Self Account Transfer';
+    else if (type === 'credit') merchant = app && app !== 'Bank SMS' ? `${app} Received` : 'UPI / Bank Credit';
+    else merchant = app && app !== 'Bank SMS' ? `${app} Payment` : 'UPI Payment';
+  }
+
+  // 7. Original Payment Remark (only if genuinely present in message; never fabricated)
+  let originalRemark = '';
+  const mNote = /(?:note|remarks?|purpose|for|comment|message|description)\s*[:\-]\s*([^\n\r.;]{2,80})/i.exec(text);
+  if (mNote) {
+    originalRemark = mNote[1].trim();
+  } else if (slashNote && !/^(upi|na|nil|payment|[0-9]+)$/i.test(slashNote.trim())) {
+    originalRemark = slashNote.trim();
+  }
 
   // 8. Category
   let category = type === 'credit' ? 'income' : type === 'refund' ? 'refund' : type === 'transfer' ? 'transfer' : 'transfer';
@@ -315,7 +327,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     ? `mob_ref_${refId}_${Math.round(amount)}`
     : `mob_ts_${Math.floor(fallbackTimestampMs / 120000)}_${Math.round(amount * 100)}`;
 
-  const reconciliationStatus = merchantUncertain || status !== 'completed'
+  const reconciliationStatus = status !== 'completed'
     ? 'needs_review'
     : 'auto_detected';
 
@@ -350,7 +362,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
 
 export function parseFinancialSmsOrNotification(input, fallbackTimestampMs = Date.now(), sourceType = 'android-notif') {
   if (input && typeof input === 'object') {
-    const combinedText = [input.title || '', input.body || '', input.rawText || ''].filter(Boolean).join(' · ');
+    const combinedText = [input.senderOrPkg || '', input.title || '', input.body || '', input.rawText || ''].filter(Boolean).join(' · ');
     const ts = Number(input.timestampMs || fallbackTimestampMs || Date.now());
     return parseSmsOrUpiTextJs(combinedText, ts, input.sourceType || sourceType);
   }
@@ -703,7 +715,7 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       byCategory[cat].amount += amt;
 
       const mKey = tx.merchant || 'Merchant';
-      if (!byMerchant[mKey]) byMerchant[mKey] = { name: mKey, count: 0, total: 0 };
+      if (!byMerchant[mKey]) byMerchant[mKey] = { merchant: mKey, name: mKey, count: 0, total: 0 };
       byMerchant[mKey].count += 1;
       byMerchant[mKey].total += amt;
 

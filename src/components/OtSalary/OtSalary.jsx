@@ -4,7 +4,7 @@ import ExpensesModule from './ExpensesModule.jsx';
 import {
   loadEncryptedExpenseStore,
   saveEncryptedExpenseStore,
-  buildDemoPreviewTransactions,
+  reconcileAndMergeTransactions,
 } from '../../../frontend/expense-memory.js';
 import {
   WHATSAPP_FIXED_RECIPIENT_DISPLAY,
@@ -424,7 +424,7 @@ function calculateWorkTiming({
   let otMins = 0;
   let shortMins = 0;
 
-  if (otTimeCalcMode === 'after_office_end' && status === 'present') {
+  if ((otTimeCalcMode === 'after_office_end' || otTimeCalcMode === 'after_end_time') && status === 'present') {
     // Count time worked after 06:30 PM + any early arrival before 10:00 AM
     const afterEnd = outMins >= officeEndMins ? (outMins - officeEndMins) : 0;
     const beforeStart = inMins < officeStartMins ? (officeStartMins - inMins) : 0;
@@ -1353,6 +1353,84 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(settings, daysMap, noticeMessage, nextExpensesMap);
   }, [settings, daysMap, persistStore]);
 
+  // Global listener & auto-sync for real UPI / Bank payment notifications across all tabs
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const ingestNativeTxList = (txList) => {
+      if (!Array.isArray(txList) || txList.length === 0) return;
+      const currentMap = expensesMapRef.current || {};
+      const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
+        currentMap,
+        txList,
+        'android-notif'
+      );
+      if (addedCount > 0 || updatedCount > 0) {
+        expensesMapRef.current = nextMap;
+        setExpensesMap(nextMap);
+        saveEncryptedExpenseStore(nextMap);
+        const latest = txList[0];
+        if (addedCount > 0 && latest && Number(latest.amount) > 0) {
+          const dirLabel = latest.type === 'credit' ? 'Received' : 'Paid';
+          const appName = latest.app || latest.paymentMethod || 'UPI';
+          const merchName = latest.merchant ? ` · ${latest.merchant}` : '';
+          setSaveNotice(`📲 ${appName}: ${dirLabel} ₹${formatINR(latest.amount)}${merchName}`);
+        }
+      }
+    };
+
+    const syncSavedNativeTransactions = () => {
+      try {
+        const encLoaded = loadEncryptedExpenseStore();
+        if (encLoaded && encLoaded.ready && encLoaded.expenses && Object.keys(encLoaded.expenses).length > 0) {
+          const currentKeys = Object.keys(expensesMapRef.current || {});
+          const loadedKeys = Object.keys(encLoaded.expenses);
+          if (loadedKeys.some((k) => !currentKeys.includes(k))) {
+            const merged = { ...(expensesMapRef.current || {}), ...encLoaded.expenses };
+            expensesMapRef.current = merged;
+            setExpensesMap(merged);
+          }
+        }
+        if (window.PattanBiometric) {
+          if (typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+            const rawJson = window.PattanBiometric.getSavedMobileTransactionsJson();
+            const parsed = JSON.parse(rawJson || '[]');
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              ingestNativeTxList(parsed);
+            }
+          }
+          if (typeof window.PattanBiometric.scanMobileTransactionsSilent === 'function') {
+            window.PattanBiometric.scanMobileTransactionsSilent(45);
+          }
+        }
+      } catch (_) {}
+    };
+
+    const onMobileTxEvent = (ev) => {
+      const txList = ev?.detail?.transactions;
+      if (Array.isArray(txList) && txList.length > 0) {
+        ingestNativeTxList(txList);
+      }
+    };
+
+    const onVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        syncSavedNativeTransactions();
+      }
+    };
+
+    syncSavedNativeTransactions();
+    window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
+    window.addEventListener('focus', onVisibilityOrFocus);
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+
+    return () => {
+      window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+    };
+  }, []);
+
   // Derived rate math
   const rates = useMemo(() => {
     const salary = Math.max(0, Number(settings.monthlySalary) || 25000);
@@ -1368,6 +1446,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         : 30;
     const perDaySalary = salary / divisorDays;
     const baseHourlyRate = perDaySalary / shiftHours;
+    const baseMinuteRate = baseHourlyRate / 60;
     let otHourlyRate = baseHourlyRate;
     if (settings.otRateMode === '1.5x') otHourlyRate = baseHourlyRate * 1.5;
     else if (settings.otRateMode === '2.0x') otHourlyRate = baseHourlyRate * 2.0;
@@ -1385,6 +1464,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       actualMonthDays,
       perDaySalary,
       baseHourlyRate,
+      baseMinuteRate,
       otHourlyRate,
       otPerMinuteRate,
     };
@@ -1685,6 +1765,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     let totalOtHours = 0;
     let totalOtPay = 0;
     let totalExtraAllowance = 0;
+    let presentDays = 0;
+    let paidHolidays = 0;
     let leaveDays = 0;
     let halfDays = 0;
     let otDaysCount = 0;
@@ -1702,6 +1784,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } else if (row.record.biometricIn && !row.record.biometricOut) {
         biometricPendingOutCount += 1;
       }
+      if (row.record.status === 'present') presentDays += 1;
+      if (row.record.status === 'holiday_paid') paidHolidays += 1;
       if (row.record.status === 'leave') leaveDays += 1;
       if (row.record.status === 'half') halfDays += 1;
       if (row.earnings.otMins > 0) {
@@ -1730,7 +1814,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       totalOtPay,
       totalExtraAllowance,
       otDaysCount,
+      presentDays,
+      paidHolidays,
       leaveDays,
+      unpaidLeaves: leaveDays,
       halfDays,
       leaveDeduction,
       fullMonthBaseAfterLeave,
@@ -2216,25 +2303,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     try {
       if (typeof window !== 'undefined' && typeof window.print === 'function') {
         window.print();
+        setSaveNotice(`🖨️ Opened Salary Slip Print / PDF (${selectedMonth})`);
       }
     } catch (_) {}
   };
 
   const expenseQuickStats = useMemo(() => {
     const todayIso = getTodayIsoDate();
-    const rawValues = Object.values(expensesMap || {}).filter((tx) => tx && typeof tx === 'object' && !tx._deleted);
-    const activeSource =
-      rawValues.length > 0
-        ? expensesMap
-        : buildDemoPreviewTransactions(todayIso);
+    const activeSource = expensesMap || {};
 
     let count = 0;
     let spent = 0;
     let income = 0;
     let todaySpent = 0;
     let missingNotesCount = 0;
-    for (const tx of Object.values(activeSource || {})) {
-      if (!tx || tx._deleted || !(Number(tx.amount) > 0)) continue;
+    for (const tx of Object.values(activeSource)) {
+      if (!tx || typeof tx !== 'object' || tx._deleted || tx.isDemoPreview || tx._demoPreview || !(Number(tx.amount) > 0)) continue;
+      if (tx.status === 'failed' || tx.status === 'reversed') continue;
       if (selectedMonth && !String(tx.date || '').startsWith(selectedMonth)) continue;
       count += 1;
       const amt = Number(tx.amount) || 0;
@@ -3925,10 +4010,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {[
                   { label: 'Base Monthly Salary', value: `₹${formatINR(rates.salary)}`, color: ui.textPrimary },
                   { label: 'Per Day Salary', value: `₹${formatINR(rates.perDaySalary)}`, color: ui.textPrimary },
-                  { label: 'Per Hour / Per Min Rate', value: `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${rates.baseMinuteRate.toFixed(2)}/m`, color: ui.textSecondary },
+                  { label: 'Per Hour / Per Min Rate', value: `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${(Number(rates.baseMinuteRate ?? rates.otPerMinuteRate) || 0).toFixed(2)}/m`, color: ui.textSecondary },
                   { label: 'Standard Shift Hours', value: formatMinutesCompact(rates.shiftMins), color: ui.textPrimary },
-                  { label: 'Total Working Days', value: `${monthSummary.savedDaysCount} / ${monthRows.length} Days`, color: ui.textPrimary },
-                  { label: 'Attendance Breakdown', value: `${monthSummary.presentDays}P · ${monthSummary.halfDays}H · ${monthSummary.paidHolidays} Off · ${monthSummary.unpaidLeaves} Leave`, color: ui.textPrimary },
+                  { label: 'Total Working Days', value: `${monthSummary.savedDaysCount || 0} / ${monthRows.length} Days`, color: ui.textPrimary },
+                  { label: 'Attendance Breakdown', value: `${monthSummary.presentDays || 0}P · ${monthSummary.halfDays || 0}H · ${monthSummary.paidHolidays || 0} Off · ${monthSummary.unpaidLeaves ?? monthSummary.leaveDays ?? 0} Leave`, color: ui.textPrimary },
                   { label: 'Total Worked Hours', value: formatMinutesCompact(monthSummary.totalWorkedMins), color: ui.textPrimary },
                   { label: 'Total Extra OT', value: formatMinutesCompact(monthSummary.totalOtMins), color: '#38bdf8' },
                   { label: 'OT Rate (per hour)', value: `₹${formatINR(rates.otHourlyRate)}/hr`, color: ui.textSecondary },
@@ -4153,7 +4238,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     OT Calculation
                   </div>
                   <select
-                    value={settings.otTimeCalcMode}
+                    value={settings.otTimeCalcMode === 'after_end_time' ? 'after_office_end' : (settings.otTimeCalcMode === 'after_duration' ? 'in_out_duration' : settings.otTimeCalcMode)}
                     onChange={(e) => updateSetting('otTimeCalcMode', e.target.value)}
                     style={{
                       width: '100%',
@@ -4166,8 +4251,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       fontSize: 13.5,
                     }}
                   >
-                    <option value="after_duration">After Shift Hours ({formatMinutesCompact(rates.shiftMins)})</option>
-                    <option value="after_end_time">After Office End Time ({formatTime12h(settings.officeEndTime)})</option>
+                    <option value="in_out_duration">After Shift Hours ({formatMinutesCompact(rates.shiftMins)})</option>
+                    <option value="after_office_end">After Office End Time ({formatTime12h(settings.officeEndTime)})</option>
                   </select>
                 </div>
 
@@ -4177,7 +4262,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     OT Rate Type (₹{formatINR(rates.otHourlyRate)}/hr)
                   </div>
                   <select
-                    value={settings.otRateMode}
+                    value={settings.otRateMode === '1.0x' ? 'auto' : settings.otRateMode}
                     onChange={(e) => updateSetting('otRateMode', e.target.value)}
                     style={{
                       width: '100%',
@@ -4190,11 +4275,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       fontSize: 13.5,
                     }}
                   >
-                    <option value="1.0x">1.0x Normal (₹{formatINR(rates.baseHourlyRate)}/hr)</option>
+                    <option value="auto">1.0x Normal (₹{formatINR(rates.baseHourlyRate)}/hr)</option>
                     <option value="1.5x">1.5x Overtime (₹{formatINR(rates.baseHourlyRate * 1.5)}/hr)</option>
                     <option value="2.0x">2.0x Double OT (₹{formatINR(rates.baseHourlyRate * 2)}/hr)</option>
                     <option value="custom">Custom Hourly Rate</option>
                   </select>
+                  {settings.otRateMode === 'custom' && (
+                    <input
+                      type="number"
+                      min="1"
+                      step="5"
+                      value={settings.customOtHourlyRate}
+                      onChange={(e) => updateSetting('customOtHourlyRate', Math.max(0, Number(e.target.value) || 0))}
+                      placeholder="Custom OT Hourly Rate (₹)"
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        marginTop: 8,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    />
+                  )}
                 </div>
 
                 {/* Working Days in Month */}

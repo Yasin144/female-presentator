@@ -12,7 +12,6 @@ import {
   formatTransactionsCsv,
   launchUpiPayment,
   ALLOWED_PAYMENT_PACKAGES,
-  buildDemoPreviewTransactions,
   getExpenseStorageStatus,
 } from '../../../frontend/expense-memory.js';
 
@@ -335,8 +334,6 @@ export default function ExpensesModule({
   const [subTab, setSubTab] = useState('overview');
   const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Methods' | 'Trends'
   const [missingFilterWindow, setMissingFilterWindow] = useState('all'); // 'all' | 'today' | 'week'
-  const [demoPreviewMode, setDemoPreviewMode] = useState(false);
-  const [dismissedSamplePreview, setDismissedSamplePreview] = useState(false);
   const [inlineNoteDrafts, setInlineNoteDrafts] = useState({});
 
   // Detailed Transaction Viewer (Screen 9)
@@ -472,13 +469,13 @@ export default function ExpensesModule({
         const added = mergeDetectedTransactions(txList, 'android-notif');
         setScanStatus(
           added > 0
-            ? `✅ Auto-captured ${added} new transaction(s) from allow-listed payment notifications`
+            ? `✅ Auto-captured ${added} new UPI/Bank payment(s)`
             : `✅ Checked ${txList.length} payment notification(s) — statement up to date`
         );
       } else if (!detail.notifGranted) {
-        setScanStatus('ℹ️ Enable Notification Access in Settings to auto-capture allow-listed UPI/Bank notifications.');
+        setScanStatus('ℹ️ Enable Notification Access to auto-capture UPI & Bank payments.');
       } else {
-        setScanStatus('ℹ️ Checked allow-listed payment notifications — no new transactions found.');
+        setScanStatus('ℹ️ Checked payment notifications — no new transactions found.');
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
@@ -502,6 +499,10 @@ export default function ExpensesModule({
     setIsScanning(true);
     checkNativePermissions();
     try {
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        window.PattanBiometric.scanMobileTransactions(45);
+        return;
+      }
       if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileSmsInbox === 'function') {
         window.PattanBiometric.scanMobileSmsInbox(45);
         return;
@@ -515,8 +516,8 @@ export default function ExpensesModule({
           added > 0
             ? `✅ Synced ${added} new payment notification(s)`
             : notifGranted
-              ? '✅ Notification capture is active for allow-listed UPI & banking apps.'
-              : 'ℹ️ Enable Notification Listener access in Settings or paste a payment receipt.'
+              ? '✅ Notification capture is active for all UPI & banking apps.'
+              : 'ℹ️ Enable Notification Listener access to capture UPI payments automatically.'
         );
         return;
       }
@@ -527,29 +528,25 @@ export default function ExpensesModule({
 
   const todayIso = getTodayIso();
 
-  const hasRealActiveTransactions = useMemo(() => {
-    if (!expensesMap || typeof expensesMap !== 'object') return false;
-    return Object.values(expensesMap).some((tx) => tx && typeof tx === 'object' && !tx._deleted);
-  }, [expensesMap]);
-
-  const isShowingSamplePreview = demoPreviewMode || (!hasRealActiveTransactions && !dismissedSamplePreview);
-
   const effectiveExpensesSource = useMemo(() => {
-    if (isShowingSamplePreview) {
-      const demoRes = buildDemoPreviewTransactions(todayIso);
-      if (Array.isArray(demoRes)) {
-        const demoMap = {};
-        for (const item of demoRes) {
-          if (item && item.id) demoMap[item.id] = item;
+    const cleanMap = {};
+    if (expensesMap && typeof expensesMap === 'object') {
+      for (const [k, v] of Object.entries(expensesMap)) {
+        if (
+          v &&
+          typeof v === 'object' &&
+          !v._deleted &&
+          !v._demoPreview &&
+          !v.isDemoPreview &&
+          v.source !== 'demo-preview' &&
+          !String(k).startsWith('demo_tx_')
+        ) {
+          cleanMap[k] = v;
         }
-        return demoMap;
-      }
-      if (demoRes && typeof demoRes === 'object') {
-        return demoRes;
       }
     }
-    return expensesMap || {};
-  }, [isShowingSamplePreview, expensesMap, todayIso]);
+    return cleanMap;
+  }, [expensesMap]);
 
   const analytics = useMemo(
     () => computeExpenseAnalytics(effectiveExpensesSource, { selectedMonth, todayIso, monthlyNetSalary: effectiveMonthlySalary }),
@@ -731,20 +728,15 @@ export default function ExpensesModule({
     [effectiveExpensesSource, formMerchant, selectedTx]
   );
 
-  // Helper to materialize sample preview transactions into real store when the user edits/deletes one
   const getMaterializedBaseMap = useCallback(() => {
-    if (hasRealActiveTransactions) return { ...(expensesMap || {}) };
-    const materialized = {};
-    for (const [k, v] of Object.entries(effectiveExpensesSource || {})) {
-      if (v && typeof v === 'object') {
-        const copy = { ...v };
-        delete copy._demoPreview;
-        delete copy.isDemoPreview;
-        materialized[k] = copy;
+    const clean = {};
+    for (const [k, v] of Object.entries(expensesMap || {})) {
+      if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview) {
+        clean[k] = { ...v };
       }
     }
-    return materialized;
-  }, [hasRealActiveTransactions, expensesMap, effectiveExpensesSource]);
+    return clean;
+  }, [expensesMap]);
 
   const openQuickAddModal = (txToEdit = null) => {
     if (txToEdit) {
@@ -830,7 +822,6 @@ export default function ExpensesModule({
     delete record.isDemoPreview;
 
     const nextMap = { ...baseMap, [txId]: record };
-    setDemoPreviewMode(false);
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(
         nextMap,
@@ -874,7 +865,6 @@ export default function ExpensesModule({
     delete updated._demoPreview;
     delete updated.isDemoPreview;
     const nextMap = { ...baseMap, [txId]: updated };
-    setDemoPreviewMode(false);
     setInlineNoteDrafts((prev) => {
       const next = { ...prev };
       delete next[txId];
@@ -902,7 +892,6 @@ export default function ExpensesModule({
         updatedAtMs: nowMs,
       },
     };
-    setDemoPreviewMode(false);
     setUndoBanner({
       message: `Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Transaction'})`,
       snapshot: prevSnapshot,
@@ -962,8 +951,6 @@ export default function ExpensesModule({
   const handleClearAllExpenses = () => {
     if (!window.confirm('Clear all transactions from your statement? You can undo immediately after.')) return;
     const prevSnapshot = { ...(expensesMap || {}) };
-    setDismissedSamplePreview(true);
-    setDemoPreviewMode(false);
     setUndoBanner({
       message: 'Cleared all transactions from Expense Memory',
       snapshot: prevSnapshot,
@@ -998,7 +985,6 @@ export default function ExpensesModule({
     delete updated._demoPreview;
     delete updated.isDemoPreview;
     const nextMap = { ...baseMap, [txId]: updated };
-    setDemoPreviewMode(false);
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(nextMap, `✅ Confirmed ₹${formatINR(updated.amount)} (${updated.merchant})`);
     }
@@ -1273,13 +1259,13 @@ export default function ExpensesModule({
         })}
       </div>
 
-      {/* Sample / Demo Preview Banner */}
-      {isShowingSamplePreview && (
+      {/* 1-Tap Auto UPI Payment Capture Prompt when Notification Access is off */}
+      {!notifGranted && typeof window !== 'undefined' && window.PattanBiometric && (
         <div style={{
-          padding: '10px 14px',
+          padding: '12px 14px',
           borderRadius: 14,
-          background: isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(59, 130, 246, 0.14)',
-          border: '1px solid rgba(59, 130, 246, 0.38)',
+          background: isLight ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.14)',
+          border: '1px solid rgba(16, 185, 129, 0.4)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -1287,57 +1273,32 @@ export default function ExpensesModule({
           flexWrap: 'wrap',
           fontSize: 12,
           fontWeight: 800,
-          color: isLight ? '#1e40af' : '#bfdbfe',
+          color: isLight ? '#065f46' : '#a7f3d0',
         }}>
           <span>
-            ✨ {demoPreviewMode ? 'Demo Preview Mode — Isolated sample statement.' : 'Sample Preview Data — Tap any payment to add/edit notes or add your own entry.'}
+            🔔 Enable Notification Access once so every GPay, PhonePe, Paytm, BHIM, Super.money, CRED &amp; Bank UPI payment is recorded automatically with its exact amount.
           </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {!hasRealActiveTransactions && !demoPreviewMode && (
-              <button
-                type="button"
-                onClick={() => {
-                  const baseMap = getMaterializedBaseMap();
-                  if (typeof onUpdateExpenses === 'function') {
-                    onUpdateExpenses(baseMap, '💾 Kept sample transactions in statement');
-                  }
-                }}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#2563eb',
-                  color: '#fff',
-                  fontWeight: 800,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Keep Sample
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setDemoPreviewMode(false);
-                setDismissedSamplePreview(true);
-              }}
-              style={{
-                padding: '5px 10px',
-                borderRadius: 8,
-                border: `1px solid ${palette.border}`,
-                background: palette.surface,
-                color: palette.textSub,
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {demoPreviewMode ? 'Exit Demo' : 'Start Empty'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
+                window.PattanBiometric.openNotificationListenerSettings();
+              }
+            }}
+            style={{
+              padding: '7px 12px',
+              borderRadius: 9,
+              border: 'none',
+              background: '#10b981',
+              color: '#052e16',
+              fontWeight: 900,
+              fontSize: 11.5,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            🔔 Enable Auto UPI Capture
+          </button>
         </div>
       )}
 
@@ -1886,16 +1847,13 @@ export default function ExpensesModule({
             {analytics.monthActiveList.length === 0 ? (
               <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
-                <div style={{ fontWeight: 800, color: palette.text }}>Your personal statement is empty for {selectedMonth}.</div>
+                <div style={{ fontWeight: 800, color: palette.text }}>No payments recorded yet for {selectedMonth}.</div>
                 <div style={{ marginTop: 4 }}>
-                  Tap <strong>➕ Add Entry</strong>, <strong>📋 Paste Alert</strong>, or enable Notification Access in <strong>Privacy &amp; CSV</strong>.
+                  Pay with any UPI app (GPay, PhonePe, Paytm, BHIM, Super.money, CRED, Bank) and your completed payment &amp; amount will appear here automatically.
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setDismissedSamplePreview(false);
-                    setDemoPreviewMode(true);
-                  }}
+                  onClick={() => triggerMobileTransactionScan()}
                   style={{
                     marginTop: 12,
                     padding: '8px 14px',
@@ -1908,7 +1866,7 @@ export default function ExpensesModule({
                     cursor: 'pointer',
                   }}
                 >
-                  🧪 Load Sample Preview Data
+                  📲 Sync UPI &amp; Bank Alerts Now
                 </button>
               </div>
             ) : (
@@ -3175,44 +3133,6 @@ export default function ExpensesModule({
               }}
             >
               {isScanning ? 'Scanning...' : 'Scan Now'}
-            </button>
-          </div>
-
-          {/* Isolated Demo Preview Toggle */}
-          <div style={{
-            padding: '12px 14px',
-            borderRadius: 14,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>Demo Preview Mode (Isolated)</div>
-              <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
-                Preview sample UI data without mixing demo rows into your real statement.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setDismissedSamplePreview(false);
-                setDemoPreviewMode((prev) => !prev);
-              }}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 10,
-                border: 'none',
-                background: demoPreviewMode ? '#d97706' : palette.surface,
-                color: demoPreviewMode ? '#fff' : palette.text,
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              {demoPreviewMode ? 'Exit Demo' : 'Preview Demo'}
             </button>
           </div>
 

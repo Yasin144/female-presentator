@@ -636,6 +636,80 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('Payment Method &amp; App Breakdown'), true);
       assert.equal(expensesSrc.includes('Daily Spending Trend'), true);
       assert.equal(expensesSrc.includes('handleLaunchUpiAndSave'), true);
+
+      // Slip module fix & zero sample/demo data in UI
+      assert.equal(otSalarySrc.includes('baseMinuteRate,'), true);
+      assert.equal(otSalarySrc.includes('presentDays,'), true);
+      assert.equal(otSalarySrc.includes('paidHolidays,'), true);
+      assert.equal(otSalarySrc.includes('unpaidLeaves: leaveDays,'), true);
+      assert.equal(otSalarySrc.includes('buildDemoPreviewTransactions'), false);
+      assert.equal(expensesSrc.includes('buildDemoPreviewTransactions'), false);
+    });
+
+    it('captures any completed UPI payment across GPay, PhonePe, Paytm, BHIM, Super.money, CRED, Navi & Bank SMS immediately with exact amount', () => {
+      const realWorldSamples = [
+        {
+          senderOrPkg: 'com.google.android.apps.nbu.paisa.user',
+          title: 'Google Pay',
+          body: 'Paid ₹150.00',
+          expectedAmount: 150,
+          expectedApp: 'GPay',
+        },
+        {
+          senderOrPkg: 'com.phonepe.app',
+          title: 'PhonePe',
+          body: 'Paid ₹480 to Raju Tea Stall using UPI',
+          expectedAmount: 480,
+          expectedApp: 'PhonePe',
+        },
+        {
+          senderOrPkg: 'money.super.payments',
+          title: 'Super.money',
+          body: 'Payment of ₹95.00 to Fresh Bakery successful',
+          expectedAmount: 95,
+          expectedApp: 'Super.money',
+        },
+        {
+          senderOrPkg: 'com.dreamplug.androidapp',
+          title: 'CRED',
+          body: 'Paid ₹1,250.00 towards utility bill via UPI',
+          expectedAmount: 1250,
+          expectedApp: 'CRED',
+        },
+        {
+          senderOrPkg: 'com.google.android.apps.messaging',
+          title: 'VM-SBIUPI',
+          body: 'Dear UPI user A/C X1234 debited by 200.00 on date 19Oct26 trf to RAHUL Ref No 629211223344',
+          expectedAmount: 200,
+          expectedApp: 'SBI Bank',
+        },
+      ];
+
+      let map = {};
+      for (let i = 0; i < realWorldSamples.length; i++) {
+        const s = realWorldSamples[i];
+        const parsed = parseFinancialSmsOrNotification({
+          senderOrPkg: s.senderOrPkg,
+          title: s.title,
+          body: s.body,
+          timestampMs: new Date('2026-10-19T14:00:00').getTime() + i * 180000,
+        });
+        assert.ok(parsed, `Failed to parse sample: ${s.body}`);
+        assert.equal(parsed.amount, s.expectedAmount);
+        assert.equal(parsed.app, s.expectedApp);
+        assert.equal(parsed.status, 'completed');
+        assert.equal(parsed.reconciliationStatus, 'auto_detected');
+        map = reconcileAndMergeTransactions(map, [parsed]).nextMap;
+      }
+
+      const analytics = computeExpenseAnalytics(map, {
+        selectedMonth: '2026-10',
+        todayIso: '2026-10-19',
+        monthlyNetSalary: 30500,
+      });
+      assert.equal(analytics.monthActiveList.length, 5);
+      assert.equal(analytics.grossExpenses, 150 + 480 + 95 + 1250 + 200);
+      assert.ok(analytics.topMerchant && analytics.topMerchant.merchant);
     });
   });
 });

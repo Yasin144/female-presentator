@@ -101,6 +101,12 @@ public class MainActivity extends BridgeActivity {
         handleIncomingSharedReceiptIntent(intent);
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        performMobileTransactionScanAsync();
+    }
+
     private void handleIncomingSharedReceiptIntent(Intent intent) {
         if (intent == null) return;
         try {
@@ -307,6 +313,11 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public boolean hasSmsPermission() {
+            return false;
+        }
+
+        @JavascriptInterface
         public boolean isNotificationListenerEnabled() {
             return isNotifListenerEnabledInternal();
         }
@@ -333,12 +344,27 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String getSavedMobileTransactionsJson() {
+            try {
+                JSONArray arr = MobileTransactionParser.getSavedCapturedTransactions(getApplicationContext());
+                return arr != null ? arr.toString() : "[]";
+            } catch (Exception ignored) {
+                return "[]";
+            }
+        }
+
+        @JavascriptInterface
         public void scanMobileTransactions(final int daysBack) {
             performMobileTransactionScanAsync();
         }
 
         @JavascriptInterface
         public void scanMobileTransactionsSilent(final int daysBack) {
+            performMobileTransactionScanAsync();
+        }
+
+        @JavascriptInterface
+        public void scanMobileSmsInbox(final int daysBack) {
             performMobileTransactionScanAsync();
         }
 
@@ -365,6 +391,26 @@ public class MainActivity extends BridgeActivity {
                 return parsed != null ? parsed.toString() : "";
             } catch (Exception ignored) {
                 return "";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean launchUpiUri(final String rawUri) {
+            if (rawUri == null || rawUri.trim().isEmpty()) return false;
+            try {
+                final Uri upiUri = Uri.parse(rawUri.trim());
+                runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, upiUri);
+                        Intent chooser = Intent.createChooser(intent, "Pay with UPI App");
+                        startActivity(chooser);
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Open your UPI app to complete payment.", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return true;
+            } catch (Exception ignored) {
+                return false;
             }
         }
 
