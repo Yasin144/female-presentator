@@ -363,7 +363,7 @@ export function buildSanitizedDailyOutStatement(detail) {
     allowanceFormatted: `₹${formatINR(extraAllowance)}`,
     dailyTotal: Number(totalPay.toFixed(2)),
     dailyTotalFormatted: `₹${formatINR(totalPay)}`,
-    employeeName: String(settings?.employeeName || 'Abdul Haseeb').slice(0, 60),
+    employeeName: String(settings?.employeeName || 'Yasin Pattan').slice(0, 60),
   };
 
   return {

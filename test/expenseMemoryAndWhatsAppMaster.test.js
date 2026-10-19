@@ -282,7 +282,7 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
           note: 'Private work note that must never be sent',
         },
         settings: {
-          employeeName: 'Abdul Haseeb',
+          employeeName: 'Yasin Pattan',
           monthlySalary: 25000,
           officeStartTime: '10:00',
           officeEndTime: '18:30',

@@ -67,6 +67,7 @@ class ExpensesSectionBoundary extends React.Component {
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
 
 const DEFAULT_SETTINGS = {
+  employeeName: 'Yasin Pattan',
   monthlySalary: 25000,
   officeStartTime: '10:00',
   officeEndTime: '18:30',
@@ -76,6 +77,21 @@ const DEFAULT_SETTINGS = {
   otTimeCalcMode: 'in_out_duration', // 'in_out_duration' (Exit - Enter - 8h30m) | 'after_office_end' (Exit - 06:30 PM)
   deductShortHours: false, // If true and worked < 8h30m on a Present day, deduct short time from day pay
 };
+
+function normalizeEmployeeName(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'abdul haseeb') return 'Yasin Pattan';
+  return trimmed;
+}
+
+function getEmployeeInitials(name) {
+  const resolved = normalizeEmployeeName(name);
+  const parts = resolved.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return resolved.slice(0, 2).toUpperCase() || 'YP';
+}
 
 function parseTimeToMinutes(timeStr, fallbackMinutes = 600) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(timeStr || '').trim());
@@ -337,8 +353,10 @@ function loadInitialStore() {
           saveEncryptedExpenseStore(resolvedExpenses);
         } catch (_) {}
       }
+      const mergedSettings = { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) };
+      mergedSettings.employeeName = normalizeEmployeeName(mergedSettings.employeeName);
       return {
-        settings: { ...DEFAULT_SETTINGS, ...(parsed?.settings || {}) },
+        settings: mergedSettings,
         days: parsed?.days && typeof parsed.days === 'object' ? parsed.days : {},
         expenses: resolvedExpenses,
       };
@@ -1896,6 +1914,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       lines.push(cols.join(','));
     }
     lines.push('');
+    lines.push(`"Employee Name","${normalizeEmployeeName(settings.employeeName).replace(/"/g, '""')}"`);
     lines.push(`"Monthly Base Salary",${rates.salary.toFixed(2)}`);
     lines.push(`"Total Extra OT Time","${formatMinutesReadable(monthSummary.totalOtMins)}"`);
     lines.push(`"Total Extra OT Money",${monthSummary.totalOtPay.toFixed(2)}`);
@@ -2160,6 +2179,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const buildSalarySummaryText = () => {
     const lines = [
       `📊 *OT & Salary Report (${selectedMonth})*`,
+      `👤 *Employee: ${normalizeEmployeeName(settings.employeeName)}*`,
       `• Base Salary: ₹${formatINR(rates.salary)} (₹${formatINR(rates.perDaySalary)}/day)`,
       `• Office Shift: ${formatTime12h(settings.officeStartTime)} – ${formatTime12h(settings.officeEndTime)} (${formatMinutesReadable(rates.shiftMins)})`,
       `• Extra OT Worked: ${formatMinutesReadable(monthSummary.totalOtMins)} (${monthSummary.otDaysCount} days)`,
@@ -2560,7 +2580,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 flexShrink: 0,
               }}
             >
-              AH
+              {getEmployeeInitials(settings.employeeName)}
               <span style={{
                 position: 'absolute',
                 right: -1,
@@ -2582,7 +2602,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 alignItems: 'center',
                 gap: 6,
               }}>
-                <span>Hi, {settings.employeeName || 'Abdul Haseeb'}</span>
+                <span>Hi, {normalizeEmployeeName(settings.employeeName)}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                 <input
@@ -3990,7 +4010,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     Monthly Salary Slip
                   </div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600 }}>
-                    {formattedMonthLabel} · {settings.employeeName || 'Abdul Haseeb'}
+                    {formattedMonthLabel} · {normalizeEmployeeName(settings.employeeName)}
                   </div>
                 </div>
                 <span style={{
@@ -4008,6 +4028,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {/* Structured Key-Value Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
+                  { label: 'Employee Name', value: normalizeEmployeeName(settings.employeeName), color: ui.textPrimary },
                   { label: 'Base Monthly Salary', value: `₹${formatINR(rates.salary)}`, color: ui.textPrimary },
                   { label: 'Per Day Salary', value: `₹${formatINR(rates.perDaySalary)}`, color: ui.textPrimary },
                   { label: 'Per Hour / Per Min Rate', value: `₹${formatINR(rates.baseHourlyRate)}/hr · ₹${(Number(rates.baseMinuteRate ?? rates.otPerMinuteRate) || 0).toFixed(2)}/m`, color: ui.textSecondary },
@@ -4170,6 +4191,30 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Employee Name */}
+                <div>
+                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
+                    Employee Name
+                  </div>
+                  <input
+                    type="text"
+                    value={settings.employeeName ?? 'Yasin Pattan'}
+                    placeholder="Yasin Pattan"
+                    onChange={(e) => updateSetting('employeeName', e.target.value)}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '11px 12px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      fontSize: 15,
+                    }}
+                  />
+                </div>
+
                 {/* Base Monthly Salary */}
                 <div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
