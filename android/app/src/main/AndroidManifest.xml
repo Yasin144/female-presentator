@@ -70,6 +70,9 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="upi" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <!-- Permissions (No READ_SMS or RECEIVE_SMS; payment capture uses explicit NotificationListener consent only) -->

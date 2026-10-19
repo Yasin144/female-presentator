@@ -772,9 +772,12 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       );
       assert.equal(otSalarySrc.includes('triggerOfficeEndAndOtStartNotification'), true);
       assert.equal(otSalarySrc.includes('Office Time Ends & OT Time Starts!'), true);
+      assert.equal(otSalarySrc.includes('Your time is completed'), true);
       assert.equal(mainActivitySrc.includes('triggerOfficeEndOtStartNotification'), true);
       assert.equal(mainActivitySrc.includes('scheduleOfficeEndOtAlarm'), true);
       assert.equal(alarmReceiverSrc.includes('showOfficeEndOtStartNotification'), true);
+      assert.equal(alarmReceiverSrc.includes('speakAnnouncement'), true);
+      assert.equal(alarmReceiverSrc.includes('"Your time is completed"'), true);
 
       // 9. Salary Numbers Hidden by Default with Eye Button (👁️) + Biometric Unlock Everywhere
       assert.equal(otSalarySrc.includes('const [salaryBiometricVisible, setSalaryBiometricVisible] = useState(false)'), true);

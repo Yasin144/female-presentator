@@ -10,15 +10,23 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 
+import android.media.AudioAttributes;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.speech.tts.TextToSpeech;
+
 import androidx.core.app.NotificationCompat;
 
 import java.util.Calendar;
+import java.util.Locale;
 
 public class OfficeEndAlarmReceiver extends BroadcastReceiver {
     public static final String CHANNEL_ID = "pattan_office_end_ot_start_channel";
     public static final String PREF_NAME = "pattan_ot_alarm_prefs";
     public static final int NOTIF_ID = 7386;
     public static final int ALARM_REQ_CODE = 7387;
+    private static TextToSpeech activeTts = null;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -26,16 +34,56 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         int hour24 = prefs.getInt("office_end_hour", 18);
         int minute = prefs.getInt("office_end_min", 30);
-        String empName = prefs.getString("employee_name", "Yasin Pattan");
 
         String time12h = format12h(hour24, minute);
-        String title = "⏰ Office Time Ended — OT Time Started!";
-        String message = "Hi " + empName + ", normal office time (" + time12h + ") has ended. Your Extra Overtime (OT) hours & pay are now counting! ⚡";
+        String title = "⏰ " + time12h;
+        String message = "Your time is completed";
 
         showOfficeEndOtStartNotification(context, title, message);
 
         // Reschedule for the next day automatically
         scheduleNextAlarmInternal(context, hour24, minute, true);
+    }
+
+    public static void speakAnnouncement(final Context context, final String speechText) {
+        if (context == null) return;
+        final String textToSpeak = (speechText != null && !speechText.trim().isEmpty())
+            ? speechText.trim()
+            : "Your time is completed";
+        try {
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    if (activeTts != null) {
+                        try {
+                            activeTts.stop();
+                            activeTts.shutdown();
+                        } catch (Exception ignored) {}
+                        activeTts = null;
+                    }
+                    final Context appCtx = context.getApplicationContext();
+                    activeTts = new TextToSpeech(appCtx, status -> {
+                        if (status == TextToSpeech.SUCCESS && activeTts != null) {
+                            try {
+                                activeTts.setLanguage(Locale.US);
+                                activeTts.setSpeechRate(0.95f);
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                    AudioAttributes attrs = new AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_ALARM)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                        .build();
+                                    activeTts.setAudioAttributes(attrs);
+                                    Bundle params = new Bundle();
+                                    params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
+                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, params, "pattan_time_completed_utt");
+                                } else {
+                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, null);
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    });
+                } catch (Exception ignored) {}
+            });
+        } catch (Exception ignored) {}
     }
 
     public static void ensureChannel(Context context) {
@@ -47,10 +95,10 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
             if (existing == null) {
                 NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Office Time Ends & OT Starts Alerts",
+                    "Office Time Completed Alerts",
                     NotificationManager.IMPORTANCE_HIGH
                 );
-                channel.setDescription("Alerts when normal office hours finish and Overtime (OT) begins");
+                channel.setDescription("Announces Your time is completed at 06:30 PM");
                 channel.enableVibration(true);
                 channel.setVibrationPattern(new long[]{0, 300, 150, 400});
                 nm.createNotificationChannel(channel);
@@ -62,6 +110,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         if (context == null) return;
         try {
             ensureChannel(context);
+            speakAnnouncement(context, "Your time is completed");
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
 
@@ -77,10 +126,10 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
 
             String safeTitle = (title != null && !title.trim().isEmpty())
                 ? title.trim()
-                : "⏰ Office Time Ended — OT Time Started!";
+                : "⏰ 06:30 PM";
             String safeBody = (message != null && !message.trim().isEmpty())
                 ? message.trim()
-                : "Your normal office shift has ended and Overtime (OT) calculation has started! ⚡";
+                : "Your time is completed";
 
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)

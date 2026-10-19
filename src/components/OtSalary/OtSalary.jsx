@@ -2304,16 +2304,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return false;
   }, [settings.employeeName, settings.officeStartTime]);
 
-  // Trigger Notification: "Normal Office Time Ends & OT Time Starts"
+  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time is completed" only at 06:30 PM
   const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
     const todayIso = getTodayIsoDate();
-    const empName = normalizeEmployeeName(settings.employeeName);
     const todayRec = daysMap[todayIso] || {};
     const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
     const endHHMM = endHHMMOverride || settings.officeEndTime || '18:30';
     const endFormatted = formatTime12h(endHHMM);
-    const title = '⏰ Office Time Ends & OT Time Starts!';
-    const body = `Hi ${empName}, normal office time (${endFormatted}) has ended! Your Extra Overtime (OT) time and OT pay (+₹${formatINR(rates.otHourlyRate)}/hr) have now started! ⚡`;
+    const title = `⏰ ${endFormatted}`;
+    const body = 'Your time is completed';
 
     playBiometricBeep('in');
     triggerBiometricHaptic(140);
@@ -2326,25 +2325,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       title,
       body,
     });
-    setSaveNotice(`⏰ Normal Office Time (${endFormatted}) Ended — Extra OT Time Started! ⚡`);
+    setSaveNotice(`⏰ ${endFormatted} — Your time is completed`);
 
     if (typeof window !== 'undefined') {
       try {
         const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
         if (nativeBridge && typeof nativeBridge.triggerOfficeEndOtStartNotification === 'function') {
           nativeBridge.triggerOfficeEndOtStartNotification(title, body);
-        } else if (typeof Notification !== 'undefined') {
-          if (Notification.permission === 'granted') {
-            new Notification(title, { body });
-          } else if (Notification.permission !== 'denied') {
-            Notification.requestPermission().then((perm) => {
-              if (perm === 'granted') new Notification(title, { body });
-            }).catch(() => {});
+        } else {
+          if (typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
+            window.speechSynthesis.cancel();
+            const utter = new window.SpeechSynthesisUtterance('Your time is completed');
+            utter.rate = 0.95;
+            window.speechSynthesis.speak(utter);
+          }
+          if (typeof Notification !== 'undefined') {
+            if (Notification.permission === 'granted') {
+              new Notification(title, { body });
+            } else if (Notification.permission !== 'denied') {
+              Notification.requestPermission().then((perm) => {
+                if (perm === 'granted') new Notification(title, { body });
+              }).catch(() => {});
+            }
           }
         }
       } catch (_) {}
     }
-  }, [settings.employeeName, settings.officeStartTime, settings.officeEndTime, daysMap, entryInTime, rates.otHourlyRate]);
+  }, [settings.officeStartTime, settings.officeEndTime, daysMap, entryInTime]);
 
   // Sync Native Android Daily Alarm for Normal Office End Time & Live Auto-Trigger when Office Time Ends
   useEffect(() => {
