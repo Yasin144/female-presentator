@@ -741,12 +741,19 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   const noteCompletionPct = monthTxCount > 0 ? Math.round((withNoteCount / monthTxCount) * 100) : 100;
 
   const categoryBreakdown = Object.entries(byCategory)
-    .map(([category, info]) => ({
-      category,
-      count: info.count,
-      total: Number(info.amount.toFixed(2)),
-      sharePct: grossExpenses > 0 ? (info.amount / grossExpenses) * 100 : 0,
-    }))
+    .map(([category, info]) => {
+      const catMeta = EXPENSE_CATEGORIES.find(
+        (c) => c.id === category || c.label === category || c.id.toLowerCase() === String(category).toLowerCase()
+      ) || EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length - 1];
+      return {
+        category,
+        icon: catMeta?.icon || '💳',
+        color: catMeta?.color || '#3b82f6',
+        count: info.count,
+        total: Number(info.amount.toFixed(2)),
+        sharePct: grossExpenses > 0 ? (info.amount / grossExpenses) * 100 : 0,
+      };
+    })
     .sort((a, b) => b.total - a.total);
 
   const paymentMethodBreakdown = Object.entries(byPaymentMethod)
@@ -754,9 +761,33 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       method,
       count: info.count,
       total: Number(info.spent.toFixed(2)),
+      received: Number(info.received.toFixed(2)),
       sharePct: grossExpenses > 0 ? (info.spent / grossExpenses) * 100 : 0,
     }))
     .sort((a, b) => b.total - a.total);
+
+  const appBreakdown = Object.entries(byApp)
+    .map(([app, info]) => ({
+      app,
+      method: app,
+      count: info.count,
+      total: Number(info.spent.toFixed(2)),
+      received: Number(info.received.toFixed(2)),
+      sharePct: grossExpenses > 0 ? (info.spent / grossExpenses) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const dailyTrend = Object.values(byDay)
+    .map((d) => ({
+      date: d.date,
+      total: Number(d.spent.toFixed(2)),
+      spent: Number(d.spent.toFixed(2)),
+      received: Number(d.received.toFixed(2)),
+      count: d.count,
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const highestSpendingDay = [...dailyTrend].sort((a, b) => b.total - a.total)[0] || null;
 
   const topMerchant = Object.values(byMerchant).sort((a, b) => b.total - a.total)[0] || null;
   const prevMonthComparison = prevMonthNetSpend > 0
@@ -766,6 +797,23 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
         pctChange: periodComparisonPct || 0,
       }
     : null;
+
+  const insights = [];
+  if (categoryBreakdown.length > 0) {
+    insights.push(
+      `Top category is ${categoryBreakdown[0].category} (₹${formatINR(categoryBreakdown[0].total)}, ${Math.round(categoryBreakdown[0].sharePct)}% of spending).`
+    );
+  }
+  if (topMerchant) {
+    insights.push(
+      `Most spent at ${topMerchant.merchant}: ₹${formatINR(topMerchant.total)} across ${topMerchant.count} payment${topMerchant.count === 1 ? '' : 's'}.`
+    );
+  }
+  if (missingNotesCount > 0) {
+    insights.push(
+      `${missingNotesCount} payment${missingNotesCount === 1 ? '' : 's'} still need a personal memory note.`
+    );
+  }
 
   return {
     grossExpenses: Number(grossExpenses.toFixed(2)),
@@ -810,6 +858,13 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     monthTxList: monthActiveList,
     categoryBreakdown,
     paymentMethodBreakdown,
+    methodBreakdown: paymentMethodBreakdown,
+    appBreakdown,
+    dailyTrend,
+    dailySeries: dailyTrend,
+    highestSpendingDay,
+    highestSpendDay: highestSpendingDay,
+    insights,
     missingNotesList,
     uncertainOrDuplicatesList,
     topMerchant,
@@ -1007,14 +1062,25 @@ export function formatTransactionsCsv(transactions = [], analytics = null) {
  * Launches a local Android UPI Intent (upi://pay) with pre-filled payee, amount, and note.
  * Does not make any HTTP/network request.
  */
-export function launchUpiPayment({ pa = '', pn = '', am = '', tn = '' } = {}) {
-  const cleanPa = String(pa || '').trim();
-  if (!cleanPa) return false;
+export function launchUpiPayment({
+  payeeVpa = '',
+  payeeName = '',
+  amount = '',
+  note = '',
+  pa = '',
+  pn = '',
+  am = '',
+  tn = '',
+} = {}) {
+  const cleanPa = String(payeeVpa || pa || '').trim();
+  const cleanPn = String(payeeName || pn || '').trim();
+  const cleanAm = Number(amount || am || 0);
+  const cleanTn = String(note || tn || '').trim();
   const params = new URLSearchParams();
-  params.set('pa', cleanPa);
-  if (pn) params.set('pn', String(pn).trim());
-  if (am && Number(am) > 0) params.set('am', Number(am).toFixed(2));
-  if (tn) params.set('tn', String(tn).trim());
+  if (cleanPa) params.set('pa', cleanPa);
+  if (cleanPn) params.set('pn', cleanPn);
+  if (cleanAm > 0) params.set('am', cleanAm.toFixed(2));
+  if (cleanTn) params.set('tn', cleanTn);
   params.set('cu', 'INR');
   const upiUri = `upi://pay?${params.toString()}`;
   try {

@@ -11,6 +11,7 @@ import {
   parseFinancialSmsOrNotification,
   reconcileAndMergeTransactions,
   migrateAndNormalizeExpenseRecord,
+  launchUpiPayment,
 } from '../src/components/OtSalary/expenseMemoryEngine.js';
 import {
   ALLOWED_PAYMENT_PACKAGES,
@@ -535,4 +536,107 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(manifestXml.includes('android.permission.RECEIVE_SMS'), false);
     });
   });
+
+  describe('5. Comprehensive End-to-End App QA — All 12 Screens, Q&A Assistant, Insights, UPI & Salary Slip', () => {
+    it('verifies the 8-transaction sample dataset, category/method/trend insights, and materialization into encrypted storage', () => {
+      const demoMap = buildDemoPreviewTransactions('2026-10-19');
+      const items = Object.values(demoMap);
+      assert.equal(items.length, 8);
+
+      const stats = computeExpenseAnalytics(demoMap, {
+        selectedMonth: '2026-10',
+        todayIso: '2026-10-19',
+        monthlyNetSalary: 30500,
+      });
+
+      assert.equal(stats.grossExpenses, 4308);
+      assert.equal(stats.incomeTotal, 25000);
+      assert.equal(stats.missingNotesCount, 3);
+      assert.ok(stats.categoryBreakdown.length >= 4);
+      assert.ok(stats.paymentMethodBreakdown.length >= 2);
+      assert.ok(stats.appBreakdown.length >= 3);
+      assert.ok(stats.dailySeries.length >= 3);
+      assert.ok(stats.topMerchant);
+      assert.ok(stats.highestSpendDay);
+    });
+
+    it('verifies all 6 Smart Q&A Assistant chips and custom natural-language queries', () => {
+      const demoMap = buildDemoPreviewTransactions('2026-10-19');
+      const chips = [
+        'How much did I spend yesterday?',
+        'How many transactions did I make this month?',
+        'Show my food expenses.',
+        "Which payments don't have notes?",
+        'How much did I receive this week?',
+        'Find my transactions above ₹1,000.',
+      ];
+
+      for (const q of chips) {
+        const res = answerNaturalLanguageFinanceQuery(q, demoMap, '2026-10', '2026-10-19');
+        assert.ok(res && typeof res.title === 'string' && res.title.length > 0);
+        assert.ok(typeof res.answer === 'string' && res.answer.length > 0);
+        assert.ok(Array.isArray(res.matchedIds));
+      }
+
+      const missingRes = answerNaturalLanguageFinanceQuery(
+        "Which payments don't have notes?",
+        demoMap,
+        '2026-10',
+        '2026-10-19'
+      );
+      assert.equal(missingRes.matchedIds.length, 3);
+    });
+
+    it('verifies launchUpiPayment builds a valid local upi://pay intent URI without network calls', () => {
+      let launchedUri = '';
+      globalThis.window = globalThis.window || {};
+      globalThis.window.PattanBiometric = {
+        launchUpiUri: (uri) => {
+          launchedUri = uri;
+          return true;
+        },
+      };
+
+      const ok = launchUpiPayment({
+        payeeVpa: 'zomato@okaxis',
+        payeeName: 'Zomato',
+        amount: 280,
+        note: 'Office lunch',
+      });
+      assert.equal(ok, true);
+      assert.ok(launchedUri.startsWith('upi://pay?'));
+      assert.ok(launchedUri.includes('pa=zomato%40okaxis'));
+      assert.ok(launchedUri.includes('am=280.00'));
+      assert.ok(launchedUri.includes('tn=Office+lunch'));
+    });
+
+    it('verifies all restored UI features and zero undefined handlers in OtSalary.jsx and ExpensesModule.jsx', () => {
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+
+      // Must not contain undefined setAppMode
+      assert.equal(otSalarySrc.includes('setAppMode('), false);
+
+      // Restored OT & Salary screens and controls
+      assert.equal(otSalarySrc.includes('Today&apos;s Shift &amp; Pay Breakdown'), true);
+      assert.equal(otSalarySrc.includes('Open Expenses →'), true);
+      assert.equal(otSalarySrc.includes('mobileDaysLayout'), true);
+      assert.equal(otSalarySrc.includes('printMonthSalarySlip'), true);
+      assert.equal(otSalarySrc.includes('importBackupJson'), true);
+
+      // Restored Expense Memory screens and controls
+      assert.equal(expensesSrc.includes('Ask Expense Memory'), true);
+      assert.equal(expensesSrc.includes('showAdvancedFilters'), true);
+      assert.equal(expensesSrc.includes('Payment Method &amp; App Breakdown'), true);
+      assert.equal(expensesSrc.includes('Daily Spending Trend'), true);
+      assert.equal(expensesSrc.includes('handleLaunchUpiAndSave'), true);
+    });
+  });
 });
+

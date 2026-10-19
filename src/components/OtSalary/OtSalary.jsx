@@ -3204,7 +3204,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
               <button
                 type="button"
-                onClick={() => setAppMode('expenses')}
+                onClick={() => navigateTab('expenses')}
                 style={{
                   padding: '8px 13px',
                   borderRadius: 12,

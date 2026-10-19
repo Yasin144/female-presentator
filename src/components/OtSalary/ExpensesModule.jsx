@@ -739,6 +739,7 @@ export default function ExpensesModule({
       if (v && typeof v === 'object') {
         const copy = { ...v };
         delete copy._demoPreview;
+        delete copy.isDemoPreview;
         materialized[k] = copy;
       }
     }
@@ -826,6 +827,7 @@ export default function ExpensesModule({
       updatedAtMs: nowMs,
     });
     delete record._demoPreview;
+    delete record.isDemoPreview;
 
     const nextMap = { ...baseMap, [txId]: record };
     setDemoPreviewMode(false);
@@ -870,6 +872,7 @@ export default function ExpensesModule({
       updatedAtMs: nowMs,
     });
     delete updated._demoPreview;
+    delete updated.isDemoPreview;
     const nextMap = { ...baseMap, [txId]: updated };
     setDemoPreviewMode(false);
     setInlineNoteDrafts((prev) => {
@@ -893,6 +896,7 @@ export default function ExpensesModule({
       [txId]: {
         ...existing,
         _demoPreview: false,
+        isDemoPreview: false,
         _deleted: true,
         updatedAt: new Date(nowMs).toISOString(),
         updatedAtMs: nowMs,
@@ -992,6 +996,7 @@ export default function ExpensesModule({
       updatedAtMs: nowMs,
     });
     delete updated._demoPreview;
+    delete updated.isDemoPreview;
     const nextMap = { ...baseMap, [txId]: updated };
     setDemoPreviewMode(false);
     if (typeof onUpdateExpenses === 'function') {
@@ -2700,6 +2705,35 @@ export default function ExpensesModule({
                     </div>
                   </div>
                 ))
+              )}
+
+              {analytics.appBreakdown && analytics.appBreakdown.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.textSub, marginTop: 6 }}>
+                    📱 By UPI / Banking App
+                  </div>
+                  {analytics.appBreakdown.map((a) => (
+                    <div
+                      key={a.app}
+                      style={{
+                        padding: '11px 14px',
+                        borderRadius: 14,
+                        background: palette.surfaceAlt,
+                        border: `1px solid ${palette.border}`,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, color: palette.text }}>
+                        {a.app} <span style={{ fontSize: 11, color: palette.textMuted }}>({a.count}x)</span>
+                      </span>
+                      <span style={{ fontSize: 13.5, fontWeight: 900, color: a.total > 0 ? '#a855f7' : '#34d399' }}>
+                        {a.total > 0 ? `₹${formatINRShort(a.total)}` : `+₹${formatINRShort(a.received || 0)}`}
+                      </span>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           )}
