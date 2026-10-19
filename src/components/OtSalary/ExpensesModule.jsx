@@ -1267,38 +1267,59 @@ export default function ExpensesModule({
           background: isLight ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.14)',
           border: '1px solid rgba(16, 185, 129, 0.4)',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          flexDirection: 'column',
           gap: 10,
-          flexWrap: 'wrap',
           fontSize: 12,
           fontWeight: 800,
           color: isLight ? '#065f46' : '#a7f3d0',
         }}>
-          <span>
-            🔔 Enable Notification Access once so every GPay, PhonePe, Paytm, BHIM, Super.money, CRED &amp; Bank UPI payment is recorded automatically with its exact amount.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
-                window.PattanBiometric.openNotificationListenerSettings();
-              }
-            }}
-            style={{
-              padding: '7px 12px',
-              borderRadius: 9,
-              border: 'none',
-              background: '#10b981',
-              color: '#052e16',
-              fontWeight: 900,
-              fontSize: 11.5,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            🔔 Enable Auto UPI Capture
-          </button>
+          <div>
+            🔔 <strong>Android 13–16 Restricted Setting Fix:</strong> If Android says <em>&ldquo;Controlled by Restricted Setting&rdquo;</em>, tap <strong>Step 1 (Open App Info)</strong> → tap <strong>⋮ (top-right)</strong> → tap <strong>Allow restricted settings</strong>, then tap <strong>Step 2 (Enable Notification Access)</strong>.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.PattanBiometric && typeof window.PattanBiometric.openAppDetailsSettings === 'function') {
+                  window.PattanBiometric.openAppDetailsSettings();
+                }
+              }}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(250, 204, 21, 0.55)',
+                background: 'rgba(250, 204, 21, 0.18)',
+                color: isLight ? '#854d0e' : '#fef08a',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              🔓 Step 1: Unlock Restricted Setting (App Info)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
+                  window.PattanBiometric.openNotificationListenerSettings();
+                }
+              }}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 9,
+                border: 'none',
+                background: '#10b981',
+                color: '#052e16',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              🔔 Step 2: Enable Auto UPI Capture
+            </button>
+          </div>
         </div>
       )}
 
@@ -3058,8 +3079,7 @@ export default function ExpensesModule({
             background: palette.surfaceAlt,
             border: `1px solid ${palette.border}`,
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            flexDirection: 'column',
             gap: 10,
           }}>
             <div>
@@ -3067,35 +3087,58 @@ export default function ExpensesModule({
               <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2, lineHeight: 1.4 }}>
                 {notifGranted
                   ? '🟢 Active — Capturing high-confidence completed transactions only'
-                  : 'Requires explicit Android Notification Listener consent'}
+                  : 'Requires explicit Android Notification Listener consent (if Android 13–16 shows "Controlled by Restricted Setting", tap Step 1 below first)'}
               </div>
               <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 4, lineHeight: 1.4 }}>
                 Allowed apps: {ALLOWED_PAYMENT_PACKAGES.map((p) => p.appLabel).join(', ')}. Unknown apps are ignored, raw notification bodies are never stored, and Android may not expose every payment (manual add/edit is always available).
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
-                  window.PattanBiometric.openNotificationListenerSettings();
-                } else {
-                  setScanStatus('ℹ️ Open inside the Android APK to grant Notification Listener access.');
-                }
-              }}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 10,
-                border: `1px solid ${palette.border}`,
-                background: palette.surface,
-                color: palette.text,
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              Configure
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.PattanBiometric && typeof window.PattanBiometric.openAppDetailsSettings === 'function') {
+                    window.PattanBiometric.openAppDetailsSettings();
+                  } else {
+                    setScanStatus('ℹ️ On Android: Open Phone Settings → Apps → OT & Salary Tracker → ⋮ (top-right) → Allow restricted settings.');
+                  }
+                }}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(250, 204, 21, 0.5)',
+                  background: 'rgba(250, 204, 21, 0.14)',
+                  color: isLight ? '#854d0e' : '#fef08a',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                🔓 Step 1: Unlock Restricted Setting (App Info)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.PattanBiometric && typeof window.PattanBiometric.openNotificationListenerSettings === 'function') {
+                    window.PattanBiometric.openNotificationListenerSettings();
+                  } else {
+                    setScanStatus('ℹ️ Open inside the Android APK to grant Notification Listener access.');
+                  }
+                }}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                🔔 Step 2: Enable Notification Access
+              </button>
+            </div>
           </div>
 
           {/* Bank SMS Inbox Scanner (Android Optional Helper) */}

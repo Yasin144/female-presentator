@@ -334,6 +334,18 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void openAppDetailsSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(Uri.fromParts("package", getPackageName(), null));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
         public String loadEncryptedExpenseStoreJson() {
             return MobileTransactionParser.loadEncryptedExpenseStoreJson(getApplicationContext());
         }
