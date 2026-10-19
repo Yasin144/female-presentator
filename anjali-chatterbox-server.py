@@ -570,11 +570,27 @@ PROJECT_ROOT  = Path(__file__).resolve().parent
 PORT          = 8426
 CACHE_LIMIT   = 256
 
+def _resolve_sc3_ref_wav() -> str:
+    """Resolve SC3 reference WAV, falling back to legacy reference files if chapter9-short is missing."""
+    candidates = [
+        PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav",
+        PROJECT_ROOT / "voice-reference-sc3.wav",
+        PROJECT_ROOT / "voice-reference-sc3-24k.wav",
+        PROJECT_ROOT / "voice-reference-anjali.wav",
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.stat().st_size > 1000:
+            return str(candidate)
+    return str(candidates[0])
+
+
+_SC3_RESOLVED_WAV = _resolve_sc3_ref_wav()
+
 VOICE_MAP = {
     # Chapter 9 SC3 recording is the approved natural voice reference for
     # Sing Song. Keep the legacy file as a fallback for existing installs.
-    "sc3":    str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
-    "anjali": str(PROJECT_ROOT / "voice-reference-sc3-chapter9-short.wav"),
+    "sc3":    _SC3_RESOLVED_WAV,
+    "anjali": _SC3_RESOLVED_WAV,
     "pattan": str(PROJECT_ROOT / "voice-reference-pattan.wav"),
     "uploaded": str(PROJECT_ROOT / "voice-reference-uploaded.wav"),
     "rhyme_clean": str(PROJECT_ROOT / "generated-media" / "rhyme-reference-stems" / "htdemucs" / "little-jack-horner-reference-30s" / "vocals.wav"),
@@ -598,6 +614,7 @@ if not Path(VOICE_REF_WAV).exists():
     print(f"[ERROR] Expected: {VOICE_REF_WAV}", flush=True)
     print(f"[ERROR] Make sure paragraph.mp4 was processed by the launcher.", flush=True)
     sys.exit(1)
+print(f"[Voice] Resolved SC3 reference WAV → {VOICE_REF_WAV}", flush=True)
 
 try:
     import torch
