@@ -1,8 +1,8 @@
 {
-  "version": "8.1.0",
+  "version": "8.1.1",
   "cssFile": "app-bundle.css",
-  "buildId": "ota_8_1_0_1792518200",
-  "notes": "v8.1.0: Spacious 2-Row Workspace Top Header (Zero Crowded Titles) + Matching 2-Row Date Hero & 2x2 Bento Summary Grid in Expenses Module.",
+  "buildId": "ota_8_1_1_1792519200",
+  "notes": "v8.1.1: Fixed workspaceSection ReferenceError in 2-Row Workspace Header + Matching 2x2 Bento Expenses Module + Auto-Healing Error Recovery.",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-20T12:09:00Z"
+  "updatedAt": "2026-10-20T12:25:00Z"
 }

@@ -1569,6 +1569,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     } catch (_) {}
     return 'today';
   }); // 'today' | 'expenses' | 'month' | 'summary' | 'rules'
+  const workspaceSection = mobileTab;
+  if (typeof window !== 'undefined') {
+    window.workspaceSection = mobileTab;
+  }
   const [mobileDaysLayout, setMobileDaysLayout] = useState(() => (
     standaloneMobile || (typeof window !== 'undefined' && window.innerWidth <= 820) ? 'cards' : 'table'
   ));
@@ -2238,9 +2242,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.1.0';
+      return localStorage.getItem('pattan.ota.version') || '8.1.1';
     } catch (_) {
-      return '8.1.0';
+      return '8.1.1';
     }
   });
 
@@ -4551,7 +4555,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              {workspaceSection === 'expenses' && expensesBiometricUnlocked && (
+              {mobileTab === 'expenses' && expensesBiometricUnlocked && (
                 <button
                   type="button"
                   onClick={() => setExpensesBiometricUnlocked(false)}
