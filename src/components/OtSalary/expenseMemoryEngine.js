@@ -366,11 +366,43 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   }
 
   const dt = new Date(fallbackTimestampMs);
-  const dateIso = getLocalIsoDate(dt);
+  let dateIso = getLocalIsoDate(dt);
   const timeHHMM = getLocalTimeHHMM(dt);
+
+  // Extract explicit transaction date from SMS / notification text if present (e.g. "on 19-10-26", "19/10/2026", "19 Oct 2026", "2026-10-19", "yesterday")
+  const isoDateMatch = /\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/.exec(text);
+  const dmyDateMatch = /\b(0?[1-9]|[12]\d|3[01])[\/\-](0?[1-9]|1[0-2])[\/\-](20\d{2}|\d{2})\b/.exec(text);
+  const monNameMatch = /\b(0?[1-9]|[12]\d|3[01])[\s\-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*(?:[\s,\-]+(20\d{2}|\d{2}))?\b/i.exec(text);
+  if (isoDateMatch) {
+    dateIso = `${isoDateMatch[1]}-${isoDateMatch[2]}-${isoDateMatch[3]}`;
+  } else if (dmyDateMatch) {
+    const dd = String(dmyDateMatch[1]).padStart(2, '0');
+    const mm = String(dmyDateMatch[2]).padStart(2, '0');
+    const rawYr = String(dmyDateMatch[3]);
+    const yyyy = rawYr.length === 2 ? `20${rawYr}` : rawYr;
+    dateIso = `${yyyy}-${mm}-${dd}`;
+  } else if (monNameMatch) {
+    const monthLookup = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12',
+    };
+    const dd = String(monNameMatch[1]).padStart(2, '0');
+    const mm = monthLookup[String(monNameMatch[2]).toLowerCase().slice(0, 4)] || monthLookup[String(monNameMatch[2]).toLowerCase().slice(0, 3)];
+    const rawYr = monNameMatch[3] ? String(monNameMatch[3]) : String(dt.getFullYear());
+    const yyyy = rawYr.length === 2 ? `20${rawYr}` : rawYr;
+    if (mm) dateIso = `${yyyy}-${mm}-${dd}`;
+  } else if (/\byesterday\b/i.test(lower)) {
+    const yDt = new Date(dt.getTime() - 86400000);
+    dateIso = getLocalIsoDate(yDt);
+  }
+
+  const resolvedTs = dateIso !== getLocalIsoDate(dt)
+    ? (new Date(`${dateIso}T${timeHHMM || '12:00'}:00`).getTime() || fallbackTimestampMs)
+    : fallbackTimestampMs;
+
   const id = refId
     ? `mob_ref_${type}_${refId}_${Math.round(amount)}`
-    : `mob_ts_${type}_${Math.floor(fallbackTimestampMs / 30000)}_${Math.round(amount * 100)}`;
+    : `mob_ts_${type}_${Math.floor(resolvedTs / 30000)}_${Math.round(amount * 100)}`;
 
   const reconciliationStatus = status !== 'completed'
     ? 'needs_review'
@@ -398,10 +430,10 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     accountBalance,
     date: dateIso,
     time: timeHHMM,
-    timestampMs: fallbackTimestampMs,
+    timestampMs: resolvedTs,
     source: sourceType,
     rawText: '',
-    createdAt: new Date(fallbackTimestampMs).toISOString(),
+    createdAt: new Date(resolvedTs).toISOString(),
     updatedAt: new Date().toISOString(),
     updatedAtMs: Date.now(),
   });

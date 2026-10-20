@@ -13,6 +13,7 @@ import {
   launchUpiPayment,
   ALLOWED_PAYMENT_PACKAGES,
   getExpenseStorageStatus,
+  loadEncryptedExpenseStore,
 } from '../../../frontend/expense-memory.js';
 
 const SMART_QA_CHIPS = [
@@ -377,8 +378,16 @@ export default function ExpensesModule({
   const [scanStatus, setScanStatus] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [notifGranted, setNotifGranted] = useState(false);
+  const [notifBannerDismissed, setNotifBannerDismissed] = useState(false);
   const [smsGranted, setSmsGranted] = useState(false);
   const [undoBanner, setUndoBanner] = useState(null);
+
+  // Auto-dismiss scanStatus notification pill after 2.8s so it never stays stuck
+  useEffect(() => {
+    if (!scanStatus) return undefined;
+    const t = setTimeout(() => setScanStatus(''), 2800);
+    return () => clearTimeout(t);
+  }, [scanStatus]);
 
   // Refs for bulletproof state freshness & intelligent inner scrollers
   const expensesMapRef = useRef(expensesMap);
@@ -477,23 +486,28 @@ export default function ExpensesModule({
       if (typeof detail.smsGranted === 'boolean') {
         setSmsGranted((prev) => (prev === detail.smsGranted ? prev : detail.smsGranted));
       }
-      if (isOwnerAccount) {
+      if (hasLinkedEmail) {
         syncSavedBankBalanceFromNative();
         const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
         if (txList.length > 0) {
-          mergeDetectedTransactions(txList, 'android-notif');
+          const added = mergeDetectedTransactions(txList, 'android-notif');
+          if (added > 0) {
+            setScanStatus(`✅ Synced ${added} new transaction${added === 1 ? '' : 's'} into your ledger.`);
+          } else {
+            setScanStatus(`✅ Synced ${txList.length} saved transaction${txList.length === 1 ? '' : 's'}.`);
+          }
         }
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
-  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative, isOwnerAccount]);
+  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative, hasLinkedEmail]);
 
   // Continuous zero-fetch auto-sync of encrypted notification captures & bank balance (every 2.5s + focus)
   useEffect(() => {
     const syncNativeNow = () => {
       checkNativePermissions();
-      if (!isOwnerAccount) return;
+      if (!hasLinkedEmail) return;
       syncSavedBankBalanceFromNative();
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
@@ -515,50 +529,18 @@ export default function ExpensesModule({
       clearInterval(intervalId);
       window.removeEventListener('focus', syncNativeNow);
     };
-  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative, isOwnerAccount]);
+  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative, hasLinkedEmail]);
 
   // Automatically trigger full native scan the moment Notification Access is granted (zero manual fetch required)
   useEffect(() => {
     if (notifGranted) {
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
-          window.PattanBiometric.scanMobileTransactions(60);
+          window.PattanBiometric.scanMobileTransactions(3650);
         }
       } catch (_) {}
     }
   }, [notifGranted]);
-
-  const triggerMobileTransactionScan = (daysToScan = 3650) => {
-    if (!hasLinkedEmail) {
-      setScanStatus('📧 Enter your email above & tap Sync Mail first to sync your transactions.');
-      return;
-    }
-    setIsScanning(true);
-    checkNativePermissions();
-    if (isOwnerAccount) {
-      syncSavedBankBalanceFromNative();
-    }
-    try {
-      if (isOwnerAccount && window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
-        const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
-        const savedArr = JSON.parse(savedRaw || '[]');
-        if (Array.isArray(savedArr) && savedArr.length > 0) {
-          mergeDetectedTransactions(savedArr, 'android-saved-notif');
-        }
-      }
-      if (isOwnerAccount && window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
-        window.PattanBiometric.scanMobileTransactions(daysToScan);
-        setScanStatus('🔄 Syncing all real UPI & Bank transactions for selected Date / Month / Year...');
-        return;
-      }
-      if (isOwnerAccount && window.PattanBiometric && typeof window.PattanBiometric.scanMobileSmsInbox === 'function') {
-        window.PattanBiometric.scanMobileSmsInbox(daysToScan);
-        return;
-      }
-    } catch (_) {}
-    setIsScanning(false);
-    setScanStatus('✅ Synced all real transactions in your permanent ledger.');
-  };
 
   const todayIso = getTodayIso();
 
@@ -571,6 +553,130 @@ export default function ExpensesModule({
   });
   const [filterMonthPart, setFilterMonthPart] = useState(() => String(selectedMonth || todayIso).slice(5, 7) || '10');
   const [filterYearPart, setFilterYearPart] = useState(() => String(selectedMonth || todayIso).slice(0, 4) || '2026');
+  const [quickDateAmount, setQuickDateAmount] = useState('');
+  const [quickDateMerchant, setQuickDateMerchant] = useState('');
+  const [quickDateType, setQuickDateType] = useState('debit');
+
+  const yesterdayIsoCalculated = useMemo(() => {
+    const tObj = new Date(`${todayIso}T12:00:00`);
+    const yObj = new Date(tObj.getTime() - 86400000);
+    return `${yObj.getFullYear()}-${String(yObj.getMonth() + 1).padStart(2, '0')}-${String(yObj.getDate()).padStart(2, '0')}`;
+  }, [todayIso]);
+
+  const activeTargetDateIso = useMemo(() => {
+    if (periodFilterMode === 'yesterday') return yesterdayIsoCalculated;
+    if (periodFilterMode === 'date' && filterSpecificDate) return filterSpecificDate;
+    return todayIso;
+  }, [periodFilterMode, yesterdayIsoCalculated, filterSpecificDate, todayIso]);
+
+  const triggerMobileTransactionScan = async (daysToScanInput = 3650) => {
+    const daysToScan = typeof daysToScanInput === 'number' && daysToScanInput > 0 ? daysToScanInput : 3650;
+    let effectiveEmail = String(activeAccountEmail || '').trim().toLowerCase();
+    if (!effectiveEmail && emailDraftInput.trim()) {
+      let draft = emailDraftInput.trim().toLowerCase();
+      if (!draft.includes('@')) draft = `${draft}@gmail.com`;
+      effectiveEmail = draft;
+      if (typeof onQuickLinkEmail === 'function') {
+        onQuickLinkEmail(draft);
+      }
+    }
+    if (!hasLinkedEmail && !effectiveEmail) {
+      setScanStatus('📧 Enter your Gmail above & tap Sync Account first.');
+      return;
+    }
+
+    setIsScanning(true);
+    checkNativePermissions();
+    syncSavedBankBalanceFromNative();
+
+    let totalSyncedCount = 0;
+
+    // 1. Pull from Android Keystore Encrypted Permanent Vault
+    try {
+      const encStore = loadEncryptedExpenseStore();
+      const encMap = encStore?.expensesMap || encStore?.expenses;
+      if (encMap && typeof encMap === 'object') {
+        const encList = Object.values(encMap).filter((x) => x && typeof x === 'object' && !x._deleted);
+        if (encList.length > 0) {
+          totalSyncedCount += encList.length;
+          mergeDetectedTransactions(encList, 'encrypted-vault-sync');
+        }
+      }
+    } catch (_) {}
+
+    // 2. Pull from Native Profile Vault for linked email
+    try {
+      if (effectiveEmail && window.PattanBiometric && typeof window.PattanBiometric.getProfileVaultJson === 'function') {
+        const profRaw = window.PattanBiometric.getProfileVaultJson(effectiveEmail);
+        if (profRaw && profRaw !== '{}') {
+          const profObj = JSON.parse(profRaw);
+          if (profObj?.expenses && typeof profObj.expenses === 'object') {
+            const profList = Object.values(profObj.expenses).filter((x) => x && typeof x === 'object' && !x._deleted);
+            if (profList.length > 0) {
+              totalSyncedCount += profList.length;
+              mergeDetectedTransactions(profList, 'profile-vault-sync');
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. Pull from Native Captured Notifications Store
+    try {
+      if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+        const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+        const savedArr = JSON.parse(savedRaw || '[]');
+        if (Array.isArray(savedArr) && savedArr.length > 0) {
+          totalSyncedCount += savedArr.length;
+          mergeDetectedTransactions(savedArr, 'android-saved-notif');
+        }
+      }
+    } catch (_) {}
+
+    // 4. Auto-detect any copied Bank / UPI SMS in Clipboard for the selected Date / Last Day
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+        const clipText = await navigator.clipboard.readText();
+        if (clipText && clipText.trim().length >= 8) {
+          const targetTs = new Date(`${activeTargetDateIso}T12:00:00`).getTime() || Date.now();
+          const lines = clipText.split(/\r?\n\s*\r?\n|\r?\n(?=(?:Rs\.?|INR|₹|Dear|Your\s+A\/c|Paid|Received|Sent|Debited|Credited))/i);
+          const parsedClipItems = [];
+          for (const chunk of lines) {
+            const p = parseSmsOrUpiTextJs(chunk.trim(), targetTs, 'clipboard-sync');
+            if (p && p.amount > 0) {
+              parsedClipItems.push(p);
+            }
+          }
+          if (parsedClipItems.length > 0) {
+            totalSyncedCount += parsedClipItems.length;
+            mergeDetectedTransactions(parsedClipItems, 'clipboard-sync');
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 5. Trigger Native Async Status-Bar + Vault Sweep
+    try {
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        window.PattanBiometric.scanMobileTransactions(daysToScan);
+        setTimeout(() => setIsScanning(false), 900);
+        setScanStatus(
+          totalSyncedCount > 0
+            ? `✅ Synced ${totalSyncedCount} transaction record(s) for ${effectiveEmail || 'your account'}.`
+            : `🔄 Scanned notifications & vault for ${activeTargetDateIso}. Use Quick Sync below to add past-day payments.`
+        );
+        return;
+      }
+      if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileSmsInbox === 'function') {
+        window.PattanBiometric.scanMobileSmsInbox(daysToScan);
+        setTimeout(() => setIsScanning(false), 900);
+        return;
+      }
+    } catch (_) {}
+
+    setIsScanning(false);
+    setScanStatus('✅ Synced all real transactions in your permanent ledger.');
+  };
 
   const effectiveExpensesSource = useMemo(() => {
     if (!hasLinkedEmail) return {};
@@ -899,12 +1005,68 @@ export default function ExpensesModule({
       setFormPaymentRemark('');
       setFormCategory(initType === 'credit' ? 'Salary / Income' : 'Food & Dining');
       setFormPaymentMethod('UPI');
-      setFormApp('GPay');
-      setFormDate(todayIso);
+      setFormApp('UPI');
+      setFormDate(activeTargetDateIso || todayIso);
       setFormTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
       setFormTagsInput('');
     }
     setShowAddModal(true);
+  };
+
+  const handleQuickSaveForSelectedDate = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const amt = Number(String(quickDateAmount || '').replace(/,/g, '').trim());
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setScanStatus('⚠️ Enter an amount (₹) to save for the selected date.');
+      return;
+    }
+    const targetDate = activeTargetDateIso || todayIso;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const baseMap = getMaterializedBaseMap();
+    const txId = `tx_date_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
+    const cleanText = String(quickDateMerchant || '').trim();
+    const isCredit = quickDateType === 'credit';
+    const merchantName = cleanText || (isCredit ? 'Deposit / Received' : 'UPI Payment');
+
+    const record = migrateAndNormalizeExpenseRecord({
+      id: txId,
+      amount: Number(amt.toFixed(2)),
+      currency: 'INR',
+      type: isCredit ? 'credit' : 'debit',
+      merchant: merchantName,
+      personalNote: cleanText,
+      paymentRemark: cleanText,
+      note: cleanText,
+      category: isCredit ? 'income' : 'food',
+      paymentMethod: 'UPI',
+      app: 'UPI',
+      date: targetDate,
+      time: '12:00',
+      tags: [],
+      status: 'completed',
+      detectionStatus: 'user_confirmed',
+      noteReviewed: Boolean(cleanText),
+      source: 'date-quick-sync',
+      timestampMs: new Date(`${targetDate}T12:00:00`).getTime() || nowMs,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
+    });
+    delete record._demoPreview;
+    delete record.isDemoPreview;
+    delete record._deleted;
+
+    const nextMap = { ...baseMap, [txId]: record };
+    if (typeof onUpdateExpenses === 'function') {
+      onUpdateExpenses(
+        nextMap,
+        `✅ Synced ${isCredit ? '+' : '-'}₹${formatINR(amt)} (${merchantName}) to ${targetDate}`
+      );
+    }
+    setQuickDateAmount('');
+    setQuickDateMerchant('');
+    setScanStatus(`✅ Synced ${isCredit ? '+' : '-'}₹${formatINR(amt)} (${merchantName}) for ${targetDate}`);
   };
 
   const openCheckBalanceModal = () => {
@@ -1082,7 +1244,19 @@ export default function ExpensesModule({
   const handlePasteSmsParse = () => {
     const raw = smsPasteText.trim();
     if (!raw) return;
-    const parsed = parseSmsOrUpiTextJs(raw, Date.now());
+    const targetTs = new Date(`${activeTargetDateIso || todayIso}T12:00:00`).getTime() || Date.now();
+    const chunks = raw
+      .split(/\r?\n\s*\r?\n|\r?\n(?=(?:Rs\.?|INR|₹|Dear|Your\s+A\/c|Paid|Received|Sent|Debited|Credited))/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const parsedItems = [];
+    for (const chunk of (chunks.length > 0 ? chunks : [raw])) {
+      const p = parseSmsOrUpiTextJs(chunk, targetTs);
+      if (p && p.amount > 0) {
+        parsedItems.push(p);
+      }
+    }
+    const parsed = parsedItems[0] || parseSmsOrUpiTextJs(raw, targetTs);
     if (!parsed) {
       // Check if it is a standalone bank balance inquiry SMS
       const balMatch = raw.match(/(?:avl\.?\s*bal(?:ance)?|available\s+bal(?:ance)?|a\/c\s*bal(?:ance)?|closing\s+bal(?:ance)?|clear\s+bal(?:ance)?|total\s+bal(?:ance)?|updated\s+bal(?:ance)?|bal(?:ance)?\s*(?:is|:))\s*(?:is\s*)?(?:rs\.?|inr|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i);
@@ -1125,11 +1299,16 @@ export default function ExpensesModule({
         updatedAtMs: Date.now(),
       });
     }
-    mergeDetectedTransactions([parsed], 'sms-paste');
+    const itemsToMerge = parsedItems.length > 0 ? parsedItems : [parsed];
+    mergeDetectedTransactions(itemsToMerge, 'sms-paste');
     setSmsPasteText('');
     setShowSmsPasteModal(false);
     const sign = parsed.type === 'credit' || parsed.type === 'refund' ? '+' : '-';
-    setScanStatus(`✅ Added ${sign}₹${formatINR(parsed.amount)} (${parsed.merchant}) from pasted message`);
+    setScanStatus(
+      itemsToMerge.length > 1
+        ? `✅ Synced ${itemsToMerge.length} transactions for ${parsed.date}`
+        : `✅ Added ${sign}₹${formatINR(parsed.amount)} (${parsed.merchant}) for ${parsed.date}`
+    );
   };
 
   const handleExportExpensesCsv = () => {
@@ -1568,7 +1747,7 @@ export default function ExpensesModule({
       )}
 
       {/* 1-Tap Auto UPI Payment Capture Prompt when Notification Access is off */}
-      {!notifGranted && typeof window !== 'undefined' && window.PattanBiometric && (
+      {!notifGranted && !notifBannerDismissed && typeof window !== 'undefined' && window.PattanBiometric && (
         <div style={{
           padding: '12px 14px',
           borderRadius: 14,
@@ -1581,8 +1760,26 @@ export default function ExpensesModule({
           fontWeight: 800,
           color: isLight ? '#065f46' : '#a7f3d0',
         }}>
-          <div>
-            🔔 <strong>Android 13–16 Restricted Setting Fix:</strong> If Android says <em>&ldquo;Controlled by Restricted Setting&rdquo;</em>, tap <strong>Step 1 (Open App Info)</strong> → tap <strong>⋮ (top-right)</strong> → tap <strong>Allow restricted settings</strong>, then tap <strong>Step 2 (Enable Notification Access)</strong>. Once enabled, all ₹100 payments &amp; ₹100 deposits appear automatically with zero manual fetching!
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div>
+              🔔 <strong>Android 13–16 Restricted Setting Fix:</strong> If Android says <em>&ldquo;Controlled by Restricted Setting&rdquo;</em>, tap <strong>Step 1 (Open App Info)</strong> → tap <strong>⋮ (top-right)</strong> → tap <strong>Allow restricted settings</strong>, then tap <strong>Step 2 (Enable Notification Access)</strong>.
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotifBannerDismissed(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                fontWeight: 900,
+                fontSize: 14,
+                cursor: 'pointer',
+                padding: '0 4px',
+              }}
+              title="Dismiss"
+            >
+              ✕
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
@@ -1847,7 +2044,7 @@ export default function ExpensesModule({
             <button
               type="button"
               className="flutter-m3-action-chip"
-              onClick={() => triggerMobileTransactionScan(false)}
+              onClick={() => triggerMobileTransactionScan(3650)}
               style={{
                 color: '#ffffff',
                 display: 'flex',
@@ -2022,23 +2219,41 @@ export default function ExpensesModule({
             <div style={{ fontSize: 12, fontWeight: 800, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>📅 Filter &amp; Sync by Date · Month · Year</span>
             </div>
-            <button
-              type="button"
-              onClick={() => triggerMobileTransactionScan(false)}
-              disabled={isScanning}
-              style={{
-                padding: '5px 12px',
-                borderRadius: 999,
-                border: '1px solid rgba(99, 102, 241, 0.4)',
-                background: 'rgba(99, 102, 241, 0.15)',
-                color: isLight ? '#4f46e5' : '#a5b4fc',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              {isScanning ? '⏳ Syncing...' : '🔄 Sync Transactions'}
-            </button>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => triggerMobileTransactionScan(3650)}
+                disabled={isScanning}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: isLight ? '#4f46e5' : '#a5b4fc',
+                  fontWeight: 800,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {isScanning ? '⏳ Syncing...' : '🔄 Sync Transactions'}
+              </button>
+              <button
+                type="button"
+                onClick={() => openQuickAddModal(null, 'debit')}
+                style={{
+                  padding: '5px 11px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  background: 'rgba(16, 185, 129, 0.14)',
+                  color: '#34d399',
+                  fontWeight: 800,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                + Record for {activeTargetDateIso}
+              </button>
+            </div>
           </div>
 
           {/* Filter Mode Pills */}
@@ -2075,14 +2290,14 @@ export default function ExpensesModule({
             })}
           </div>
 
-          {/* Date / Month / Year Pickers (Shown when filtering by Date, Month, or Year) */}
-          {(periodFilterMode === 'date' || periodFilterMode === 'month' || periodFilterMode === 'year') && (
+          {/* Date / Month / Year Pickers (Always accessible when filtering by Last Day, Date, Month, or Year) */}
+          {(periodFilterMode === 'yesterday' || periodFilterMode === 'date' || periodFilterMode === 'month' || periodFilterMode === 'year') && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 140px' }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Date:</span>
                 <input
                   type="date"
-                  value={filterSpecificDate}
+                  value={periodFilterMode === 'yesterday' ? yesterdayIso : filterSpecificDate}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (val) {
@@ -2094,7 +2309,7 @@ export default function ExpensesModule({
                     flex: 1,
                     padding: '6px 9px',
                     borderRadius: 9,
-                    border: periodFilterMode === 'date' ? '1px solid #6366f1' : `1px solid ${palette.border}`,
+                    border: (periodFilterMode === 'date' || periodFilterMode === 'yesterday') ? '1px solid #6366f1' : `1px solid ${palette.border}`,
                     background: palette.surfaceAlt,
                     color: palette.text,
                     fontSize: 11.5,
@@ -2170,6 +2385,107 @@ export default function ExpensesModule({
             </div>
           )}
 
+          {/* Inline Quick Sync / Add Transaction for Selected Date (Last Day / Specific Date / Today) */}
+          <div style={{
+            padding: '8px 10px',
+            borderRadius: 12,
+            background: palette.surfaceAlt,
+            border: `1px solid ${palette.border}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub, whiteSpace: 'nowrap' }}>
+              ⚡ Quick Add ({activeTargetDateIso}):
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={quickDateAmount}
+              onChange={(e) => setQuickDateAmount(e.target.value)}
+              placeholder="₹ Amount"
+              style={{
+                width: 92,
+                padding: '6px 8px',
+                borderRadius: 8,
+                border: `1px solid ${palette.borderStrong}`,
+                background: palette.surface,
+                color: palette.text,
+                fontSize: 11.5,
+                fontWeight: 800,
+              }}
+            />
+            <input
+              type="text"
+              value={quickDateMerchant}
+              onChange={(e) => setQuickDateMerchant(e.target.value)}
+              placeholder="Merchant / Note (optional)"
+              style={{
+                flex: '1 1 120px',
+                minWidth: 110,
+                padding: '6px 8px',
+                borderRadius: 8,
+                border: `1px solid ${palette.borderStrong}`,
+                background: palette.surface,
+                color: palette.text,
+                fontSize: 11.5,
+                fontWeight: 700,
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => handleQuickSaveForSelectedDate('debit')}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(244, 63, 94, 0.45)',
+                background: 'rgba(244, 63, 94, 0.16)',
+                color: '#fb7185',
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              -₹ Spent
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSaveForSelectedDate('credit')}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                background: 'rgba(16, 185, 129, 0.16)',
+                color: '#34d399',
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              +₹ In
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSmsPasteModal(true)}
+              style={{
+                padding: '6px 9px',
+                borderRadius: 8,
+                border: `1px solid ${palette.borderStrong}`,
+                background: palette.surface,
+                color: palette.textSub,
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              📋 Paste SMS
+            </button>
+          </div>
+
           {/* Active Period Summary Strip */}
           <div style={{
             padding: '7px 11px',
@@ -2187,9 +2503,27 @@ export default function ExpensesModule({
             <span style={{ color: palette.text }}>
               📌 <strong>{periodSummary.label}:</strong> {periodSummary.count} real txn{periodSummary.count === 1 ? '' : 's'}
             </span>
-            <div style={{ display: 'flex', gap: 10, fontWeight: 800 }}>
+            <div style={{ display: 'flex', gap: 10, fontWeight: 800, alignItems: 'center' }}>
               <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(periodSummary.spent)}</span>
               <span style={{ color: '#34d399' }}>In: +₹{formatINR(periodSummary.received)}</span>
+              {periodSummary.count === 0 && (analytics.allTimeCount || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPeriodFilterMode('all')}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(99, 102, 241, 0.45)',
+                    background: '#6366f1',
+                    color: '#ffffff',
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Show All ({analytics.allTimeCount})
+                </button>
+              )}
             </div>
           </div>
         </div>

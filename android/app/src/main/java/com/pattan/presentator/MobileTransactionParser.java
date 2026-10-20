@@ -450,7 +450,7 @@ public final class MobileTransactionParser {
             // 8. Auto-detect Category
             String category = detectCategory(merchant, originalRemark, fullText, type);
 
-            // 9. Format Date & Time
+            // 9. Format Date & Time (also extracting explicit date from SMS/notification text if present)
             long ts = timestampMs > 0 ? timestampMs : System.currentTimeMillis();
             Date dt = new Date(ts);
             SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
@@ -460,6 +460,19 @@ public final class MobileTransactionParser {
 
             String dateIso = isoFmt.format(dt);
             String timeHHMM = timeFmt.format(dt);
+
+            Matcher mIsoDate = Pattern.compile("\\b(20\\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])\\b").matcher(fullText);
+            Matcher mDmyDate = Pattern.compile("\\b(0?[1-9]|[12]\\d|3[01])[\\/-](0?[1-9]|1[0-2])[\\/-](20\\d{2}|\\d{2})\\b").matcher(fullText);
+            if (mIsoDate.find()) {
+                dateIso = mIsoDate.group(1) + "-" + mIsoDate.group(2) + "-" + mIsoDate.group(3);
+            } else if (mDmyDate.find()) {
+                String dd = mDmyDate.group(1).length() == 1 ? "0" + mDmyDate.group(1) : mDmyDate.group(1);
+                String mm = mDmyDate.group(2).length() == 1 ? "0" + mDmyDate.group(2) : mDmyDate.group(2);
+                String yr = mDmyDate.group(3).length() == 2 ? "20" + mDmyDate.group(3) : mDmyDate.group(3);
+                dateIso = yr + "-" + mm + "-" + dd;
+            } else if (lower.contains("yesterday")) {
+                dateIso = isoFmt.format(new Date(ts - 86400000L));
+            }
 
             // Deterministic ID including transaction type (debit vs credit) so ₹100 payment & ₹100 deposit never collide!
             String uniqueKey = !refId.isEmpty()

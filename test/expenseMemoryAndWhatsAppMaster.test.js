@@ -1032,6 +1032,45 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('Filter &amp; Sync by Date · Month · Year'), true);
       assert.equal(cssSrc.includes('flutterPageEnter'), true);
     });
+
+    it('extracts explicit dates from SMS/notification text, auto-closes IN print notification pills, and supports Live OTA updates (v7.8)', () => {
+      // Even when scanned today (2026-10-20), an SMS mentioning 19-10-26 or 19 Oct 2026 must preserve date 2026-10-19!
+      const smsWithDashDate = parseFinancialSmsOrNotification({
+        senderOrPkg: 'HDFCBK',
+        title: 'HDFC Bank',
+        body: 'Sent Rs.450.00 From HDFC Bank A/C *9012 To Fresh Mart On 19-10-26 Ref 629777888999 Avl Bal Rs.13750.00',
+        timestampMs: new Date('2026-10-20T11:30:00+05:30').getTime(),
+      });
+      assert.ok(smsWithDashDate);
+      assert.equal(smsWithDashDate.date, '2026-10-19');
+      assert.equal(smsWithDashDate.amount, 450);
+
+      const smsWithMonthNameDate = parseFinancialSmsOrNotification({
+        senderOrPkg: 'SBIINB',
+        title: 'SBI',
+        body: 'Dear UPI user A/C X4321 debited by 220.00 on 19 Oct 2026 trf to Tea Stall Ref No 629123987654',
+        timestampMs: new Date('2026-10-20T11:35:00+05:30').getTime(),
+      });
+      assert.ok(smsWithMonthNameDate);
+      assert.equal(smsWithMonthNameDate.date, '2026-10-19');
+      assert.equal(smsWithMonthNameDate.amount, 220);
+
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+
+      // Verify auto-close timer on saveNotice & clickable dismiss pill
+      assert.equal(otSalarySrc.includes('checkAndApplyLiveOtaUpdate'), true);
+      assert.equal(otSalarySrc.includes('saveLiveOtaBundle'), true);
+      assert.equal(otSalarySrc.includes("onClick={() => setSaveNotice('')}"), true);
+      assert.equal(expensesSrc.includes('handleQuickSaveForSelectedDate'), true);
+      assert.equal(expensesSrc.includes('activeTargetDateIso'), true);
+    });
   });
 });
 

@@ -87,12 +87,21 @@ const DEFAULT_SETTINGS = {
   otCreditEndDay: 21,
 };
 
+function normalizeAccountEmail(email) {
+  let clean = String(email || '').replace(/\s+/g, '').toLowerCase();
+  if (clean && !clean.includes('@')) {
+    clean = `${clean}@gmail.com`;
+  }
+  return clean;
+}
+
 function isOwnerMasterEmail(email) {
-  return String(email || '').trim().toLowerCase() === OWNER_MASTER_EMAIL;
+  const clean = normalizeAccountEmail(email);
+  return clean === OWNER_MASTER_EMAIL || clean.startsWith('patanyasin144@');
 }
 
 function sanitizeEmailKey(email) {
-  return String(email || 'guest').trim().toLowerCase().replace(/[^a-z0-9._@-]/g, '_') || 'guest';
+  return normalizeAccountEmail(email || 'guest').replace(/[^a-z0-9._@-]/g, '_') || 'guest';
 }
 
 function computeMonthlyCreditCycles(nowDate = new Date(), settings = DEFAULT_SETTINGS) {
@@ -481,7 +490,7 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
 }
 
 function loadStoreForAccountEmail(targetEmail) {
-  const cleanEmail = String(targetEmail || '').trim().toLowerCase();
+  const cleanEmail = normalizeAccountEmail(targetEmail);
 
   // Empty-First Rule: Before any email is added/synced, everything starts 100% empty!
   if (!cleanEmail) {
@@ -520,6 +529,22 @@ function loadStoreForAccountEmail(targetEmail) {
         if (localRaw) userVault = JSON.parse(localRaw);
       } catch (_) {}
     }
+    let userExpenses = userVault?.expenses && typeof userVault.expenses === 'object' ? mergeExpensesNonDestructive({}, userVault.expenses) : {};
+    // Also merge any real device notifications/SMS captured on this phone for the active user
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
+        const savedMobileRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+        if (savedMobileRaw) {
+          const savedMobileArr = JSON.parse(savedMobileRaw);
+          if (Array.isArray(savedMobileArr) && savedMobileArr.length > 0) {
+            const reconciled = reconcileAndMergeTransactions(userExpenses, savedMobileArr, 'android-saved-notif');
+            if (reconciled?.nextMap) {
+              userExpenses = mergeExpensesNonDestructive(userExpenses, reconciled.nextMap);
+            }
+          }
+        }
+      }
+    } catch (_) {}
     const otherSettings = {
       ...DEFAULT_SETTINGS,
       ...(userVault?.settings || {}),
@@ -532,7 +557,7 @@ function loadStoreForAccountEmail(targetEmail) {
       isUnlinked: false,
       settings: otherSettings,
       days: userVault?.days && typeof userVault.days === 'object' ? userVault.days : {},
-      expenses: userVault?.expenses && typeof userVault.expenses === 'object' ? mergeExpensesNonDestructive({}, userVault.expenses) : {},
+      expenses: userExpenses,
     };
   }
 
@@ -1893,6 +1918,158 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [pcSyncOptIn, getCandidateLanBases, applyIncomingStore]);
 
+  // Auto-close floating saveNotice pill after 2.2 seconds so it never stays stuck on screen after IN/OUT print
+  useEffect(() => {
+    if (!saveNotice) return undefined;
+    const timer = setTimeout(() => {
+      setSaveNotice('');
+    }, 2200);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
+
+  // Auto-close OT time started banner after 4.5 seconds
+  useEffect(() => {
+    if (!otTimeStartedBanner) return undefined;
+    const timer = setTimeout(() => {
+      setOtTimeStartedBanner(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [otTimeStartedBanner]);
+
+  // In-App Live Over-The-Air (OTA) Update Engine — Pulls new features directly from GitHub without rebuilding/reinstalling APK
+  const [otaBusy, setOtaBusy] = useState(false);
+  const [liveOtaVersion, setLiveOtaVersion] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
+        const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
+        if (st.version) return st.version;
+      }
+      return localStorage.getItem('pattan.ota.version') || '7.8';
+    } catch (_) {
+      return '7.8';
+    }
+  });
+
+  const checkAndApplyLiveOtaUpdate = useCallback(async (isManualTap = false) => {
+    if (otaBusy) return;
+    if (isManualTap) {
+      setOtaBusy(true);
+      setSaveNotice('🔄 Checking & pulling latest Live Update...');
+    }
+    try {
+      // Also trigger a full transaction & notification sync whenever Update is tapped
+      if (isManualTap && typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        try {
+          window.PattanBiometric.scanMobileTransactions(3650);
+        } catch (_) {}
+      }
+
+      const ts = Date.now();
+      const baseUrls = [
+        'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota',
+        'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota',
+      ];
+
+      let manifest = null;
+      let activeBase = baseUrls[0];
+      for (const base of baseUrls) {
+        try {
+          const res = await fetch(`${base}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          if (res.ok) {
+            manifest = await res.json();
+            activeBase = base;
+            break;
+          }
+        } catch (_) {}
+      }
+
+      if (!manifest || !manifest.buildId) {
+        if (isManualTap) {
+          setOtaBusy(false);
+          setSaveNotice('✅ App synced & up to date (v' + liveOtaVersion + ')');
+        }
+        return;
+      }
+
+      let currentBuildId = '';
+      try {
+        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
+          const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
+          currentBuildId = st.buildId || '';
+        }
+        if (!currentBuildId) {
+          currentBuildId = localStorage.getItem('pattan.ota.buildId') || '';
+        }
+      } catch (_) {}
+
+      const hasNewBuild = String(manifest.buildId) !== String(currentBuildId);
+      if (!hasNewBuild && !isManualTap) {
+        return;
+      }
+
+      const [jsRes, cssRes] = await Promise.all([
+        fetch(`${activeBase}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
+        fetch(`${activeBase}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
+      ]);
+
+      if (!jsRes.ok) {
+        if (isManualTap) {
+          setOtaBusy(false);
+          setSaveNotice('✅ Synced latest data (v' + (manifest.version || liveOtaVersion) + ')');
+        }
+        return;
+      }
+
+      const jsText = await jsRes.text();
+      const cssText = cssRes.ok ? await cssRes.text() : '';
+
+      if (jsText && jsText.length > 1000) {
+        let savedNative = false;
+        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
+          savedNative = Boolean(
+            window.PattanBiometric.saveLiveOtaBundle(
+              String(manifest.version || '7.8'),
+              String(manifest.buildId),
+              jsText,
+              cssText
+            )
+          );
+        }
+        try {
+          localStorage.setItem('pattan.ota.buildId', String(manifest.buildId));
+          localStorage.setItem('pattan.ota.version', String(manifest.version || '7.8'));
+        } catch (_) {}
+        setLiveOtaVersion(String(manifest.version || '7.8'));
+
+        if (hasNewBuild || isManualTap) {
+          setSaveNotice(`✅ Updated to v${manifest.version || '7.8'}! Applying live update...`);
+          setTimeout(() => {
+            setOtaBusy(false);
+            if (savedNative || hasNewBuild) {
+              window.location.reload();
+            }
+          }, 550);
+          return;
+        }
+      }
+    } catch (_) {
+      if (isManualTap) {
+        setSaveNotice('✅ Local data synced (Offline mode)');
+      }
+    }
+    if (isManualTap) {
+      setOtaBusy(false);
+    }
+  }, [otaBusy, liveOtaVersion]);
+
+  // Automatically check for new OTA updates in the background on startup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkAndApplyLiveOtaUpdate(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [checkAndApplyLiveOtaUpdate]);
+
   const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = '') => {
     const merged = mergeExpensesNonDestructive(expensesMapRef.current || {}, nextExpensesMap || {});
     expensesMapRef.current = merged;
@@ -1904,7 +2081,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [settings, daysMap, persistStore]);
 
   const switchAccountEmail = useCallback((rawEmailInput) => {
-    const cleanEmail = String(rawEmailInput ?? '').trim().toLowerCase();
+    const cleanEmail = normalizeAccountEmail(rawEmailInput);
     try {
       if (cleanEmail) {
         localStorage.setItem(LS_ACTIVE_EMAIL_KEY, cleanEmail);
@@ -1926,19 +2103,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       setSaveNotice('🔒 Unlinked Email — Everything is now Empty (0). Enter your email & tap Sync to load data.');
       return;
     }
+    try {
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+        window.PattanBiometric.scanMobileTransactions(3650);
+      }
+    } catch (_) {}
     if (loaded.isOwner) {
-      try {
-        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
-          window.PattanBiometric.scanMobileTransactions(3650);
-        }
-      } catch (_) {}
       setSaveNotice(
         `✅ Synced ${OWNER_MASTER_EMAIL} — ${Object.keys(loaded.days || {}).length} Attendance Days & ${Object.keys(loaded.expenses || {}).length} Real Transactions Loaded!`
       );
     } else {
       setExpensesBiometricUnlocked(false);
       setSalaryBiometricVisible(false);
-      setSaveNotice(`👤 Synced ${loaded.activeEmail} — Separate User Profile Active`);
+      setSaveNotice(`👤 Synced ${loaded.activeEmail} — ${Object.keys(loaded.expenses || {}).length} Transactions Loaded`);
     }
   }, []);
 
@@ -2922,6 +3099,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   useEffect(() => {
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso];
+    if (!todayRec?.inTime) return; // Only notify if user has punched IN today
     if (todayRec?.status === 'leave') return;
     if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
 
@@ -2929,13 +3107,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     let targetEndMins = officeEndDefaultMins;
     if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
       const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
-      targetEndMins = (inM + rates.shiftMins) % 1440;
+      // Do not wrap with % 1440 for same-day comparison so punching IN in the afternoon/evening never immediately triggers office-end
+      targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
     }
 
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
     if (nowMins < 0) return;
 
-    if (nowMins >= targetEndMins) {
+    if (nowMins >= targetEndMins && targetEndMins < 1440) {
       let alreadyNotifiedDate = '';
       try {
         alreadyNotifiedDate = localStorage.getItem('pattan.ot.officeEndNotifiedDate') || '';
@@ -2944,7 +3123,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         try {
           localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
         } catch (_) {}
-        const endHHMM = minutesToTimeInput(targetEndMins);
+        const endHHMM = minutesToTimeInput(targetEndMins % 1440);
         triggerOfficeEndAndOtStartNotification(endHHMM);
       }
     }
@@ -3829,6 +4008,32 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               }} />
             </button>
 
+            {/* 1-Tap Live OTA Update Chip (Pulls new features without rebuilding APK) */}
+            <button
+              type="button"
+              onClick={() => checkAndApplyLiveOtaUpdate(true)}
+              disabled={otaBusy}
+              title={`Pull Latest Live Update (v${liveOtaVersion})`}
+              style={{
+                height: 34,
+                padding: '0 9px',
+                borderRadius: 11,
+                border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(16, 185, 129, 0.45)',
+                background: isLight ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.18)',
+                color: isLight ? '#047857' : '#34d399',
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: otaBusy ? 'wait' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>{otaBusy ? '⏳' : '🔄'}</span>
+              <span>{otaBusy ? 'Updating' : 'Update'}</span>
+            </button>
+
             {/* Compact Account / Change Mobile Chip */}
             <button
               type="button"
@@ -3856,27 +4061,37 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         </div>
 
-        {/* Fixed Floating Save Notice Toast (Zero layout shift / Zero vertical jumping) */}
+        {/* Fixed Floating Save Notice Toast (Auto-closes in 2.2s + Tap to close immediately) */}
         {saveNotice && (
-          <div style={{
-            position: 'fixed',
-            top: 14,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 1850,
-            maxWidth: '92vw',
-            padding: '8px 14px',
-            borderRadius: 999,
-            background: isLight ? '#ecfdf5' : 'rgba(6, 78, 59, 0.96)',
-            border: '1px solid rgba(52, 211, 153, 0.65)',
-            boxShadow: '0 10px 26px rgba(0, 0, 0, 0.42)',
-            color: isLight ? '#065f46' : '#a7f3d0',
-            fontSize: 12,
-            fontWeight: 800,
-            textAlign: 'center',
-            pointerEvents: 'none',
-          }}>
-            ✓ {saveNotice}
+          <div
+            onClick={() => setSaveNotice('')}
+            role="status"
+            title="Tap to dismiss"
+            style={{
+              position: 'fixed',
+              top: 14,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1850,
+              maxWidth: '92vw',
+              padding: '8px 14px',
+              borderRadius: 999,
+              background: isLight ? '#ecfdf5' : 'rgba(6, 78, 59, 0.96)',
+              border: '1px solid rgba(52, 211, 153, 0.65)',
+              boxShadow: '0 10px 26px rgba(0, 0, 0, 0.42)',
+              color: isLight ? '#065f46' : '#a7f3d0',
+              fontSize: 12,
+              fontWeight: 800,
+              textAlign: 'center',
+              pointerEvents: 'auto',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span>✓ {saveNotice}</span>
+            <span style={{ opacity: 0.85, fontWeight: 900, fontSize: 11 }}>✕</span>
           </div>
         )}
 

@@ -50,6 +50,14 @@ public class PaymentNotificationService extends NotificationListenerService {
                 }
             }
         } catch (Exception ignored) {}
+        try {
+            StatusBarNotification[] snoozed = getSnoozedNotifications();
+            if (snoozed != null) {
+                for (StatusBarNotification sbn : snoozed) {
+                    processStatusBarNotification(sbn);
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override

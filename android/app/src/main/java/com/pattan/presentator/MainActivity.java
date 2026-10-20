@@ -46,6 +46,10 @@ import java.util.Set;
 public class MainActivity extends BridgeActivity {
     private static final int REQ_DEVICE_CREDENTIAL = 9421;
     private static final String WA_PREF_NAME = "pattan_wa_secure_relay";
+    private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
+    private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
+    private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
+    private static final String BUILTIN_OTA_VERSION = "7.8.0";
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
 
@@ -71,6 +75,22 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        try {
+            long apkUpdateTime = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+            SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+            long savedApkTime = otaPrefs.getLong("apk_last_update_time", 0L);
+            if (apkUpdateTime > savedApkTime) {
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                if (otaJs.exists()) otaJs.delete();
+                if (otaCss.exists()) otaCss.delete();
+                otaPrefs.edit()
+                    .putLong("apk_last_update_time", apkUpdateTime)
+                    .putString("ota_version", BUILTIN_OTA_VERSION)
+                    .putString("ota_build_id", "")
+                    .apply();
+            }
+        } catch (Exception ignored) {}
         try {
             if (getWindow() != null) {
                 int execNavy = android.graphics.Color.parseColor("#070C18");
@@ -175,7 +195,7 @@ public class MainActivity extends BridgeActivity {
     private void performMobileTransactionScanAsync() {
         new Thread(() -> {
             try {
-                // Sweep any currently active status-bar notifications first
+                // Sweep any currently active and snoozed status-bar notifications first
                 PaymentNotificationService.rescanActiveNotificationsNow();
 
                 JSONArray combined = new JSONArray();
@@ -190,6 +210,25 @@ public class MainActivity extends BridgeActivity {
                         combined.put(item);
                     }
                 }
+
+                // Also merge all transactions from the encrypted permanent expense vault & profile vaults
+                try {
+                    String vaultRaw = MobileTransactionParser.loadEncryptedExpenseStoreJson(getApplicationContext());
+                    if (vaultRaw != null && !vaultRaw.isEmpty() && !"{}".equals(vaultRaw)) {
+                        JSONObject vaultObj = new JSONObject(vaultRaw);
+                        java.util.Iterator<String> keys = vaultObj.keys();
+                        while (keys.hasNext()) {
+                            String k = keys.next();
+                            if (k == null || k.startsWith("demo_tx_") || k.startsWith("tx_yasin_master_")) continue;
+                            JSONObject tx = vaultObj.optJSONObject(k);
+                            if (tx == null || tx.optBoolean("_deleted", false)) continue;
+                            String id = tx.optString("id", k);
+                            if (!id.isEmpty() && seenIds.add(id)) {
+                                combined.put(tx);
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
 
                 dispatchMobileTransactionsToJs(true, combined, "");
             } catch (Exception ex) {
@@ -527,6 +566,70 @@ public class MainActivity extends BridgeActivity {
                 return parsed != null ? parsed.toString() : "";
             } catch (Exception ignored) {
                 return "";
+            }
+        }
+
+        @JavascriptInterface
+        public String getLiveOtaStatusJson() {
+            try {
+                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                boolean hasOta = otaJs.exists() && otaJs.length() > 1024;
+                JSONObject res = new JSONObject();
+                res.put("builtinVersion", BUILTIN_OTA_VERSION);
+                res.put("activeVersion", hasOta ? otaPrefs.getString("ota_version", BUILTIN_OTA_VERSION) : BUILTIN_OTA_VERSION);
+                res.put("buildId", hasOta ? otaPrefs.getString("ota_build_id", "") : "");
+                res.put("updatedAt", otaPrefs.getString("ota_updated_at", ""));
+                res.put("hasOtaBundle", hasOta);
+                return res.toString();
+            } catch (Exception ignored) {
+                return "{\"builtinVersion\":\"7.8.0\",\"activeVersion\":\"7.8.0\",\"hasOtaBundle\":false}";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean saveLiveOtaBundle(final String version, final String buildId, final String jsContent, final String cssContent) {
+            try {
+                if (jsContent == null || jsContent.length() < 1024) return false;
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(otaJs, false)) {
+                    fos.write(jsContent.getBytes(StandardCharsets.UTF_8));
+                    fos.flush();
+                }
+                if (cssContent != null && cssContent.length() > 50) {
+                    java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(otaCss, false)) {
+                        fos.write(cssContent.getBytes(StandardCharsets.UTF_8));
+                        fos.flush();
+                    }
+                }
+                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+                otaPrefs.edit()
+                    .putString("ota_version", version != null && !version.isEmpty() ? version : BUILTIN_OTA_VERSION)
+                    .putString("ota_build_id", buildId != null ? buildId : "")
+                    .putString("ota_updated_at", String.valueOf(System.currentTimeMillis()))
+                    .apply();
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean clearLiveOtaBundle() {
+            try {
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                if (otaJs.exists()) otaJs.delete();
+                if (otaCss.exists()) otaCss.delete();
+                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+                otaPrefs.edit()
+                    .putString("ota_version", BUILTIN_OTA_VERSION)
+                    .putString("ota_build_id", "")
+                    .apply();
+                return true;
+            } catch (Exception ignored) {
+                return false;
             }
         }
 
@@ -882,6 +985,51 @@ public class MainActivity extends BridgeActivity {
     private final class RecoveringWebViewClient extends BridgeWebViewClient {
         RecoveringWebViewClient() {
             super(bridge);
+        }
+
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            try {
+                if (request != null && request.getUrl() != null) {
+                    Uri reqUri = request.getUrl();
+                    String host = reqUri.getHost() != null ? reqUri.getHost() : "";
+                    String path = reqUri.getPath() != null ? reqUri.getPath() : "";
+                    if (("localhost".equalsIgnoreCase(host) || "127.0.0.1".equalsIgnoreCase(host)) && path.startsWith("/assets/index-")) {
+                        if (path.endsWith(".js")) {
+                            java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                            if (otaJs.exists() && otaJs.length() > 1024) {
+                                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                                headers.put("Access-Control-Allow-Origin", "*");
+                                headers.put("Cache-Control", "no-store, no-cache, must-revalidate");
+                                return new WebResourceResponse(
+                                    "application/javascript",
+                                    "UTF-8",
+                                    200,
+                                    "OK",
+                                    headers,
+                                    new java.io.FileInputStream(otaJs)
+                                );
+                            }
+                        } else if (path.endsWith(".css")) {
+                            java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                            if (otaCss.exists() && otaCss.length() > 50) {
+                                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                                headers.put("Access-Control-Allow-Origin", "*");
+                                headers.put("Cache-Control", "no-store, no-cache, must-revalidate");
+                                return new WebResourceResponse(
+                                    "text/css",
+                                    "UTF-8",
+                                    200,
+                                    "OK",
+                                    headers,
+                                    new java.io.FileInputStream(otaCss)
+                                );
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            return super.shouldInterceptRequest(view, request);
         }
 
         private boolean isExpiredTunnelRequest(WebResourceRequest request) {
