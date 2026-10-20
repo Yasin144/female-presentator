@@ -4,16 +4,60 @@ import OtSalary from './OtSalary/OtSalary.jsx';
 const LINK_KEY = 'pattan.android.serverUrl';
 const ANDROID_LAUNCH_MODE_KEY = 'pattan.android.launchMode';
 
+if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefined') {
+  window.workspaceSection = 'today';
+}
+
 class MobileOtErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, healStatus: '' };
   }
   static getDerivedStateFromError(error) {
+    if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefined') {
+      window.workspaceSection = 'today';
+    }
     return { hasError: true, error };
   }
   componentDidCatch(error, info) {
     console.error('[MobileOtErrorBoundary] Caught error:', error, info);
+    if (typeof window !== 'undefined') {
+      window.workspaceSection = 'today';
+    }
+    this.tryAutoHealFromRemoteOta();
+  }
+  async tryAutoHealFromRemoteOta() {
+    try {
+      this.setState({ healStatus: 'Downloading live hotfix from GitHub...' });
+      const ts = Date.now();
+      const base = 'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota';
+      const mRes = await fetch(`${base}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+      if (mRes.ok) {
+        const manifest = await mRes.json();
+        const [jsRes, cssRes] = await Promise.all([
+          fetch(`${base}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
+          fetch(`${base}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
+        ]);
+        if (jsRes.ok) {
+          const jsText = await jsRes.text();
+          const cssText = cssRes.ok ? await cssRes.text() : '';
+          if (jsText && jsText.length > 1000 && window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
+            window.PattanBiometric.saveLiveOtaBundle(
+              String(manifest.version || '8.1.1'),
+              String(manifest.buildId || ''),
+              jsText,
+              cssText
+            );
+            localStorage.setItem('pattan.ota.version', String(manifest.version || '8.1.1'));
+            localStorage.setItem('pattan.ota.buildId', String(manifest.buildId || ''));
+            this.setState({ healStatus: `Installed hotfix v${manifest.version}! Reloading...` });
+            setTimeout(() => window.location.reload(), 250);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+    this.setState({ healStatus: '' });
   }
   render() {
     if (this.state.hasError) {
@@ -43,10 +87,18 @@ class MobileOtErrorBoundary extends React.Component {
             <p style={{ margin: '0 0 14px', fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>
               {String(this.state.error?.message || this.state.error || 'Unexpected error')}
             </p>
+            {this.state.healStatus && (
+              <p style={{ margin: '0 0 12px', fontSize: 12, color: '#34d399', fontWeight: 700 }}>
+                {this.state.healStatus}
+              </p>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => this.setState({ hasError: false, error: null })}
+                onClick={() => {
+                  if (typeof window !== 'undefined') window.workspaceSection = 'today';
+                  this.setState({ hasError: false, error: null });
+                }}
                 style={{
                   padding: '10px 16px',
                   borderRadius: 10,
@@ -63,6 +115,9 @@ class MobileOtErrorBoundary extends React.Component {
                 type="button"
                 onClick={() => {
                   try {
+                    if (window.PattanBiometric && typeof window.PattanBiometric.clearLiveOtaBundle === 'function') {
+                      window.PattanBiometric.clearLiveOtaBundle();
+                    }
                     localStorage.removeItem('pattan.android.launchMode');
                   } catch (_) {}
                   window.location.reload();
@@ -77,7 +132,7 @@ class MobileOtErrorBoundary extends React.Component {
                   cursor: 'pointer',
                 }}
               >
-                🔁 Reload App
+                🔁 Reload &amp; Fix App
               </button>
             </div>
           </div>
