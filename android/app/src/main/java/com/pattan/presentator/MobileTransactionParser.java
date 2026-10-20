@@ -598,9 +598,10 @@ public final class MobileTransactionParser {
             java.util.Iterator<String> keys = rawObj.keys();
             while (keys.hasNext()) {
                 String k = keys.next();
-                if (k == null || k.startsWith("demo_tx_")) continue;
+                if (k == null || k.startsWith("demo_tx_") || k.startsWith("tx_yasin_master_")) continue;
                 JSONObject v = rawObj.optJSONObject(k);
-                if (v != null && !"demo-preview".equals(v.optString("source", ""))) {
+                String src = v != null ? v.optString("source", "") : "";
+                if (v != null && !"demo-preview".equals(src) && !"owner-master-vault".equals(src)) {
                     v.put("_deleted", false);
                     v.put("rawText", "");
                     if (target.has(k)) {
@@ -682,6 +683,18 @@ public final class MobileTransactionParser {
             if (encMap != null && !encMap.isEmpty()) {
                 mergeCleanJsonIntoMap(mapObj, decryptJsonString(encMap, "{}"));
             }
+
+            // 2b. Also merge any expenses stored in the patanyasin144@gmail.com owner profile vault
+            try {
+                String ownerVaultPlain = getSavedProfileVaultJson(context, "patanyasin144@gmail.com");
+                if (ownerVaultPlain != null && !ownerVaultPlain.isEmpty() && !"{}".equals(ownerVaultPlain)) {
+                    JSONObject ownerVaultObj = new JSONObject(ownerVaultPlain);
+                    JSONObject ownerExp = ownerVaultObj.optJSONObject("expenses");
+                    if (ownerExp != null) {
+                        mergeCleanJsonIntoMap(mapObj, ownerExp.toString());
+                    }
+                }
+            } catch (Exception ignored) {}
 
             // 3. Merge any captured notification array into the encrypted map
             JSONArray captured = getSavedCapturedTransactions(context);

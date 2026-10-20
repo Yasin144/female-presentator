@@ -67,7 +67,7 @@ class ExpensesSectionBoundary extends React.Component {
 
 const LS_OT_SALARY_KEY = 'pp_ot_salary_tracker_v1';
 const OWNER_MASTER_EMAIL = 'patanyasin144@gmail.com';
-const LS_ACTIVE_EMAIL_KEY = 'pattan.ot.activeAccountEmail';
+const LS_ACTIVE_EMAIL_KEY = 'pattan.ot.linkedAccountEmail.v75';
 const LS_OWNER_VAULT_KEY = 'pattan.owner.vault.patanyasin144.v1';
 
 const DEFAULT_SETTINGS = {
@@ -412,219 +412,36 @@ function buildMonthDates(yearMonth) {
   return list;
 }
 
-function buildOwnerMasterTransactionsSeed(yearMonthStr) {
-  const ym = /^\d{4}-\d{2}$/.test(String(yearMonthStr || ''))
-    ? String(yearMonthStr)
-    : getTodayIsoDate().slice(0, 7);
-  const rows = [
-    {
-      id: `tx_yasin_master_${ym}_salary`,
-      amount: 25000,
-      currency: 'INR',
-      type: 'credit',
-      status: 'completed',
-      merchant: 'Office Salary Credit (10–13 Cycle)',
-      category: 'Salary / Income',
-      paymentMethod: 'Bank Transfer',
-      app: 'HDFC Bank',
-      accountMask: 'XX4321',
-      accountBalance: 28450,
-      date: `${ym}-12`,
-      time: '10:30',
-      timestampMs: new Date(`${ym}-12T10:30:00`).getTime() || 1791781200000,
-      refId: 'SAL1013202612',
-      personalNote: 'Monthly Base Salary Credited (10th–13th Cycle)',
-      note: 'Monthly Base Salary Credited (10th–13th Cycle)',
-      originalRemark: 'NEFT Salary Credit',
-      noteReviewed: true,
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1791781200000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_ot_payout`,
-      amount: 2450,
-      currency: 'INR',
-      type: 'credit',
-      status: 'completed',
-      merchant: 'Extra OT Payment Credit (18–21 Cycle)',
-      category: 'Salary / Income',
-      paymentMethod: 'Bank Transfer',
-      app: 'HDFC Bank',
-      accountMask: 'XX4321',
-      accountBalance: 26890,
-      date: `${ym}-19`,
-      time: '11:15',
-      timestampMs: new Date(`${ym}-19T11:15:00`).getTime() || 1792388700000,
-      refId: 'OTP1821202619',
-      personalNote: 'Monthly Extra OT Payment Credited (18th–21st Cycle)',
-      note: 'Monthly Extra OT Payment Credited (18th–21st Cycle)',
-      originalRemark: 'IMPS OT Payment Credit',
-      noteReviewed: true,
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792388700000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_100_debit`,
-      amount: 100,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Irani Chai & Bakery',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      accountMask: 'XX4321',
-      accountBalance: 26790,
-      date: `${ym}-19`,
-      time: '15:10',
-      timestampMs: new Date(`${ym}-19T15:10:00`).getTime() || 1792402800000,
-      refId: '629300112233',
-      personalNote: 'Evening tea & snacks',
-      note: 'Evening tea & snacks',
-      originalRemark: 'Paid via Google Pay UPI',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792402800000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_100_credit`,
-      amount: 100,
-      currency: 'INR',
-      type: 'credit',
-      status: 'completed',
-      merchant: 'UPI Deposit Received',
-      category: 'Salary / Income',
-      paymentMethod: 'UPI',
-      app: 'PhonePe',
-      accountMask: 'XX4321',
-      accountBalance: 26890,
-      date: `${ym}-19`,
-      time: '15:25',
-      timestampMs: new Date(`${ym}-19T15:25:00`).getTime() || 1792403700000,
-      refId: '629300998877',
-      personalNote: '₹100 Deposit Received in Bank A/c',
-      note: '₹100 Deposit Received in Bank A/c',
-      originalRemark: 'Credited to Bank A/c XX4321',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792403700000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_food_1`,
-      amount: 340,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Swiggy',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      accountMask: 'XX4321',
-      date: `${ym}-18`,
-      time: '13:40',
-      timestampMs: new Date(`${ym}-18T13:40:00`).getTime() || 1792311000000,
-      refId: '629288776655',
-      personalNote: 'Office lunch order',
-      note: 'Office lunch order',
-      originalRemark: 'Swiggy UPI order',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792311000000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_fuel_1`,
-      amount: 550,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'HP Petrol Pump',
-      category: 'Fuel & Commute',
-      paymentMethod: 'UPI',
-      app: 'PhonePe',
-      accountMask: 'XX4321',
-      date: `${ym}-17`,
-      time: '09:35',
-      timestampMs: new Date(`${ym}-17T09:35:00`).getTime() || 1792209900000,
-      refId: '629177665544',
-      personalNote: 'Bike petrol refill for office commute',
-      note: 'Bike petrol refill for office commute',
-      originalRemark: 'HPCL Fuel UPI',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792209900000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_shop_1`,
-      amount: 1299,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Amazon Pay India',
-      category: 'Shopping',
-      paymentMethod: 'UPI',
-      app: 'Amazon Pay',
-      accountMask: 'XX4321',
-      date: `${ym}-15`,
-      time: '20:15',
-      timestampMs: new Date(`${ym}-15T20:15:00`).getTime() || 1792075500000,
-      refId: '628966554433',
-      personalNote: 'Headphones & phone accessories',
-      note: 'Headphones & phone accessories',
-      originalRemark: 'Amazon order payment',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1792075500000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_groceries_1`,
-      amount: 680,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Ratnadeep Supermarket',
-      category: 'Groceries',
-      paymentMethod: 'UPI',
-      app: 'Paytm',
-      accountMask: 'XX4321',
-      date: `${ym}-14`,
-      time: '19:20',
-      timestampMs: new Date(`${ym}-14T19:20:00`).getTime() || 1791985800000,
-      refId: '628855443322',
-      personalNote: '',
-      note: '',
-      originalRemark: 'Supermarket UPI',
-      noteReviewed: false,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: 1791985800000,
-    },
-  ];
-  const map = {};
-  for (const r of rows) {
-    map[r.id] = r;
-  }
-  return map;
+function isFakeSeededTransaction(id, tx) {
+  const keyStr = String(id || tx?.id || '').trim();
+  if (!keyStr) return false;
+  if (keyStr.startsWith('demo_tx_') || keyStr.startsWith('tx_yasin_master_')) return true;
+  if (!tx || typeof tx !== 'object') return false;
+  if (tx._demoPreview || tx.isDemoPreview) return true;
+  const src = String(tx.source || '').trim().toLowerCase();
+  if (src === 'demo-preview' || src === 'owner-master-vault') return true;
+  const ref = String(tx.refId || '').trim();
+  if (ref === 'OTP1821202619' || ref === 'SAL1013202612') return true;
+  return false;
+}
+
+// Never seed fake OT credit or fake transactions — only real transactions are shown.
+function buildOwnerMasterTransactionsSeed() {
+  return {};
 }
 
 function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
-  const result = { ...(baseMap || {}) };
+  const result = {};
+  for (const [bk, bVal] of Object.entries(baseMap || {})) {
+    if (!bVal || typeof bVal !== 'object' || isFakeSeededTransaction(bk, bVal)) continue;
+    const cleanBase = { ...bVal };
+    delete cleanBase._deleted;
+    delete cleanBase._demoPreview;
+    delete cleanBase.isDemoPreview;
+    result[bk] = cleanBase;
+  }
   for (const [k, inVal] of Object.entries(overlayMap || {})) {
-    if (!inVal || typeof inVal !== 'object' || String(k).startsWith('demo_tx_')) continue;
+    if (!inVal || typeof inVal !== 'object' || isFakeSeededTransaction(k, inVal)) continue;
     const exVal = result[k];
     if (!exVal) {
       const clean = { ...inVal };
@@ -664,7 +481,25 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
 }
 
 function loadStoreForAccountEmail(targetEmail) {
-  const cleanEmail = String(targetEmail || OWNER_MASTER_EMAIL).trim().toLowerCase() || OWNER_MASTER_EMAIL;
+  const cleanEmail = String(targetEmail || '').trim().toLowerCase();
+
+  // Empty-First Rule: Before any email is added/synced, everything starts 100% empty!
+  if (!cleanEmail) {
+    return {
+      activeEmail: '',
+      isOwner: false,
+      isUnlinked: true,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        employeeName: 'Guest (Link Email to Sync)',
+        accountEmail: '',
+        monthlySalary: 0,
+      },
+      days: {},
+      expenses: {},
+    };
+  }
+
   const isOwner = isOwnerMasterEmail(cleanEmail);
 
   if (!isOwner) {
@@ -694,13 +529,14 @@ function loadStoreForAccountEmail(targetEmail) {
     return {
       activeEmail: cleanEmail,
       isOwner: false,
+      isUnlinked: false,
       settings: otherSettings,
       days: userVault?.days && typeof userVault.days === 'object' ? userVault.days : {},
-      expenses: userVault?.expenses && typeof userVault.expenses === 'object' ? userVault.expenses : {},
+      expenses: userVault?.expenses && typeof userVault.expenses === 'object' ? mergeExpensesNonDestructive({}, userVault.expenses) : {},
     };
   }
 
-  // Owner Master Account: patanyasin144@gmail.com -> Enable & merge ALL data from every layer (zero deletion)
+  // Owner Master Account: patanyasin144@gmail.com -> Enable & merge ALL real data from every layer (zero deletion)
   let resolvedExpenses = buildOwnerMasterTransactionsSeed();
   let resolvedDays = {};
   let resolvedSettings = { ...DEFAULT_SETTINGS, accountEmail: OWNER_MASTER_EMAIL };
@@ -741,11 +577,32 @@ function loadStoreForAccountEmail(targetEmail) {
     }
   } catch (_) {}
 
-  // 3. Load from Encrypted Expense Store
+  // 3. Load from Encrypted Expense Store (supports both .expensesMap and .expenses)
   try {
     const encryptedRes = loadEncryptedExpenseStore();
-    if (encryptedRes?.expenses && typeof encryptedRes.expenses === 'object') {
-      resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, encryptedRes.expenses);
+    const encMap = encryptedRes?.expensesMap || encryptedRes?.expenses;
+    if (encMap && typeof encMap === 'object') {
+      resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, encMap);
+    }
+  } catch (_) {}
+
+  // 3b. Merge all captured native Android notifications & SMS transactions (including yesterday / last day)
+  try {
+    if (
+      typeof window !== 'undefined' &&
+      window.PattanBiometric &&
+      typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function'
+    ) {
+      const savedMobileRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
+      if (savedMobileRaw) {
+        const savedMobileArr = JSON.parse(savedMobileRaw);
+        if (Array.isArray(savedMobileArr) && savedMobileArr.length > 0) {
+          const reconciled = reconcileAndMergeTransactions(resolvedExpenses, savedMobileArr, 'android-saved-notif');
+          if (reconciled?.nextMap) {
+            resolvedExpenses = mergeExpensesNonDestructive(resolvedExpenses, reconciled.nextMap);
+          }
+        }
+      }
     }
   } catch (_) {}
 
@@ -768,6 +625,9 @@ function loadStoreForAccountEmail(targetEmail) {
 
   resolvedSettings.employeeName = normalizeEmployeeName(resolvedSettings.employeeName, OWNER_MASTER_EMAIL);
   resolvedSettings.accountEmail = OWNER_MASTER_EMAIL;
+  if (!(Number(resolvedSettings.monthlySalary) > 0)) {
+    resolvedSettings.monthlySalary = DEFAULT_SETTINGS.monthlySalary;
+  }
   try {
     saveEncryptedExpenseStore(resolvedExpenses);
   } catch (_) {}
@@ -775,6 +635,7 @@ function loadStoreForAccountEmail(targetEmail) {
   return {
     activeEmail: OWNER_MASTER_EMAIL,
     isOwner: true,
+    isUnlinked: false,
     settings: resolvedSettings,
     days: resolvedDays,
     expenses: resolvedExpenses,
@@ -782,7 +643,7 @@ function loadStoreForAccountEmail(targetEmail) {
 }
 
 function loadInitialStore() {
-  let savedEmail = OWNER_MASTER_EMAIL;
+  let savedEmail = '';
   try {
     const fromLs = localStorage.getItem(LS_ACTIVE_EMAIL_KEY);
     if (fromLs && String(fromLs).trim()) {
@@ -1315,14 +1176,15 @@ function RealAnalogClock({ now = new Date(), size = 136 }) {
 
 export default function OtSalary({ onClose, standaloneMobile = false, initialTab = 'today' }) {
   const initialStore = useMemo(loadInitialStore, []);
-  const [activeAccountEmail, setActiveAccountEmail] = useState(initialStore.activeEmail || OWNER_MASTER_EMAIL);
-  const activeAccountEmailRef = useRef(initialStore.activeEmail || OWNER_MASTER_EMAIL);
+  const [activeAccountEmail, setActiveAccountEmail] = useState(initialStore.activeEmail || '');
+  const activeAccountEmailRef = useRef(initialStore.activeEmail || '');
   useEffect(() => {
     activeAccountEmailRef.current = activeAccountEmail;
   }, [activeAccountEmail]);
   const isOwnerAccount = useMemo(() => isOwnerMasterEmail(activeAccountEmail), [activeAccountEmail]);
+  const isEmailLinked = useMemo(() => Boolean(String(activeAccountEmail || '').trim()), [activeAccountEmail]);
   const [showChangeMobileModal, setShowChangeMobileModal] = useState(false);
-  const [changeMobileEmailInput, setChangeMobileEmailInput] = useState(initialStore.activeEmail || OWNER_MASTER_EMAIL);
+  const [changeMobileEmailInput, setChangeMobileEmailInput] = useState(initialStore.activeEmail || '');
   const [changeMobileSyncCodeInput, setChangeMobileSyncCodeInput] = useState('');
 
   const [settings, setSettings] = useState(initialStore.settings);
@@ -1761,6 +1623,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const applyIncomingStore = useCallback((data) => {
     if (!data || typeof data !== 'object') return;
+    if (!isOwnerMasterEmail(activeAccountEmailRef.current)) return;
     if (data.clientId && data.clientId === clientIdRef.current) return;
 
     const incomingTs = Number(data.updatedAtMs || Date.parse(data.updatedAt || '') || 0);
@@ -1875,7 +1738,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const persistStore = useCallback((nextSettings, nextDays, message = 'Saved', customExpenses = null) => {
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
-    const currentEmail = String(activeAccountEmailRef.current || OWNER_MASTER_EMAIL).trim().toLowerCase() || OWNER_MASTER_EMAIL;
+    const currentEmail = String(activeAccountEmailRef.current || '').trim().toLowerCase();
+    if (!currentEmail) {
+      if (message) {
+        setSaveNotice(`ℹ️ Enter your email & tap Sync to save to your account vault`);
+      }
+      return;
+    }
     const isOwner = isOwnerMasterEmail(currentEmail);
 
     const stampedDays = {};
@@ -1890,7 +1759,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const activeExpenses = customExpenses !== null ? customExpenses : (expensesMapRef.current || {});
     const stampedExpenses = {};
     for (const [txId, tx] of Object.entries(activeExpenses)) {
-      if (!tx) continue;
+      if (!tx || isFakeSeededTransaction(txId, tx)) continue;
       stampedExpenses[txId] = {
         ...tx,
         updatedAt: tx.updatedAt || nowIso,
@@ -1931,6 +1800,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             accountEmail: currentEmail,
             settings: resolvedNextSettings,
             days: stampedDays,
+            expenses: stampedExpenses,
             updatedAt: nowIso,
             updatedAtMs: nowMs,
           })
@@ -2014,9 +1884,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [settings, daysMap, persistStore]);
 
   const switchAccountEmail = useCallback((rawEmailInput) => {
-    const cleanEmail = String(rawEmailInput || '').trim().toLowerCase() || OWNER_MASTER_EMAIL;
+    const cleanEmail = String(rawEmailInput ?? '').trim().toLowerCase();
     try {
-      localStorage.setItem(LS_ACTIVE_EMAIL_KEY, cleanEmail);
+      if (cleanEmail) {
+        localStorage.setItem(LS_ACTIVE_EMAIL_KEY, cleanEmail);
+      } else {
+        localStorage.removeItem(LS_ACTIVE_EMAIL_KEY);
+      }
     } catch (_) {}
     const loaded = loadStoreForAccountEmail(cleanEmail);
     activeAccountEmailRef.current = loaded.activeEmail;
@@ -2026,14 +1900,25 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     setDaysMap(loaded.days || {});
     expensesMapRef.current = loaded.expenses || {};
     setExpensesMap(loaded.expenses || {});
+    if (!cleanEmail) {
+      setExpensesBiometricUnlocked(false);
+      setSalaryBiometricVisible(false);
+      setSaveNotice('🔒 Unlinked Email — Everything is now Empty (0). Enter your email & tap Sync to load data.');
+      return;
+    }
     if (loaded.isOwner) {
+      try {
+        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
+          window.PattanBiometric.scanMobileTransactions(3650);
+        }
+      } catch (_) {}
       setSaveNotice(
-        `👑 Synced ${OWNER_MASTER_EMAIL} — All Owner Attendance (${Object.keys(loaded.days || {}).length} days) & Transactions (${Object.keys(loaded.expenses || {}).length} txns) Enabled!`
+        `✅ Synced ${OWNER_MASTER_EMAIL} — ${Object.keys(loaded.days || {}).length} Attendance Days & ${Object.keys(loaded.expenses || {}).length} Real Transactions Loaded!`
       );
     } else {
       setExpensesBiometricUnlocked(false);
       setSalaryBiometricVisible(false);
-      setSaveNotice(`👤 Active Account: ${loaded.activeEmail} — Separate User Dates & Data Enabled (Owner Data Protected)`);
+      setSaveNotice(`👤 Synced ${loaded.activeEmail} — Separate User Profile Active`);
     }
   }, []);
 
@@ -3496,32 +3381,64 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const expenseQuickStats = useMemo(() => {
     const todayIso = getTodayIsoDate();
+    const refDateObj = new Date(`${todayIso}T12:00:00`);
+    const yesterdayObj = new Date(refDateObj.getTime() - 86400000);
+    const yesterdayIso = `${yesterdayObj.getFullYear()}-${String(yesterdayObj.getMonth() + 1).padStart(2, '0')}-${String(yesterdayObj.getDate()).padStart(2, '0')}`;
     const activeSource = expensesMap || {};
 
     let count = 0;
     let spent = 0;
     let income = 0;
     let todaySpent = 0;
+    let todayReceived = 0;
+    let todayCount = 0;
+    let yesterdaySpent = 0;
+    let yesterdayReceived = 0;
+    let yesterdayCount = 0;
+    let allTimeCount = 0;
     let missingNotesCount = 0;
-    for (const tx of Object.values(activeSource)) {
-      if (!tx || typeof tx !== 'object' || tx._deleted || tx.isDemoPreview || tx._demoPreview || !(Number(tx.amount) > 0)) continue;
+    for (const [txKey, tx] of Object.entries(activeSource)) {
+      if (!tx || typeof tx !== 'object' || tx._deleted || isFakeSeededTransaction(txKey, tx) || !(Number(tx.amount) > 0)) continue;
       if (tx.status === 'failed' || tx.status === 'reversed') continue;
+      allTimeCount += 1;
+      const amt = Number(tx.amount) || 0;
+      if (tx.date === todayIso) {
+        todayCount += 1;
+        if (tx.type === 'credit' || tx.type === 'refund') todayReceived += amt;
+        else todaySpent += amt;
+      }
+      if (tx.date === yesterdayIso) {
+        yesterdayCount += 1;
+        if (tx.type === 'credit' || tx.type === 'refund') yesterdayReceived += amt;
+        else yesterdaySpent += amt;
+      }
       if (selectedMonth && !String(tx.date || '').startsWith(selectedMonth)) continue;
       count += 1;
-      const amt = Number(tx.amount) || 0;
       if (tx.type === 'credit') {
         income += amt;
       } else if (tx.type === 'refund') {
         spent = Math.max(0, spent - amt);
       } else {
         spent += amt;
-        if (tx.date === todayIso) todaySpent += amt;
         if (!String(tx.personalNote || tx.note || '').trim() && !tx.noteReviewed) {
           missingNotesCount += 1;
         }
       }
     }
-    return { count, spent, income, todaySpent, missingNotesCount };
+    return {
+      count,
+      spent,
+      income,
+      todaySpent,
+      todayReceived,
+      todayCount,
+      yesterdayIso,
+      yesterdaySpent,
+      yesterdayReceived,
+      yesterdayCount,
+      allTimeCount,
+      missingNotesCount,
+    };
   }, [expensesMap, selectedMonth]);
 
   const showTodaySection = mobileTab === 'today';
@@ -3690,16 +3607,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* TOP PROFILE & CONTROLS HEADER (Executive Fintech Header) */}
+        {/* TOP PHONEPE-STYLE PURPLE APP BAR HEADER */}
         <div
           className="ot-no-print"
           style={{
-            padding: '13px 15px',
+            padding: '14px 16px',
             borderRadius: 22,
-            background: ui.cardBg,
-            border: `1px solid ${ui.border}`,
-            boxShadow: ui.shadow,
-            backdropFilter: 'blur(16px)',
+            background: 'linear-gradient(135deg, #5f259f 0%, #431675 60%, #31105a 100%)',
+            border: '1px solid rgba(192, 132, 252, 0.38)',
+            boxShadow: '0 14px 32px rgba(95, 37, 159, 0.42)',
+            color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -3719,9 +3636,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   width: 34,
                   height: 34,
                   borderRadius: 11,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  background: 'rgba(255,255,255,0.12)',
+                  color: '#ffffff',
                   fontWeight: 900,
                   fontSize: 15,
                   cursor: 'pointer',
@@ -3735,39 +3652,38 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </button>
             )}
 
-            {/* Avatar Circle (Tap to view Splash Screen 1) */}
+            {/* PhonePe Style Avatar Circle */}
             <div
               onClick={() => setShowSplash(true)}
               title="Tap to view OT & SALARY PRO Splash Screen"
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: 14,
-                background: 'linear-gradient(135deg, #2563eb 0%, #0ea5e9 52%, #10b981 100%)',
-                border: '1.5px solid rgba(110, 231, 183, 0.7)',
-                boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
+                borderRadius: '50%',
+                background: '#ffffff',
+                border: '2px solid #c084fc',
+                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.28)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#ffffff',
+                color: '#5f259f',
                 fontWeight: 950,
-                fontSize: 15,
-                letterSpacing: '0.02em',
+                fontSize: 17,
                 cursor: 'pointer',
                 position: 'relative',
                 flexShrink: 0,
               }}
             >
-              {getEmployeeInitials(settings.employeeName)}
+              पे
               <span style={{
                 position: 'absolute',
-                right: -2,
-                bottom: -2,
+                right: -1,
+                bottom: -1,
                 width: 12,
                 height: 12,
                 borderRadius: '50%',
-                background: '#10b981',
-                border: isLight ? '2px solid #ffffff' : '2px solid #0b1222',
+                background: isEmailLinked ? '#10b981' : '#f59e0b',
+                border: '2px solid #431675',
               }} />
             </div>
 
@@ -3775,24 +3691,26 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <div style={{
                 fontSize: 15,
                 fontWeight: 900,
-                color: ui.textPrimary,
+                color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
                 flexWrap: 'wrap',
               }}>
-                <span>Hi, {normalizeEmployeeName(settings.employeeName)}</span>
+                <span>
+                  {isEmailLinked ? normalizeEmployeeName(settings.employeeName) : 'PhonePe Salary & Expense Hub'}
+                </span>
                 <span style={{
                   padding: '2px 7px',
                   borderRadius: 999,
-                  background: isLight ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.18)',
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  color: isLight ? '#047857' : '#6ee7b7',
+                  background: isEmailLinked ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)',
+                  border: isEmailLinked ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(251, 191, 36, 0.5)',
+                  color: isEmailLinked ? '#a7f3d0' : '#fde68a',
                   fontSize: 9.5,
                   fontWeight: 900,
                   letterSpacing: '0.04em',
                 }}>
-                  PRO · BIOMETRIC
+                  {isEmailLinked ? 'SYNCED' : 'EMPTY · LINK MAIL'}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
@@ -3806,7 +3724,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     background: 'transparent',
                     border: 'none',
                     padding: 0,
-                    color: ui.textSecondary,
+                    color: '#e9d5ff',
                     fontWeight: 700,
                     fontSize: 12,
                     cursor: 'pointer',
@@ -3817,20 +3735,20 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   onClick={() => setShowChangeMobileModal(true)}
                   title="Tap to open Change Mobile & Account Sync"
                   style={{
-                    fontSize: 10.5,
+                    fontSize: 11,
                     fontWeight: 800,
-                    color: isOwnerAccount ? (isLight ? '#047857' : '#34d399') : '#f59e0b',
+                    color: isEmailLinked ? '#6ee7b7' : '#fde68a',
                     cursor: 'pointer',
                   }}
                 >
-                  · {activeAccountEmail}
+                  · {isEmailLinked ? activeAccountEmail : 'Tap to Add Email & Sync'}
                 </span>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            {/* Light / Dark Mode Toggle (Screen 12 Light Mode Preview) */}
+            {/* Light / Dark Mode Toggle */}
             <button
               type="button"
               onClick={toggleThemeMode}
@@ -3838,11 +3756,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: 11,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
-                fontSize: 16,
+                borderRadius: '50%',
+                border: '1px solid rgba(255,255,255,0.22)',
+                background: 'rgba(255,255,255,0.12)',
+                color: '#ffffff',
+                fontSize: 15,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -3852,7 +3770,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {isLight ? '🌙' : '☀️'}
             </button>
 
-            {/* Notification Bell with Red Dot (Opens Activity & Notification Center Modal, does NOT force-redirect to Expenses) */}
+            {/* Notification Bell */}
             <button
               type="button"
               onClick={() => setShowNotificationsModal(true)}
@@ -3860,10 +3778,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: 11,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
+                borderRadius: '50%',
+                border: '1px solid rgba(255,255,255,0.22)',
+                background: 'rgba(255,255,255,0.12)',
+                color: '#ffffff',
                 fontSize: 15,
                 cursor: 'pointer',
                 display: 'flex',
@@ -3880,47 +3798,27 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                background: '#ef4444',
+                background: '#10b981',
               }} />
             </button>
 
-            {/* Change Mobile & patanyasin144@gmail.com Sync Button */}
+            {/* Change Mobile Button */}
             <button
               type="button"
               onClick={() => setShowChangeMobileModal(true)}
               title="Change Mobile & Sync All Data to patanyasin144@gmail.com"
               style={{
-                padding: '8px 10px',
-                borderRadius: 11,
-                border: '1px solid rgba(16, 185, 129, 0.5)',
-                background: isLight
-                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(37, 99, 235, 0.1))'
-                  : 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(37, 99, 235, 0.2))',
-                color: isLight ? '#047857' : '#6ee7b7',
+                padding: '8px 12px',
+                borderRadius: 999,
+                border: '1px solid rgba(255,255,255,0.3)',
+                background: 'rgba(255,255,255,0.16)',
+                color: '#ffffff',
                 fontWeight: 900,
                 fontSize: 11.5,
                 cursor: 'pointer',
               }}
             >
               📱 Change Mobile
-            </button>
-
-            {/* App / Sync Button */}
-            <button
-              type="button"
-              onClick={() => setShowMobileAppModal(true)}
-              style={{
-                padding: '8px 11px',
-                borderRadius: 11,
-                border: '1px solid rgba(37, 99, 235, 0.45)',
-                background: isLight ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.2)',
-                color: isLight ? '#1d4ed8' : '#93c5fd',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
-              }}
-            >
-              App / Sync
             </button>
           </div>
         </div>
@@ -4265,15 +4163,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
-        {/* SEGMENTED PILL SWITCHER: OT & Salary | Expense Memory (Screen 2 & Screen 7) */}
+        {/* PHONEPE SEGMENTED PILL SWITCHER: OT & Salary | Expense Memory */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: 6,
           padding: 5,
           borderRadius: 16,
-          background: isLight ? '#e2e8f0' : '#090f1d',
-          border: `1px solid ${ui.border}`,
+          background: isLight ? '#ede9fe' : '#140b29',
+          border: '1px solid rgba(139, 92, 246, 0.3)',
         }}>
           <button
             type="button"
@@ -4281,9 +4179,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             style={{
               padding: '11px 12px',
               borderRadius: 12,
-              border: mobileTab !== 'expenses' ? '1px solid rgba(59, 130, 246, 0.6)' : '1px solid transparent',
+              border: mobileTab !== 'expenses' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
               background: mobileTab !== 'expenses'
-                ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'
+                ? 'linear-gradient(135deg, #5f259f 0%, #431675 100%)'
                 : 'transparent',
               color: mobileTab !== 'expenses' ? '#ffffff' : ui.textSecondary,
               fontWeight: 800,
@@ -4293,7 +4191,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               alignItems: 'center',
               justifyContent: 'center',
               gap: 7,
-              boxShadow: mobileTab !== 'expenses' ? '0 6px 16px rgba(37, 99, 235, 0.35)' : 'none',
+              boxShadow: mobileTab !== 'expenses' ? '0 6px 16px rgba(95, 37, 159, 0.35)' : 'none',
             }}
           >
             <span>💼</span>
@@ -4306,9 +4204,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             style={{
               padding: '11px 12px',
               borderRadius: 12,
-              border: mobileTab === 'expenses' ? '1px solid rgba(236, 72, 153, 0.6)' : '1px solid transparent',
+              border: mobileTab === 'expenses' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
               background: mobileTab === 'expenses'
-                ? 'linear-gradient(135deg, #db2777 0%, #7c3aed 55%, #2563eb 100%)'
+                ? 'linear-gradient(135deg, #5f259f 0%, #7c3aed 100%)'
                 : 'transparent',
               color: mobileTab === 'expenses' ? '#ffffff' : ui.textSecondary,
               fontWeight: 800,
@@ -4318,13 +4216,147 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               alignItems: 'center',
               justifyContent: 'center',
               gap: 7,
-              boxShadow: mobileTab === 'expenses' ? '0 6px 16px rgba(219, 39, 119, 0.35)' : 'none',
+              boxShadow: mobileTab === 'expenses' ? '0 6px 16px rgba(95, 37, 159, 0.35)' : 'none',
             }}
           >
-            <span>{expensesBiometricUnlocked ? '💳' : '🔐'}</span>
-            <span>Expense Memory</span>
+            <span>{expensesBiometricUnlocked ? 'पे' : '🔐'}</span>
+            <span>PhonePe Expenses</span>
             <span style={{ display: 'none' }}>EXPENSES</span>
           </button>
+        </div>
+
+        {/* PHONEPE EMAIL SYNC GATE BAR: EMPTY FIRST UNTIL USER ENTERS EMAIL & TAPS SYNC */}
+        <div style={{
+          padding: '12px 14px',
+          borderRadius: 18,
+          background: isLight
+            ? '#ffffff'
+            : 'linear-gradient(135deg, #1a1033 0%, #120c24 100%)',
+          border: isEmailLinked
+            ? '1.5px solid rgba(16, 185, 129, 0.45)'
+            : '1.5px solid rgba(168, 85, 247, 0.55)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          boxShadow: '0 8px 22px rgba(95, 37, 159, 0.18)',
+        }}>
+          {!isEmailLinked ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#431675' : '#e9d5ff' }}>
+                  📧 Add Your Email to Sync Data (Starts Empty First)
+                </span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: 'rgba(168, 85, 247, 0.2)',
+                  color: '#c084fc',
+                  fontSize: 10,
+                  fontWeight: 900,
+                }}>
+                  0 Data Until Synced
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="email"
+                  value={changeMobileEmailInput}
+                  onChange={(e) => setChangeMobileEmailInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && changeMobileEmailInput.trim()) {
+                      switchAccountEmail(changeMobileEmailInput);
+                    }
+                  }}
+                  placeholder="Enter your email to sync (e.g. patanyasin144@gmail.com)"
+                  style={{
+                    flex: '1 1 210px',
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(168, 85, 247, 0.45)',
+                    background: isLight ? '#f8fafc' : '#0d071b',
+                    color: isLight ? '#0f172a' : '#f8fafc',
+                    fontSize: 12.5,
+                    fontWeight: 800,
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => switchAccountEmail(changeMobileEmailInput)}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #5f259f 0%, #7c3aed 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                    boxShadow: '0 6px 16px rgba(95, 37, 159, 0.35)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  🔄 Sync Mail
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  background: '#5f259f',
+                  color: '#ffffff',
+                  fontSize: 10,
+                  fontWeight: 900,
+                }}>
+                  पे SYNCED
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#0f172a' : '#f8fafc' }}>
+                  {activeAccountEmail}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#10b981' }}>
+                  · {expenseQuickStats.allTimeCount} Real Txns · {Object.keys(daysMap || {}).length} Days
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowChangeMobileModal(true)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(168, 85, 247, 0.5)',
+                    background: 'rgba(95, 37, 159, 0.25)',
+                    color: isLight ? '#5f259f' : '#e9d5ff',
+                    fontSize: 11,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📱 Change Mobile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchAccountEmail('')}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(244, 63, 94, 0.45)',
+                    background: 'rgba(244, 63, 94, 0.14)',
+                    color: '#fb7185',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                  title="Sign out & reset screen to Empty"
+                >
+                  Unlink
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ===================================================================
@@ -4365,7 +4397,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     Private Expense Vault Locked
                   </div>
                   <div style={{ fontSize: 12.5, color: ui.textSecondary, marginTop: 4, maxWidth: 340, lineHeight: 1.5 }}>
-                    Biometric permission is required to view <strong>{normalizeEmployeeName(settings.employeeName)}&apos;s</strong> payments, notes, and permanent transaction ledger. No one can open this tab without your fingerprint or device unlock.
+                    Biometric permission is required to view <strong>{normalizeEmployeeName(settings.employeeName)}&apos;s</strong> payments, notes, and permanent transaction ledger ({activeAccountEmail}). No one can open this tab without your fingerprint or device unlock.
                   </div>
                 </div>
 
@@ -4404,6 +4436,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </button>
                   <button
                     type="button"
+                    onClick={() => setShowChangeMobileModal(true)}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      color: '#34d399',
+                      fontWeight: 900,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📱 Change Mobile ({activeAccountEmail})
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => navigateTab('today')}
                     style={{
                       padding: '13px 16px',
@@ -4426,30 +4474,50 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
                   padding: '8px 12px',
                   borderRadius: 12,
                   background: 'rgba(16, 185, 129, 0.12)',
                   border: '1px solid rgba(16, 185, 129, 0.35)',
                 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
-                    🔓 Biometric Verified · Permanent Non-Deletable Ledger Active
+                    🔓 Biometric Verified · {activeAccountEmail} · Permanent Non-Deletable Ledger Active
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setExpensesBiometricUnlocked(false)}
-                    style={{
-                      padding: '5px 10px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(239, 68, 68, 0.45)',
-                      background: 'rgba(239, 68, 68, 0.15)',
-                      color: isLight ? '#b91c1c' : '#fca5a5',
-                      fontWeight: 800,
-                      fontSize: 11,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🔒 Lock Now
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowChangeMobileModal(true)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(52, 211, 153, 0.5)',
+                        background: 'rgba(16, 185, 129, 0.18)',
+                        color: isLight ? '#047857' : '#34d399',
+                        fontWeight: 900,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      📱 Change Mobile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpensesBiometricUnlocked(false)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(239, 68, 68, 0.45)',
+                        background: 'rgba(239, 68, 68, 0.15)',
+                        color: isLight ? '#b91c1c' : '#fca5a5',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🔒 Lock Now
+                    </button>
+                  </div>
                 </div>
                 <ExpensesModule
                   expensesMap={expensesMap}
@@ -4464,6 +4532,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   themeMode={themeMode}
                   activeAccountEmail={activeAccountEmail}
                   isOwnerAccount={isOwnerAccount}
+                  isEmailLinked={isEmailLinked}
+                  onSyncEmail={switchAccountEmail}
                   onOpenChangeMobileModal={() => setShowChangeMobileModal(true)}
                 />
               </div>
@@ -4476,66 +4546,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showTodaySection && (
           <>
-            {/* EXECUTIVE CORPORATE BRAND RIBBON (v7.4) */}
-            <div style={{
-              padding: '9px 14px',
-              borderRadius: 16,
-              background: isLight
-                ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
-                : 'linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(16, 185, 129, 0.14) 55%, rgba(37, 99, 235, 0.16) 100%)',
-              border: '1px solid rgba(251, 191, 36, 0.42)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-              flexWrap: 'wrap',
-              boxShadow: '0 8px 20px -6px rgba(0, 0, 0, 0.35)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{
-                  padding: '3px 8px',
-                  borderRadius: 999,
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                  color: '#040812',
-                  fontSize: 10,
-                  fontWeight: 950,
-                  letterSpacing: '0.06em',
-                }}>
-                  YASIN SALARY PRO v7.4
-                </span>
-                <span style={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: isLight ? '#f8fafc' : '#fde68a',
-                  letterSpacing: '0.02em',
-                }}>
-                  {isOwnerAccount
-                    ? `Master Sync: ${OWNER_MASTER_EMAIL}`
-                    : `Shared Profile: ${activeAccountEmail}`}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowChangeMobileModal(true)}
-                style={{
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(52, 211, 153, 0.5)',
-                  background: 'rgba(16, 185, 129, 0.18)',
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  color: '#34d399',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  cursor: 'pointer',
-                }}
-              >
-                <span className="ot-live-dot" />
-                <span>📱 Change Mobile · {isOwnerAccount ? 'Master Active' : 'Switch Account'}</span>
-              </button>
-            </div>
-
             {/* HERO NET SALARY CARD WITH CIRCULAR PROGRESS RING (Executive Banking Vault Card) */}
             <div
               className="ot-hero-vault-card"
@@ -5432,7 +5442,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   )}
                 </div>
                 <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 700, marginTop: 3 }}>
-                  Spent Today: <strong style={{ color: '#f43f5e' }}>₹{formatINR(expenseQuickStats.todaySpent)}</strong> · Month: <strong style={{ color: ui.textPrimary }}>₹{formatINR(expenseQuickStats.spent)}</strong> ({expenseQuickStats.count} txns)
+                  Today: <strong style={{ color: '#f43f5e' }}>₹{formatINR(expenseQuickStats.todaySpent)}</strong> · Last Day: <strong style={{ color: '#c084fc' }}>₹{formatINR(expenseQuickStats.yesterdaySpent)}</strong> · Month: <strong style={{ color: ui.textPrimary }}>₹{formatINR(expenseQuickStats.spent)}</strong> ({expenseQuickStats.allTimeCount} real txns)
                 </div>
               </div>
               <button

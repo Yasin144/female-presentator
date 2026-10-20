@@ -897,8 +897,14 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   let todayReceived = 0;
   let todayCount = 0;
   let yesterdaySpent = 0;
+  let yesterdayReceived = 0;
+  let yesterdayCount = 0;
   let weekSpent = 0;
   let weekReceived = 0;
+  const yearPrefix = (monthPrefix || todayIso).slice(0, 4);
+  let yearSpent = 0;
+  let yearReceived = 0;
+  let yearCount = 0;
 
   let withNoteCount = 0;
   let missingNotesCount = 0;
@@ -913,6 +919,9 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   const byMerchant = {};
   const refundHistory = [];
   const monthActiveList = [];
+  const todayActiveList = [];
+  const yesterdayActiveList = [];
+  const yearActiveList = [];
   const missingNotesList = [];
   const uncertainOrDuplicatesList = [];
 
@@ -927,20 +936,32 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       else if (tx.type === 'refund') prevMonthRefunds += amt;
     }
 
+    // Yearly metrics
+    if (yearPrefix && String(tx.date || '').startsWith(yearPrefix) && !isFailedOrReversed && !isPossibleDuplicate) {
+      yearCount += 1;
+      yearActiveList.push(tx);
+      if (tx.type === 'debit') yearSpent += amt;
+      else if (tx.type === 'credit' || tx.type === 'refund') yearReceived += amt;
+    }
+
     // Weekly metrics (rolling 7 days up to todayIso)
     if (tx.date >= weekAgoIso && tx.date <= todayIso && !isFailedOrReversed && !isPossibleDuplicate) {
       if (tx.type === 'debit') weekSpent += amt;
       else if (tx.type === 'credit') weekReceived += amt;
     }
 
-    // Yesterday's spend
+    // Yesterday's ("last day") spend & received
     if (tx.date === yesterdayIso && !isFailedOrReversed && !isPossibleDuplicate) {
+      yesterdayCount += 1;
+      yesterdayActiveList.push(tx);
       if (tx.type === 'debit') yesterdaySpent += amt;
+      else if (tx.type === 'credit' || tx.type === 'refund') yesterdayReceived += amt;
     }
 
     // Today's metrics
     if (tx.date === todayIso && !isFailedOrReversed && !isPossibleDuplicate) {
       todayCount += 1;
+      todayActiveList.push(tx);
       if (tx.type === 'debit') todaySpent += amt;
       else if (tx.type === 'credit') todayReceived += amt;
     }
@@ -1143,7 +1164,17 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     todaySpent: Number(todaySpent.toFixed(2)),
     todayReceived: Number(todayReceived.toFixed(2)),
     todayCount,
+    todayActiveList,
+    yesterdayIso,
     yesterdaySpent: Number(yesterdaySpent.toFixed(2)),
+    yesterdayReceived: Number(yesterdayReceived.toFixed(2)),
+    yesterdayCount,
+    yesterdayActiveList,
+    yearPrefix,
+    yearSpent: Number(yearSpent.toFixed(2)),
+    yearReceived: Number(yearReceived.toFixed(2)),
+    yearCount,
+    yearActiveList,
     weekSpent: Number(weekSpent.toFixed(2)),
     weekReceived: Number(weekReceived.toFixed(2)),
     withNoteCount,

@@ -971,6 +971,54 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes('showChangeMobileModal'), true);
       assert.equal(otSalarySrc.includes("overflowAnchor: 'none'"), true);
     });
+
+    it('starts 100% empty until email is linked, strips fake OT credits, supports Date/Month/Year + Yesterday filtering, and renders PhonePe UI (v7.5)', () => {
+      const yesterdayTx = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.phonepe.app',
+        title: 'PhonePe',
+        body: 'Paid ₹340.00 to Paradise Biryani via UPI. Ref: 629111222333. Avl Bal: Rs. 14200.00',
+        timestampMs: new Date('2026-10-19T20:15:00+05:30').getTime(),
+      });
+      const todayTx = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.phonepe.app',
+        title: 'PhonePe',
+        body: 'Paid ₹120.00 to Chai Point via UPI. Ref: 629444555666. Avl Bal: Rs. 14080.00',
+        timestampMs: new Date('2026-10-20T09:30:00+05:30').getTime(),
+      });
+      assert.ok(yesterdayTx);
+      assert.ok(todayTx);
+
+      const merged = reconcileAndMergeTransactions({}, [yesterdayTx, todayTx], 'android-notif').nextMap;
+      const analytics = computeExpenseAnalytics(merged, {
+        selectedMonth: '2026-10',
+        todayIso: '2026-10-20',
+        monthlyNetSalary: 25000,
+      });
+
+      assert.equal(analytics.yesterdayIso, '2026-10-19');
+      assert.equal(analytics.yesterdaySpent, 340);
+      assert.equal(analytics.yesterdayCount, 1);
+      assert.equal(analytics.todaySpent, 120);
+      assert.equal(analytics.todayCount, 1);
+      assert.equal(analytics.allTimeCount, 2);
+
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      assert.equal(otSalarySrc.includes("LS_ACTIVE_EMAIL_KEY = 'pattan.ot.linkedAccountEmail.v75'"), true);
+      assert.equal(otSalarySrc.includes('isFakeSeededTransaction'), true);
+      assert.equal(expensesSrc.includes('periodFilterMode'), true);
+      assert.equal(expensesSrc.includes('filterSpecificDate'), true);
+      assert.equal(expensesSrc.includes('filterMonthPart'), true);
+      assert.equal(expensesSrc.includes('filterYearPart'), true);
+      assert.equal(expensesSrc.includes('#5f259f'), true);
+      assert.equal(expensesSrc.includes('Filter &amp; Sync by Date · Month · Year'), true);
+    });
   });
 });
 

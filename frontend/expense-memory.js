@@ -343,7 +343,9 @@ export function loadEncryptedExpenseStore() {
               tx.isDemoPreview ||
               tx._demoPreview ||
               tx.source === 'demo-preview' ||
-              String(id).startsWith('demo_tx_')
+              tx.source === 'owner-master-vault' ||
+              String(id).startsWith('demo_tx_') ||
+              String(id).startsWith('tx_yasin_master_')
             ) {
               continue;
             }
@@ -395,7 +397,9 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
       tx.isDemoPreview ||
       tx._demoPreview ||
       tx.source === 'demo-preview' ||
-      String(id).startsWith('demo_tx_')
+      tx.source === 'owner-master-vault' ||
+      String(id).startsWith('demo_tx_') ||
+      String(id).startsWith('tx_yasin_master_')
     ) {
       continue;
     }
