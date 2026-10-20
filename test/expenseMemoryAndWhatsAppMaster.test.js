@@ -1072,7 +1072,7 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('activeTargetDateIso'), true);
     });
 
-    it('renders recent user transactions grouped By Day and By Date with zero yesterdayIso ReferenceError (v7.8.2)', () => {
+    it('renders recent user transactions grouped By Day and By Date, purges fake ₹60 seeded transactions, and prevents yesterdayIso ReferenceError (v7.8.3)', () => {
       const otSalarySrc = fs.readFileSync(
         path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
         'utf8'
@@ -1088,9 +1088,12 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('overviewGroupedByDay'), true);
       assert.equal(expensesSrc.includes('allDaysSummaryList'), true);
       assert.equal(expensesSrc.includes('By Day / By Date Ledger'), true);
-      // Owner master transactions seed is preserved for patanyasin144@gmail.com and not stripped as fake
-      assert.equal(otSalarySrc.includes('_today_tea'), true);
-      assert.equal(otSalarySrc.includes('_100_debit'), true);
+      // Zero fake ₹60 Morning Tea & Breakfast seed in OtSalary.jsx & purged from localStorage
+      assert.equal(otSalarySrc.includes('_today_tea'), false);
+      assert.equal(otSalarySrc.includes('Morning Tea & Breakfast'), false);
+      assert.equal(otSalarySrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
+      assert.equal(otSalarySrc.includes('scrubFakeTransactionsFromLocalStorage'), true);
+      assert.equal(expensesSrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
     });
   });
 });

@@ -486,38 +486,57 @@ export default function ExpensesModule({
       if (typeof detail.smsGranted === 'boolean') {
         setSmsGranted((prev) => (prev === detail.smsGranted ? prev : detail.smsGranted));
       }
-      if (hasLinkedEmail) {
-        syncSavedBankBalanceFromNative();
-        const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
-        if (txList.length > 0) {
-          const added = mergeDetectedTransactions(txList, 'android-notif');
-          if (added > 0) {
-            setScanStatus(`✅ Synced ${added} new transaction${added === 1 ? '' : 's'} into your ledger.`);
-          } else {
-            setScanStatus(`✅ Synced ${txList.length} saved transaction${txList.length === 1 ? '' : 's'}.`);
-          }
+      syncSavedBankBalanceFromNative();
+      const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
+      if (txList.length > 0) {
+        const added = mergeDetectedTransactions(txList, 'android-notif');
+        if (added > 0) {
+          setScanStatus(`✅ Synced ${added} new transaction${added === 1 ? '' : 's'} into your ledger.`);
+        } else {
+          setScanStatus(`✅ Synced ${txList.length} saved transaction${txList.length === 1 ? '' : 's'}.`);
         }
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
-  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative, hasLinkedEmail]);
+  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
 
   // Continuous zero-fetch auto-sync of encrypted notification captures & bank balance (every 2.5s + focus)
   useEffect(() => {
     const syncNativeNow = () => {
       checkNativePermissions();
-      if (!hasLinkedEmail) return;
       syncSavedBankBalanceFromNative();
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
           const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
-          if (savedRaw !== lastSavedNativeRawRef.current) {
-            lastSavedNativeRawRef.current = savedRaw;
-            const savedArr = JSON.parse(savedRaw);
-            if (Array.isArray(savedArr) && savedArr.length > 0) {
+          const savedArr = JSON.parse(savedRaw);
+          if (Array.isArray(savedArr) && savedArr.length > 0) {
+            const curMap = expensesMapRef.current || {};
+            const hasUnmerged = savedArr.some((item) => item && item.id && !curMap[item.id]);
+            if (savedRaw !== lastSavedNativeRawRef.current || hasUnmerged) {
+              lastSavedNativeRawRef.current = savedRaw;
               mergeDetectedTransactions(savedArr, 'android-saved-notif');
             }
+          }
+        }
+      } catch (_) {}
+      try {
+        const encStore = loadEncryptedExpenseStore();
+        const encMap = encStore?.expensesMap || encStore?.expenses;
+        if (encMap && typeof encMap === 'object') {
+          const curMap = expensesMapRef.current || {};
+          const missingEnc = Object.values(encMap).filter(
+            (x) =>
+              x &&
+              typeof x === 'object' &&
+              x.id &&
+              !x._deleted &&
+              !curMap[x.id] &&
+              !String(x.id).startsWith('tx_yasin_master_') &&
+              String(x.source || '') !== 'owner-master-vault'
+          );
+          if (missingEnc.length > 0) {
+            mergeDetectedTransactions(missingEnc, 'encrypted-vault-sync');
           }
         }
       } catch (_) {}
@@ -529,7 +548,7 @@ export default function ExpensesModule({
       clearInterval(intervalId);
       window.removeEventListener('focus', syncNativeNow);
     };
-  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative, hasLinkedEmail]);
+  }, [checkNativePermissions, mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
 
   // Automatically trigger full native scan the moment Notification Access is granted (zero manual fetch required)
   useEffect(() => {
@@ -581,10 +600,6 @@ export default function ExpensesModule({
         onQuickLinkEmail(draft);
       }
     }
-    if (!hasLinkedEmail && !effectiveEmail) {
-      setScanStatus('📧 Enter your Gmail above & tap Sync Account first.');
-      return;
-    }
 
     setIsScanning(true);
     checkNativePermissions();
@@ -597,7 +612,14 @@ export default function ExpensesModule({
       const encStore = loadEncryptedExpenseStore();
       const encMap = encStore?.expensesMap || encStore?.expenses;
       if (encMap && typeof encMap === 'object') {
-        const encList = Object.values(encMap).filter((x) => x && typeof x === 'object' && !x._deleted);
+        const encList = Object.values(encMap).filter(
+          (x) =>
+            x &&
+            typeof x === 'object' &&
+            !x._deleted &&
+            !String(x.id || '').startsWith('tx_yasin_master_') &&
+            String(x.source || '') !== 'owner-master-vault'
+        );
         if (encList.length > 0) {
           totalSyncedCount += encList.length;
           mergeDetectedTransactions(encList, 'encrypted-vault-sync');
@@ -612,7 +634,14 @@ export default function ExpensesModule({
         if (profRaw && profRaw !== '{}') {
           const profObj = JSON.parse(profRaw);
           if (profObj?.expenses && typeof profObj.expenses === 'object') {
-            const profList = Object.values(profObj.expenses).filter((x) => x && typeof x === 'object' && !x._deleted);
+            const profList = Object.values(profObj.expenses).filter(
+              (x) =>
+                x &&
+                typeof x === 'object' &&
+                !x._deleted &&
+                !String(x.id || '').startsWith('tx_yasin_master_') &&
+                String(x.source || '') !== 'owner-master-vault'
+            );
             if (profList.length > 0) {
               totalSyncedCount += profList.length;
               mergeDetectedTransactions(profList, 'profile-vault-sync');
@@ -663,8 +692,8 @@ export default function ExpensesModule({
         setTimeout(() => setIsScanning(false), 900);
         setScanStatus(
           totalSyncedCount > 0
-            ? `✅ Synced ${totalSyncedCount} transaction record(s) for ${effectiveEmail || 'your account'}.`
-            : `🔄 Scanned notifications & vault for ${activeTargetDateIso}. Use Quick Sync below to add past-day payments.`
+            ? `✅ Synced ${totalSyncedCount} transaction record(s) for ${effectiveEmail || 'your device'}.`
+            : `🔄 Scanned notifications & vault for ${activeTargetDateIso}.`
         );
         return;
       }
@@ -680,39 +709,40 @@ export default function ExpensesModule({
   };
 
   const effectiveExpensesSource = useMemo(() => {
+    const fakeRefIds = new Set([
+      'OTP1821202619',
+      'SAL1013202612',
+      '629400112211',
+      '629300112233',
+      '629300998877',
+      '629300445566',
+      '629288776655',
+      '629177665544',
+      '628966554433',
+      '628855443322',
+    ]);
     const cleanMap = {};
     if (expensesMap && typeof expensesMap === 'object') {
       for (const [k, v] of Object.entries(expensesMap)) {
         const keyStr = String(k || v?.id || '');
         const srcStr = String(v?.source || '').toLowerCase();
-        const refStr = String(v?.refId || '');
-        const isFakeCredit =
+        const refStr = String(v?.refId || '').trim();
+        const isFakeSeed =
           keyStr.startsWith('demo_tx_') ||
+          keyStr.startsWith('tx_yasin_master_') ||
           keyStr.endsWith('_salary') ||
           keyStr.endsWith('_ot_payout') ||
           srcStr === 'demo-preview' ||
-          refStr === 'OTP1821202619' ||
-          refStr === 'SAL1013202612';
-        if (!v || typeof v !== 'object' || v._demoPreview || v.isDemoPreview || isFakeCredit) {
+          srcStr === 'owner-master-vault' ||
+          fakeRefIds.has(refStr);
+        if (!v || typeof v !== 'object' || v._deleted || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
         }
-        // When email is linked, show all real & vault transactions; when unlinked, still show any user-added/captured transactions
-        const isUserCreatedOrCaptured =
-          srcStr === 'manual' ||
-          srcStr === 'date-quick-sync' ||
-          srcStr === 'sms-paste' ||
-          srcStr === 'clipboard-sync' ||
-          srcStr.includes('android') ||
-          v.detectionStatus === 'user_confirmed';
-        if (hasLinkedEmail || isUserCreatedOrCaptured) {
-          const restored = { ...v };
-          delete restored._deleted;
-          cleanMap[k] = restored;
-        }
+        cleanMap[k] = { ...v };
       }
     }
     return cleanMap;
-  }, [expensesMap, hasLinkedEmail]);
+  }, [expensesMap]);
 
   const effectiveBankBalanceInfo = useMemo(() => {
     if (!hasLinkedEmail || !isOwnerAccount) return null;
@@ -1017,23 +1047,34 @@ export default function ExpensesModule({
   );
 
   const getMaterializedBaseMap = useCallback(() => {
+    const fakeRefIds = new Set([
+      'OTP1821202619',
+      'SAL1013202612',
+      '629400112211',
+      '629300112233',
+      '629300998877',
+      '629300445566',
+      '629288776655',
+      '629177665544',
+      '628966554433',
+      '628855443322',
+    ]);
     const clean = {};
     const combined = { ...(expensesMap || {}), ...(expensesMapRef.current || {}) };
     for (const [k, v] of Object.entries(combined)) {
       const keyStr = String(k || v?.id || '');
       const srcStr = String(v?.source || '').toLowerCase();
-      const refStr = String(v?.refId || '');
-      const isFakeCredit =
+      const refStr = String(v?.refId || '').trim();
+      const isFakeSeed =
         keyStr.startsWith('demo_tx_') ||
+        keyStr.startsWith('tx_yasin_master_') ||
         keyStr.endsWith('_salary') ||
         keyStr.endsWith('_ot_payout') ||
         srcStr === 'demo-preview' ||
-        refStr === 'OTP1821202619' ||
-        refStr === 'SAL1013202612';
-      if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview && !isFakeCredit) {
-        const copy = { ...v };
-        delete copy._deleted;
-        clean[k] = copy;
+        srcStr === 'owner-master-vault' ||
+        fakeRefIds.has(refStr);
+      if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview && !isFakeSeed) {
+        clean[k] = { ...v };
       }
     }
     return clean;
@@ -1300,9 +1341,33 @@ export default function ExpensesModule({
     }
   };
 
-  // Permanent ledger policy: transactions are never deleted
-  const handleDeleteTransaction = () => {
-    setScanStatus('🔒 Permanent Ledger Active: Transactions are protected and never deleted.');
+  // Allow user to remove any erroneous or unwanted entry with 1-tap Undo
+  const handleDeleteTransaction = (txId) => {
+    if (!txId) return;
+    const baseMap = getMaterializedBaseMap();
+    const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
+    if (!existing) return;
+    const snapshot = { ...baseMap };
+    const nowMs = Date.now();
+    const nextMap = {
+      ...baseMap,
+      [txId]: {
+        ...existing,
+        _deleted: true,
+        updatedAt: new Date(nowMs).toISOString(),
+        updatedAtMs: nowMs,
+      },
+    };
+    setUndoBanner({
+      message: `🗑️ Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Transaction'})`,
+      snapshot,
+    });
+    if (selectedTxId === txId) {
+      setSelectedTxId(null);
+    }
+    if (typeof onUpdateExpenses === 'function') {
+      onUpdateExpenses(nextMap, `🗑️ Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Entry'})`);
+    }
   };
 
   const handlePasteSmsParse = () => {
@@ -1499,22 +1564,23 @@ export default function ExpensesModule({
             >
               ✏️ Edit Full
             </button>
-            <span
+            <button
+              type="button"
+              onClick={() => handleDeleteTransaction(selectedTx.id)}
               style={{
                 padding: '7px 12px',
                 borderRadius: 10,
-                border: '1px solid rgba(16,185,129,0.4)',
-                background: 'rgba(16,185,129,0.12)',
-                color: '#34d399',
-                fontSize: 11,
+                border: '1px solid rgba(244, 63, 94, 0.45)',
+                background: 'rgba(244, 63, 94, 0.14)',
+                color: '#fb7185',
+                fontSize: 11.5,
                 fontWeight: 800,
-                display: 'inline-flex',
-                alignItems: 'center',
+                cursor: 'pointer',
               }}
-              title="Transactions are permanently saved and never deleted"
+              title="Remove this transaction if entered by mistake"
             >
-              🔒 Permanent
-            </span>
+              🗑️ Remove
+            </button>
           </div>
         </div>
 
@@ -3070,24 +3136,60 @@ export default function ExpensesModule({
                                 📌 <strong>For What / Which Thing:</strong>{' '}
                                 {hasNote ? noteText : 'Not noted yet — write what you bought/paid for below'}
                               </div>
-                              {hasNote && !isEditingInline && (
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                {hasNote && !isEditingInline && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                                    style={{
+                                      padding: '3px 8px',
+                                      borderRadius: 7,
+                                      border: `1px solid ${palette.border}`,
+                                      background: palette.surface,
+                                      color: '#60a5fa',
+                                      fontSize: 10.5,
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    ✏️ Note
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                                  onClick={() => openQuickAddModal(tx)}
                                   style={{
                                     padding: '3px 8px',
                                     borderRadius: 7,
                                     border: `1px solid ${palette.border}`,
                                     background: palette.surface,
-                                    color: '#60a5fa',
+                                    color: palette.textSub,
                                     fontSize: 10.5,
                                     fontWeight: 800,
                                     cursor: 'pointer',
                                   }}
+                                  title="Edit Transaction"
                                 >
-                                  ✏️ Edit Note
+                                  ✏️ Edit
                                 </button>
-                              )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTransaction(tx.id)}
+                                  style={{
+                                    padding: '3px 8px',
+                                    borderRadius: 7,
+                                    border: '1px solid rgba(244, 63, 94, 0.35)',
+                                    background: 'rgba(244, 63, 94, 0.12)',
+                                    color: '#fb7185',
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Remove Transaction"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
                             </div>
 
                             {(!hasNote || isEditingInline) && (

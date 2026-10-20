@@ -421,239 +421,42 @@ function buildMonthDates(yearMonth) {
   return list;
 }
 
+const FAKE_SEED_REF_IDS = new Set([
+  'OTP1821202619',
+  'SAL1013202612',
+  '629400112211',
+  '629300112233',
+  '629300998877',
+  '629300445566',
+  '629288776655',
+  '629177665544',
+  '628966554433',
+  '628855443322',
+]);
+
 function isFakeSeededTransaction(id, tx) {
   const keyStr = String(id || tx?.id || '').trim();
   if (!keyStr) return false;
-  if (keyStr.startsWith('demo_tx_') || keyStr.endsWith('_salary') || keyStr.endsWith('_ot_payout')) return true;
+  if (
+    keyStr.startsWith('demo_tx_') ||
+    keyStr.startsWith('tx_yasin_master_') ||
+    keyStr.endsWith('_salary') ||
+    keyStr.endsWith('_ot_payout')
+  ) {
+    return true;
+  }
   if (!tx || typeof tx !== 'object') return false;
   if (tx._demoPreview || tx.isDemoPreview) return true;
   const src = String(tx.source || '').trim().toLowerCase();
-  if (src === 'demo-preview') return true;
+  if (src === 'demo-preview' || src === 'owner-master-vault') return true;
   const ref = String(tx.refId || '').trim();
-  if (ref === 'OTP1821202619' || ref === 'SAL1013202612') return true;
+  if (FAKE_SEED_REF_IDS.has(ref)) return true;
   return false;
 }
 
-// Seed Yasin's real daily & recent transactions (Today, Yesterday/Last Day, and recent dates) — zero fake Salary/OT credits & zero company brands
-function buildOwnerMasterTransactionsSeed(yearMonthStr) {
-  const todayIso = getTodayIsoDate();
-  const todayDt = new Date(`${todayIso}T12:00:00`);
-  const isoDaysAgo = (daysBack) => {
-    const dt = new Date(todayDt.getTime() - daysBack * 86400000);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  };
-  const yesterdayIso = isoDaysAgo(1);
-  const twoDaysAgoIso = isoDaysAgo(2);
-  const threeDaysAgoIso = isoDaysAgo(3);
-  const fiveDaysAgoIso = isoDaysAgo(5);
-  const sixDaysAgoIso = isoDaysAgo(6);
-  const ym = /^\d{4}-\d{2}$/.test(String(yearMonthStr || ''))
-    ? String(yearMonthStr)
-    : todayIso.slice(0, 7);
-
-  const rows = [
-    {
-      id: `tx_yasin_master_${ym}_today_tea`,
-      amount: 60,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Morning Tea & Breakfast',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      accountBalance: 26830,
-      date: todayIso,
-      time: '09:40',
-      timestampMs: new Date(`${todayIso}T09:40:00`).getTime() || Date.now(),
-      refId: '629400112211',
-      personalNote: 'Morning tea & tiffin before office',
-      note: 'Morning tea & tiffin before office',
-      originalRemark: 'UPI Payment',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${todayIso}T09:40:00`).getTime() || Date.now(),
-    },
-    {
-      id: `tx_yasin_master_${ym}_100_debit`,
-      amount: 100,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Irani Chai & Bakery',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      accountBalance: 26790,
-      date: yesterdayIso,
-      time: '15:10',
-      timestampMs: new Date(`${yesterdayIso}T15:10:00`).getTime() || 1792402800000,
-      refId: '629300112233',
-      personalNote: 'Evening tea & snacks',
-      note: 'Evening tea & snacks',
-      originalRemark: 'Paid via UPI',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${yesterdayIso}T15:10:00`).getTime() || 1792402800000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_100_credit`,
-      amount: 100,
-      currency: 'INR',
-      type: 'credit',
-      status: 'completed',
-      merchant: 'UPI Deposit Received',
-      category: 'Salary / Income',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      accountBalance: 26890,
-      date: yesterdayIso,
-      time: '15:25',
-      timestampMs: new Date(`${yesterdayIso}T15:25:00`).getTime() || 1792403700000,
-      refId: '629300998877',
-      personalNote: '₹100 Deposit Received in Bank A/c',
-      note: '₹100 Deposit Received in Bank A/c',
-      originalRemark: 'Credited to Bank A/c XX4321',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${yesterdayIso}T15:25:00`).getTime() || 1792403700000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_yesterday_dinner`,
-      amount: 240,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Paradise Meals & Biryani',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      accountBalance: 26650,
-      date: yesterdayIso,
-      time: '20:30',
-      timestampMs: new Date(`${yesterdayIso}T20:30:00`).getTime() || 1792422000000,
-      refId: '629300445566',
-      personalNote: 'Last day dinner payment',
-      note: 'Last day dinner payment',
-      originalRemark: 'Paid via UPI',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${yesterdayIso}T20:30:00`).getTime() || 1792422000000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_food_1`,
-      amount: 340,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Office Lunch Center',
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      date: twoDaysAgoIso,
-      time: '13:40',
-      timestampMs: new Date(`${twoDaysAgoIso}T13:40:00`).getTime() || 1792311000000,
-      refId: '629288776655',
-      personalNote: 'Office lunch order',
-      note: 'Office lunch order',
-      originalRemark: 'UPI order',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${twoDaysAgoIso}T13:40:00`).getTime() || 1792311000000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_fuel_1`,
-      amount: 550,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'HP Petrol Station',
-      category: 'Fuel & Commute',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      date: threeDaysAgoIso,
-      time: '09:35',
-      timestampMs: new Date(`${threeDaysAgoIso}T09:35:00`).getTime() || 1792209900000,
-      refId: '629177665544',
-      personalNote: 'Bike petrol refill for office commute',
-      note: 'Bike petrol refill for office commute',
-      originalRemark: 'Fuel UPI',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${threeDaysAgoIso}T09:35:00`).getTime() || 1792209900000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_shop_1`,
-      amount: 1299,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Mobile & Tech Accessories',
-      category: 'Shopping',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      date: fiveDaysAgoIso,
-      time: '20:15',
-      timestampMs: new Date(`${fiveDaysAgoIso}T20:15:00`).getTime() || 1792075500000,
-      refId: '628966554433',
-      personalNote: 'Headphones & phone accessories',
-      note: 'Headphones & phone accessories',
-      originalRemark: 'Accessory order payment',
-      noteReviewed: true,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${fiveDaysAgoIso}T20:15:00`).getTime() || 1792075500000,
-    },
-    {
-      id: `tx_yasin_master_${ym}_groceries_1`,
-      amount: 680,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      merchant: 'Ratnadeep Supermarket',
-      category: 'Groceries',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      accountMask: 'XX4321',
-      date: sixDaysAgoIso,
-      time: '19:20',
-      timestampMs: new Date(`${sixDaysAgoIso}T19:20:00`).getTime() || 1791985800000,
-      refId: '628855443322',
-      personalNote: '',
-      note: '',
-      originalRemark: 'Supermarket UPI',
-      noteReviewed: false,
-      detectionStatus: 'auto_detected',
-      reconciliationStatus: 'confirmed',
-      source: 'owner-master-vault',
-      updatedAtMs: new Date(`${sixDaysAgoIso}T19:20:00`).getTime() || 1791985800000,
-    },
-  ];
-  const map = {};
-  for (const r of rows) {
-    map[r.id] = r;
-  }
-  return map;
+// Never seed fake/hardcoded transactions. Only real user/device transactions are stored.
+function buildOwnerMasterTransactionsSeed() {
+  return {};
 }
 
 function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
@@ -661,7 +464,6 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
   for (const [bk, bVal] of Object.entries(baseMap || {})) {
     if (!bVal || typeof bVal !== 'object' || isFakeSeededTransaction(bk, bVal)) continue;
     const cleanBase = { ...bVal };
-    delete cleanBase._deleted;
     delete cleanBase._demoPreview;
     delete cleanBase.isDemoPreview;
     result[bk] = cleanBase;
@@ -671,7 +473,6 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
     const exVal = result[k];
     if (!exVal) {
       const clean = { ...inVal };
-      delete clean._deleted;
       delete clean._demoPreview;
       delete clean.isDemoPreview;
       result[k] = clean;
@@ -687,7 +488,7 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
           personalNote: inVal.personalNote || exVal.personalNote || '',
           note: inVal.note || inVal.personalNote || exVal.note || exVal.personalNote || '',
           noteReviewed: Boolean(inVal.noteReviewed || exVal.noteReviewed || inVal.personalNote || exVal.personalNote),
-          _deleted: false,
+          _deleted: Boolean(inVal._deleted),
         };
       } else {
         result[k] = {
@@ -696,7 +497,7 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
           personalNote: exVal.personalNote || inVal.personalNote || '',
           note: exVal.note || exVal.personalNote || inVal.note || inVal.personalNote || '',
           noteReviewed: Boolean(exVal.noteReviewed || inVal.noteReviewed || exVal.personalNote || inVal.personalNote),
-          _deleted: false,
+          _deleted: Boolean(exVal._deleted),
         };
       }
       delete result[k]._demoPreview;
@@ -706,11 +507,37 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
   return result;
 }
 
+function scrubFakeTransactionsFromLocalStorage() {
+  const keysToScrub = ['pattan.user.vault.guest', LS_OWNER_VAULT_KEY, LS_OT_SALARY_KEY];
+  for (const lsKey of keysToScrub) {
+    try {
+      const raw = localStorage.getItem(lsKey);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.expenses && typeof parsed.expenses === 'object') {
+        let hadFake = false;
+        const cleaned = {};
+        for (const [k, v] of Object.entries(parsed.expenses)) {
+          if (isFakeSeededTransaction(k, v)) {
+            hadFake = true;
+          } else {
+            cleaned[k] = v;
+          }
+        }
+        if (hadFake) {
+          localStorage.setItem(lsKey, JSON.stringify({ ...parsed, expenses: cleaned }));
+        }
+      }
+    } catch (_) {}
+  }
+}
+
 function loadStoreForAccountEmail(targetEmail) {
+  scrubFakeTransactionsFromLocalStorage();
   const cleanEmail = normalizeAccountEmail(targetEmail);
 
   // Before any email is linked, do NOT expose patanyasin144@gmail.com master vault,
-  // but DO preserve any real transactions made by the user on this device (guest vault + live phone SMS/UPI alerts)!
+  // but DO preserve any real transactions made by the user on this device (guest vault + encrypted store + live phone SMS/UPI alerts)!
   if (!cleanEmail) {
     let guestExpenses = {};
     let guestDays = {};
@@ -724,6 +551,13 @@ function loadStoreForAccountEmail(targetEmail) {
         if (parsedGuest?.expenses && typeof parsedGuest.expenses === 'object') {
           guestExpenses = mergeExpensesNonDestructive({}, parsedGuest.expenses);
         }
+      }
+    } catch (_) {}
+    try {
+      const encryptedRes = loadEncryptedExpenseStore();
+      const encMap = encryptedRes?.expensesMap || encryptedRes?.expenses;
+      if (encMap && typeof encMap === 'object') {
+        guestExpenses = mergeExpensesNonDestructive(guestExpenses, encMap);
       }
     } catch (_) {}
     try {
@@ -2197,9 +2031,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.2';
+      return localStorage.getItem('pattan.ota.version') || '7.8.3';
     } catch (_) {
-      return '7.8.2';
+      return '7.8.3';
     }
   });
 
@@ -2555,12 +2389,27 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
           const rawJson = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
-          if (rawJson !== lastNativeRawStr) {
-            lastNativeRawStr = rawJson;
-            const parsed = JSON.parse(rawJson);
-            if (Array.isArray(parsed) && parsed.length > 0) {
+          const parsed = JSON.parse(rawJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const cur = expensesMapRef.current || {};
+            const hasUnmerged = parsed.some((item) => item && item.id && !cur[item.id] && !isFakeSeededTransaction(item.id, item));
+            if (rawJson !== lastNativeRawStr || hasUnmerged) {
+              lastNativeRawStr = rawJson;
               ingestNativeTxList(parsed);
             }
+          }
+        }
+      } catch (_) {}
+      try {
+        const encRes = loadEncryptedExpenseStore();
+        const encMap = encRes?.expensesMap || encRes?.expenses;
+        if (encMap && typeof encMap === 'object') {
+          const cur = expensesMapRef.current || {};
+          const missingFromEnc = Object.values(encMap).filter(
+            (tx) => tx && typeof tx === 'object' && tx.id && !tx._deleted && !cur[tx.id] && !isFakeSeededTransaction(tx.id, tx)
+          );
+          if (missingFromEnc.length > 0) {
+            ingestNativeTxList(missingFromEnc);
           }
         }
       } catch (_) {}
