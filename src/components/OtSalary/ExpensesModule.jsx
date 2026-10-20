@@ -2726,6 +2726,8 @@ export default function ExpensesModule({
               <button type="button" onClick={() => openCheckBalanceModal(null)}>🏦 Check Balance</button>
               <span>Filter &amp; Sync by Date · Month · Year</span>
               <span>By Day / By Date Ledger</span>
+              <span>Recent Payments (Permanent Ledger)</span>
+              <span>For What / Which Thing:</span>
             </div>
           )}
 
