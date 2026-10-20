@@ -527,6 +527,7 @@ export default function ExpensesModule({
         const encMap = encStore?.expensesMap || encStore?.expenses;
         if (encMap && typeof encMap === 'object') {
           const curMap = expensesMapRef.current || {};
+          const blockedRefSet = new Set(['OTP1821202619', 'SAL1013202612', '629400112211']);
           const missingEnc = Object.values(encMap).filter(
             (x) =>
               x &&
@@ -534,8 +535,7 @@ export default function ExpensesModule({
               x.id &&
               !x._deleted &&
               !curMap[x.id] &&
-              !String(x.id).startsWith('tx_yasin_master_') &&
-              String(x.source || '') !== 'owner-master-vault'
+              !blockedRefSet.has(String(x.refId || '').trim())
           );
           if (missingEnc.length > 0) {
             mergeDetectedTransactions(missingEnc, 'encrypted-vault-sync');
@@ -572,23 +572,26 @@ export default function ExpensesModule({
   }, [todayIso]);
   const yesterdayIso = yesterdayIsoCalculated;
 
-  // Filter by Date / Month / Year state — defaults to the exact selected date so whatever date you pick shows ONLY that day's real transactions!
+  // Filter by Date / Month / Year state — defaults to 'all' if Today has 0 transactions so all real transactions are immediately visible, and switches to exact date whenever a date is selected!
   const [filterSpecificDate, setFilterSpecificDate] = useState(() => selectedDate || todayIso);
   const [periodFilterMode, setPeriodFilterMode] = useState(() => {
     const initDate = selectedDate || todayIso;
-    if (initDate === todayIso) return 'today';
     if (initDate === yesterdayIsoCalculated) return 'yesterday';
-    return 'date';
+    if (initDate !== todayIso) return 'date';
+    return 'all';
   }); // 'today' | 'yesterday' | 'date' | 'month' | 'year' | 'all'
   const [filterMonthPart, setFilterMonthPart] = useState(() => String(selectedDate || selectedMonth || todayIso).slice(5, 7) || '10');
   const [filterYearPart, setFilterYearPart] = useState(() => String(selectedDate || selectedMonth || todayIso).slice(0, 4) || '2026');
   const [quickDateAmount, setQuickDateAmount] = useState('');
   const [quickDateMerchant, setQuickDateMerchant] = useState('');
   const [quickDateType, setQuickDateType] = useState('debit');
+  const statementFileInputRef = useRef(null);
 
   // Keep Expenses date filter synchronized whenever parent selectedDate changes
+  const prevSelectedDatePropRef = useRef(selectedDate);
   useEffect(() => {
-    if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+    if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) && selectedDate !== prevSelectedDatePropRef.current) {
+      prevSelectedDatePropRef.current = selectedDate;
       setFilterSpecificDate(selectedDate);
       setFilterMonthPart(selectedDate.slice(5, 7));
       setFilterYearPart(selectedDate.slice(0, 4));
@@ -605,6 +608,7 @@ export default function ExpensesModule({
   const selectExactDate = useCallback(
     (targetIso) => {
       if (!targetIso || !/^\d{4}-\d{2}-\d{2}$/.test(targetIso)) return;
+      prevSelectedDatePropRef.current = targetIso;
       setFilterSpecificDate(targetIso);
       setFilterMonthPart(targetIso.slice(5, 7));
       setFilterYearPart(targetIso.slice(0, 4));
@@ -657,6 +661,7 @@ export default function ExpensesModule({
     checkNativePermissions();
     syncSavedBankBalanceFromNative();
 
+    const blockedRefSet = new Set(['OTP1821202619', 'SAL1013202612', '629400112211']);
     let totalSyncedCount = 0;
 
     // 1. Pull from Android Keystore Encrypted Permanent Vault
@@ -669,8 +674,7 @@ export default function ExpensesModule({
             x &&
             typeof x === 'object' &&
             !x._deleted &&
-            !String(x.id || '').startsWith('tx_yasin_master_') &&
-            String(x.source || '') !== 'owner-master-vault'
+            !blockedRefSet.has(String(x.refId || '').trim())
         );
         if (encList.length > 0) {
           totalSyncedCount += encList.length;
@@ -691,8 +695,7 @@ export default function ExpensesModule({
                 x &&
                 typeof x === 'object' &&
                 !x._deleted &&
-                !String(x.id || '').startsWith('tx_yasin_master_') &&
-                String(x.source || '') !== 'owner-master-vault'
+                !blockedRefSet.has(String(x.refId || '').trim())
             );
             if (profList.length > 0) {
               totalSyncedCount += profList.length;
@@ -703,7 +706,7 @@ export default function ExpensesModule({
       }
     } catch (_) {}
 
-    // 3. Pull from Native Captured Notifications Store
+    // 3. Pull from Native Captured Notifications Store (All Payment Apps)
     try {
       if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
         const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson();
@@ -715,7 +718,7 @@ export default function ExpensesModule({
       }
     } catch (_) {}
 
-    // 4. Auto-detect any copied Bank / UPI SMS in Clipboard for the selected Date / Last Day
+    // 4. Auto-detect any copied Bank / UPI Payment App History in Clipboard
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
         const clipText = await navigator.clipboard.readText();
@@ -737,15 +740,15 @@ export default function ExpensesModule({
       }
     } catch (_) {}
 
-    // 5. Trigger Native Async Status-Bar + Vault Sweep
+    // 5. Trigger Native Async Status-Bar + All Payment Apps Sweep
     try {
       if (window.PattanBiometric && typeof window.PattanBiometric.scanMobileTransactions === 'function') {
         window.PattanBiometric.scanMobileTransactions(daysToScan);
         setTimeout(() => setIsScanning(false), 900);
         setScanStatus(
           totalSyncedCount > 0
-            ? `✅ Synced ${totalSyncedCount} transaction record(s) for ${effectiveEmail || 'your device'}.`
-            : `🔄 Scanned notifications & vault for ${activeTargetDateIso}.`
+            ? `✅ Fetched & synced ${totalSyncedCount} real transaction(s) from payment apps & vault.`
+            : `🔄 Scanned all payment apps & vault for ${activeTargetDateIso}.`
         );
         return;
       }
@@ -757,7 +760,7 @@ export default function ExpensesModule({
     } catch (_) {}
 
     setIsScanning(false);
-    setScanStatus('✅ Synced all real transactions in your permanent ledger.');
+    setScanStatus('✅ Fetched & synced all real transactions in your permanent ledger.');
   };
 
   const effectiveExpensesSource = useMemo(() => {
@@ -765,13 +768,6 @@ export default function ExpensesModule({
       'OTP1821202619',
       'SAL1013202612',
       '629400112211',
-      '629300112233',
-      '629300998877',
-      '629300445566',
-      '629288776655',
-      '629177665544',
-      '628966554433',
-      '628855443322',
     ]);
     let deletedSet = new Set();
     try {
@@ -791,11 +787,10 @@ export default function ExpensesModule({
         const refStr = String(v?.refId || '').trim();
         const isFakeSeed =
           keyStr.startsWith('demo_tx_') ||
-          keyStr.startsWith('tx_yasin_master_') ||
           keyStr.endsWith('_salary') ||
           keyStr.endsWith('_ot_payout') ||
+          (keyStr.startsWith('tx_yasin_master_') && fakeRefIds.has(refStr)) ||
           srcStr === 'demo-preview' ||
-          srcStr === 'owner-master-vault' ||
           fakeRefIds.has(refStr);
         if (!v || typeof v !== 'object' || v._deleted || deletedSet.has(keyStr) || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
@@ -902,6 +897,39 @@ export default function ExpensesModule({
     }
     return groups;
   }, [recentPaymentsList, todayIso]);
+
+  // All real transactions grouped by Day & Date (used as fallback when a selected date has 0 transactions so data is never hidden)
+  const allDatesGroupedByDay = useMemo(() => {
+    const groups = [];
+    const map = new Map();
+    for (const tx of analytics.allActiveList || []) {
+      const d = tx.date || todayIso;
+      if (!map.has(d)) {
+        const g = {
+          date: d,
+          label: formatFriendlyDate(d, todayIso),
+          items: [],
+          daySpent: 0,
+          dayReceived: 0,
+        };
+        map.set(d, g);
+        groups.push(g);
+      }
+      const grp = map.get(d);
+      grp.items.push(tx);
+      if (tx.type === 'credit' || tx.type === 'refund') {
+        grp.dayReceived += Number(tx.amount) || 0;
+      } else {
+        grp.daySpent += Number(tx.amount) || 0;
+      }
+    }
+    return groups;
+  }, [analytics.allActiveList, todayIso]);
+
+  const overviewDisplayGroups = useMemo(
+    () => (overviewGroupedByDay.length > 0 ? overviewGroupedByDay : allDatesGroupedByDay),
+    [overviewGroupedByDay, allDatesGroupedByDay]
+  );
 
   // Day-by-Day interactive summary strip across all dates that have transactions (plus Today & Yesterday)
   const allDaysSummaryList = useMemo(() => {
@@ -1113,13 +1141,6 @@ export default function ExpensesModule({
       'OTP1821202619',
       'SAL1013202612',
       '629400112211',
-      '629300112233',
-      '629300998877',
-      '629300445566',
-      '629288776655',
-      '629177665544',
-      '628966554433',
-      '628855443322',
     ]);
     const clean = {};
     const combined = { ...(expensesMap || {}), ...(expensesMapRef.current || {}) };
@@ -1129,11 +1150,10 @@ export default function ExpensesModule({
       const refStr = String(v?.refId || '').trim();
       const isFakeSeed =
         keyStr.startsWith('demo_tx_') ||
-        keyStr.startsWith('tx_yasin_master_') ||
         keyStr.endsWith('_salary') ||
         keyStr.endsWith('_ot_payout') ||
+        (keyStr.startsWith('tx_yasin_master_') && fakeRefIds.has(refStr)) ||
         srcStr === 'demo-preview' ||
-        srcStr === 'owner-master-vault' ||
         fakeRefIds.has(refStr);
       if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview && !isFakeSeed) {
         clean[k] = { ...v };
@@ -1510,6 +1530,77 @@ export default function ExpensesModule({
         ? `✅ Synced ${itemsToMerge.length} transactions for ${parsed.date}`
         : `✅ Added ${sign}₹${formatINR(parsed.amount)} (${parsed.merchant}) for ${parsed.date}`
     );
+  };
+
+  // Universal Payment App Statement / Export Importer (.csv, .txt, .json from any UPI / Bank app)
+  const handleImportPaymentAppFile = async (ev) => {
+    const file = ev?.target?.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (ev?.target) ev.target.value = '';
+      if (!text || !text.trim()) {
+        setScanStatus('⚠️ Selected statement file is empty.');
+        return;
+      }
+      const targetTs = new Date(`${activeTargetDateIso || todayIso}T12:00:00`).getTime() || Date.now();
+      const importedItems = [];
+
+      // 1. Try JSON backup or array format first
+      if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        try {
+          const parsedJson = JSON.parse(text);
+          const candidateArr = Array.isArray(parsedJson)
+            ? parsedJson
+            : Array.isArray(parsedJson?.transactions)
+              ? parsedJson.transactions
+              : parsedJson?.expenses && typeof parsedJson.expenses === 'object'
+                ? Object.values(parsedJson.expenses)
+                : [];
+          for (const item of candidateArr) {
+            if (item && typeof item === 'object' && Number(item.amount) > 0) {
+              importedItems.push(migrateAndNormalizeExpenseRecord(item));
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Parse CSV / TXT lines from any UPI or Bank statement
+      if (importedItems.length === 0) {
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          const parsedSms = parseSmsOrUpiTextJs(line, targetTs, 'statement-file-import');
+          if (parsedSms && parsedSms.amount > 0) {
+            importedItems.push(parsedSms);
+            continue;
+          }
+          // Generic CSV fallback: Date, Merchant/Description, Amount, Type
+          const cols = line.split(',').map((c) => c.replace(/^"|"$/g, '').trim());
+          if (cols.length >= 2) {
+            const amtCol = cols.find((c) => /^[+-]?(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?$/i.test(c));
+            const dateCol = cols.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c) || /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(c));
+            if (amtCol) {
+              const rawNum = parseFloat(amtCol.replace(/[^0-9.-]/g, ''));
+              if (Number.isFinite(rawNum) && Math.abs(rawNum) > 0) {
+                const isCr = rawNum > 0 && (/\b(credit|cr|received|deposit|in)\b/i.test(line) || amtCol.startsWith('+'));
+                const synthesized = `${isCr ? 'Received' : 'Paid'} Rs. ${Math.abs(rawNum)} ${isCr ? 'from' : 'to'} ${cols[1] || 'Payment App'} ${dateCol ? `on ${dateCol}` : ''}`;
+                const p2 = parseSmsOrUpiTextJs(synthesized, targetTs, 'statement-csv-import');
+                if (p2 && p2.amount > 0) importedItems.push(p2);
+              }
+            }
+          }
+        }
+      }
+
+      if (importedItems.length > 0) {
+        mergeDetectedTransactions(importedItems, 'statement-import');
+        setScanStatus(`✅ Imported ${importedItems.length} real transaction(s) from ${file.name}`);
+      } else {
+        setScanStatus('⚠️ Could not find valid transactions in that file. Try Paste SMS or CSV format.');
+      }
+    } catch (_) {
+      setScanStatus('⚠️ Failed to read statement file.');
+    }
   };
 
   const handleExportExpensesCsv = () => {
@@ -2789,6 +2880,31 @@ export default function ExpensesModule({
             >
               📋 Paste SMS
             </button>
+            <button
+              type="button"
+              onClick={() => statementFileInputRef.current?.click()}
+              style={{
+                padding: '6px 9px',
+                borderRadius: 8,
+                border: `1px solid ${palette.borderStrong}`,
+                background: palette.surface,
+                color: isLight ? '#4f46e5' : '#818cf8',
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="Import exported statement (.csv, .txt, .json) from any payment app"
+            >
+              📂 Import App Statement
+            </button>
+            <input
+              ref={statementFileInputRef}
+              type="file"
+              accept=".csv,.txt,.json"
+              onChange={handleImportPaymentAppFile}
+              style={{ display: 'none' }}
+            />
           </div>
 
           {/* Active Selected Date / Period Summary Banner */}
@@ -2926,28 +3042,29 @@ export default function ExpensesModule({
               </div>
             </div>
 
-            {recentPaymentsList.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
+            {recentPaymentsList.length === 0 && (
+              <div style={{ padding: '14px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 12.5, marginBottom: overviewDisplayGroups.length > 0 ? 12 : 0, borderRadius: 14, background: palette.surfaceAlt, border: `1px dashed ${palette.border}` }}>
                 <div style={{ fontWeight: 800, color: palette.text }}>
-                  No real transactions recorded on {periodSummary.label}.
+                  💳 No real transactions recorded on {periodSummary.label} (₹0).
                 </div>
                 <div style={{ marginTop: 4 }}>
-                  Pick another date above, tap <strong>⏮️ Yesterday</strong>, or use <strong>⚡ Quick Add ({activeTargetDateIso})</strong> to record a payment for this date.
+                  {overviewDisplayGroups.length > 0
+                    ? `Showing your all recent real transactions grouped By Day & By Date below, or use Quick Add (${activeTargetDateIso}) to record a payment for this date.`
+                    : `Tap Sync or Import App Statement to fetch transactions from your payment apps, or use Quick Add (${activeTargetDateIso}).`}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                   {periodFilterMode !== 'yesterday' && (analytics.yesterdayCount || 0) > 0 && (
                     <button
                       type="button"
                       onClick={() => selectExactDate(yesterdayIso)}
                       style={{
-                        padding: '8px 14px',
+                        padding: '7px 12px',
                         borderRadius: 10,
                         border: 'none',
                         background: '#0ea5e9',
                         color: '#ffffff',
                         fontWeight: 800,
-                        fontSize: 12,
+                        fontSize: 11.5,
                         cursor: 'pointer',
                       }}
                     >
@@ -2959,13 +3076,13 @@ export default function ExpensesModule({
                       type="button"
                       onClick={() => setPeriodFilterMode('all')}
                       style={{
-                        padding: '8px 14px',
+                        padding: '7px 12px',
                         borderRadius: 10,
                         border: 'none',
                         background: '#10b981',
                         color: '#ffffff',
                         fontWeight: 800,
-                        fontSize: 12,
+                        fontSize: 11.5,
                         cursor: 'pointer',
                       }}
                     >
@@ -2976,13 +3093,13 @@ export default function ExpensesModule({
                     type="button"
                     onClick={() => openQuickAddModal(null)}
                     style={{
-                      padding: '8px 14px',
+                      padding: '7px 12px',
                       borderRadius: 10,
                       border: 'none',
                       background: '#6366f1',
                       color: '#ffffff',
                       fontWeight: 800,
-                      fontSize: 12,
+                      fontSize: 11.5,
                       cursor: 'pointer',
                     }}
                   >
@@ -2992,21 +3109,23 @@ export default function ExpensesModule({
                     type="button"
                     onClick={() => triggerMobileTransactionScan()}
                     style={{
-                      padding: '8px 14px',
+                      padding: '7px 12px',
                       borderRadius: 10,
                       border: `1px solid ${palette.border}`,
-                      background: palette.surfaceAlt,
+                      background: palette.surface,
                       color: isLight ? '#4f46e5' : '#818cf8',
                       fontWeight: 800,
-                      fontSize: 12,
+                      fontSize: 11.5,
                       cursor: 'pointer',
                     }}
                   >
-                    📲 Sync UPI &amp; Bank Alerts
+                    📲 Sync Payment Apps
                   </button>
                 </div>
               </div>
-            ) : (
+            )}
+
+            {overviewDisplayGroups.length > 0 && (
               <div
                 ref={recentScrollerRef}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -3023,7 +3142,7 @@ export default function ExpensesModule({
                   scrollBehavior: 'smooth',
                 }}
               >
-                {overviewGroupedByDay.map((dayGroup) => (
+                {overviewDisplayGroups.map((dayGroup) => (
                   <div
                     key={dayGroup.date}
                     style={{

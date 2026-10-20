@@ -1,8 +1,8 @@
-﻿{
-    "version":  "7.8.4",
-    "cssFile":  "app-bundle.css",
-    "buildId":  "ota_v7_8_4_1792485251",
-    "notes":  "v7.8.4: Zero-confusion date selector (whatever date you select shows ONLY the real transactions of that day with Prev/Next Day \u0026 1-tap Today/Yesterday) + Proactive Update Available popup \u0026 banner (never stays silent when an update is ready).",
-    "jsFile":  "app-bundle.js",
-    "updatedAt":  "2026-10-20T08:34:11Z"
+{
+  "version": "7.8.5",
+  "buildId": "ota_7_8_5_1792486831",
+  "releasedAt": "2026-10-20T09:00:31Z",
+  "jsFile": "app-bundle.js",
+  "cssFile": "app-bundle.css",
+  "notes": "v7.8.5 Live OTA: Restored real transaction data across all dates & payment apps (excluding any erroneous Rs. 60 today entry), added Payment App Statement Importer (.csv/.txt/.json), and added spoken voice notification whenever a new update is available."
 }

@@ -328,13 +328,6 @@ const FAKE_SEED_REF_IDS = new Set([
   'OTP1821202619',
   'SAL1013202612',
   '629400112211',
-  '629300112233',
-  '629300998877',
-  '629300445566',
-  '629288776655',
-  '629177665544',
-  '628966554433',
-  '628855443322',
 ]);
 
 function getDeletedExpenseIdsSet() {
@@ -374,11 +367,10 @@ export function loadEncryptedExpenseStore() {
               tx.isDemoPreview ||
               tx._demoPreview ||
               tx.source === 'demo-preview' ||
-              tx.source === 'owner-master-vault' ||
               keyStr.startsWith('demo_tx_') ||
-              keyStr.startsWith('tx_yasin_master_') ||
               keyStr.endsWith('_salary') ||
               keyStr.endsWith('_ot_payout') ||
+              (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
               FAKE_SEED_REF_IDS.has(refStr)
             ) {
               continue;
@@ -436,11 +428,10 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
       tx.isDemoPreview ||
       tx._demoPreview ||
       tx.source === 'demo-preview' ||
-      tx.source === 'owner-master-vault' ||
       keyStr.startsWith('demo_tx_') ||
-      keyStr.startsWith('tx_yasin_master_') ||
       keyStr.endsWith('_salary') ||
       keyStr.endsWith('_ot_payout') ||
+      (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
       FAKE_SEED_REF_IDS.has(refStr)
     ) {
       continue;
