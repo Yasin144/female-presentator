@@ -1748,9 +1748,29 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const isOwner = isOwnerMasterEmail(currentEmail);
 
     const stampedDays = {};
+    if (isOwner) {
+      try {
+        const existingRaw = localStorage.getItem(LS_OWNER_VAULT_KEY) || localStorage.getItem(LS_OT_SALARY_KEY);
+        if (existingRaw) {
+          const parsedExisting = JSON.parse(existingRaw);
+          if (parsedExisting?.days && typeof parsedExisting.days === 'object') {
+            for (const [iso, rec] of Object.entries(parsedExisting.days)) {
+              if (rec && !rec._deleted) {
+                stampedDays[iso] = rec;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
     for (const [iso, rec] of Object.entries(nextDays || {})) {
       if (!rec) continue;
+      if (rec._deleted) {
+        delete stampedDays[iso];
+        continue;
+      }
       stampedDays[iso] = {
+        ...stampedDays[iso],
         ...rec,
         updatedAt: rec.updatedAt || nowIso,
         updatedAtMs: Number(rec.updatedAtMs || Date.parse(rec.updatedAt || rec.savedAt || '') || nowMs),
@@ -3607,15 +3627,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* TOP PHONEPE-STYLE PURPLE APP BAR HEADER */}
+        {/* TOP CRED NEO-POP 3D TITANIUM & CHAMPAGNE GOLD APP BAR HEADER */}
         <div
-          className="ot-no-print"
+          className="ot-no-print cred-titanium-card"
           style={{
-            padding: '14px 16px',
+            padding: '13px 16px',
             borderRadius: 22,
-            background: 'linear-gradient(135deg, #5f259f 0%, #431675 60%, #31105a 100%)',
-            border: '1px solid rgba(192, 132, 252, 0.38)',
-            boxShadow: '0 14px 32px rgba(95, 37, 159, 0.42)',
+            background: 'linear-gradient(145deg, #08090f 0%, #101420 55%, #0a0f18 100%)',
+            border: '1px solid rgba(245, 208, 138, 0.36)',
+            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
@@ -3624,7 +3644,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, position: 'relative', zIndex: 1 }}>
             {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
               <button
                 type="button"
@@ -3636,9 +3656,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   width: 34,
                   height: 34,
                   borderRadius: 11,
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  background: 'rgba(255,255,255,0.12)',
-                  color: '#ffffff',
+                  border: '1px solid rgba(245, 208, 138, 0.4)',
+                  background: 'rgba(15, 23, 42, 0.7)',
+                  color: '#f5d08a',
                   fontWeight: 900,
                   fontSize: 15,
                   cursor: 'pointer',
@@ -3652,7 +3672,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </button>
             )}
 
-            {/* PhonePe Style Avatar Circle */}
+            {/* Signature CRED Champagne Gold & Electric Mint 3D Avatar Circle */}
             <div
               onClick={() => setShowSplash(true)}
               title="Tap to view OT & SALARY PRO Splash Screen"
@@ -3660,21 +3680,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 width: 44,
                 height: 44,
                 borderRadius: '50%',
-                background: '#ffffff',
-                border: '2px solid #c084fc',
-                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.28)',
+                background: 'linear-gradient(135deg, #f5d08a 0%, #d4af37 50%, #00e699 100%)',
+                border: '2px solid rgba(245, 208, 138, 0.85)',
+                boxShadow: '0 6px 18px rgba(245, 208, 138, 0.32)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#5f259f',
+                color: '#08090f',
                 fontWeight: 950,
-                fontSize: 17,
+                fontSize: 15,
+                letterSpacing: '0.02em',
                 cursor: 'pointer',
                 position: 'relative',
                 flexShrink: 0,
               }}
             >
-              पे
+              {isEmailLinked ? getEmployeeInitials(settings.employeeName) : '₹'}
               <span style={{
                 position: 'absolute',
                 right: -1,
@@ -3682,8 +3703,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 width: 12,
                 height: 12,
                 borderRadius: '50%',
-                background: isEmailLinked ? '#10b981' : '#f59e0b',
-                border: '2px solid #431675',
+                background: isEmailLinked ? '#00e699' : '#f59e0b',
+                border: '2px solid #08090f',
               }} />
             </div>
 
@@ -3698,14 +3719,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 flexWrap: 'wrap',
               }}>
                 <span>
-                  {isEmailLinked ? normalizeEmployeeName(settings.employeeName) : 'PhonePe Salary & Expense Hub'}
+                  {isEmailLinked ? `Hi, ${normalizeEmployeeName(settings.employeeName)}` : 'Yasin Salary & Expense Vault'}
                 </span>
                 <span style={{
                   padding: '2px 7px',
                   borderRadius: 999,
                   background: isEmailLinked ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)',
                   border: isEmailLinked ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(251, 191, 36, 0.5)',
-                  color: isEmailLinked ? '#a7f3d0' : '#fde68a',
+                  color: isEmailLinked ? '#6ee7b7' : '#fde68a',
                   fontSize: 9.5,
                   fontWeight: 900,
                   letterSpacing: '0.04em',
@@ -3724,8 +3745,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     background: 'transparent',
                     border: 'none',
                     padding: 0,
-                    color: '#e9d5ff',
-                    fontWeight: 700,
+                    color: '#7dd3fc',
+                    fontWeight: 800,
                     fontSize: 12,
                     cursor: 'pointer',
                     outline: 'none',
@@ -3756,9 +3777,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: '50%',
-                border: '1px solid rgba(255,255,255,0.22)',
-                background: 'rgba(255,255,255,0.12)',
+                borderRadius: 11,
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                background: 'rgba(15, 23, 42, 0.5)',
                 color: '#ffffff',
                 fontSize: 15,
                 cursor: 'pointer',
@@ -3778,9 +3799,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: '50%',
-                border: '1px solid rgba(255,255,255,0.22)',
-                background: 'rgba(255,255,255,0.12)',
+                borderRadius: 11,
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                background: 'rgba(15, 23, 42, 0.5)',
                 color: '#ffffff',
                 fontSize: 15,
                 cursor: 'pointer',
@@ -3810,9 +3831,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               style={{
                 padding: '8px 12px',
                 borderRadius: 999,
-                border: '1px solid rgba(255,255,255,0.3)',
-                background: 'rgba(255,255,255,0.16)',
-                color: '#ffffff',
+                border: '1px solid rgba(52, 211, 153, 0.5)',
+                background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.28), rgba(16, 185, 129, 0.28))',
+                color: '#a7f3d0',
                 fontWeight: 900,
                 fontSize: 11.5,
                 cursor: 'pointer',
@@ -4163,15 +4184,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
-        {/* PHONEPE SEGMENTED PILL SWITCHER: OT & Salary | Expense Memory */}
+        {/* SIGNATURE DARK-LUXURY NEON CYAN & EMERALD SEGMENTED SWITCHER: OT & Salary | Expense Vault */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: 6,
           padding: 5,
           borderRadius: 16,
-          background: isLight ? '#ede9fe' : '#140b29',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
+          background: isLight ? '#e2e8f0' : '#091122',
+          border: '1px solid rgba(56, 189, 248, 0.25)',
         }}>
           <button
             type="button"
@@ -4179,19 +4200,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             style={{
               padding: '11px 12px',
               borderRadius: 12,
-              border: mobileTab !== 'expenses' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
+              border: mobileTab !== 'expenses' ? '1px solid rgba(56, 189, 248, 0.55)' : '1px solid transparent',
               background: mobileTab !== 'expenses'
-                ? 'linear-gradient(135deg, #5f259f 0%, #431675 100%)'
+                ? 'linear-gradient(135deg, #0284c7 0%, #2563eb 55%, #059669 100%)'
                 : 'transparent',
               color: mobileTab !== 'expenses' ? '#ffffff' : ui.textSecondary,
-              fontWeight: 800,
+              fontWeight: 900,
               fontSize: 13.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 7,
-              boxShadow: mobileTab !== 'expenses' ? '0 6px 16px rgba(95, 37, 159, 0.35)' : 'none',
+              boxShadow: mobileTab !== 'expenses' ? '0 6px 18px rgba(14, 165, 233, 0.32)' : 'none',
             }}
           >
             <span>💼</span>
@@ -4204,160 +4225,169 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             style={{
               padding: '11px 12px',
               borderRadius: 12,
-              border: mobileTab === 'expenses' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
+              border: mobileTab === 'expenses' ? '1px solid rgba(52, 211, 153, 0.6)' : '1px solid transparent',
               background: mobileTab === 'expenses'
-                ? 'linear-gradient(135deg, #5f259f 0%, #7c3aed 100%)'
+                ? 'linear-gradient(135deg, #059669 0%, #0ea5e9 55%, #2563eb 100%)'
                 : 'transparent',
               color: mobileTab === 'expenses' ? '#ffffff' : ui.textSecondary,
-              fontWeight: 800,
+              fontWeight: 900,
               fontSize: 13.5,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 7,
-              boxShadow: mobileTab === 'expenses' ? '0 6px 16px rgba(95, 37, 159, 0.35)' : 'none',
+              boxShadow: mobileTab === 'expenses' ? '0 6px 18px rgba(16, 185, 129, 0.32)' : 'none',
             }}
           >
-            <span>{expensesBiometricUnlocked ? 'पे' : '🔐'}</span>
-            <span>PhonePe Expenses</span>
+            <span>{expensesBiometricUnlocked ? '💳' : '🔐'}</span>
+            <span>Expense Vault</span>
             <span style={{ display: 'none' }}>EXPENSES</span>
           </button>
         </div>
 
-        {/* PHONEPE EMAIL SYNC GATE BAR: EMPTY FIRST UNTIL USER ENTERS EMAIL & TAPS SYNC */}
-        <div style={{
-          padding: '12px 14px',
-          borderRadius: 18,
-          background: isLight
-            ? '#ffffff'
-            : 'linear-gradient(135deg, #1a1033 0%, #120c24 100%)',
-          border: isEmailLinked
-            ? '1.5px solid rgba(16, 185, 129, 0.45)'
-            : '1.5px solid rgba(168, 85, 247, 0.55)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          boxShadow: '0 8px 22px rgba(95, 37, 159, 0.18)',
-        }}>
-          {!isEmailLinked ? (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#431675' : '#e9d5ff' }}>
-                  📧 Add Your Email to Sync Data (Starts Empty First)
-                </span>
-                <span style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: 'rgba(168, 85, 247, 0.2)',
-                  color: '#c084fc',
-                  fontSize: 10,
-                  fontWeight: 900,
-                }}>
-                  0 Data Until Synced
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <input
-                  type="email"
-                  value={changeMobileEmailInput}
-                  onChange={(e) => setChangeMobileEmailInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && changeMobileEmailInput.trim()) {
-                      switchAccountEmail(changeMobileEmailInput);
-                    }
-                  }}
-                  placeholder="Enter your email to sync (e.g. patanyasin144@gmail.com)"
-                  style={{
-                    flex: '1 1 210px',
-                    padding: '10px 12px',
-                    borderRadius: 12,
-                    border: '1px solid rgba(168, 85, 247, 0.45)',
-                    background: isLight ? '#f8fafc' : '#0d071b',
-                    color: isLight ? '#0f172a' : '#f8fafc',
-                    fontSize: 12.5,
-                    fontWeight: 800,
-                    outline: 'none',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => switchAccountEmail(changeMobileEmailInput)}
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: 12,
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #5f259f 0%, #7c3aed 100%)',
-                    color: '#ffffff',
-                    fontWeight: 900,
-                    fontSize: 12.5,
-                    cursor: 'pointer',
-                    boxShadow: '0 6px 16px rgba(95, 37, 159, 0.35)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  🔄 Sync Mail
-                </button>
-              </div>
-            </>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                  background: '#5f259f',
-                  color: '#ffffff',
-                  fontSize: 10,
-                  fontWeight: 900,
-                }}>
-                  पे SYNCED
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#0f172a' : '#f8fafc' }}>
-                  {activeAccountEmail}
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#10b981' }}>
-                  · {expenseQuickStats.allTimeCount} Real Txns · {Object.keys(daysMap || {}).length} Days
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowChangeMobileModal(true)}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(168, 85, 247, 0.5)',
-                    background: 'rgba(95, 37, 159, 0.25)',
-                    color: isLight ? '#5f259f' : '#e9d5ff',
-                    fontSize: 11,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📱 Change Mobile
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchAccountEmail('')}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(244, 63, 94, 0.45)',
-                    background: 'rgba(244, 63, 94, 0.14)',
-                    color: '#fb7185',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                  title="Sign out & reset screen to Empty"
-                >
-                  Unlink
-                </button>
-              </div>
+        {/* COMPACT COLLAPSIBLE EMAIL SYNC + CHANGE MOBILE BAR (COLLAPSES INTO SMALL PILL ONCE SYNCED) */}
+        {!isEmailLinked ? (
+          <div style={{
+            padding: '11px 13px',
+            borderRadius: 16,
+            background: isLight
+              ? '#ffffff'
+              : 'linear-gradient(135deg, #091326 0%, #0b2239 100%)',
+            border: '1.5px solid rgba(56, 189, 248, 0.45)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            boxShadow: '0 8px 22px rgba(2, 6, 23, 0.35)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#0f172a' : '#7dd3fc' }}>
+                📧 Add Your Email to Sync Data (Starts Empty First)
+              </span>
+              <span style={{
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'rgba(16, 185, 129, 0.16)',
+                border: '1px solid rgba(52, 211, 153, 0.4)',
+                color: '#34d399',
+                fontSize: 10,
+                fontWeight: 900,
+              }}>
+                0 Data Until Synced
+              </span>
             </div>
-          )}
-        </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                type="email"
+                value={changeMobileEmailInput}
+                onChange={(e) => setChangeMobileEmailInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && changeMobileEmailInput.trim()) {
+                    switchAccountEmail(changeMobileEmailInput);
+                  }
+                }}
+                placeholder="Enter your email to sync (e.g. patanyasin144@gmail.com)"
+                style={{
+                  flex: '1 1 200px',
+                  padding: '9px 12px',
+                  borderRadius: 11,
+                  border: '1px solid rgba(56, 189, 248, 0.4)',
+                  background: isLight ? '#f8fafc' : '#050b16',
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => switchAccountEmail(changeMobileEmailInput)}
+                style={{
+                  padding: '9px 15px',
+                  borderRadius: 11,
+                  border: '1px solid rgba(52, 211, 153, 0.5)',
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
+                  color: '#022c22',
+                  fontWeight: 950,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🔄 Sync Mail
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            padding: '7px 12px',
+            borderRadius: 999,
+            background: isLight
+              ? 'rgba(16, 185, 129, 0.1)'
+              : 'linear-gradient(90deg, rgba(6, 78, 59, 0.48) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            border: '1px solid rgba(52, 211, 153, 0.42)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#022c22',
+                fontSize: 9.5,
+                fontWeight: 950,
+                letterSpacing: '0.03em',
+              }}>
+                ✓ SYNCED
+              </span>
+              <span style={{ fontSize: 11.5, fontWeight: 900, color: isLight ? '#0f172a' : '#e2e8f0', wordBreak: 'break-all' }}>
+                {activeAccountEmail}
+              </span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#34d399' }}>
+                · {expenseQuickStats.allTimeCount} Txns · {Object.keys(daysMap || {}).length}d
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowChangeMobileModal(true)}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(56, 189, 248, 0.45)',
+                  background: 'rgba(14, 165, 233, 0.18)',
+                  color: isLight ? '#0369a1' : '#7dd3fc',
+                  fontSize: 10.5,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                📱 Change Mobile
+              </button>
+              <button
+                type="button"
+                onClick={() => switchAccountEmail('')}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(244, 63, 94, 0.45)',
+                  background: 'rgba(244, 63, 94, 0.14)',
+                  color: '#fb7185',
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+                title="Sign out & reset screen to Empty"
+              >
+                Unlink
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ===================================================================
             SCREENS 7, 8, 9, 10, 11: EXPENSE MEMORY MODULE (BIOMETRIC GATED)

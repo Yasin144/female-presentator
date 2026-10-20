@@ -1010,14 +1010,24 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
         path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
         'utf8'
       );
+      const cssSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.css'),
+        'utf8'
+      );
       assert.equal(otSalarySrc.includes("LS_ACTIVE_EMAIL_KEY = 'pattan.ot.linkedAccountEmail.v75'"), true);
       assert.equal(otSalarySrc.includes('isFakeSeededTransaction'), true);
+      assert.equal(otSalarySrc.includes('पे'), false);
+      assert.equal(expensesSrc.includes('पे'), false);
+      assert.equal(expensesSrc.includes('const isOwnerMasterLinked = Boolean'), true);
       assert.equal(expensesSrc.includes('periodFilterMode'), true);
       assert.equal(expensesSrc.includes('filterSpecificDate'), true);
       assert.equal(expensesSrc.includes('filterMonthPart'), true);
       assert.equal(expensesSrc.includes('filterYearPart'), true);
-      assert.equal(expensesSrc.includes('#5f259f'), true);
+      assert.equal(expensesSrc.includes('cred-titanium-card'), true);
+      assert.equal(expensesSrc.includes('cred-quick-orb'), true);
+      assert.equal(expensesSrc.includes('cred-tx-row'), true);
       assert.equal(expensesSrc.includes('Filter &amp; Sync by Date · Month · Year'), true);
+      assert.equal(cssSrc.includes('credShimmerSweep'), true);
     });
   });
 });

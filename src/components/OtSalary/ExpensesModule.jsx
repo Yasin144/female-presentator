@@ -102,17 +102,19 @@ export function BrandPaymentAvatar({ tx, size = 44 }) {
         width: size,
         height: size,
         borderRadius: radius,
-        background: 'linear-gradient(135deg, #6739b7, #512da8)',
+        background: 'linear-gradient(135deg, #06b6d4, #2563eb)',
+        border: '1.5px solid rgba(56, 189, 248, 0.55)',
         color: '#ffffff',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontWeight: 900,
-        fontSize: size * 0.44,
-        boxShadow: '0 4px 12px rgba(103,57,183,0.4)',
+        fontWeight: 950,
+        fontSize: size * 0.28,
+        letterSpacing: '-0.02em',
+        boxShadow: '0 4px 12px rgba(6, 182, 212, 0.35)',
         flexShrink: 0,
       }}>
-        पे
+        UPI
       </div>
     );
   }
@@ -336,6 +338,9 @@ export default function ExpensesModule({
 }) {
   const effectiveMonthlySalary = Number(monthlyNetSalary || netMonthlySalary || 0);
   const hasLinkedEmail = Boolean(isEmailLinked || String(activeAccountEmail || '').trim());
+  const isOwnerMasterLinked = Boolean(isOwnerAccount || String(activeAccountEmail || '').trim().toLowerCase() === 'patanyasin144@gmail.com');
+  const onQuickLinkEmail = onSyncEmail;
+  const onOpenChangeMobile = onOpenChangeMobileModal;
   const [emailDraftInput, setEmailDraftInput] = useState(activeAccountEmail || '');
   useEffect(() => {
     setEmailDraftInput(activeAccountEmail || '');
@@ -491,32 +496,28 @@ export default function ExpensesModule({
   const palette = useMemo(() => (
     isLight
       ? {
-          bg: '#f5f3ff',
+          bg: '#f4f7fb',
           surface: '#ffffff',
           surfaceAlt: '#f8fafc',
-          border: 'rgba(95, 37, 159, 0.14)',
+          border: 'rgba(15, 23, 42, 0.08)',
           text: '#0f172a',
           textSub: '#475569',
           textMuted: '#64748b',
-          pillBg: '#ede9fe',
-          activeBlue: '#5f259f',
-          phonepePurple: '#5f259f',
-          phonepePurpleDark: '#431675',
+          pillBg: '#e2e8f0',
+          activeBlue: '#0284c7',
           debit: '#ef4444',
           credit: '#10b981',
         }
       : {
-          bg: '#0b0716',
-          surface: '#150d2a',
-          surfaceAlt: '#0f0920',
-          border: 'rgba(167, 139, 250, 0.2)',
+          bg: '#060c18',
+          surface: '#0d1628',
+          surfaceAlt: '#09101f',
+          border: 'rgba(56, 189, 248, 0.16)',
           text: '#f8fafc',
-          textSub: '#e2e8f0',
-          textMuted: '#a78bfa',
-          pillBg: '#231542',
-          activeBlue: '#7c3aed',
-          phonepePurple: '#5f259f',
-          phonepePurpleDark: '#3b0f66',
+          textSub: '#cbd5e1',
+          textMuted: '#94a3b8',
+          pillBg: '#132038',
+          activeBlue: '#0ea5e9',
           debit: '#fb7185',
           credit: '#34d399',
         }
@@ -1534,19 +1535,20 @@ export default function ExpensesModule({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text, overflowAnchor: 'none' }}>
-      {/* Top Sub-Navigation Pills (PhonePe Royal Purple Theme) */}
+      {/* Top Sub-Navigation Pills (CRED Neo-Pop 3D Titanium & Champagne Gold Theme) */}
       <div style={{
         display: 'flex',
         gap: 6,
         overflowX: 'auto',
-        padding: '4px',
-        borderRadius: 14,
-        background: palette.surface,
-        border: `1px solid ${palette.border}`,
+        padding: '5px',
+        borderRadius: 16,
+        background: 'linear-gradient(145deg, #0b0d14 0%, #111522 100%)',
+        border: '1px solid rgba(245, 208, 138, 0.22)',
+        boxShadow: '0 10px 24px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
       }}>
         {[
-          { id: 'overview', label: '🟣 PhonePe Home' },
-          { id: 'transactions', label: `📜 History (${analytics.allTimeCount || analytics.totalCount || 0})` },
+          { id: 'overview', label: '⚡ CRED Club Hub' },
+          { id: 'transactions', label: `📜 Passbook (${analytics.allTimeCount || analytics.totalCount || 0})` },
           { id: 'insights', label: '📊 Insights' },
           { id: 'missing-notes', label: `📝 Notes (${analytics.missingNotesCount})` },
           { id: 'settings', label: '⚙️ Sync & CSV' },
@@ -1559,16 +1561,19 @@ export default function ExpensesModule({
               onClick={() => setSubTab(tab.id)}
               style={{
                 flex: '1 0 auto',
-                padding: '9px 13px',
-                borderRadius: 10,
-                border: 'none',
-                background: active ? 'linear-gradient(135deg, #5f259f, #7c3aed)' : 'transparent',
-                color: active ? '#ffffff' : palette.textMuted,
-                fontWeight: 800,
+                padding: '9px 14px',
+                borderRadius: 11,
+                border: active ? '1px solid rgba(245, 208, 138, 0.5)' : '1px solid transparent',
+                background: active
+                  ? 'linear-gradient(135deg, rgba(245, 208, 138, 0.22) 0%, rgba(0, 230, 153, 0.14) 100%)'
+                  : 'transparent',
+                color: active ? '#f5d08a' : '#94a3b8',
+                fontWeight: 900,
                 fontSize: 12,
+                letterSpacing: '0.02em',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: active ? '0 4px 14px rgba(95, 37, 159, 0.42)' : 'none',
+                boxShadow: active ? '0 4px 16px rgba(245, 208, 138, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.16)' : 'none',
               }}
             >
               {tab.label}
@@ -1578,151 +1583,158 @@ export default function ExpensesModule({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          📧 PHONEPE EMAIL SYNC GATE BAR (EMPTY FIRST UNTIL EMAIL IS LINKED)
+          📧 CRED VAULT SYNC BAR (EMPTY FIRST UNTIL EMAIL IS LINKED; COMPACT WHEN SYNCED)
          ═══════════════════════════════════════════════════════════════════════ */}
-      <div style={{
-        padding: '10px 14px',
-        borderRadius: 16,
-        background: hasLinkedEmail
-          ? 'linear-gradient(135deg, rgba(95, 37, 159, 0.28) 0%, rgba(16, 185, 129, 0.16) 100%)'
-          : 'linear-gradient(135deg, rgba(95, 37, 159, 0.35) 0%, rgba(30, 27, 75, 0.85) 100%)',
-        border: hasLinkedEmail
-          ? '1px solid rgba(52, 211, 153, 0.45)'
-          : '1px solid rgba(167, 139, 250, 0.5)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}>
-        {!hasLinkedEmail ? (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: '#fde047' }}>
-                🔒 Empty First Mode: Enter your Gmail to sync your real transactions &amp; balance
-              </div>
-              {typeof onOpenChangeMobile === 'function' && (
-                <button
-                  type="button"
-                  onClick={onOpenChangeMobile}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(167, 139, 250, 0.5)',
-                    background: 'rgba(95, 37, 159, 0.4)',
-                    color: '#e9d5ff',
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📱 Change Mobile
-                </button>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <input
-                type="email"
-                value={emailDraftInput}
-                onChange={(e) => setEmailDraftInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
-                    onQuickLinkEmail(emailDraftInput.trim());
-                  }
-                }}
-                placeholder="Enter patanyasin144@gmail.com to sync all data..."
-                style={{
-                  flex: '1 1 200px',
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(167, 139, 250, 0.5)',
-                  background: 'rgba(15, 23, 42, 0.75)',
-                  color: '#ffffff',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  outline: 'none',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
-                    onQuickLinkEmail(emailDraftInput.trim());
-                  } else if (typeof onOpenChangeMobile === 'function') {
-                    onOpenChangeMobile();
-                  }
-                }}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#022c22',
-                  fontWeight: 950,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                🔄 Sync Mail
-              </button>
-            </div>
-          </>
-        ) : (
+      {!hasLinkedEmail ? (
+        <div
+          className="cred-titanium-card"
+          style={{
+            padding: '12px 14px',
+            borderRadius: 18,
+            background: 'linear-gradient(145deg, #0b0d14 0%, #131826 100%)',
+            border: '1px solid rgba(245, 208, 138, 0.38)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{
-                padding: '3px 9px',
-                borderRadius: 999,
-                background: isOwnerMasterLinked ? 'rgba(16, 185, 129, 0.22)' : 'rgba(139, 92, 246, 0.25)',
-                border: isOwnerMasterLinked ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(167, 139, 250, 0.45)',
-                color: isOwnerMasterLinked ? '#6ee7b7' : '#ddd6fe',
-                fontSize: 11,
-                fontWeight: 900,
-              }}>
-                {isOwnerMasterLinked ? `👑 Synced: ${activeAccountEmail}` : `📧 Linked: ${activeAccountEmail}`}
-              </span>
-              <span style={{ fontSize: 11, color: palette.textSub, fontWeight: 700 }}>
-                Real Transactions Only (No Fake OT)
-              </span>
+            <div style={{ fontSize: 12, fontWeight: 900, color: '#f5d08a' }}>
+              🔒 Empty First Vault: Enter your Gmail to sync your real transactions &amp; bank balance
             </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {typeof onOpenChangeMobile === 'function' && (
               <button
                 type="button"
-                onClick={() => triggerMobileTransactionScan(false)}
+                onClick={onOpenChangeMobile}
                 style={{
-                  padding: '5px 10px',
+                  padding: '4px 10px',
                   borderRadius: 999,
-                  border: '1px solid rgba(52, 211, 153, 0.5)',
-                  background: 'rgba(16, 185, 129, 0.2)',
-                  color: '#6ee7b7',
-                  fontSize: 11,
+                  border: '1px solid rgba(245, 208, 138, 0.45)',
+                  background: 'rgba(245, 208, 138, 0.14)',
+                  color: '#f5d08a',
+                  fontSize: 10.5,
                   fontWeight: 900,
                   cursor: 'pointer',
                 }}
               >
-                🔄 Sync Real Alerts
+                📱 Change Mobile
               </button>
-              {typeof onOpenChangeMobile === 'function' && (
-                <button
-                  type="button"
-                  onClick={onOpenChangeMobile}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(167, 139, 250, 0.45)',
-                    background: 'rgba(95, 37, 159, 0.35)',
-                    color: '#e9d5ff',
-                    fontSize: 11,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📱 Change Mobile
-                </button>
-              )}
-            </div>
+            )}
           </div>
-        )}
-      </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <input
+              type="email"
+              value={emailDraftInput}
+              onChange={(e) => setEmailDraftInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
+                  onQuickLinkEmail(emailDraftInput.trim());
+                }
+              }}
+              placeholder="Enter patanyasin144@gmail.com to sync all data..."
+              style={{
+                flex: '1 1 200px',
+                padding: '9px 12px',
+                borderRadius: 11,
+                border: '1px solid rgba(245, 208, 138, 0.35)',
+                background: 'rgba(6, 8, 15, 0.85)',
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 800,
+                outline: 'none',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
+                  onQuickLinkEmail(emailDraftInput.trim());
+                } else if (typeof onOpenChangeMobile === 'function') {
+                  onOpenChangeMobile();
+                }
+              }}
+              style={{
+                padding: '9px 15px',
+                borderRadius: 11,
+                border: '1px solid rgba(245, 208, 138, 0.55)',
+                background: 'linear-gradient(135deg, #f5d08a 0%, #d4af37 100%)',
+                color: '#090a10',
+                fontWeight: 950,
+                fontSize: 12,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ⚡ Sync Vault
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: '6px 12px',
+          borderRadius: 999,
+          background: 'linear-gradient(90deg, rgba(11, 13, 20, 0.96) 0%, rgba(18, 23, 36, 0.96) 100%)',
+          border: '1px solid rgba(0, 230, 153, 0.35)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{
+              padding: '2px 8px',
+              borderRadius: 999,
+              background: 'rgba(0, 230, 153, 0.16)',
+              border: '1px solid rgba(0, 230, 153, 0.42)',
+              color: '#00e699',
+              fontSize: 10.5,
+              fontWeight: 950,
+            }}>
+              {isOwnerMasterLinked ? `✓ SYNCED · ${activeAccountEmail}` : `📧 ${activeAccountEmail}`}
+            </span>
+            <span style={{ fontSize: 10.5, color: '#cbd5e1', fontWeight: 800 }}>
+              Real Alerts Only · No Fake OT
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => triggerMobileTransactionScan(false)}
+              style={{
+                padding: '3px 9px',
+                borderRadius: 999,
+                border: '1px solid rgba(0, 230, 153, 0.45)',
+                background: 'rgba(0, 230, 153, 0.14)',
+                color: '#00e699',
+                fontSize: 10.5,
+                fontWeight: 900,
+                cursor: 'pointer',
+              }}
+            >
+              🔄 Sync Alerts
+            </button>
+            {typeof onOpenChangeMobile === 'function' && (
+              <button
+                type="button"
+                onClick={onOpenChangeMobile}
+                style={{
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(245, 208, 138, 0.4)',
+                  background: 'rgba(245, 208, 138, 0.12)',
+                  color: '#f5d08a',
+                  fontSize: 10.5,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                📱 Change Mobile
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 1-Tap Auto UPI Payment Capture Prompt when Notification Access is off */}
       {!notifGranted && typeof window !== 'undefined' && window.PattanBiometric && (
@@ -1793,15 +1805,15 @@ export default function ExpensesModule({
         <div style={{
           padding: '10px 14px',
           borderRadius: 14,
-          background: isLight ? '#f3e8ff' : 'rgba(95, 37, 159, 0.28)',
-          border: '1px solid rgba(167, 139, 250, 0.45)',
+          background: 'rgba(13, 17, 28, 0.95)',
+          border: '1px solid rgba(245, 208, 138, 0.45)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 10,
           fontSize: 12,
           fontWeight: 700,
-          color: isLight ? '#4c1d95' : '#e9d5ff',
+          color: '#f5d08a',
         }}>
           <span>{undoBanner ? undoBanner.message : scanStatus}</span>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -1817,9 +1829,9 @@ export default function ExpensesModule({
                 style={{
                   padding: '4px 10px',
                   borderRadius: 8,
-                  border: 'none',
-                  background: '#5f259f',
-                  color: '#fff',
+                  border: '1px solid rgba(245, 208, 138, 0.5)',
+                  background: 'rgba(245, 208, 138, 0.18)',
+                  color: '#f5d08a',
                   fontWeight: 800,
                   fontSize: 11,
                   cursor: 'pointer',
@@ -1843,55 +1855,67 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          🟣 PHONEPE ROYAL PURPLE HERO: REAL BANK BALANCE & QUICK TRANSFER HUB
+          ⚡ CRED NEO-POP 3D TITANIUM BLACK & CHAMPAGNE GOLD HERO CARD
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
-        <div style={{
-          padding: mobileMode ? '16px 14px' : '18px 20px',
-          borderRadius: 22,
-          background: 'linear-gradient(135deg, #5f259f 0%, #431675 55%, #2a0a4e 100%)',
-          border: '1px solid rgba(196, 181, 253, 0.38)',
-          boxShadow: '0 14px 34px rgba(95, 37, 159, 0.42)',
-          color: '#f8fafc',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+        <div
+          className="cred-titanium-card"
+          style={{
+            padding: mobileMode ? '16px 14px' : '18px 20px',
+            borderRadius: 24,
+            background: 'linear-gradient(145deg, #08090f 0%, #101420 52%, #0a0d16 100%)',
+            border: '1px solid rgba(245, 208, 138, 0.34)',
+            color: '#f8fafc',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{
-                  fontSize: 11,
-                  fontWeight: 900,
+                  fontSize: 10.5,
+                  fontWeight: 950,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#e9d5ff',
-                  background: 'rgba(255, 255, 255, 0.14)',
-                  border: '1px solid rgba(255, 255, 255, 0.28)',
-                  padding: '3px 9px',
+                  letterSpacing: '0.09em',
+                  color: '#f5d08a',
+                  background: 'rgba(245, 208, 138, 0.14)',
+                  border: '1px solid rgba(245, 208, 138, 0.42)',
+                  padding: '3px 10px',
                   borderRadius: 999,
                 }}>
                   🏦 Real Bank Account Balance
                 </span>
                 {(bankBalanceInfo?.accountMask || analytics.bankBalanceSource) && (
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#ddd6fe' }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 900,
+                    color: '#00e699',
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: 'rgba(0, 230, 153, 0.12)',
+                    border: '1px solid rgba(0, 230, 153, 0.3)',
+                  }}>
                     {bankBalanceInfo?.bankName || 'Bank A/c'} {bankBalanceInfo?.accountMask ? `(${bankBalanceInfo.accountMask})` : ''}
                   </span>
                 )}
               </div>
               <div style={{
-                fontSize: mobileMode ? 30 : 34,
+                fontSize: mobileMode ? 32 : 36,
                 fontWeight: 950,
-                color: '#ffffff',
+                background: 'linear-gradient(90deg, #ffffff 0%, #f5d08a 55%, #00e699 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
                 letterSpacing: '-0.02em',
-                marginTop: 6,
+                marginTop: 7,
                 lineHeight: 1.1,
               }}>
                 ₹{formatINR(analytics.realAccountBalance)}
               </div>
-              <div style={{ fontSize: 11, color: '#e9d5ff', fontWeight: 700, marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, marginTop: 4 }}>
                 {hasLinkedEmail
-                  ? <>Auto-adjusts on every real payment (<strong>-₹</strong>) &amp; deposit (<strong>+₹</strong>)</>
+                  ? <>Live ledger balance · Deducts on payment (<strong style={{ color: '#fb7185' }}>-₹</strong>) &amp; adds on deposit (<strong style={{ color: '#00e699' }}>+₹</strong>)</>
                   : '🔒 Enter your email above to unlock & sync your real bank balance'}
               </div>
             </div>
@@ -1900,15 +1924,15 @@ export default function ExpensesModule({
               type="button"
               onClick={openCheckBalanceModal}
               style={{
-                padding: '10px 14px',
-                borderRadius: 13,
-                border: '1px solid rgba(52, 211, 153, 0.6)',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: '#022c22',
+                padding: '10px 15px',
+                borderRadius: 14,
+                border: '1px solid rgba(245, 208, 138, 0.65)',
+                background: 'linear-gradient(135deg, #f5d08a 0%, #d4af37 100%)',
+                color: '#08090f',
                 fontWeight: 950,
                 fontSize: 12.5,
                 cursor: 'pointer',
-                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.32)',
+                boxShadow: '0 8px 22px rgba(245, 208, 138, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
@@ -1919,37 +1943,35 @@ export default function ExpensesModule({
             </button>
           </div>
 
-          {/* PhonePe 4-Icon Quick Action Grid */}
+          {/* CRED 3D Neo-Pop 4-Orb Quick Action Deck */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
             gap: 8,
-            padding: '10px 8px',
-            borderRadius: 16,
-            background: 'rgba(15, 9, 32, 0.42)',
-            border: '1px solid rgba(255, 255, 255, 0.14)',
+            position: 'relative',
+            zIndex: 1,
           }}>
             <button
               type="button"
+              className="cred-quick-orb"
               onClick={() => openQuickAddModal(null, 'debit')}
               style={{
-                background: 'transparent',
-                border: 'none',
                 color: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 5,
+                gap: 6,
                 cursor: 'pointer',
-                padding: 4,
+                padding: '10px 6px',
               }}
             >
               <span style={{
-                width: 38,
-                height: 38,
-                borderRadius: 13,
-                background: 'linear-gradient(135deg, #7c3aed, #5f259f)',
-                border: '1px solid rgba(255,255,255,0.28)',
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(244, 63, 94, 0.26), rgba(159, 18, 57, 0.38))',
+                border: '1px solid rgba(251, 113, 133, 0.5)',
+                boxShadow: '0 6px 14px rgba(244, 63, 94, 0.24)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1957,32 +1979,32 @@ export default function ExpensesModule({
               }}>
                 ↗️
               </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, textAlign: 'center', lineHeight: 1.15 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 900, color: '#f8fafc', textAlign: 'center', lineHeight: 1.15 }}>
                 Add Payment
               </span>
             </button>
 
             <button
               type="button"
+              className="cred-quick-orb"
               onClick={() => openQuickAddModal(null, 'credit')}
               style={{
-                background: 'transparent',
-                border: 'none',
                 color: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 5,
+                gap: 6,
                 cursor: 'pointer',
-                padding: 4,
+                padding: '10px 6px',
               }}
             >
               <span style={{
-                width: 38,
-                height: 38,
-                borderRadius: 13,
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                border: '1px solid rgba(255,255,255,0.28)',
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(0, 230, 153, 0.25), rgba(5, 150, 105, 0.38))',
+                border: '1px solid rgba(0, 230, 153, 0.55)',
+                boxShadow: '0 6px 14px rgba(0, 230, 153, 0.24)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1990,32 +2012,32 @@ export default function ExpensesModule({
               }}>
                 ↙️
               </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, textAlign: 'center', lineHeight: 1.15 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 900, color: '#f8fafc', textAlign: 'center', lineHeight: 1.15 }}>
                 Add Deposit
               </span>
             </button>
 
             <button
               type="button"
+              className="cred-quick-orb"
               onClick={() => triggerMobileTransactionScan(false)}
               style={{
-                background: 'transparent',
-                border: 'none',
                 color: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 5,
+                gap: 6,
                 cursor: 'pointer',
-                padding: 4,
+                padding: '10px 6px',
               }}
             >
               <span style={{
-                width: 38,
-                height: 38,
-                borderRadius: 13,
-                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                border: '1px solid rgba(255,255,255,0.28)',
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(29, 78, 216, 0.38))',
+                border: '1px solid rgba(56, 189, 248, 0.55)',
+                boxShadow: '0 6px 14px rgba(56, 189, 248, 0.24)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2023,32 +2045,32 @@ export default function ExpensesModule({
               }}>
                 🔄
               </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, textAlign: 'center', lineHeight: 1.15 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 900, color: '#f8fafc', textAlign: 'center', lineHeight: 1.15 }}>
                 Sync Alerts
               </span>
             </button>
 
             <button
               type="button"
+              className="cred-quick-orb"
               onClick={() => setShowSmsPasteModal(true)}
               style={{
-                background: 'transparent',
-                border: 'none',
                 color: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 5,
+                gap: 6,
                 cursor: 'pointer',
-                padding: 4,
+                padding: '10px 6px',
               }}
             >
               <span style={{
-                width: 38,
-                height: 38,
-                borderRadius: 13,
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                border: '1px solid rgba(255,255,255,0.28)',
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(245, 208, 138, 0.25), rgba(217, 119, 6, 0.36))',
+                border: '1px solid rgba(245, 208, 138, 0.55)',
+                boxShadow: '0 6px 14px rgba(245, 208, 138, 0.22)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2056,35 +2078,37 @@ export default function ExpensesModule({
               }}>
                 📋
               </span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, textAlign: 'center', lineHeight: 1.15 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 900, color: '#f8fafc', textAlign: 'center', lineHeight: 1.15 }}>
                 Paste SMS
               </span>
             </button>
           </div>
 
-          {/* 4-Column PhonePe Summary Strip: Today | Last Day (Yesterday) | This Month | All Time In */}
+          {/* 4-Column CRED Telemetry Strip: Today | Last Day (Yesterday) | This Month | All Recent */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: mobileMode ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
             gap: 8,
+            position: 'relative',
+            zIndex: 1,
           }}>
             <div
               onClick={() => setPeriodFilterMode('today')}
               style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'today' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.1)',
-                border: periodFilterMode === 'today' ? '1px solid #fde047' : '1px solid rgba(255, 255, 255, 0.18)',
+                padding: '9px 11px',
+                borderRadius: 14,
+                background: periodFilterMode === 'today' ? 'rgba(245, 208, 138, 0.16)' : 'rgba(15, 20, 32, 0.85)',
+                border: periodFilterMode === 'today' ? '1px solid #f5d08a' : '1px solid rgba(255, 255, 255, 0.1)',
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#e9d5ff', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 📍 Today ({analytics.todayCount || 0})
               </div>
-              <div style={{ fontSize: 13, fontWeight: 950, color: '#fda4af', marginTop: 2 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#fb7185', marginTop: 3 }}>
                 -₹{formatINR(analytics.todaySpent)}
               </div>
-              <div style={{ fontSize: 9.5, color: '#6ee7b7' }}>
+              <div style={{ fontSize: 9.5, color: '#00e699', fontWeight: 800 }}>
                 In: +₹{formatINRShort(analytics.todayReceived)}
               </div>
             </div>
@@ -2092,20 +2116,20 @@ export default function ExpensesModule({
             <div
               onClick={() => setPeriodFilterMode('yesterday')}
               style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'yesterday' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.1)',
-                border: periodFilterMode === 'yesterday' ? '1px solid #fde047' : '1px solid rgba(255, 255, 255, 0.18)',
+                padding: '9px 11px',
+                borderRadius: 14,
+                background: periodFilterMode === 'yesterday' ? 'rgba(245, 208, 138, 0.16)' : 'rgba(15, 20, 32, 0.85)',
+                border: periodFilterMode === 'yesterday' ? '1px solid #f5d08a' : '1px solid rgba(255, 255, 255, 0.1)',
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#fde047', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 900, color: '#f5d08a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 ⏮️ Last Day ({analytics.yesterdayCount || 0})
               </div>
-              <div style={{ fontSize: 13, fontWeight: 950, color: '#ffffff', marginTop: 2 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#ffffff', marginTop: 3 }}>
                 -₹{formatINR(analytics.yesterdaySpent || 0)}
               </div>
-              <div style={{ fontSize: 9.5, color: '#6ee7b7' }}>
+              <div style={{ fontSize: 9.5, color: '#00e699', fontWeight: 800 }}>
                 In: +₹{formatINRShort(analytics.yesterdayReceived || 0)}
               </div>
             </div>
@@ -2113,20 +2137,20 @@ export default function ExpensesModule({
             <div
               onClick={() => setPeriodFilterMode('month')}
               style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'month' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.1)',
-                border: periodFilterMode === 'month' ? '1px solid #fde047' : '1px solid rgba(255, 255, 255, 0.18)',
+                padding: '9px 11px',
+                borderRadius: 14,
+                background: periodFilterMode === 'month' ? 'rgba(245, 208, 138, 0.16)' : 'rgba(15, 20, 32, 0.85)',
+                border: periodFilterMode === 'month' ? '1px solid #f5d08a' : '1px solid rgba(255, 255, 255, 0.1)',
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#e9d5ff', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 🗓️ Month ({analytics.totalCount || 0})
               </div>
-              <div style={{ fontSize: 13, fontWeight: 950, color: '#fda4af', marginTop: 2 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#fb7185', marginTop: 3 }}>
                 -₹{formatINR(analytics.netSpending)}
               </div>
-              <div style={{ fontSize: 9.5, color: '#6ee7b7' }}>
+              <div style={{ fontSize: 9.5, color: '#00e699', fontWeight: 800 }}>
                 In: +₹{formatINRShort(analytics.totalIncome)}
               </div>
             </div>
@@ -2134,20 +2158,20 @@ export default function ExpensesModule({
             <div
               onClick={() => setPeriodFilterMode('all')}
               style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'all' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.1)',
-                border: periodFilterMode === 'all' ? '1px solid #fde047' : '1px solid rgba(255, 255, 255, 0.18)',
+                padding: '9px 11px',
+                borderRadius: 14,
+                background: periodFilterMode === 'all' ? 'rgba(245, 208, 138, 0.16)' : 'rgba(15, 20, 32, 0.85)',
+                border: periodFilterMode === 'all' ? '1px solid #f5d08a' : '1px solid rgba(255, 255, 255, 0.1)',
                 cursor: 'pointer',
               }}
             >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#a7f3d0', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 900, color: '#00e699', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 ⚡ All Recent ({analytics.allTimeCount || 0})
               </div>
-              <div style={{ fontSize: 13, fontWeight: 950, color: '#34d399', marginTop: 2 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 950, color: '#00e699', marginTop: 3 }}>
                 +₹{formatINR(analytics.allTimeReceived)}
               </div>
-              <div style={{ fontSize: 9.5, color: '#fda4af' }}>
+              <div style={{ fontSize: 9.5, color: '#fb7185', fontWeight: 800 }}>
                 Out: -₹{formatINRShort(analytics.allTimeSpent)}
               </div>
             </div>
@@ -2156,20 +2180,23 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          📅 FILTER & SYNC TRANSACTIONS BY DATE · MONTH · YEAR
+          📅 FILTER & SYNC TRANSACTIONS BY DATE · MONTH · YEAR (CRED NEO-POP)
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
-        <div style={{
-          padding: '12px 14px',
-          borderRadius: 18,
-          background: palette.surface,
-          border: `1px solid ${palette.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 950, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div
+          className="cred-titanium-card"
+          style={{
+            padding: '13px 15px',
+            borderRadius: 20,
+            background: 'linear-gradient(145deg, #0b0d14 0%, #111624 100%)',
+            border: '1px solid rgba(245, 208, 138, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 950, color: '#f5d08a', display: 'flex', alignItems: 'center', gap: 6, letterSpacing: '0.02em' }}>
               <span>📅 Filter &amp; Sync by Date · Month · Year</span>
             </div>
             <button
@@ -2177,15 +2204,15 @@ export default function ExpensesModule({
               onClick={() => triggerMobileTransactionScan(false)}
               disabled={isScanning}
               style={{
-                padding: '6px 12px',
+                padding: '6px 13px',
                 borderRadius: 999,
-                border: 'none',
-                background: 'linear-gradient(135deg, #5f259f, #7c3aed)',
-                color: '#ffffff',
-                fontWeight: 900,
+                border: '1px solid rgba(0, 230, 153, 0.5)',
+                background: 'linear-gradient(135deg, rgba(0, 230, 153, 0.22), rgba(5, 150, 105, 0.35))',
+                color: '#00e699',
+                fontWeight: 950,
                 fontSize: 11,
                 cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(95, 37, 159, 0.35)',
+                boxShadow: '0 4px 14px rgba(0, 230, 153, 0.2)',
               }}
             >
               {isScanning ? '⏳ Syncing...' : '🔄 Sync Transactions'}
@@ -2193,7 +2220,7 @@ export default function ExpensesModule({
           </div>
 
           {/* Filter Mode Pills */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, position: 'relative', zIndex: 1 }}>
             {[
               { id: 'all', label: `⚡ All Recent (${analytics.allTimeCount || 0})` },
               { id: 'today', label: `📍 Today (${analytics.todayCount || 0})` },
@@ -2211,10 +2238,10 @@ export default function ExpensesModule({
                   style={{
                     padding: '6px 12px',
                     borderRadius: 999,
-                    border: active ? 'none' : `1px solid ${palette.border}`,
-                    background: active ? 'linear-gradient(135deg, #5f259f, #7c3aed)' : palette.surfaceAlt,
-                    color: active ? '#ffffff' : palette.textSub,
-                    fontWeight: 800,
+                    border: active ? '1px solid #f5d08a' : '1px solid rgba(255, 255, 255, 0.12)',
+                    background: active ? 'linear-gradient(135deg, rgba(245, 208, 138, 0.25), rgba(212, 175, 55, 0.15))' : 'rgba(15, 20, 32, 0.85)',
+                    color: active ? '#f5d08a' : '#94a3b8',
+                    fontWeight: 900,
                     fontSize: 11.5,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
@@ -2227,10 +2254,10 @@ export default function ExpensesModule({
           </div>
 
           {/* Date / Month / Year Pickers */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', position: 'relative', zIndex: 1 }}>
             {/* Date Picker */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 140px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Date:</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>Date:</span>
               <input
                 type="date"
                 value={filterSpecificDate}
@@ -2245,9 +2272,9 @@ export default function ExpensesModule({
                   flex: 1,
                   padding: '6px 9px',
                   borderRadius: 9,
-                  border: periodFilterMode === 'date' ? '1px solid #7c3aed' : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
+                  border: periodFilterMode === 'date' ? '1px solid #f5d08a' : '1px solid rgba(255,255,255,0.14)',
+                  background: 'rgba(8, 10, 18, 0.9)',
+                  color: '#f8fafc',
                   fontSize: 11.5,
                   fontWeight: 800,
                 }}
@@ -2256,7 +2283,7 @@ export default function ExpensesModule({
 
             {/* Month Picker */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 130px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Month:</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>Month:</span>
               <select
                 value={filterMonthPart}
                 onChange={(e) => {
@@ -2267,9 +2294,9 @@ export default function ExpensesModule({
                   flex: 1,
                   padding: '6px 8px',
                   borderRadius: 9,
-                  border: periodFilterMode === 'month' ? '1px solid #7c3aed' : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
+                  border: periodFilterMode === 'month' ? '1px solid #f5d08a' : '1px solid rgba(255,255,255,0.14)',
+                  background: 'rgba(8, 10, 18, 0.9)',
+                  color: '#f8fafc',
                   fontSize: 11.5,
                   fontWeight: 800,
                 }}
@@ -2295,7 +2322,7 @@ export default function ExpensesModule({
 
             {/* Year Picker */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 110px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted }}>Year:</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>Year:</span>
               <select
                 value={filterYearPart}
                 onChange={(e) => {
@@ -2308,9 +2335,9 @@ export default function ExpensesModule({
                   flex: 1,
                   padding: '6px 8px',
                   borderRadius: 9,
-                  border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1px solid #7c3aed' : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
+                  border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1px solid #f5d08a' : '1px solid rgba(255,255,255,0.14)',
+                  background: 'rgba(8, 10, 18, 0.9)',
+                  color: '#f8fafc',
                   fontSize: 11.5,
                   fontWeight: 800,
                 }}
@@ -2325,9 +2352,9 @@ export default function ExpensesModule({
           {/* Active Period Summary Strip */}
           <div style={{
             padding: '7px 11px',
-            borderRadius: 10,
-            background: isLight ? '#f3e8ff' : 'rgba(95, 37, 159, 0.22)',
-            border: '1px solid rgba(167, 139, 250, 0.35)',
+            borderRadius: 11,
+            background: 'rgba(245, 208, 138, 0.08)',
+            border: '1px solid rgba(245, 208, 138, 0.28)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -2335,50 +2362,55 @@ export default function ExpensesModule({
             gap: 8,
             fontSize: 11.5,
             fontWeight: 800,
+            position: 'relative',
+            zIndex: 1,
           }}>
-            <span style={{ color: palette.text }}>
-              📌 <strong>{periodSummary.label}:</strong> {periodSummary.count} real txn{periodSummary.count === 1 ? '' : 's'}
+            <span style={{ color: '#f8fafc' }}>
+              📌 <strong style={{ color: '#f5d08a' }}>{periodSummary.label}:</strong> {periodSummary.count} real txn{periodSummary.count === 1 ? '' : 's'}
             </span>
             <div style={{ display: 'flex', gap: 10 }}>
               <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(periodSummary.spent)}</span>
-              <span style={{ color: '#34d399' }}>In: +₹{formatINR(periodSummary.received)}</span>
+              <span style={{ color: '#00e699' }}>In: +₹{formatINR(periodSummary.received)}</span>
             </div>
           </div>
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          SCREEN 7: EXPENSE OVERVIEW (PHONEPE CLEAN PASSBOOK)
+          SCREEN 7: EXPENSE OVERVIEW (CRED NEO-POP 3D PASSBOOK & TELEMETRY)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
-          {/* Compact PhonePe Month & Salary Summary Strip */}
-          <div style={{
-            padding: mobileMode ? '14px 14px' : '16px 18px',
-            borderRadius: 18,
-            background: 'linear-gradient(135deg, #431675 0%, #5f259f 60%, #7c3aed 100%)',
-            boxShadow: '0 10px 26px rgba(95, 37, 159, 0.28)',
-            color: '#ffffff',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#e9d5ff' }}>
-                Total Spent (This Month)
+          {/* Compact CRED Month & Salary Summary Strip */}
+          <div
+            className="cred-titanium-card"
+            style={{
+              padding: mobileMode ? '14px 14px' : '16px 18px',
+              borderRadius: 20,
+              background: 'linear-gradient(135deg, #0b0e17 0%, #13192a 60%, #0d1322 100%)',
+              border: '1px solid rgba(245, 208, 138, 0.28)',
+              color: '#ffffff',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#f5d08a', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                ⚡ Total Spent (This Month)
               </div>
-              <div style={{ fontSize: mobileMode ? 24 : 28, fontWeight: 950, marginTop: 2 }}>
+              <div style={{ fontSize: mobileMode ? 24 : 28, fontWeight: 950, marginTop: 2, color: '#ffffff' }}>
                 ₹{formatINR(analytics.netSpending)}
               </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#ddd6fe', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#cbd5e1', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{analytics.totalCount} Month Txns</span>
                 <span>·</span>
-                <span>Last Day: ₹{formatINRShort(analytics.yesterdaySpent || 0)}</span>
+                <span style={{ color: '#f5d08a' }}>Last Day: ₹{formatINRShort(analytics.yesterdaySpent || 0)}</span>
                 <span>·</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span>Salary Left: {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}</span>
+                  <span style={{ color: '#00e699' }}>Salary Left: {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}</span>
                   {typeof onToggleSalaryVisibility === 'function' && (
                     <button
                       type="button"
@@ -2389,9 +2421,9 @@ export default function ExpensesModule({
                       style={{
                         padding: '2px 7px',
                         borderRadius: 999,
-                        border: '1px solid rgba(255,255,255,0.45)',
-                        background: 'rgba(15, 23, 42, 0.32)',
-                        color: '#ffffff',
+                        border: '1px solid rgba(245, 208, 138, 0.45)',
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        color: '#f5d08a',
                         fontSize: 10.5,
                         fontWeight: 900,
                         cursor: 'pointer',
@@ -2405,7 +2437,7 @@ export default function ExpensesModule({
             </div>
 
             {/* 4 Category Pills */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
               {screen7CategoryCards.map((cat) => (
                 <button
                   key={cat.label}
@@ -2415,11 +2447,11 @@ export default function ExpensesModule({
                     setSubTab('transactions');
                   }}
                   style={{
-                    padding: '6px 10px',
-                    borderRadius: 10,
-                    background: 'rgba(15, 9, 32, 0.45)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#ffffff',
+                    padding: '6px 11px',
+                    borderRadius: 11,
+                    background: 'rgba(8, 10, 18, 0.78)',
+                    border: '1px solid rgba(245, 208, 138, 0.28)',
+                    color: '#f5d08a',
                     fontSize: 11,
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -2439,7 +2471,7 @@ export default function ExpensesModule({
             border: `1px solid ${palette.border}`,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#a78bfa' }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#f5d08a' }}>
                 🧠 Ask Expense Memory
               </div>
               {nlResponse && (
@@ -2489,10 +2521,10 @@ export default function ExpensesModule({
                 style={{
                   padding: '9px 15px',
                   borderRadius: 12,
-                  border: 'none',
-                  background: '#2563eb',
-                  color: '#fff',
-                  fontWeight: 800,
+                  border: '1px solid rgba(245, 208, 138, 0.5)',
+                  background: 'linear-gradient(135deg, #f5d08a 0%, #d4af37 100%)',
+                  color: '#08090f',
+                  fontWeight: 950,
                   fontSize: 12,
                   cursor: 'pointer',
                 }}
@@ -2510,8 +2542,8 @@ export default function ExpensesModule({
                     padding: '5px 10px',
                     borderRadius: 999,
                     border: `1px solid ${palette.border}`,
-                    background: nlQuery === chip ? 'rgba(37, 99, 235, 0.2)' : palette.surfaceAlt,
-                    color: nlQuery === chip ? '#60a5fa' : palette.textSub,
+                    background: nlQuery === chip ? 'rgba(245, 208, 138, 0.18)' : palette.surfaceAlt,
+                    color: nlQuery === chip ? '#f5d08a' : palette.textSub,
                     fontSize: 11,
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -2631,10 +2663,11 @@ export default function ExpensesModule({
 
           {/* Recent Payments (Auto Detected & Permanent Ledger) List (Screen 7) */}
           <div style={{
-            background: palette.surface,
+            background: 'linear-gradient(145deg, #090b12 0%, #0f1422 100%)',
             borderRadius: 22,
-            border: `1px solid ${palette.border}`,
+            border: '1px solid rgba(245, 208, 138, 0.24)',
             padding: mobileMode ? '14px 12px' : '16px',
+            boxShadow: '0 16px 38px rgba(0, 0, 0, 0.6)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
               <div>
@@ -2643,9 +2676,9 @@ export default function ExpensesModule({
                   <span style={{
                     padding: '2px 8px',
                     borderRadius: 999,
-                    background: 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(16, 185, 129, 0.38)',
-                    color: '#34d399',
+                    background: 'rgba(0, 230, 153, 0.14)',
+                    border: '1px solid rgba(0, 230, 153, 0.38)',
+                    color: '#00e699',
                     fontSize: 10,
                     fontWeight: 900,
                   }}>
@@ -2699,11 +2732,11 @@ export default function ExpensesModule({
                   type="button"
                   onClick={() => setSubTab('transactions')}
                   style={{
-                    background: 'rgba(59, 130, 246, 0.14)',
-                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                    background: 'rgba(245, 208, 138, 0.14)',
+                    border: '1px solid rgba(245, 208, 138, 0.38)',
                     borderRadius: 999,
                     padding: '5px 12px',
-                    color: '#60a5fa',
+                    color: '#f5d08a',
                     fontSize: 12,
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -2719,7 +2752,7 @@ export default function ExpensesModule({
                 <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
                 <div style={{ fontWeight: 800, color: palette.text }}>No payments recorded yet.</div>
                 <div style={{ marginTop: 4 }}>
-                  Pay with any UPI app (GPay, PhonePe, Paytm, BHIM, Super.money, CRED, Bank) or tap <strong>➕ Add Entry</strong> and your completed payment, time, purpose/thing &amp; amount will stay saved forever.
+                  Pay with any UPI app (GPay, Paytm, BHIM, Super.money, CRED, Bank) or tap <strong>➕ Add Entry</strong> and your completed payment, time, purpose/thing &amp; amount will stay saved forever.
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                   <button
@@ -2728,10 +2761,10 @@ export default function ExpensesModule({
                     style={{
                       padding: '8px 14px',
                       borderRadius: 10,
-                      border: 'none',
-                      background: '#2563eb',
-                      color: '#ffffff',
-                      fontWeight: 800,
+                      border: '1px solid rgba(245, 208, 138, 0.5)',
+                      background: 'linear-gradient(135deg, #f5d08a, #d4af37)',
+                      color: '#08090f',
+                      fontWeight: 950,
                       fontSize: 12,
                       cursor: 'pointer',
                     }}
@@ -2744,10 +2777,10 @@ export default function ExpensesModule({
                     style={{
                       padding: '8px 14px',
                       borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surfaceAlt,
-                      color: '#60a5fa',
-                      fontWeight: 800,
+                      border: '1px solid rgba(0, 230, 153, 0.45)',
+                      background: 'rgba(0, 230, 153, 0.14)',
+                      color: '#00e699',
+                      fontWeight: 900,
                       fontSize: 12,
                       cursor: 'pointer',
                     }}
@@ -2787,11 +2820,12 @@ export default function ExpensesModule({
                   return (
                     <div
                       key={tx.id}
+                      className="cred-tx-row"
                       style={{
                         padding: mobileMode ? '12px' : '14px',
                         borderRadius: 16,
-                        background: palette.surfaceAlt,
-                        border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
+                        background: 'linear-gradient(145deg, rgba(16, 21, 34, 0.94), rgba(10, 13, 22, 0.96))',
+                        border: isCredit ? '1px solid rgba(0, 230, 153, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 9,

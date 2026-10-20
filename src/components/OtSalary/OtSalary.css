@@ -1,6 +1,56 @@
 /* ============================================================================
-   OT & SALARY PRO · EXECUTIVE FINTECH & BIOMETRIC SUITE STYLESHEET (v6.9)
+   OT & SALARY PRO · CRED NEO-POP 3D LUXURY & HOLOGRAPHIC VFX ENGINE (v7.6)
    ============================================================================ */
+
+@keyframes credShimmerSweep {
+  0% {
+    transform: translateX(-140%) skewX(-22deg);
+  }
+  45%, 100% {
+    transform: translateX(220%) skewX(-22deg);
+  }
+}
+
+@keyframes credAuraFloat {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate3d(-12px, 10px, 0) scale(1.12);
+    opacity: 0.96;
+  }
+}
+
+@keyframes credOrbGlow {
+  0%, 100% {
+    box-shadow: 0 6px 18px rgba(0, 230, 153, 0.25), inset 0 1.5px 0 rgba(255, 255, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 8px 26px rgba(245, 208, 138, 0.45), inset 0 1.5px 0 rgba(255, 255, 255, 0.55);
+  }
+}
+
+@keyframes credBorderGlow {
+  0%, 100% {
+    border-color: rgba(245, 208, 138, 0.38);
+  }
+  50% {
+    border-color: rgba(0, 230, 153, 0.55);
+  }
+}
+
+@keyframes otLivePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 230, 153, 0.75);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 230, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 230, 153, 0);
+  }
+}
 
 .ot-pro-shell {
   -webkit-font-smoothing: antialiased;
@@ -8,6 +58,7 @@
   text-rendering: optimizeLegibility;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  position: relative;
 }
 
 .ot-pro-shell input,
@@ -15,21 +66,23 @@
 .ot-pro-shell select {
   user-select: text;
   font-family: inherit;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .ot-pro-shell input:focus,
 .ot-pro-shell textarea:focus,
 .ot-pro-shell select:focus {
   outline: none;
-  border-color: rgba(56, 189, 248, 0.75) !important;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16) !important;
+  border-color: rgba(245, 208, 138, 0.85) !important;
+  box-shadow: 0 0 0 3px rgba(245, 208, 138, 0.18), 0 0 16px rgba(0, 230, 153, 0.18) !important;
 }
 
-/* Tactile Interactive Buttons */
+/* CRED Neo-Pop 3D Tactile Interactive Buttons */
 .ot-pro-shell button {
   font-family: inherit;
-  transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
               box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
               filter 0.15s ease,
               background 0.2s ease,
@@ -38,49 +91,94 @@
 }
 
 .ot-pro-shell button:active:not(:disabled) {
-  transform: scale(0.975);
+  transform: translateY(2.5px) scale(0.975);
+  filter: brightness(1.08);
 }
 
 .ot-pro-shell button:hover:not(:disabled) {
-  filter: brightness(1.04);
+  filter: brightness(1.06);
 }
 
-/* Executive Hero Vault Card Shimmer & Ambient Depth */
-.ot-hero-vault-card {
+/* CRED Titanium Black Card with Holographic Light Sweep & Floating Aura */
+.ot-hero-vault-card,
+.cred-titanium-card {
   position: relative;
   overflow: hidden;
+  animation: credBorderGlow 6s ease-in-out infinite;
+  box-shadow: 0 22px 48px -10px rgba(0, 0, 0, 0.85),
+              0 4px 0 rgba(245, 208, 138, 0.18),
+              inset 0 1.5px 0 rgba(255, 255, 255, 0.22) !important;
   transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
 }
 
-.ot-hero-vault-card::before {
+.ot-hero-vault-card::before,
+.cred-titanium-card::before {
   content: '';
   position: absolute;
-  top: -60%;
-  right: -25%;
-  width: 240px;
-  height: 240px;
+  top: -55%;
+  right: -20%;
+  width: 250px;
+  height: 250px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, rgba(56, 189, 248, 0.08) 48%, transparent 72%);
+  background: radial-gradient(circle, rgba(245, 208, 138, 0.24) 0%, rgba(0, 230, 153, 0.14) 45%, transparent 72%);
+  animation: credAuraFloat 7s ease-in-out infinite;
   pointer-events: none;
+  z-index: 0;
 }
 
-.ot-hero-vault-card::after {
+.ot-hero-vault-card::after,
+.cred-titanium-card::after {
   content: '';
   position: absolute;
-  bottom: -55%;
-  left: -20%;
-  width: 210px;
-  height: 210px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, transparent 70%);
+  top: 0;
+  left: 0;
+  width: 55%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(245, 208, 138, 0.09) 45%,
+    rgba(255, 255, 255, 0.16) 50%,
+    rgba(0, 230, 153, 0.08) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: credShimmerSweep 6.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   pointer-events: none;
+  z-index: 0;
 }
 
-/* Biometric Touch ID Punch Pads */
+.ot-hero-vault-card > *,
+.cred-titanium-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* CRED 3D Quick Action Orbs */
+.cred-quick-orb {
+  animation: credOrbGlow 4.5s ease-in-out infinite;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* CRED Neo-Pop Passbook Transaction Card */
+.cred-tx-row {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transition: transform 0.16s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cred-tx-row:active {
+  transform: scale(0.992);
+}
+
+/* Biometric Touch ID Punch Pads with 3D Neo-Pop Bevel */
 .ot-biometric-pad-in,
 .ot-biometric-pad-out {
   position: relative;
   overflow: hidden;
+  box-shadow: 0 14px 30px -6px rgba(0, 0, 0, 0.7),
+              0 4px 0 rgba(255, 255, 255, 0.14),
+              inset 0 1.5px 0 rgba(255, 255, 255, 0.32) !important;
 }
 
 .ot-biometric-pad-in::before,
@@ -88,21 +186,21 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 55%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 55%);
   pointer-events: none;
 }
 
-/* Live Pulse Dot Animation */
-@keyframes otLivePulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
+.ot-biometric-pad-in::after,
+.ot-biometric-pad-out::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  animation: credShimmerSweep 5.5s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .ot-live-dot {
@@ -110,7 +208,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
+  background: #00e699;
   animation: otLivePulse 2s infinite;
 }
 
@@ -122,16 +220,17 @@
 
 /* Custom Sleek Scrollbar */
 .ot-pro-shell ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 .ot-pro-shell ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: 999px;
 }
 
 .ot-pro-shell ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
+  background: linear-gradient(180deg, #f5d08a, #00e699);
   border-radius: 999px;
 }
 
