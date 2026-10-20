@@ -1,8 +1,8 @@
 {
-  "version": "7.8.6",
-  "buildId": "ota_7_8_6_1792489845",
-  "releasedAt": "2026-10-20T09:50:45Z",
+  "version": "7.8.7",
+  "buildId": "ota_7_8_7_1792491425",
+  "releasedAt": "2026-10-20T10:17:05Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v7.8.6 Live OTA: Multi-Account Bank Balance Manager (isolates each bank account by A/c last 4 digits so one account never overwrites another's balance, with instant account switcher pills) + In-App 'Drop a Suggestion / Request New Feature' box that sends your feature request directly to AI for live OTA updates with spoken voice notification."
+  "notes": "v7.8.7 Live OTA (Implemented your suggestion 'Never show cred'): Permanently stripped 'CRED' from all bank account pills, balances, and transactions (fixed bug where bank SMS containing 'credited' was mislabeled as CRED), and upgraded the live AI suggestion listener with automatic reactive wakeup."
 }

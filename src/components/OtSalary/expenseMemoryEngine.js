@@ -297,7 +297,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   else if (/(paytm|one97)/i.test(lower)) app = 'Paytm';
   else if (/(bhim|npci)/i.test(lower)) app = 'BHIM UPI';
   else if (/(super\.money|supermoney|money\.super)/i.test(lower)) app = 'Super.money';
-  else if (/(cred\b|dreamplug)/i.test(lower)) app = 'CRED';
+  else if (/(com\.dreamplug|dreamplug)/i.test(lower)) app = 'CRED';
   else if (/(navi\b|naviapp)/i.test(lower)) app = 'Navi UPI';
   else if (/(amazon pay|amazon\.mshop)/i.test(lower)) app = 'Amazon Pay';
   else if (/(whatsapp)/i.test(lower)) app = 'WhatsApp Pay';
@@ -777,9 +777,13 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     if (txMask) {
       const accKey = `acc_${txMask.slice(-4)}`;
       if (!detectedBankAccountsMap[accKey]) {
+        const cleanTxBankName =
+          tx.app && !/upi|gpay|phonepe|paytm|bhim|cred|dreamplug|super\.money|navi|amazon|whatsapp|mobikwik|freecharge|slice|fampay/i.test(tx.app)
+            ? String(tx.app).replace(/\bcred\b/gi, 'Bank A/c').trim()
+            : 'Bank A/c';
         detectedBankAccountsMap[accKey] = {
           accountKey: accKey,
-          bankName: tx.app && !/upi|gpay|phonepe|paytm|bhim/i.test(tx.app) ? tx.app : 'Bank A/c',
+          bankName: cleanTxBankName || 'Bank A/c',
           accountMask: txMask,
           balance: Number.isFinite(Number(tx.accountBalance)) && tx.accountBalance !== null ? Number(tx.accountBalance) : null,
           updatedAtMs: Number(tx.timestampMs) || 0,
@@ -819,7 +823,10 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   let realAccountBalance = 0;
   let openingAccountBalance = 0;
   let hasVerifiedBankBalance = false;
-  let latestBankName = (bankBalanceInfo && bankBalanceInfo.bankName) || (latestSmsBalanceTx && latestSmsBalanceTx.app) || 'Primary Bank A/c';
+  const rawLatestBankName = String((bankBalanceInfo && bankBalanceInfo.bankName) || (latestSmsBalanceTx && latestSmsBalanceTx.app) || 'Primary Bank A/c').trim();
+  let latestBankName = /\b(cred|dreamplug)\b/i.test(rawLatestBankName)
+    ? (rawLatestBankName.replace(/\b(cred|dreamplug)\b/gi, '').trim() || 'Primary Bank A/c')
+    : rawLatestBankName;
   let latestAccountMask = (bankBalanceInfo && bankBalanceInfo.accountMask) || (latestSmsBalanceTx && latestSmsBalanceTx.accountMask) || '';
 
   if (hasExplicitBankAnchor) {

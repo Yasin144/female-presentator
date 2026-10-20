@@ -306,10 +306,24 @@ export default function ExpensesModule({
     return digits ? `XX${digits}` : '';
   };
 
+  const cleanNoCredBankName = (rawName, fallback = 'Primary Bank A/c') => {
+    const raw = String(rawName || '').trim();
+    if (!raw) return fallback;
+    if (/^(cred|cred\s*club|cred\s*upi|dreamplug)$/i.test(raw)) return fallback;
+    const cleaned = raw
+      .replace(/\bcred\s+deposit\s*\/\s*credit\b/gi, 'Bank Deposit / Credit')
+      .replace(/\bcred\s+payment\b/gi, 'UPI Payment')
+      .replace(/\b(cred\s*club|cred\s*upi|dreamplug|cred)\b/gi, fallback)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return cleaned || fallback;
+  };
+
   const buildBankAccountKey = (bankNameStr, maskStr) => {
     const cleanMask = normalizeMaskLast4(maskStr);
     if (cleanMask) return `acc_${cleanMask}`;
-    const cleanBank = String(bankNameStr || 'primary')
+    const safeBankStr = cleanNoCredBankName(bankNameStr, 'primary');
+    const cleanBank = String(safeBankStr || 'primary')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '')
       .slice(0, 14);
@@ -324,20 +338,33 @@ export default function ExpensesModule({
         if (multiRaw) {
           const parsedMulti = JSON.parse(multiRaw);
           if (parsedMulti && typeof parsedMulti === 'object' && !Array.isArray(parsedMulti)) {
-            Object.assign(initialMap, parsedMulti);
+            for (const [, entry] of Object.entries(parsedMulti)) {
+              if (!entry || typeof entry !== 'object') continue;
+              const cleanMask = normalizeMaskLast4(entry.accountMask);
+              const cleanBank = cleanNoCredBankName(entry.bankName, 'Primary Bank A/c');
+              const cleanKey = buildBankAccountKey(cleanBank, cleanMask);
+              initialMap[cleanKey] = {
+                ...entry,
+                accountKey: cleanKey,
+                bankName: cleanBank,
+                accountMask: cleanMask,
+              };
+            }
           }
         }
         const singleRaw = window.localStorage.getItem('yasin_ot_bank_balance_v1');
         if (singleRaw) {
           const parsedSingle = JSON.parse(singleRaw);
           if (parsedSingle && typeof parsedSingle.balance === 'number' && Number.isFinite(parsedSingle.balance)) {
-            const key = buildBankAccountKey(parsedSingle.bankName, parsedSingle.accountMask);
+            const cleanBank = cleanNoCredBankName(parsedSingle.bankName, 'Primary Bank A/c');
+            const cleanMask = normalizeMaskLast4(parsedSingle.accountMask);
+            const key = buildBankAccountKey(cleanBank, cleanMask);
             if (!initialMap[key]) {
               initialMap[key] = {
                 accountKey: key,
                 balance: Number(parsedSingle.balance),
-                bankName: String(parsedSingle.bankName || 'Primary Bank A/c').trim(),
-                accountMask: normalizeMaskLast4(parsedSingle.accountMask),
+                bankName: cleanBank,
+                accountMask: cleanMask,
                 source: String(parsedSingle.source || 'saved-balance'),
                 updatedAtMs: Number(parsedSingle.updatedAtMs) || Date.now(),
               };
@@ -349,19 +376,27 @@ export default function ExpensesModule({
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
-          const key = buildBankAccountKey(parsed.bankName, parsed.accountMask);
+          const cleanBank = cleanNoCredBankName(parsed.bankName, 'Linked Bank Account');
+          const cleanMask = normalizeMaskLast4(parsed.accountMask);
+          const key = buildBankAccountKey(cleanBank, cleanMask);
           const existing = initialMap[key];
           if (!existing || Number(parsed.updatedAtMs || 0) > Number(existing.updatedAtMs || 0)) {
             initialMap[key] = {
               accountKey: key,
               balance: Number(parsed.balance),
-              bankName: String(parsed.bankName || 'Linked Bank Account').trim(),
-              accountMask: normalizeMaskLast4(parsed.accountMask),
+              bankName: cleanBank,
+              accountMask: cleanMask,
               source: String(parsed.source || 'native-sms-balance'),
               updatedAtMs: Number(parsed.updatedAtMs) || Date.now(),
             };
           }
+          if (/\b(cred|dreamplug)\b/i.test(String(parsed.bankName || '')) && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
+            window.PattanBiometric.saveBankBalanceJson(JSON.stringify(initialMap[key]));
+          }
         }
+      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(initialMap));
       }
     } catch (_) {}
     return initialMap;
@@ -371,7 +406,7 @@ export default function ExpensesModule({
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const savedKey = window.localStorage.getItem('yasin_ot_selected_bank_account_v1');
-        if (savedKey) return savedKey;
+        if (savedKey && !/cred/i.test(savedKey)) return savedKey;
       }
     } catch (_) {}
     return 'all';
@@ -394,7 +429,14 @@ export default function ExpensesModule({
         if (localRaw) {
           const parsed = JSON.parse(localRaw);
           if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
-            return parsed;
+            const cleaned = {
+              ...parsed,
+              bankName: cleanNoCredBankName(parsed.bankName, 'Primary Bank A/c'),
+            };
+            if (cleaned.bankName !== parsed.bankName) {
+              window.localStorage.setItem('yasin_ot_bank_balance_v1', JSON.stringify(cleaned));
+            }
+            return cleaned;
           }
         }
       }
@@ -402,7 +444,10 @@ export default function ExpensesModule({
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
-          return parsed;
+          return {
+            ...parsed,
+            bankName: cleanNoCredBankName(parsed.bankName, 'Linked Bank Account'),
+          };
         }
       }
     } catch (_) {}
@@ -510,8 +555,8 @@ export default function ExpensesModule({
     (nextBalObj, selectThisAccount = false) => {
       if (!nextBalObj || typeof nextBalObj !== 'object' || !Number.isFinite(Number(nextBalObj.balance))) return;
       const cleanMask = normalizeMaskLast4(nextBalObj.accountMask);
-      const cleanBank = String(nextBalObj.bankName || 'Linked Bank Account').trim();
-      const accKey = nextBalObj.accountKey || buildBankAccountKey(cleanBank, cleanMask);
+      const cleanBank = cleanNoCredBankName(nextBalObj.bankName, 'Linked Bank Account');
+      const accKey = buildBankAccountKey(cleanBank, cleanMask);
       const normalized = {
         accountKey: accKey,
         balance: Number(Number(nextBalObj.balance).toFixed(2)),
@@ -523,6 +568,7 @@ export default function ExpensesModule({
       setBankBalanceInfo(normalized);
       setBankAccountsMap((prev) => {
         const nextMap = { ...(prev || {}), [accKey]: normalized };
+        delete nextMap.acc_cred;
         try {
           if (typeof window !== 'undefined' && window.localStorage) {
             window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(nextMap));
@@ -574,7 +620,7 @@ export default function ExpensesModule({
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
           const cleanMask = normalizeMaskLast4(parsed.accountMask);
-          const cleanBank = String(parsed.bankName || 'Linked Bank Account').trim();
+          const cleanBank = cleanNoCredBankName(parsed.bankName, 'Linked Bank Account');
           const accKey = buildBankAccountKey(cleanBank, cleanMask);
           const normalized = {
             accountKey: accKey,
@@ -584,13 +630,17 @@ export default function ExpensesModule({
             source: String(parsed.source || 'native-sms-balance'),
             updatedAtMs: Number(parsed.updatedAtMs) || Date.now(),
           };
+          if (/\b(cred|dreamplug)\b/i.test(String(parsed.bankName || '')) && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
+            window.PattanBiometric.saveBankBalanceJson(JSON.stringify(normalized));
+          }
           // Update ONLY this specific account in bankAccountsMap so another account's SMS never overwrites your other accounts!
           setBankAccountsMap((prev) => {
             const existing = prev?.[accKey];
             const prevTs = Number(existing?.updatedAtMs || 0);
             const nextTs = Number(normalized.updatedAtMs || 0);
-            if (!existing || nextTs > prevTs || Number(existing.balance) !== normalized.balance) {
+            if (!existing || nextTs > prevTs || Number(existing.balance) !== normalized.balance || prev?.acc_cred) {
               const nextMap = { ...(prev || {}), [accKey]: normalized };
+              delete nextMap.acc_cred;
               try {
                 if (window.localStorage) {
                   window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(nextMap));
@@ -1024,7 +1074,23 @@ export default function ExpensesModule({
         if (!v || typeof v !== 'object' || v._deleted || deletedSet.has(keyStr) || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
         }
-        cleanMap[k] = { ...v };
+        const cleanTx = { ...v };
+        if (cleanTx.app && /\b(cred|dreamplug)\b/i.test(String(cleanTx.app))) {
+          cleanTx.app = cleanTx.accountMask ? 'Bank Account' : 'UPI';
+        }
+        if (cleanTx.merchant && /\b(cred|dreamplug)\b/i.test(String(cleanTx.merchant))) {
+          cleanTx.merchant = cleanNoCredBankName(
+            cleanTx.merchant,
+            cleanTx.type === 'credit' ? 'Bank Deposit / Credit' : 'UPI Payment'
+          );
+        }
+        if (cleanTx.originalMerchant && /\b(cred|dreamplug)\b/i.test(String(cleanTx.originalMerchant))) {
+          cleanTx.originalMerchant = cleanNoCredBankName(
+            cleanTx.originalMerchant,
+            cleanTx.type === 'credit' ? 'Bank Deposit / Credit' : 'UPI Payment'
+          );
+        }
+        cleanMap[k] = cleanTx;
       }
     }
     return cleanMap;
@@ -1033,13 +1099,20 @@ export default function ExpensesModule({
   const effectiveBankBalanceInfo = useMemo(() => {
     if (!hasLinkedEmail || !isOwnerAccount) return null;
     const savedList = Object.values(bankAccountsMap || {}).filter(
-      (a) => a && typeof a === 'object' && Number.isFinite(Number(a.balance))
+      (a) => a && typeof a === 'object' && Number.isFinite(Number(a.balance)) && !/^acc_cred$/i.test(String(a.accountKey || ''))
     );
     if (selectedBankAccountKey && selectedBankAccountKey !== 'all' && bankAccountsMap?.[selectedBankAccountKey]) {
-      return bankAccountsMap[selectedBankAccountKey];
+      const sel = bankAccountsMap[selectedBankAccountKey];
+      return {
+        ...sel,
+        bankName: cleanNoCredBankName(sel.bankName, 'Primary Bank A/c'),
+      };
     }
     if (savedList.length === 1) {
-      return savedList[0];
+      return {
+        ...savedList[0],
+        bankName: cleanNoCredBankName(savedList[0].bankName, 'Primary Bank A/c'),
+      };
     }
     if (savedList.length > 1) {
       const totalBal = savedList.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
@@ -1053,7 +1126,13 @@ export default function ExpensesModule({
         updatedAtMs: latestMs || Date.now(),
       };
     }
-    return bankBalanceInfo;
+    if (bankBalanceInfo) {
+      return {
+        ...bankBalanceInfo,
+        bankName: cleanNoCredBankName(bankBalanceInfo.bankName, 'Primary Bank A/c'),
+      };
+    }
+    return null;
   }, [hasLinkedEmail, isOwnerAccount, bankAccountsMap, selectedBankAccountKey, bankBalanceInfo]);
 
   const analytics = useMemo(
@@ -1067,17 +1146,24 @@ export default function ExpensesModule({
     [effectiveExpensesSource, filterYearPart, filterMonthPart, todayIso, effectiveMonthlySalary, effectiveBankBalanceInfo]
   );
 
-  // Merged list of all user-saved and SMS-auto-detected Bank Accounts (each tracked separately!)
+  // Merged list of all user-saved and SMS-auto-detected Bank Accounts (each tracked separately, never showing CRED!)
   const allBankAccountsList = useMemo(() => {
     const merged = {};
     for (const [k, v] of Object.entries(analytics.detectedBankAccountsMap || {})) {
-      if (v && typeof v === 'object') {
-        merged[k] = { ...v };
+      if (v && typeof v === 'object' && !/^acc_cred$/i.test(k)) {
+        merged[k] = {
+          ...v,
+          bankName: cleanNoCredBankName(v.bankName, 'Bank A/c'),
+        };
       }
     }
     for (const [k, v] of Object.entries(bankAccountsMap || {})) {
-      if (v && typeof v === 'object') {
-        merged[k] = { ...(merged[k] || {}), ...v };
+      if (v && typeof v === 'object' && !/^acc_cred$/i.test(k)) {
+        merged[k] = {
+          ...(merged[k] || {}),
+          ...v,
+          bankName: cleanNoCredBankName(v.bankName || merged[k]?.bankName, 'Bank A/c'),
+        };
       }
     }
     return Object.values(merged).sort((a, b) => (Number(b.updatedAtMs) || 0) - (Number(a.updatedAtMs) || 0));
@@ -2923,7 +3009,7 @@ export default function ExpensesModule({
                     • {item.text}
                   </span>
                   <span style={{ color: '#34d399', fontWeight: 800, fontSize: 10, flexShrink: 0 }}>
-                    ✓ Sent to AI
+                    {/never show cred/i.test(String(item.text || '')) ? '✅ Done in v7.8.7' : '✓ Sent to AI'}
                   </span>
                 </div>
               ))}

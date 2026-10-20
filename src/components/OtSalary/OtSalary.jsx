@@ -635,11 +635,34 @@ function buildOwnerMasterTransactionsSeed(nowDate = new Date()) {
   return out;
 }
 
+function sanitizeNoCredTx(tx) {
+  if (!tx || typeof tx !== 'object') return tx;
+  const out = { ...tx };
+  if (out.app && /\b(cred|dreamplug)\b/i.test(String(out.app))) {
+    out.app = out.accountMask ? 'Bank Account' : 'UPI';
+  }
+  if (out.merchant && /\b(cred|dreamplug)\b/i.test(String(out.merchant))) {
+    out.merchant = String(out.merchant)
+      .replace(/\bcred\s+deposit\s*\/\s*credit\b/gi, 'Bank Deposit / Credit')
+      .replace(/\bcred\s+payment\b/gi, 'UPI Payment')
+      .replace(/\b(cred|dreamplug)\b/gi, out.type === 'credit' ? 'Bank' : 'UPI')
+      .trim() || (out.type === 'credit' ? 'Bank Deposit / Credit' : 'UPI Payment');
+  }
+  if (out.originalMerchant && /\b(cred|dreamplug)\b/i.test(String(out.originalMerchant))) {
+    out.originalMerchant = String(out.originalMerchant)
+      .replace(/\bcred\s+deposit\s*\/\s*credit\b/gi, 'Bank Deposit / Credit')
+      .replace(/\bcred\s+payment\b/gi, 'UPI Payment')
+      .replace(/\b(cred|dreamplug)\b/gi, out.type === 'credit' ? 'Bank' : 'UPI')
+      .trim() || (out.type === 'credit' ? 'Bank Deposit / Credit' : 'UPI Payment');
+  }
+  return out;
+}
+
 function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
   const result = {};
   for (const [bk, bVal] of Object.entries(baseMap || {})) {
     if (!bVal || typeof bVal !== 'object' || isFakeSeededTransaction(bk, bVal)) continue;
-    const cleanBase = { ...bVal };
+    const cleanBase = sanitizeNoCredTx(bVal);
     delete cleanBase._demoPreview;
     delete cleanBase.isDemoPreview;
     result[bk] = cleanBase;
@@ -648,7 +671,7 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
     if (!inVal || typeof inVal !== 'object' || isFakeSeededTransaction(k, inVal)) continue;
     const exVal = result[k];
     if (!exVal) {
-      const clean = { ...inVal };
+      const clean = sanitizeNoCredTx(inVal);
       delete clean._demoPreview;
       delete clean.isDemoPreview;
       result[k] = clean;
@@ -658,23 +681,23 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
       const exEdited = exVal.detectionStatus === 'user_confirmed' || Boolean(exVal.noteReviewed) || Boolean(exVal.personalNote);
       const inEdited = inVal.detectionStatus === 'user_confirmed' || Boolean(inVal.noteReviewed) || Boolean(inVal.personalNote);
       if (inTs > exTs || (inEdited && !exEdited)) {
-        result[k] = {
+        result[k] = sanitizeNoCredTx({
           ...exVal,
           ...inVal,
           personalNote: inVal.personalNote || exVal.personalNote || '',
           note: inVal.note || inVal.personalNote || exVal.note || exVal.personalNote || '',
           noteReviewed: Boolean(inVal.noteReviewed || exVal.noteReviewed || inVal.personalNote || exVal.personalNote),
           _deleted: Boolean(inVal._deleted),
-        };
+        });
       } else {
-        result[k] = {
+        result[k] = sanitizeNoCredTx({
           ...inVal,
           ...exVal,
           personalNote: exVal.personalNote || inVal.personalNote || '',
           note: exVal.note || exVal.personalNote || inVal.note || inVal.personalNote || '',
           noteReviewed: Boolean(exVal.noteReviewed || inVal.noteReviewed || exVal.personalNote || inVal.personalNote),
           _deleted: Boolean(exVal._deleted),
-        };
+        });
       }
       delete result[k]._demoPreview;
       delete result[k].isDemoPreview;
@@ -2213,9 +2236,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.6';
+      return localStorage.getItem('pattan.ota.version') || '7.8.7';
     } catch (_) {
-      return '7.8.6';
+      return '7.8.7';
     }
   });
 

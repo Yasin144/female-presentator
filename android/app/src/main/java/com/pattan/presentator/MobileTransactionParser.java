@@ -1116,8 +1116,8 @@ public final class MobileTransactionParser {
         if (s.contains("money.super") || s.contains("super.money") || s.contains("supermoney")) {
             return "Super.money";
         }
-        if (s.contains("dreamplug") || s.contains("cred")) {
-            return "CRED";
+        if (s.contains("com.dreamplug") || s.contains("dreamplug")) {
+            return "UPI";
         }
         if (s.contains("naviapp") || s.contains("navi ")) {
             return "Navi UPI";
