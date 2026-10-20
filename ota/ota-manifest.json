@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "7.9.0",
+    "version":  "7.9.1",
     "cssFile":  "app-bundle.css",
-    "buildId":  "ota_7_9_0_1792514000",
-    "notes":  "v7.9.0: Completed your suggestion (\u0027Don\u0027t show the all accounts disable the row of account and bal\u0027) — Disabled the All Accounts switcher bar, Real Bank Account Balance header row, and inline A/c \u0026 Bal row badges.",
+    "buildId":  "ota_7_9_1_1792515602",
+    "notes":  "v7.9.1: Brand-New Simple, Clean \u0026 Dynamic Layout — Replaced cluttered multi-box cards and always-open note inputs with a single unified dashboard and compact dynamic transaction cards.",
     "jsFile":  "app-bundle.js",
-    "updatedAt":  "2026-10-20T11:03:19Z"
+    "updatedAt":  "2026-10-20T11:30:01Z"
 }

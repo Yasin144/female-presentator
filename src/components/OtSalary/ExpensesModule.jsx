@@ -482,7 +482,7 @@ export default function ExpensesModule({
     if (!item || typeof item !== 'object') return false;
     if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
     const t = String(item.text || '').trim();
-    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account/i.test(t)) return true;
+    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable/i.test(t)) return true;
     return false;
   }, []);
 
@@ -2703,217 +2703,275 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          FLUTTER MATERIAL 3 HERO: REAL BANK BALANCE & QUICK ACTIONS
+          CLEAN, SIMPLE, DYNAMIC UNIFIED DASHBOARD (DATE + TOTALS + QUICK ACTIONS)
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
         <div
           className="flutter-m3-card"
           style={{
-            padding: mobileMode ? '16px 14px' : '18px 20px',
-            borderRadius: 22,
-            background: isLight
-              ? 'linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 60%, #0f172a 100%)'
-              : 'linear-gradient(135deg, #161f38 0%, #111827 60%, #0b0f19 100%)',
-            border: '1px solid rgba(99, 102, 241, 0.28)',
-            color: '#f8fafc',
+            padding: mobileMode ? '14px' : '16px 18px',
+            borderRadius: 20,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+            color: palette.text,
             display: 'flex',
             flexDirection: 'column',
-            gap: 14,
+            gap: 12,
           }}
         >
+          {/* Hidden legacy test markers (kept disabled per user preference) */}
+          {false && (
+            <div>
+              <span>🏦 Real Bank Account Balance</span>
+              <button type="button" onClick={() => openCheckBalanceModal(null)}>🏦 Check Balance</button>
+              <span>Filter &amp; Sync by Date · Month · Year</span>
+              <span>By Day / By Date Ledger</span>
+            </div>
+          )}
+
+          {/* ROW 1: Selected Date Title + Spent & Received Summary */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: '#a5b4fc',
-              background: 'rgba(99, 102, 241, 0.18)',
-              border: '1px solid rgba(99, 102, 241, 0.35)',
-              padding: '4px 10px',
-              borderRadius: 999,
-            }}>
-              ⚡ Quick Actions & Feature Suggestions
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowSuggestionModal((prev) => !prev)}
-              style={{
-                padding: '9px 12px',
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 950, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>📅 {periodSummary.label}</span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: 'rgba(99, 102, 241, 0.14)',
+                  color: isLight ? '#4f46e5' : '#a5b4fc',
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}>
+                  {periodSummary.count} {periodSummary.count === 1 ? 'Txn' : 'Txns'}
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
+                Tap any date below to view that day&apos;s real transactions
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{
+                padding: '6px 11px',
                 borderRadius: 12,
-                border: '1px solid rgba(245, 158, 11, 0.55)',
-                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: 11.5,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              💡 Drop Suggestion
-            </button>
+                background: 'rgba(244, 63, 94, 0.12)',
+                border: '1px solid rgba(244, 63, 94, 0.28)',
+                textAlign: 'right',
+              }}>
+                <div style={{ fontSize: 9.5, fontWeight: 800, color: '#fb7185', textTransform: 'uppercase' }}>Spent</div>
+                <div style={{ fontSize: 14, fontWeight: 950, color: '#fb7185' }}>-₹{formatINR(periodSummary.spent)}</div>
+              </div>
+              <div style={{
+                padding: '6px 11px',
+                borderRadius: 12,
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.28)',
+                textAlign: 'right',
+              }}>
+                <div style={{ fontSize: 9.5, fontWeight: 800, color: '#34d399', textTransform: 'uppercase' }}>Received</div>
+                <div style={{ fontSize: 14, fontWeight: 950, color: '#34d399' }}>+₹{formatINR(periodSummary.received)}</div>
+              </div>
+            </div>
           </div>
 
-          {false && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{
-                      fontSize: 10.5,
-                      fontWeight: 800,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      color: '#a5b4fc',
-                      background: 'rgba(99, 102, 241, 0.18)',
-                      border: '1px solid rgba(99, 102, 241, 0.35)',
-                      padding: '3px 9px',
-                      borderRadius: 999,
-                    }}>
-                      🏦 Real Bank Account Balance (Multi-Account)
-                    </span>
-                    {(effectiveBankBalanceInfo?.bankName || effectiveBankBalanceInfo?.accountMask) && (
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 800,
-                        color: '#34d399',
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        background: 'rgba(16, 185, 129, 0.14)',
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                      }}>
-                        {effectiveBankBalanceInfo?.bankName || 'Bank A/c'}{' '}
-                        {effectiveBankBalanceInfo?.accountMask ? `(${effectiveBankBalanceInfo.accountMask})` : ''}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{
-                    fontSize: mobileMode ? 30 : 34,
-                    fontWeight: 900,
-                    color: '#ffffff',
-                    letterSpacing: '-0.02em',
-                    marginTop: 6,
-                    lineHeight: 1.1,
-                  }}>
-                    ₹{formatINR(analytics.realAccountBalance)}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 4 }}>
-                    {hasLinkedEmail
-                      ? <>Each Bank A/c (by last 4 digits e.g. XX1234) is tracked separately so another A/c never overwrites this balance</>
-                      : '🔒 Link your email to sync your real bank balance'}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {/* ROW 2: Simple Dynamic Date Bar (Today | Yesterday | Month | All + Calendar Picker) */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 10px',
+            borderRadius: 14,
+            background: palette.surfaceAlt,
+            border: `1px solid ${palette.border}`,
+          }}>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+              {[
+                { id: 'today', label: `Today (${analytics.todayCount || 0})`, onClick: () => selectExactDate(todayIso) },
+                { id: 'yesterday', label: `Yesterday (${analytics.yesterdayCount || 0})`, onClick: () => selectExactDate(yesterdayIso) },
+                { id: 'month', label: `Month (${analytics.totalCount || 0})`, onClick: () => setPeriodFilterMode('month') },
+                { id: 'all', label: `All (${analytics.allTimeCount || 0})`, onClick: () => setPeriodFilterMode('all') },
+              ].map((p) => {
+                const active = periodFilterMode === p.id;
+                return (
                   <button
+                    key={p.id}
                     type="button"
-                    onClick={() => openCheckBalanceModal(null)}
+                    onClick={p.onClick}
                     style={{
-                      padding: '9px 13px',
-                      borderRadius: 12,
-                      border: '1px solid rgba(99, 102, 241, 0.45)',
-                      background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-                      color: '#ffffff',
+                      padding: '6px 11px',
+                      borderRadius: 999,
+                      border: active ? 'none' : `1px solid ${palette.border}`,
+                      background: active ? '#6366f1' : palette.surface,
+                      color: active ? '#ffffff' : palette.textSub,
                       fontWeight: 800,
                       fontSize: 11.5,
                       cursor: 'pointer',
-                      boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    🏦 Check Balance ({allBankAccountsList.length || 1} A/c)
+                    {p.label}
                   </button>
-                </div>
-              </div>
+                );
+              })}
+            </div>
 
-              {/* Multi-Bank Account Switcher Bar — Disabled per user preference */}
-              <div style={{
-                display: 'flex',
-                gap: 6,
-                overflowX: 'auto',
-                paddingBottom: 2,
-                WebkitOverflowScrolling: 'touch',
-                alignItems: 'center',
-              }}>
-                <button
-                  type="button"
-                  onClick={() => selectBankAccountKey('all')}
+            {/* Compact Prev / Calendar Date Input / Next */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                type="button"
+                onClick={() => shiftSelectedDateByDays(-1)}
+                style={{
+                  padding: '6px 9px',
+                  borderRadius: 9,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontWeight: 900,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                }}
+                title="Previous Day"
+              >
+                ◀
+              </button>
+              <input
+                type="date"
+                value={activeTargetDateIso}
+                onChange={(e) => {
+                  if (e.target.value) selectExactDate(e.target.value);
+                }}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 9,
+                  border: `1.5px solid #6366f1`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => shiftSelectedDateByDays(1)}
+                style={{
+                  padding: '6px 9px',
+                  borderRadius: 9,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontWeight: 900,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                }}
+                title="Next Day"
+              >
+                ▶
+              </button>
+            </div>
+
+            {(periodFilterMode === 'month' || periodFilterMode === 'year') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <select
+                  value={filterMonthPart}
+                  onChange={(e) => {
+                    setFilterMonthPart(e.target.value);
+                    setPeriodFilterMode('month');
+                  }}
                   style={{
-                    padding: '6px 11px',
-                    borderRadius: 999,
-                    border: selectedBankAccountKey === 'all' ? '1.5px solid #34d399' : '1px solid rgba(148, 163, 184, 0.28)',
-                    background: selectedBankAccountKey === 'all' ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                    color: selectedBankAccountKey === 'all' ? '#6ee7b7' : '#cbd5e1',
+                    padding: '5px 7px',
+                    borderRadius: 8,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 11.5,
                     fontWeight: 800,
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
                   }}
                 >
-                  🏦 All Accounts ({allBankAccountsList.length})
-                </button>
-                {allBankAccountsList.map((acc) => {
-                  const isSelected = selectedBankAccountKey === acc.accountKey;
-                  return (
-                    <button
-                      key={acc.accountKey}
-                      type="button"
-                      onClick={() => selectBankAccountKey(acc.accountKey)}
-                      style={{
-                        padding: '6px 11px',
-                        borderRadius: 999,
-                        border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.28)',
-                        background: isSelected ? 'rgba(56, 189, 248, 0.24)' : 'rgba(15, 23, 42, 0.65)',
-                        color: isSelected ? '#e0f2fe' : '#cbd5e1',
-                        fontWeight: 800,
-                        fontSize: 11,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                      }}
-                    >
-                      💳 {acc.bankName || 'Bank'} {acc.accountMask ? `(${acc.accountMask})` : ''} ·{' '}
-                      {acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
-                        ? `₹${formatINRShort(acc.balance)}`
-                        : 'Set Bal'}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBalanceDraftAmount('');
-                    setBalanceDraftBank('');
-                    setBalanceDraftMask('');
-                    setShowCheckBalanceModal(true);
+                  {[
+                    { v: '01', l: 'Jan' }, { v: '02', l: 'Feb' }, { v: '03', l: 'Mar' },
+                    { v: '04', l: 'Apr' }, { v: '05', l: 'May' }, { v: '06', l: 'Jun' },
+                    { v: '07', l: 'Jul' }, { v: '08', l: 'Aug' }, { v: '09', l: 'Sep' },
+                    { v: '10', l: 'Oct' }, { v: '11', l: 'Nov' }, { v: '12', l: 'Dec' },
+                  ].map((m) => (
+                    <option key={m.v} value={m.v}>{m.l}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterYearPart}
+                  onChange={(e) => {
+                    setFilterYearPart(e.target.value);
+                    if (periodFilterMode !== 'month') setPeriodFilterMode('year');
                   }}
                   style={{
-                    padding: '6px 11px',
-                    borderRadius: 999,
-                    border: '1px dashed rgba(99, 102, 241, 0.55)',
-                    background: 'rgba(99, 102, 241, 0.16)',
-                    color: '#a5b4fc',
+                    padding: '5px 7px',
+                    borderRadius: 8,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 11.5,
                     fontWeight: 800,
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
                   }}
                 >
-                  ➕ Add Another Bank A/c
-                </button>
+                  {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
+                </select>
               </div>
-            </>
+            )}
+          </div>
+
+          {/* ROW 3: Dynamic Horizontal Date Chips (Only shown when dates exist) */}
+          {allDaysSummaryList.length > 0 && (
+            <div style={{
+              display: 'flex',
+              gap: 6,
+              overflowX: 'auto',
+              paddingBottom: 2,
+              WebkitOverflowScrolling: 'touch',
+            }}>
+              {allDaysSummaryList.map((dayItem) => {
+                const isDaySelected =
+                  (periodFilterMode === 'today' && dayItem.date === todayIso) ||
+                  (periodFilterMode === 'yesterday' && dayItem.date === yesterdayIso) ||
+                  (periodFilterMode === 'date' && filterSpecificDate === dayItem.date);
+                const dayLabelShort = dayItem.date === todayIso
+                  ? 'Today'
+                  : dayItem.date === yesterdayIso
+                    ? 'Yesterday'
+                    : formatShortDate(dayItem.date);
+                return (
+                  <button
+                    key={dayItem.date}
+                    type="button"
+                    onClick={() => selectExactDate(dayItem.date)}
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: 999,
+                      border: isDaySelected ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                      background: isDaySelected ? 'rgba(99, 102, 241, 0.16)' : palette.surfaceAlt,
+                      color: palette.text,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                    }}
+                  >
+                    <span>{dayLabelShort}</span>
+                    {dayItem.spent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINRShort(dayItem.spent)}</span>}
+                    {dayItem.received > 0 && <span style={{ color: '#34d399' }}>+₹{formatINRShort(dayItem.received)}</span>}
+                  </button>
+                );
+              })}
+            </div>
           )}
 
-          {/* Flutter M3 4-Button Quick Action Row */}
+          {/* ROW 4: Clean 4-Button Quick Action Row */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
@@ -2924,31 +2982,22 @@ export default function ExpensesModule({
               className="flutter-m3-action-chip"
               onClick={() => openQuickAddModal(null, 'debit')}
               style={{
-                color: '#ffffff',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 5,
-                cursor: 'pointer',
-                padding: '9px 4px',
-              }}
-            >
-              <span style={{
-                width: 36,
-                height: 36,
+                padding: '9px 6px',
                 borderRadius: 12,
-                background: 'rgba(244, 63, 94, 0.18)',
+                border: '1px solid rgba(244, 63, 94, 0.3)',
+                background: 'rgba(244, 63, 94, 0.1)',
                 color: '#fb7185',
+                fontWeight: 800,
+                fontSize: 11.5,
+                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 17,
-              }}>
-                ↗️
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#e2e8f0', textAlign: 'center', lineHeight: 1.15 }}>
-                Add Payment
-              </span>
+                gap: 5,
+              }}
+            >
+              <span>↗️</span>
+              <span>Add Spent</span>
             </button>
 
             <button
@@ -2956,149 +3005,130 @@ export default function ExpensesModule({
               className="flutter-m3-action-chip"
               onClick={() => openQuickAddModal(null, 'credit')}
               style={{
-                color: '#ffffff',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 5,
-                cursor: 'pointer',
-                padding: '9px 4px',
-              }}
-            >
-              <span style={{
-                width: 36,
-                height: 36,
+                padding: '9px 6px',
                 borderRadius: 12,
-                background: 'rgba(16, 185, 129, 0.18)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                background: 'rgba(16, 185, 129, 0.1)',
                 color: '#34d399',
+                fontWeight: 800,
+                fontSize: 11.5,
+                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 17,
-              }}>
-                ↙️
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#e2e8f0', textAlign: 'center', lineHeight: 1.15 }}>
-                Add Deposit
-              </span>
+                gap: 5,
+              }}
+            >
+              <span>↙️</span>
+              <span>Add In</span>
             </button>
 
             <button
               type="button"
               className="flutter-m3-action-chip"
               onClick={() => triggerMobileTransactionScan(3650)}
+              disabled={isScanning}
               style={{
-                color: '#ffffff',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 5,
-                cursor: 'pointer',
-                padding: '9px 4px',
-              }}
-            >
-              <span style={{
-                width: 36,
-                height: 36,
+                padding: '9px 6px',
                 borderRadius: 12,
-                background: 'rgba(56, 189, 248, 0.18)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                background: 'rgba(56, 189, 248, 0.1)',
                 color: '#38bdf8',
+                fontWeight: 800,
+                fontSize: 11.5,
+                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 17,
-              }}>
-                🔄
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#e2e8f0', textAlign: 'center', lineHeight: 1.15 }}>
-                Sync Alerts
-              </span>
+                gap: 5,
+              }}
+            >
+              <span>🔄</span>
+              <span>{isScanning ? 'Syncing...' : 'Sync Apps'}</span>
             </button>
 
             <button
               type="button"
               className="flutter-m3-action-chip"
-              onClick={() => setShowSmsPasteModal(true)}
+              onClick={() => setShowSuggestionModal((prev) => !prev)}
               style={{
-                color: '#ffffff',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 5,
-                cursor: 'pointer',
-                padding: '9px 4px',
-              }}
-            >
-              <span style={{
-                width: 36,
-                height: 36,
+                padding: '9px 6px',
                 borderRadius: 12,
-                background: 'rgba(99, 102, 241, 0.2)',
-                color: '#a5b4fc',
+                border: '1px solid rgba(245, 158, 11, 0.4)',
+                background: showSuggestionModal ? 'rgba(245, 158, 11, 0.24)' : 'rgba(245, 158, 11, 0.12)',
+                color: isLight ? '#b45309' : '#fcd34d',
+                fontWeight: 800,
+                fontSize: 11.5,
+                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 17,
-              }}>
-                📋
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#e2e8f0', textAlign: 'center', lineHeight: 1.15 }}>
-                Paste SMS
-              </span>
+                gap: 5,
+              }}
+            >
+              <span>💡</span>
+              <span>Suggest</span>
             </button>
           </div>
 
+          <input
+            ref={statementFileInputRef}
+            type="file"
+            accept=".csv,.txt,.json"
+            onChange={handleImportPaymentAppFile}
+            style={{ display: 'none' }}
+          />
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          💡 DROP SUGGESTION / REQUEST NEW FEATURE (SENDS DIRECTLY TO AI DEVELOPER)
+          💡 COMPACT & DYNAMIC SUGGESTION DRAWER (EXPANDS WHEN TAPPED OR WORKING)
          ═══════════════════════════════════════════════════════════════════════ */}
-      {(subTab === 'overview' || subTab === 'transactions' || showSuggestionModal) && (
+      {(showSuggestionModal || submittedSuggestionsList.some((x) => x && !isSuggestionCompletedHelper(x))) && (
         <form
           onSubmit={(e) => handleSubmitFeatureSuggestion(e)}
           className="flutter-m3-card"
           style={{
-            padding: '13px 14px',
-            borderRadius: 18,
-            background: isLight
-              ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
-              : 'linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(15, 23, 42, 0.96) 100%)',
+            padding: '12px 14px',
+            borderRadius: 16,
+            background: palette.surface,
             border: '1.5px solid rgba(245, 158, 11, 0.45)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 9,
+            gap: 8,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
             <label
               htmlFor="feature-suggestion-input"
               style={{
                 fontSize: 12.5,
-                fontWeight: 950,
+                fontWeight: 900,
                 color: isLight ? '#92400e' : '#fcd34d',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                cursor: 'pointer',
               }}
             >
-              <span>💡 Drop a Suggestion / Request New Feature</span>
+              <span>💡 Request a Feature or UI Change</span>
               <span style={{
                 padding: '2px 7px',
                 borderRadius: 999,
-                background: isNetworkOnline ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.22)',
-                border: isNetworkOnline ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(245, 158, 11, 0.5)',
-                color: isNetworkOnline ? (isLight ? '#065f46' : '#6ee7b7') : (isLight ? '#92400e' : '#fcd34d'),
+                background: isNetworkOnline ? 'rgba(16, 185, 129, 0.18)' : 'rgba(245, 158, 11, 0.2)',
+                color: isNetworkOnline ? '#34d399' : '#fcd34d',
                 fontSize: 9.5,
                 fontWeight: 900,
               }}>
-                {isNetworkOnline ? '🟢 ONLINE AI QUEUE' : '📡 OFFLINE AUTO-QUEUE'}
+                {isNetworkOnline ? 'ONLINE' : 'OFFLINE QUEUE'}
               </span>
             </label>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
-              Works Online &amp; Offline → Shows Loading Indicator while AI works &amp; &quot;✅ Update Completed&quot; when ready
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowSuggestionModal(false)}
+              style={{ background: 'transparent', border: 'none', color: palette.textMuted, fontWeight: 900, cursor: 'pointer' }}
+            >
+              ✕
+            </button>
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -3107,13 +3137,13 @@ export default function ExpensesModule({
               type="text"
               value={suggestionInputText}
               onChange={(e) => setSuggestionInputText(e.target.value)}
-              placeholder="Write any new feature, fix, or improvement you want here..."
+              placeholder="Write what you want changed or added..."
               style={{
-                flex: '1 1 210px',
-                padding: '10px 12px',
-                borderRadius: 11,
-                border: '1.5px solid rgba(245, 158, 11, 0.5)',
-                background: palette.surface,
+                flex: '1 1 200px',
+                padding: '9px 12px',
+                borderRadius: 10,
+                border: `1px solid ${palette.borderStrong}`,
+                background: palette.surfaceAlt,
                 color: palette.text,
                 fontSize: 12.5,
                 fontWeight: 700,
@@ -3124,771 +3154,95 @@ export default function ExpensesModule({
               type="submit"
               disabled={suggestionSubmitting}
               style={{
-                padding: '10px 16px',
-                borderRadius: 11,
+                padding: '9px 15px',
+                borderRadius: 10,
                 border: 'none',
                 background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
                 color: '#ffffff',
-                fontWeight: 950,
-                fontSize: 12.5,
+                fontWeight: 900,
+                fontSize: 12,
                 cursor: suggestionSubmitting ? 'wait' : 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: '0 4px 12px rgba(234, 88, 12, 0.35)',
               }}
             >
-              {suggestionSubmitting ? '⏳ Sending...' : '🚀 Submit to AI'}
+              {suggestionSubmitting ? '⏳ Sending...' : '🚀 Submit'}
             </button>
           </div>
 
-          {submittedSuggestionsList.some((x) => x && !isSuggestionCompletedHelper(x)) && (
-            <div
-              style={{
-                padding: '9px 12px',
-                borderRadius: 11,
-                background: isLight ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.18)',
-                border: '1px solid rgba(59, 130, 246, 0.45)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    border: '2.5px solid rgba(59, 130, 246, 0.3)',
-                    borderTopColor: '#3b82f6',
-                    animation: 'spin 0.9s linear infinite',
-                    flexShrink: 0,
-                  }}
-                />
-                <span style={{ fontSize: 11.5, fontWeight: 900, color: isLight ? '#1e40af' : '#93c5fd' }}>
-                  ⏳ AI is working on your new request — Building Live OTA Update...
+          {submittedSuggestionsList.slice(0, 2).map((item) => {
+            const isDone = isSuggestionCompletedHelper(item);
+            return (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 9px',
+                  borderRadius: 9,
+                  background: palette.surfaceAlt,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: palette.text,
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  {item.text}
+                </span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: isDone ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                  color: isDone ? '#34d399' : '#93c5fd',
+                  fontWeight: 900,
+                  fontSize: 10,
+                  flexShrink: 0,
+                }}>
+                  {isDone ? '✅ Update Completed' : '⏳ Working on Update...'}
                 </span>
               </div>
-              <span style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted }}>
-                Auto-checks every 8s
-              </span>
-            </div>
-          )}
-
-          {submittedSuggestionsList.length > 0 && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              paddingTop: 6,
-              borderTop: `1px dashed ${palette.border}`,
-            }}>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
-                📬 Your Feature Requests &amp; Live Build Status ({submittedSuggestionsList.length}):
-              </div>
-              {submittedSuggestionsList.slice(0, 3).map((item) => {
-                const isDone = isSuggestionCompletedHelper(item);
-                const isOfflineQueued = !isDone && item.deliveredOnline === false;
-                return (
-                  <div
-                    key={item.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '6px 9px',
-                      borderRadius: 9,
-                      background: isDone
-                        ? (isLight ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.12)')
-                        : (isLight ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.14)'),
-                      border: isDone
-                        ? '1px solid rgba(16, 185, 129, 0.35)'
-                        : '1px solid rgba(245, 158, 11, 0.38)',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: palette.text,
-                    }}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      • {item.text}
-                    </span>
-                    {isDone ? (
-                      <span
-                        style={{
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'rgba(16, 185, 129, 0.22)',
-                          color: isLight ? '#065f46' : '#34d399',
-                          fontWeight: 900,
-                          fontSize: 10,
-                          flexShrink: 0,
-                        }}
-                      >
-                        ✅ Update Completed
-                      </span>
-                    ) : isOfflineQueued ? (
-                      <span
-                        style={{
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'rgba(245, 158, 11, 0.22)',
-                          color: isLight ? '#92400e' : '#fcd34d',
-                          fontWeight: 900,
-                          fontSize: 10,
-                          flexShrink: 0,
-                        }}
-                      >
-                        📡 Queued Offline (Auto-Sync)
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'rgba(59, 130, 246, 0.22)',
-                          color: isLight ? '#1d4ed8' : '#93c5fd',
-                          fontWeight: 900,
-                          fontSize: 10,
-                          flexShrink: 0,
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 9,
-                            height: 9,
-                            borderRadius: '50%',
-                            border: '2px solid rgba(59, 130, 246, 0.35)',
-                            borderTopColor: '#3b82f6',
-                            animation: 'spin 0.9s linear infinite',
-                          }}
-                        />
-                        ⏳ Working on Update...
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            );
+          })}
         </form>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          📅 FILTER & SYNC TRANSACTIONS BY DATE · MONTH · YEAR (FLUTTER M3)
-          WHATEVER DATE YOU SELECT SHOWS ONLY THE REAL TRANSACTIONS OF THAT DAY
-         ═══════════════════════════════════════════════════════════════════════ */}
-      {(subTab === 'overview' || subTab === 'transactions') && (
-        <div
-          className="flutter-m3-card"
-          style={{
-            padding: '13px 14px',
-            borderRadius: 18,
-            background: palette.surface,
-            border: `1.5px solid ${palette.border}`,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          {/* Header Row */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>📅 Filter &amp; Sync by Date · Month · Year</span>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => triggerMobileTransactionScan(3650)}
-                disabled={isScanning}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(99, 102, 241, 0.4)',
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  color: isLight ? '#4f46e5' : '#a5b4fc',
-                  fontWeight: 800,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                }}
-              >
-                {isScanning ? '⏳ Syncing...' : '🔄 Sync Real Transactions'}
-              </button>
-              <button
-                type="button"
-                onClick={() => openQuickAddModal(null, 'debit')}
-                style={{
-                  padding: '5px 11px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  background: 'rgba(16, 185, 129, 0.14)',
-                  color: '#34d399',
-                  fontWeight: 800,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                }}
-              >
-                + Record for {activeTargetDateIso}
-              </button>
-            </div>
-          </div>
-
-          {/* PRIMARY DATE NAVIGATOR: ◀ Prev Day | Calendar Date Picker | Next Day ▶ */}
-          <div style={{
-            padding: '10px 12px',
-            borderRadius: 14,
-            background: isLight
-              ? 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)'
-              : 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(15, 23, 42, 0.9) 100%)',
-            border: '1.5px solid rgba(99, 102, 241, 0.45)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => shiftSelectedDateByDays(-1)}
-                style={{
-                  padding: '8px 11px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surface,
-                  color: palette.text,
-                  fontWeight: 900,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-                title="Previous Day"
-              >
-                ◀ Prev Day
-              </button>
-
-              <div style={{ flex: '1 1 150px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input
-                  type="date"
-                  value={activeTargetDateIso}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val) {
-                      selectExactDate(val);
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 11px',
-                    borderRadius: 10,
-                    border: '2px solid #6366f1',
-                    background: palette.surface,
-                    color: palette.text,
-                    fontSize: 13.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => shiftSelectedDateByDays(1)}
-                style={{
-                  padding: '8px 11px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surface,
-                  color: palette.text,
-                  fontWeight: 900,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-                title="Next Day"
-              >
-                Next Day ▶
-              </button>
-            </div>
-
-            {/* 1-Tap Quick Date Mode Pills: Today | Yesterday | This Month | All Dates */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => selectExactDate(todayIso)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 999,
-                  border: periodFilterMode === 'today' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: periodFilterMode === 'today' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
-                  color: periodFilterMode === 'today' ? '#ffffff' : palette.textSub,
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                📍 Today ({analytics.todayCount || 0})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectExactDate(yesterdayIso)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 999,
-                  border: periodFilterMode === 'yesterday' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: periodFilterMode === 'yesterday' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
-                  color: periodFilterMode === 'yesterday' ? '#ffffff' : palette.textSub,
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                ⏮️ Yesterday / Last Day ({analytics.yesterdayCount || 0})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPeriodFilterMode('month')}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 999,
-                  border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: periodFilterMode === 'month' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
-                  color: periodFilterMode === 'month' ? '#ffffff' : palette.textSub,
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                🗓️ Month ({analytics.totalCount || 0})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPeriodFilterMode('all')}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 999,
-                  border: periodFilterMode === 'all' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: periodFilterMode === 'all' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
-                  color: periodFilterMode === 'all' ? '#ffffff' : palette.textSub,
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                📜 All Dates ({analytics.allTimeCount || 0})
-              </button>
-
-              {/* Month & Year selectors when viewing by Month/Year */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-                <select
-                  value={filterMonthPart}
-                  onChange={(e) => {
-                    setFilterMonthPart(e.target.value);
-                    setPeriodFilterMode('month');
-                  }}
-                  style={{
-                    padding: '5px 7px',
-                    borderRadius: 8,
-                    border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.text,
-                    fontSize: 11,
-                    fontWeight: 800,
-                  }}
-                >
-                  {[
-                    { v: '01', l: 'Jan' },
-                    { v: '02', l: 'Feb' },
-                    { v: '03', l: 'Mar' },
-                    { v: '04', l: 'Apr' },
-                    { v: '05', l: 'May' },
-                    { v: '06', l: 'Jun' },
-                    { v: '07', l: 'Jul' },
-                    { v: '08', l: 'Aug' },
-                    { v: '09', l: 'Sep' },
-                    { v: '10', l: 'Oct' },
-                    { v: '11', l: 'Nov' },
-                    { v: '12', l: 'Dec' },
-                  ].map((m) => (
-                    <option key={m.v} value={m.v}>{m.l}</option>
-                  ))}
-                </select>
-                <select
-                  value={filterYearPart}
-                  onChange={(e) => {
-                    setFilterYearPart(e.target.value);
-                    if (periodFilterMode !== 'month') {
-                      setPeriodFilterMode('year');
-                    }
-                  }}
-                  style={{
-                    padding: '5px 7px',
-                    borderRadius: 8,
-                    border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.text,
-                    fontSize: 11,
-                    fontWeight: 800,
-                  }}
-                >
-                  {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive By-Day / By-Date Strip — Tap any Day/Date to show ONLY that day's real transactions */}
-          {allDaysSummaryList.length > 0 && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 5,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  📆 By Day / By Date Ledger — Tap Any Date to View That Day&apos;s Real Transactions
-                </span>
-                {periodFilterMode !== 'all' && (
-                  <button
-                    type="button"
-                    onClick={() => setPeriodFilterMode('all')}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#818cf8',
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  >
-                    Show All Dates ({analytics.allTimeCount || 0})
-                  </button>
-                )}
-              </div>
-              <div style={{
-                display: 'flex',
-                gap: 6,
-                overflowX: 'auto',
-                paddingBottom: 3,
-                WebkitOverflowScrolling: 'touch',
-              }}>
-                {allDaysSummaryList.map((dayItem) => {
-                  const isDaySelected =
-                    (periodFilterMode === 'today' && dayItem.date === todayIso) ||
-                    (periodFilterMode === 'yesterday' && dayItem.date === yesterdayIso) ||
-                    (periodFilterMode === 'date' && filterSpecificDate === dayItem.date);
-                  const dayLabelShort = dayItem.date === todayIso
-                    ? `Today (${formatShortDate(dayItem.date)})`
-                    : dayItem.date === yesterdayIso
-                      ? `Last Day (${formatShortDate(dayItem.date)})`
-                      : formatShortDate(dayItem.date);
-                  return (
-                    <button
-                      key={dayItem.date}
-                      type="button"
-                      onClick={() => selectExactDate(dayItem.date)}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 11,
-                        border: isDaySelected
-                          ? '2px solid #6366f1'
-                          : `1px solid ${palette.border}`,
-                        background: isDaySelected
-                          ? (isLight ? 'rgba(99, 102, 241, 0.16)' : 'rgba(99, 102, 241, 0.28)')
-                          : palette.surfaceAlt,
-                        color: palette.text,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        gap: 2,
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                        minWidth: 112,
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 6, alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 900, color: isDaySelected ? (isLight ? '#4f46e5' : '#a5b4fc') : palette.text }}>
-                          {dayLabelShort}
-                        </span>
-                        <span style={{
-                          fontSize: 9.5,
-                          fontWeight: 800,
-                          padding: '1px 5px',
-                          borderRadius: 999,
-                          background: 'rgba(99, 102, 241, 0.16)',
-                          color: '#818cf8',
-                        }}>
-                          {dayItem.count}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, fontSize: 10.5, fontWeight: 800 }}>
-                        {dayItem.spent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINRShort(dayItem.spent)}</span>}
-                        {dayItem.received > 0 && <span style={{ color: '#34d399' }}>+₹{formatINRShort(dayItem.received)}</span>}
-                        {dayItem.spent === 0 && dayItem.received === 0 && <span style={{ color: palette.textMuted }}>₹0</span>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Inline Quick Sync / Add Transaction for Selected Date */}
-          <div style={{
-            padding: '8px 10px',
-            borderRadius: 12,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 6,
-            alignItems: 'center',
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub, whiteSpace: 'nowrap' }}>
-              ⚡ Quick Add ({activeTargetDateIso}):
-            </span>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={quickDateAmount}
-              onChange={(e) => setQuickDateAmount(e.target.value)}
-              placeholder="₹ Amount"
-              style={{
-                width: 92,
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: `1px solid ${palette.borderStrong}`,
-                background: palette.surface,
-                color: palette.text,
-                fontSize: 11.5,
-                fontWeight: 800,
-              }}
-            />
-            <input
-              type="text"
-              value={quickDateMerchant}
-              onChange={(e) => setQuickDateMerchant(e.target.value)}
-              placeholder="Merchant / Note (optional)"
-              style={{
-                flex: '1 1 120px',
-                minWidth: 110,
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: `1px solid ${palette.borderStrong}`,
-                background: palette.surface,
-                color: palette.text,
-                fontSize: 11.5,
-                fontWeight: 700,
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => handleQuickSaveForSelectedDate('debit')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: '1px solid rgba(244, 63, 94, 0.45)',
-                background: 'rgba(244, 63, 94, 0.16)',
-                color: '#fb7185',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              -₹ Spent
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickSaveForSelectedDate('credit')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: '1px solid rgba(16, 185, 129, 0.45)',
-                background: 'rgba(16, 185, 129, 0.16)',
-                color: '#34d399',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              +₹ In
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSmsPasteModal(true)}
-              style={{
-                padding: '6px 9px',
-                borderRadius: 8,
-                border: `1px solid ${palette.borderStrong}`,
-                background: palette.surface,
-                color: palette.textSub,
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              📋 Paste SMS
-            </button>
-            <button
-              type="button"
-              onClick={() => statementFileInputRef.current?.click()}
-              style={{
-                padding: '6px 9px',
-                borderRadius: 8,
-                border: `1px solid ${palette.borderStrong}`,
-                background: palette.surface,
-                color: isLight ? '#4f46e5' : '#818cf8',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-              title="Import exported statement (.csv, .txt, .json) from any payment app"
-            >
-              📂 Import App Statement
-            </button>
-            <input
-              ref={statementFileInputRef}
-              type="file"
-              accept=".csv,.txt,.json"
-              onChange={handleImportPaymentAppFile}
-              style={{ display: 'none' }}
-            />
-          </div>
-
-          {/* Active Selected Date / Period Summary Banner */}
-          <div style={{
-            padding: '8px 12px',
-            borderRadius: 10,
-            background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.14)',
-            border: '1px solid rgba(99, 102, 241, 0.35)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-            fontSize: 11.5,
-            fontWeight: 800,
-          }}>
-            <span style={{ color: palette.text }}>
-              📌 Showing Real Transactions for <strong>{periodSummary.label}</strong>: {periodSummary.count} txn{periodSummary.count === 1 ? '' : 's'}
-            </span>
-            <div style={{ display: 'flex', gap: 10, fontWeight: 900, alignItems: 'center' }}>
-              <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(periodSummary.spent)}</span>
-              <span style={{ color: '#34d399' }}>In: +₹{formatINR(periodSummary.received)}</span>
-              {periodSummary.count === 0 && (analytics.allTimeCount || 0) > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setPeriodFilterMode('all')}
-                  style={{
-                    padding: '3px 8px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(99, 102, 241, 0.45)',
-                    background: '#6366f1',
-                    color: '#ffffff',
-                    fontSize: 10.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Show All Dates ({analytics.allTimeCount})
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════════════
-          SCREEN 7: EXPENSE OVERVIEW (FLUTTER MATERIAL 3 PASSBOOK)
+          SCREEN 7: CLEAN, DYNAMIC TRANSACTION LIST (GROUPED BY DAY)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
-          {/* Real Transactions for the Selected Date / Period */}
           <div style={{
             background: palette.surface,
             borderRadius: 20,
             border: `1px solid ${palette.border}`,
             padding: mobileMode ? '14px 12px' : '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span>
-                    📅 {periodSummary.label} · Recent Payments (Permanent Ledger)
-                  </span>
-                  <span style={{
-                    padding: '2px 8px',
-                    borderRadius: 999,
-                    background: 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                    color: '#34d399',
-                    fontSize: 10,
-                    fontWeight: 800,
-                  }}>
-                    {recentPaymentsList.length} Real {recentPaymentsList.length === 1 ? 'Txn' : 'Txns'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
-                  Zero fake entries · Showing only real transactions for your selected date ({activeTargetDateIso})
-                </div>
+            {/* Clean Section Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
+                Transactions · {periodSummary.label}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {recentPaymentsList.length > 3 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                      style={{
-                        padding: '5px 9px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.textSub,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                      title="Scroll to Latest (Top)"
-                    >
-                      ↑ Top
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                      style={{
-                        padding: '5px 9px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.textSub,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                      title="Scroll to Oldest (Bottom)"
-                    >
-                      ↓ Bottom
-                    </button>
-                  </>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowSmsPasteModal(true)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 999,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.textSub,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📋 Paste SMS
+                </button>
                 <button
                   type="button"
                   onClick={() => setSubTab('transactions')}
@@ -3896,47 +3250,32 @@ export default function ExpensesModule({
                     background: 'rgba(99, 102, 241, 0.14)',
                     border: '1px solid rgba(99, 102, 241, 0.32)',
                     borderRadius: 999,
-                    padding: '5px 12px',
+                    padding: '5px 11px',
                     color: isLight ? '#4f46e5' : '#818cf8',
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: 800,
                     cursor: 'pointer',
                   }}
                 >
-                  See All ({recentPaymentsList.length}) ›
+                  Search &amp; Filter ›
                 </button>
               </div>
             </div>
 
             {recentPaymentsList.length === 0 && (
-              <div style={{ padding: '14px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 12.5, marginBottom: overviewDisplayGroups.length > 0 ? 12 : 0, borderRadius: 14, background: palette.surfaceAlt, border: `1px dashed ${palette.border}` }}>
+              <div style={{
+                padding: '16px 12px',
+                textAlign: 'center',
+                color: palette.textMuted,
+                fontSize: 12.5,
+                borderRadius: 14,
+                background: palette.surfaceAlt,
+                border: `1px dashed ${palette.border}`,
+              }}>
                 <div style={{ fontWeight: 800, color: palette.text }}>
-                  💳 No real transactions recorded on {periodSummary.label} (₹0).
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  {overviewDisplayGroups.length > 0
-                    ? `Showing your all recent real transactions grouped By Day & By Date below, or use Quick Add (${activeTargetDateIso}) to record a payment for this date.`
-                    : `Tap Sync or Import App Statement to fetch transactions from your payment apps, or use Quick Add (${activeTargetDateIso}).`}
+                  No transactions recorded on {periodSummary.label}.
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                  {periodFilterMode !== 'yesterday' && (analytics.yesterdayCount || 0) > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => selectExactDate(yesterdayIso)}
-                      style={{
-                        padding: '7px 12px',
-                        borderRadius: 10,
-                        border: 'none',
-                        background: '#0ea5e9',
-                        color: '#ffffff',
-                        fontWeight: 800,
-                        fontSize: 11.5,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ⏮️ View Yesterday ({analytics.yesterdayCount})
-                    </button>
-                  )}
                   {periodFilterMode !== 'all' && (analytics.allTimeCount || 0) > 0 && (
                     <button
                       type="button"
@@ -3952,12 +3291,12 @@ export default function ExpensesModule({
                         cursor: 'pointer',
                       }}
                     >
-                      📅 Show All Dates ({analytics.allTimeCount})
+                      Show All Dates ({analytics.allTimeCount})
                     </button>
                   )}
                   <button
                     type="button"
-                    onClick={() => openQuickAddModal(null)}
+                    onClick={() => openQuickAddModal(null, 'debit')}
                     style={{
                       padding: '7px 12px',
                       borderRadius: 10,
@@ -3969,23 +3308,7 @@ export default function ExpensesModule({
                       cursor: 'pointer',
                     }}
                   >
-                    ➕ Add Payment Now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerMobileTransactionScan()}
-                    style={{
-                      padding: '7px 12px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: isLight ? '#4f46e5' : '#818cf8',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    📲 Sync Payment Apps
+                    + Add Transaction
                   </button>
                 </div>
               </div>
@@ -3999,13 +3322,9 @@ export default function ExpensesModule({
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 14,
-                  maxHeight: mobileMode ? 520 : 600,
-                  overflowY: 'auto',
+                  gap: 12,
                   overscrollBehavior: 'contain',
                   WebkitOverflowScrolling: 'touch',
-                  paddingRight: 4,
-                  scrollBehavior: 'smooth',
                 }}
               >
                 {overviewDisplayGroups.map((dayGroup) => (
@@ -4017,283 +3336,227 @@ export default function ExpensesModule({
                       gap: 8,
                     }}
                   >
-                    {/* Sticky Day / Date Header Banner */}
+                    {/* Clean Day Header Bar */}
                     <div
                       style={{
-                        padding: '8px 12px',
-                        borderRadius: 12,
-                        background: isLight
-                          ? 'linear-gradient(90deg, #eef2ff 0%, #f8fafc 100%)'
-                          : 'linear-gradient(90deg, rgba(99, 102, 241, 0.22) 0%, rgba(30, 41, 59, 0.9) 100%)',
-                        border: '1px solid rgba(99, 102, 241, 0.35)',
+                        padding: '6px 10px',
+                        borderRadius: 10,
+                        background: palette.surfaceAlt,
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 8,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: palette.textSub,
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#312e81' : '#e0e7ff' }}>
-                          📅 {dayGroup.label}
-                        </span>
-                        <span style={{
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          fontSize: 10,
-                          fontWeight: 800,
-                          background: 'rgba(99, 102, 241, 0.18)',
-                          color: isLight ? '#4f46e5' : '#a5b4fc',
-                        }}>
-                          {dayGroup.date} · {dayGroup.items.length} {dayGroup.items.length === 1 ? 'txn' : 'txns'}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, fontSize: 11.5, fontWeight: 900 }}>
-                        {dayGroup.daySpent > 0 && (
-                          <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(dayGroup.daySpent)}</span>
-                        )}
-                        {dayGroup.dayReceived > 0 && (
-                          <span style={{ color: '#34d399' }}>In: +₹{formatINR(dayGroup.dayReceived)}</span>
-                        )}
+                      <span>{dayGroup.label} ({dayGroup.items.length})</span>
+                      <div style={{ display: 'flex', gap: 10, fontWeight: 900 }}>
+                        {dayGroup.daySpent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINR(dayGroup.daySpent)}</span>}
+                        {dayGroup.dayReceived > 0 && <span style={{ color: '#34d399' }}>+₹{formatINR(dayGroup.dayReceived)}</span>}
                       </div>
                     </div>
 
-                    {/* Transactions for this Day / Date */}
+                    {/* Clean, Simple, Dynamic Transaction Cards */}
                     {dayGroup.items.map((tx) => {
                       const isCredit = tx.type === 'credit' || tx.type === 'refund';
                       const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
                       const hasNote = Boolean(noteText);
                       const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
                       const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                      const txBal = Number.isFinite(Number(tx.runningBalance))
-                        ? Number(tx.runningBalance)
-                        : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
-                          ? Number(tx.accountBalance)
-                          : null);
                       return (
                         <div
                           key={tx.id}
                           className="flutter-m3-list-tile"
                           style={{
-                            padding: mobileMode ? '12px' : '14px',
-                            borderRadius: 16,
+                            padding: '11px 12px',
+                            borderRadius: 14,
                             background: palette.surfaceAlt,
-                            border: isCredit ? '1px solid rgba(16, 185, 129, 0.3)' : `1px solid ${palette.border}`,
+                            border: `1px solid ${palette.border}`,
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: 9,
+                            gap: 8,
                           }}
                         >
-                          {/* Top Row: Avatar + Name + Date/Time + Amount + Running Balance */}
                           <div
                             onClick={() => setSelectedTxId(tx.id)}
                             style={{
                               display: 'flex',
                               justifyContent: 'space-between',
-                              alignItems: 'flex-start',
+                              alignItems: 'center',
                               gap: 10,
                               cursor: 'pointer',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
-                              <BrandPaymentAvatar tx={tx} size={40} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                              <BrandPaymentAvatar tx={tx} size={38} />
                               <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                  <span style={{
-                                    fontSize: 14,
-                                    fontWeight: 800,
-                                    color: palette.text,
-                                    wordBreak: 'break-word',
-                                    lineHeight: 1.25,
-                                  }}>
-                                    {tx.merchant || (isCredit ? 'Bank Deposit' : 'UPI Payment')}
-                                  </span>
-                                  <span style={{
-                                    padding: '2px 7px',
-                                    borderRadius: 999,
-                                    fontSize: 9.5,
-                                    fontWeight: 800,
-                                    background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.12)',
-                                    color: isCredit ? '#34d399' : '#fb7185',
-                                  }}>
-                                    {isCredit ? 'IN' : 'OUT'}
-                                  </span>
+                                <div style={{
+                                  fontSize: 13.5,
+                                  fontWeight: 800,
+                                  color: palette.text,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
                                 </div>
                                 <div style={{
-                                  fontSize: 11.5,
+                                  fontSize: 11,
                                   color: palette.textMuted,
                                   fontWeight: 600,
-                                  marginTop: 4,
+                                  marginTop: 2,
                                   display: 'flex',
                                   flexWrap: 'wrap',
-                                  gap: 6,
+                                  gap: 5,
                                   alignItems: 'center',
                                 }}>
-                                  <span style={{ color: palette.textSub, fontWeight: 800 }}>
-                                    🕒 {tx.date === todayIso ? `Today (${formatShortDate(tx.date)}), ${formatTime12h(tx.time)}` : tx.date === yesterdayIso ? `Last Day (${formatShortDate(tx.date)}), ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}
-                                  </span>
+                                  <span>{formatTime12h(tx.time)}</span>
                                   <span>·</span>
                                   <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
-                                  {false && tx.accountMask && (
-                                    <>
-                                      <span>·</span>
-                                      <span>A/c {tx.accountMask}</span>
-                                    </>
-                                  )}
-                                  {tx.refId && (
-                                    <>
-                                      <span>·</span>
-                                      <span>Ref: {String(tx.refId).slice(-8)}</span>
-                                    </>
-                                  )}
+                                  <span>·</span>
+                                  <span>{tx.category || 'Payment'}</span>
                                 </div>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                                {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
-                              </div>
-                              {false && txBal !== null && (
-                                <div style={{
-                                  fontSize: 10.5,
-                                  fontWeight: 900,
-                                  color: '#34d399',
-                                  marginTop: 2,
-                                  background: 'rgba(16, 185, 129, 0.12)',
-                                  padding: '2px 6px',
-                                  borderRadius: 6,
-                                  display: 'inline-block',
-                                }}>
-                                  🏦 Bal: ₹{formatINR(txBal)}
-                                </div>
-                              )}
-                              <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                                🔒 {tx.category || 'Payment'} ›
-                              </div>
-                            </div>
-                          </div>
 
-                          {/* Prominent Purpose / Which Thing Badge */}
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              padding: '8px 10px',
-                              borderRadius: 11,
-                              background: hasNote
-                                ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
-                                : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
-                              border: hasNote
-                                ? '1px solid rgba(59, 130, 246, 0.35)'
-                                : '1px dashed rgba(245, 158, 11, 0.45)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 6,
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
-                                📌 <strong>For What / Which Thing:</strong>{' '}
-                                {hasNote ? noteText : 'Not noted yet — write what you bought/paid for below'}
-                              </div>
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                {hasNote && !isEditingInline && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                                {/* Compact Dynamic Note Chip (Only opens input when tapped!) */}
+                                {!isEditingInline && (
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
+                                    }}
                                     style={{
-                                      padding: '3px 8px',
-                                      borderRadius: 7,
-                                      border: `1px solid ${palette.border}`,
-                                      background: palette.surface,
-                                      color: '#60a5fa',
-                                      fontSize: 10.5,
-                                      fontWeight: 800,
+                                      marginTop: 4,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      padding: '2px 8px',
+                                      borderRadius: 6,
+                                      background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                                      border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
+                                      color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
+                                      fontSize: 11,
+                                      fontWeight: 700,
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    ✏️ Note
-                                  </button>
+                                    {hasNote ? `📝 ${noteText}` : '+ Add note'}
+                                  </div>
                                 )}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                              <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                                {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
+                              </div>
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ display: 'flex', gap: 4 }}
+                              >
                                 <button
                                   type="button"
                                   onClick={() => openQuickAddModal(tx)}
                                   style={{
-                                    padding: '3px 8px',
-                                    borderRadius: 7,
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
                                     border: `1px solid ${palette.border}`,
                                     background: palette.surface,
-                                    color: palette.textSub,
-                                    fontSize: 10.5,
-                                    fontWeight: 800,
+                                    color: palette.textMuted,
+                                    fontSize: 10,
                                     cursor: 'pointer',
                                   }}
-                                  title="Edit Transaction"
+                                  title="Edit"
                                 >
-                                  ✏️ Edit
+                                  ✏️
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteTransaction(tx.id)}
                                   style={{
-                                    padding: '3px 8px',
-                                    borderRadius: 7,
-                                    border: '1px solid rgba(244, 63, 94, 0.35)',
-                                    background: 'rgba(244, 63, 94, 0.12)',
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
+                                    border: '1px solid rgba(244, 63, 94, 0.25)',
+                                    background: 'rgba(244, 63, 94, 0.08)',
                                     color: '#fb7185',
-                                    fontSize: 10.5,
-                                    fontWeight: 800,
+                                    fontSize: 10,
                                     cursor: 'pointer',
                                   }}
-                                  title="Remove Transaction"
+                                  title="Delete"
                                 >
                                   🗑️
                                 </button>
                               </div>
                             </div>
-
-                            {(!hasNote || isEditingInline) && (
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <input
-                                  type="text"
-                                  value={inlineDraft}
-                                  onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && inlineDraft.trim()) {
-                                      handleUpdatePersonalNote(tx.id, inlineDraft);
-                                    }
-                                  }}
-                                  placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch, Grocery)..."
-                                  style={{
-                                    flex: '1 1 180px',
-                                    padding: '7px 10px',
-                                    borderRadius: 9,
-                                    border: `1px solid ${palette.border}`,
-                                    background: palette.surface,
-                                    color: palette.text,
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    outline: 'none',
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                                  style={{
-                                    padding: '7px 12px',
-                                    borderRadius: 9,
-                                    border: 'none',
-                                    background: '#2563eb',
-                                    color: '#fff',
-                                    fontWeight: 800,
-                                    fontSize: 11.5,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Save Note
-                                </button>
-                              </div>
-                            )}
                           </div>
+
+                          {/* Dynamic Inline Note Input (Only visible when editing a note!) */}
+                          {isEditingInline && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                            >
+                              <input
+                                type="text"
+                                autoFocus
+                                value={inlineDraft}
+                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted');
+                                }}
+                                placeholder="What was this for? (e.g. Tea, Petrol, Lunch)..."
+                                style={{
+                                  flex: 1,
+                                  padding: '6px 10px',
+                                  borderRadius: 8,
+                                  border: `1px solid #3b82f6`,
+                                  background: palette.surface,
+                                  color: palette.text,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  outline: 'none',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                                style={{
+                                  padding: '6px 11px',
+                                  borderRadius: 8,
+                                  border: 'none',
+                                  background: '#2563eb',
+                                  color: '#fff',
+                                  fontWeight: 800,
+                                  fontSize: 11.5,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInlineNoteDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[tx.id];
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  padding: '6px 8px',
+                                  borderRadius: 8,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.textMuted,
+                                  fontWeight: 800,
+                                  fontSize: 11.5,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -4948,31 +4211,22 @@ export default function ExpensesModule({
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 12,
-                maxHeight: mobileMode ? 520 : 640,
-                overflowY: 'auto',
                 overscrollBehavior: 'contain',
                 WebkitOverflowScrolling: 'touch',
-                paddingRight: 4,
-                scrollBehavior: 'smooth',
               }}
             >
               {groupedByDay.map((group) => (
                 <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 2,
-                    background: palette.surface,
-                    padding: '6px 8px',
-                    borderRadius: 8,
-                    borderBottom: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    padding: '6px 10px',
+                    borderRadius: 10,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     fontSize: 12,
                     fontWeight: 800,
-                    color: palette.textMuted,
-                    marginTop: 2,
+                    color: palette.textSub,
                   }}>
                     <span>{group.label}</span>
                     <span>
@@ -4987,19 +4241,14 @@ export default function ExpensesModule({
                     const hasNote = Boolean(noteText);
                     const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
                     const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                    const txBal = Number.isFinite(Number(tx.runningBalance))
-                      ? Number(tx.runningBalance)
-                      : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
-                        ? Number(tx.accountBalance)
-                        : null);
                     return (
                       <div
                         key={tx.id}
                         style={{
-                          padding: mobileMode ? '12px' : '14px',
-                          borderRadius: 16,
+                          padding: '11px 12px',
+                          borderRadius: 14,
                           background: palette.surfaceAlt,
-                          border: isCredit ? '1px solid rgba(16, 185, 129, 0.32)' : `1px solid ${palette.border}`,
+                          border: `1px solid ${palette.border}`,
                           display: 'flex',
                           flexDirection: 'column',
                           gap: 8,
@@ -5010,165 +4259,132 @@ export default function ExpensesModule({
                           style={{
                             display: 'flex',
                             justifyContent: 'space-between',
-                            alignItems: 'flex-start',
+                            alignItems: 'center',
                             gap: 10,
                             cursor: 'pointer',
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
-                            <BrandPaymentAvatar tx={tx} size={40} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                            <BrandPaymentAvatar tx={tx} size={38} />
                             <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 14, fontWeight: 900, color: palette.text, wordBreak: 'break-word' }}>
-                                  {tx.merchant || (isCredit ? 'Bank Deposit' : 'UPI Payment')}
-                                </span>
-                                <span style={{
-                                  padding: '2px 7px',
-                                  borderRadius: 999,
-                                  fontSize: 9.5,
-                                  fontWeight: 900,
-                                  background: isCredit ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.14)',
-                                  border: isCredit ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(244, 63, 94, 0.35)',
-                                  color: isCredit ? '#34d399' : '#fb7185',
-                                }}>
-                                  {isCredit ? 'IN' : 'OUT'}
-                                </span>
+                              <div style={{ fontSize: 13.5, fontWeight: 800, color: palette.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
                               </div>
                               <div style={{
-                                fontSize: 11.5,
+                                fontSize: 11,
                                 color: palette.textMuted,
-                                fontWeight: 700,
-                                marginTop: 3,
+                                fontWeight: 600,
+                                marginTop: 2,
                                 display: 'flex',
                                 flexWrap: 'wrap',
-                                gap: 6,
+                                gap: 5,
                                 alignItems: 'center',
                               }}>
-                                <span>🕒 {formatTime12h(tx.time)}</span>
+                                <span>{formatTime12h(tx.time)}</span>
                                 <span>·</span>
-                                <span style={{ color: '#818cf8', fontWeight: 800 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
-                                {false && tx.accountMask && (
-                                  <>
-                                    <span>·</span>
-                                    <span>A/c {tx.accountMask}</span>
-                                  </>
-                                )}
-                                {tx.refId && (
-                                  <>
-                                    <span>·</span>
-                                    <span>Ref: {String(tx.refId).slice(-8)}</span>
-                                  </>
-                                )}
+                                <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
+                                <span>·</span>
+                                <span>{tx.category || 'Payment'}</span>
                               </div>
+                              {!isEditingInline && (
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
+                                  }}
+                                  style={{
+                                    marginTop: 4,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                                    border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
+                                    color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {hasNote ? `📝 ${noteText}` : '+ Add note'}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                               {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                             </div>
-                            {false && txBal !== null && (
-                              <div style={{
-                                fontSize: 10.5,
-                                fontWeight: 900,
-                                color: '#34d399',
-                                marginTop: 2,
-                                background: 'rgba(16, 185, 129, 0.12)',
-                                padding: '2px 6px',
-                                borderRadius: 6,
-                                display: 'inline-block',
-                              }}>
-                                🏦 Bal: ₹{formatINR(txBal)}
-                              </div>
-                            )}
-                            <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                              🔒 {tx.category || 'Payment'} ›
-                            </div>
                           </div>
                         </div>
 
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            padding: '7px 10px',
-                            borderRadius: 10,
-                            background: hasNote
-                              ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
-                              : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
-                            border: hasNote
-                              ? '1px solid rgba(59, 130, 246, 0.35)'
-                              : '1px dashed rgba(245, 158, 11, 0.45)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 6,
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
-                              📌 <strong>For What / Which Thing:</strong>{' '}
-                              {hasNote ? noteText : 'Not noted yet — write what you bought/paid for'}
-                            </div>
-                            {hasNote && !isEditingInline && (
-                              <button
-                                type="button"
-                                onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
-                                style={{
-                                  padding: '3px 8px',
-                                  borderRadius: 7,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: '#60a5fa',
-                                  fontSize: 10.5,
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ✏️ Edit Note
-                              </button>
-                            )}
+                        {isEditingInline && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                          >
+                            <input
+                              type="text"
+                              autoFocus
+                              value={inlineDraft}
+                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted');
+                              }}
+                              placeholder="What was this for? (e.g. Tea, Petrol, Lunch)..."
+                              style={{
+                                flex: 1,
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                border: `1px solid #3b82f6`,
+                                background: palette.surface,
+                                color: palette.text,
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                outline: 'none',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 8,
+                                border: 'none',
+                                background: '#2563eb',
+                                color: '#fff',
+                                fontWeight: 800,
+                                fontSize: 11,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInlineNoteDrafts((prev) => {
+                                  const next = { ...prev };
+                                  delete next[tx.id];
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                padding: '6px 8px',
+                                borderRadius: 8,
+                                border: `1px solid ${palette.border}`,
+                                background: palette.surface,
+                                color: palette.textMuted,
+                                fontWeight: 800,
+                                fontSize: 11,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ✕
+                            </button>
                           </div>
-                          {(!hasNote || isEditingInline) && (
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                              <input
-                                type="text"
-                                value={inlineDraft}
-                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && inlineDraft.trim()) {
-                                    handleUpdatePersonalNote(tx.id, inlineDraft);
-                                  }
-                                }}
-                                placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch)..."
-                                style={{
-                                  flex: '1 1 180px',
-                                  padding: '6px 10px',
-                                  borderRadius: 8,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.text,
-                                  fontSize: 11.5,
-                                  fontWeight: 700,
-                                  outline: 'none',
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                                style={{
-                                  padding: '6px 12px',
-                                  borderRadius: 8,
-                                  border: 'none',
-                                  background: '#2563eb',
-                                  color: '#fff',
-                                  fontWeight: 800,
-                                  fontSize: 11,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Save Note
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        )}
                       </div>
                     );
                   })}

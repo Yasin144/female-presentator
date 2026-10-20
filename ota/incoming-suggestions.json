@@ -1,5 +1,17 @@
 [
   {
+    "id": "sug_1792495237382_899r",
+    "text": "I don't like this layout ui just a worst I need new layout understandable simple dynamic not clumzee",
+    "accountEmail": "patanyasin144@gmail.com",
+    "createdAt": "2026-10-20T11:20:37.382Z",
+    "timestampMs": 1792495237382,
+    "submittedBuildId": "ota_7_9_0_1792514000",
+    "submittedVersion": "7.9.0",
+    "deliveredOnline": true,
+    "processedByAi": true,
+    "status": "completed_in_v7.9.1"
+  },
+  {
     "id": "sug_1792493684122_6efj",
     "text": "Don't show the all accounts disable the row of account and bal",
     "accountEmail": "patanyasin144@gmail.com",

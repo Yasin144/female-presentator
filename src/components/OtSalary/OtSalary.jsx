@@ -2236,9 +2236,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.9.0';
+      return localStorage.getItem('pattan.ota.version') || '7.9.1';
     } catch (_) {
-      return '7.9.0';
+      return '7.9.1';
     }
   });
 
@@ -5477,48 +5477,47 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  flexWrap: 'wrap',
                   gap: 8,
-                  padding: '8px 12px',
+                  padding: '6px 10px',
                   borderRadius: 12,
-                  background: 'rgba(16, 185, 129, 0.12)',
-                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid rgba(16, 185, 129, 0.28)',
                 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
-                    🔓 Biometric Verified · {activeAccountEmail} · Permanent Non-Deletable Ledger Active
+                  <span style={{ fontSize: 11, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    🔓 {activeAccountEmail}
                   </span>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={() => setShowChangeMobileModal(true)}
                       style={{
-                        padding: '5px 10px',
+                        padding: '4px 9px',
                         borderRadius: 8,
-                        border: '1px solid rgba(52, 211, 153, 0.5)',
-                        background: 'rgba(16, 185, 129, 0.18)',
+                        border: '1px solid rgba(52, 211, 153, 0.45)',
+                        background: 'rgba(16, 185, 129, 0.16)',
                         color: isLight ? '#047857' : '#34d399',
-                        fontWeight: 900,
-                        fontSize: 11,
+                        fontWeight: 800,
+                        fontSize: 10.5,
                         cursor: 'pointer',
                       }}
                     >
-                      📱 Change Mobile
+                      📱 Account
                     </button>
                     <button
                       type="button"
                       onClick={() => setExpensesBiometricUnlocked(false)}
                       style={{
-                        padding: '5px 10px',
+                        padding: '4px 9px',
                         borderRadius: 8,
-                        border: '1px solid rgba(239, 68, 68, 0.45)',
-                        background: 'rgba(239, 68, 68, 0.15)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                        background: 'rgba(239, 68, 68, 0.14)',
                         color: isLight ? '#b91c1c' : '#fca5a5',
                         fontWeight: 800,
-                        fontSize: 11,
+                        fontSize: 10.5,
                         cursor: 'pointer',
                       }}
                     >
-                      🔒 Lock Now
+                      🔒 Lock
                     </button>
                   </div>
                 </div>
