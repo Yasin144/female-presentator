@@ -482,7 +482,7 @@ export default function ExpensesModule({
     if (!item || typeof item !== 'object') return false;
     if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
     const t = String(item.text || '').trim();
-    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui/i.test(t)) return true;
+    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(t)) return true;
     return false;
   }, []);
 
@@ -825,28 +825,28 @@ export default function ExpensesModule({
   const palette = useMemo(() => (
     isLight
       ? {
-          bg: '#f4f7fb',
+          bg: '#f1f5f9',
           surface: '#ffffff',
           surfaceAlt: '#f8fafc',
-          border: 'rgba(15, 23, 42, 0.08)',
+          border: '#e2e8f0',
           text: '#0f172a',
-          textSub: '#475569',
+          textSub: '#334155',
           textMuted: '#64748b',
           pillBg: '#e2e8f0',
-          activeBlue: '#0284c7',
-          debit: '#ef4444',
-          credit: '#10b981',
+          activeBlue: '#2563eb',
+          debit: '#e11d48',
+          credit: '#059669',
         }
       : {
-          bg: '#060c18',
-          surface: '#0d1628',
-          surfaceAlt: '#09101f',
-          border: 'rgba(56, 189, 248, 0.16)',
+          bg: '#090d16',
+          surface: '#111827',
+          surfaceAlt: '#1e293b',
+          border: '#1e293b',
           text: '#f8fafc',
           textSub: '#cbd5e1',
           textMuted: '#94a3b8',
-          pillBg: '#132038',
-          activeBlue: '#0ea5e9',
+          pillBg: '#1e293b',
+          activeBlue: '#3b82f6',
           debit: '#fb7185',
           credit: '#34d399',
         }
@@ -2702,383 +2702,553 @@ export default function ExpensesModule({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          CLEAN, SIMPLE, DYNAMIC UNIFIED DASHBOARD (DATE + TOTALS + QUICK ACTIONS)
+          SECTION 1: SPACIOUS 2-ROW DATE & FILTER HERO CARD + 2x2 BENTO SUMMARY GRID
+          (Zero Crowded Titles — Matches Today Attendance & Salary Bento Layout!)
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
-        <div
-          className="flutter-m3-card"
-          style={{
-            padding: mobileMode ? '14px' : '16px 18px',
-            borderRadius: 20,
-            background: palette.surface,
-            border: `1px solid ${palette.border}`,
-            color: palette.text,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          {/* Hidden legacy test markers (kept disabled per user preference) */}
-          {false && (
-            <div>
-              <span>🏦 Real Bank Account Balance</span>
-              <button type="button" onClick={() => openCheckBalanceModal(null)}>🏦 Check Balance</button>
-              <span>Filter &amp; Sync by Date · Month · Year</span>
-              <span>By Day / By Date Ledger</span>
-              <span>Recent Payments (Permanent Ledger)</span>
-              <span>For What / Which Thing:</span>
-            </div>
-          )}
-
-          {/* ROW 1: Selected Date Title + Spent & Received Summary */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 950, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>📅 {periodSummary.label}</span>
-                <span style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: 'rgba(99, 102, 241, 0.14)',
-                  color: isLight ? '#4f46e5' : '#a5b4fc',
-                  fontSize: 11,
-                  fontWeight: 800,
-                }}>
-                  {periodSummary.count} {periodSummary.count === 1 ? 'Txn' : 'Txns'}
-                </span>
-              </div>
-              <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
-                Tap any date below to view that day&apos;s real transactions
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{
-                padding: '6px 11px',
-                borderRadius: 12,
-                background: 'rgba(244, 63, 94, 0.12)',
-                border: '1px solid rgba(244, 63, 94, 0.28)',
-                textAlign: 'right',
-              }}>
-                <div style={{ fontSize: 9.5, fontWeight: 800, color: '#fb7185', textTransform: 'uppercase' }}>Spent</div>
-                <div style={{ fontSize: 14, fontWeight: 950, color: '#fb7185' }}>-₹{formatINR(periodSummary.spent)}</div>
-              </div>
-              <div style={{
-                padding: '6px 11px',
-                borderRadius: 12,
-                background: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.28)',
-                textAlign: 'right',
-              }}>
-                <div style={{ fontSize: 9.5, fontWeight: 800, color: '#34d399', textTransform: 'uppercase' }}>Received</div>
-                <div style={{ fontSize: 14, fontWeight: 950, color: '#34d399' }}>+₹{formatINR(periodSummary.received)}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* ROW 2: Simple Dynamic Date Bar (Today | Yesterday | Month | All + Calendar Picker) */}
-          <div style={{
-            display: 'flex',
-            gap: 6,
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 10px',
-            borderRadius: 14,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-          }}>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-              {[
-                { id: 'today', label: `Today (${analytics.todayCount || 0})`, onClick: () => selectExactDate(todayIso) },
-                { id: 'yesterday', label: `Yesterday (${analytics.yesterdayCount || 0})`, onClick: () => selectExactDate(yesterdayIso) },
-                { id: 'month', label: `Month (${analytics.totalCount || 0})`, onClick: () => setPeriodFilterMode('month') },
-                { id: 'all', label: `All (${analytics.allTimeCount || 0})`, onClick: () => setPeriodFilterMode('all') },
-              ].map((p) => {
-                const active = periodFilterMode === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={p.onClick}
-                    style={{
-                      padding: '6px 11px',
-                      borderRadius: 999,
-                      border: active ? 'none' : `1px solid ${palette.border}`,
-                      background: active ? '#6366f1' : palette.surface,
-                      color: active ? '#ffffff' : palette.textSub,
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Compact Prev / Calendar Date Input / Next */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button
-                type="button"
-                onClick={() => shiftSelectedDateByDays(-1)}
-                style={{
-                  padding: '6px 9px',
-                  borderRadius: 9,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surface,
-                  color: palette.text,
-                  fontWeight: 900,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                }}
-                title="Previous Day"
-              >
-                ◀
-              </button>
-              <input
-                type="date"
-                value={activeTargetDateIso}
-                onChange={(e) => {
-                  if (e.target.value) selectExactDate(e.target.value);
-                }}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 9,
-                  border: `1.5px solid #6366f1`,
-                  background: palette.surface,
-                  color: palette.text,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => shiftSelectedDateByDays(1)}
-                style={{
-                  padding: '6px 9px',
-                  borderRadius: 9,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surface,
-                  color: palette.text,
-                  fontWeight: 900,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                }}
-                title="Next Day"
-              >
-                ▶
-              </button>
-            </div>
-
-            {(periodFilterMode === 'month' || periodFilterMode === 'year') && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <select
-                  value={filterMonthPart}
-                  onChange={(e) => {
-                    setFilterMonthPart(e.target.value);
-                    setPeriodFilterMode('month');
-                  }}
-                  style={{
-                    padding: '5px 7px',
-                    borderRadius: 8,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.text,
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                  }}
-                >
-                  {[
-                    { v: '01', l: 'Jan' }, { v: '02', l: 'Feb' }, { v: '03', l: 'Mar' },
-                    { v: '04', l: 'Apr' }, { v: '05', l: 'May' }, { v: '06', l: 'Jun' },
-                    { v: '07', l: 'Jul' }, { v: '08', l: 'Aug' }, { v: '09', l: 'Sep' },
-                    { v: '10', l: 'Oct' }, { v: '11', l: 'Nov' }, { v: '12', l: 'Dec' },
-                  ].map((m) => (
-                    <option key={m.v} value={m.v}>{m.l}</option>
-                  ))}
-                </select>
-                <select
-                  value={filterYearPart}
-                  onChange={(e) => {
-                    setFilterYearPart(e.target.value);
-                    if (periodFilterMode !== 'month') setPeriodFilterMode('year');
-                  }}
-                  style={{
-                    padding: '5px 7px',
-                    borderRadius: 8,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.text,
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                  }}
-                >
-                  {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                </select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div
+            className="flutter-m3-card"
+            style={{
+              padding: mobileMode ? '16px' : '18px 20px',
+              borderRadius: 20,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              color: palette.text,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              boxShadow: isLight ? '0 4px 16px rgba(15, 23, 42, 0.04)' : '0 8px 24px rgba(0, 0, 0, 0.3)',
+            }}
+          >
+            {/* Hidden legacy test markers (kept disabled per user preference) */}
+            {false && (
+              <div>
+                <span>🏦 Real Bank Account Balance</span>
+                <button type="button" onClick={() => openCheckBalanceModal(null)}>🏦 Check Balance</button>
+                <span>Filter &amp; Sync by Date · Month · Year</span>
+                <span>By Day / By Date Ledger</span>
+                <span>Recent Payments (Permanent Ledger)</span>
+                <span>For What / Which Thing:</span>
               </div>
             )}
-          </div>
 
-          {/* ROW 3: Dynamic Horizontal Date Chips (Only shown when dates exist) */}
-          {allDaysSummaryList.length > 0 && (
+            {/* HERO ROW 1: Unobstructed Period Title on Left + Compact Day Stepper on Right */}
             <div style={{
               display: 'flex',
-              gap: 6,
-              overflowX: 'auto',
-              paddingBottom: 2,
-              WebkitOverflowScrolling: 'touch',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
             }}>
-              {allDaysSummaryList.map((dayItem) => {
-                const isDaySelected =
-                  (periodFilterMode === 'today' && dayItem.date === todayIso) ||
-                  (periodFilterMode === 'yesterday' && dayItem.date === yesterdayIso) ||
-                  (periodFilterMode === 'date' && filterSpecificDate === dayItem.date);
-                const dayLabelShort = dayItem.date === todayIso
-                  ? 'Today'
-                  : dayItem.date === yesterdayIso
-                    ? 'Yesterday'
-                    : formatShortDate(dayItem.date);
-                return (
-                  <button
-                    key={dayItem.date}
-                    type="button"
-                    onClick={() => selectExactDate(dayItem.date)}
+              <div style={{ minWidth: 0, flex: '1 1 180px' }}>
+                <div style={{
+                  fontSize: 16,
+                  fontWeight: 900,
+                  color: palette.text,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                  lineHeight: 1.25,
+                }}>
+                  <span>📅 {periodSummary.label}</span>
+                  <span style={{
+                    padding: '3px 9px',
+                    borderRadius: 999,
+                    background: isLight ? '#eff6ff' : 'rgba(59, 130, 246, 0.16)',
+                    border: isLight ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.35)',
+                    color: isLight ? '#2563eb' : '#93c5fd',
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}>
+                    {periodSummary.count} {periodSummary.count === 1 ? 'Txn' : 'Txns'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 600, marginTop: 3 }}>
+                  Real-time payment ledger · Tap any date or filter below
+                </div>
+              </div>
+
+              {/* Compact Prev / Calendar Date Input / Next */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedDateByDays(-1)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 9,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                  title="Previous Day"
+                >
+                  ◀
+                </button>
+                <input
+                  type="date"
+                  value={activeTargetDateIso}
+                  onChange={(e) => {
+                    if (e.target.value) selectExactDate(e.target.value);
+                  }}
+                  style={{
+                    height: 32,
+                    padding: '0 8px',
+                    borderRadius: 9,
+                    border: `1.5px solid ${palette.activeBlue}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedDateByDays(1)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 9,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                  title="Next Day"
+                >
+                  ▶
+                </button>
+              </div>
+            </div>
+
+            {/* HERO ROW 2: Dedicated 4-Column Period Filter Bar (Today | Yesterday | Month | All) */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              paddingTop: 10,
+              borderTop: `1px solid ${palette.border}`,
+            }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gap: 6,
+              }}>
+                {[
+                  { id: 'today', label: `Today (${analytics.todayCount || 0})`, onClick: () => selectExactDate(todayIso) },
+                  { id: 'yesterday', label: `Yest (${analytics.yesterdayCount || 0})`, onClick: () => selectExactDate(yesterdayIso) },
+                  { id: 'month', label: `Month (${analytics.totalCount || 0})`, onClick: () => setPeriodFilterMode('month') },
+                  { id: 'all', label: `All (${analytics.allTimeCount || 0})`, onClick: () => setPeriodFilterMode('all') },
+                ].map((p) => {
+                  const active = periodFilterMode === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={p.onClick}
+                      style={{
+                        padding: '8px 6px',
+                        borderRadius: 10,
+                        border: active ? 'none' : `1px solid ${palette.border}`,
+                        background: active ? palette.activeBlue : palette.surfaceAlt,
+                        color: active ? '#ffffff' : palette.textSub,
+                        fontWeight: 800,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {(periodFilterMode === 'month' || periodFilterMode === 'year') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <select
+                    value={filterMonthPart}
+                    onChange={(e) => {
+                      setFilterMonthPart(e.target.value);
+                      setPeriodFilterMode('month');
+                    }}
                     style={{
-                      padding: '6px 11px',
-                      borderRadius: 999,
-                      border: isDaySelected ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                      background: isDaySelected ? 'rgba(99, 102, 241, 0.16)' : palette.surfaceAlt,
+                      flex: 1,
+                      padding: '6px 10px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surfaceAlt,
                       color: palette.text,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                      fontSize: 11.5,
+                      fontSize: 12,
                       fontWeight: 800,
                     }}
                   >
-                    <span>{dayLabelShort}</span>
-                    {dayItem.spent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINRShort(dayItem.spent)}</span>}
-                    {dayItem.received > 0 && <span style={{ color: '#34d399' }}>+₹{formatINRShort(dayItem.received)}</span>}
-                  </button>
-                );
-              })}
+                    {[
+                      { v: '01', l: 'January' }, { v: '02', l: 'February' }, { v: '03', l: 'March' },
+                      { v: '04', l: 'April' }, { v: '05', l: 'May' }, { v: '06', l: 'June' },
+                      { v: '07', l: 'July' }, { v: '08', l: 'August' }, { v: '09', l: 'September' },
+                      { v: '10', l: 'October' }, { v: '11', l: 'November' }, { v: '12', l: 'December' },
+                    ].map((m) => (
+                      <option key={m.v} value={m.v}>{m.l}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={filterYearPart}
+                    onChange={(e) => {
+                      setFilterYearPart(e.target.value);
+                      if (periodFilterMode !== 'month') setPeriodFilterMode('year');
+                    }}
+                    style={{
+                      width: 96,
+                      padding: '6px 10px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surfaceAlt,
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
-          )}
 
-          {/* ROW 4: Clean 4-Button Quick Action Row */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 8,
-          }}>
-            <button
-              type="button"
-              className="flutter-m3-action-chip"
-              onClick={() => openQuickAddModal(null, 'debit')}
-              style={{
-                padding: '9px 6px',
-                borderRadius: 12,
-                border: '1px solid rgba(244, 63, 94, 0.3)',
-                background: 'rgba(244, 63, 94, 0.1)',
-                color: '#fb7185',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
+            {/* HERO ROW 3: Dynamic Horizontal Date Chips (Only shown when dates exist) */}
+            {allDaysSummaryList.length > 0 && (
+              <div style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <span>↗️</span>
-              <span>Add Spent</span>
-            </button>
+                gap: 6,
+                overflowX: 'auto',
+                paddingBottom: 2,
+                WebkitOverflowScrolling: 'touch',
+              }}>
+                {allDaysSummaryList.map((dayItem) => {
+                  const isDaySelected =
+                    (periodFilterMode === 'today' && dayItem.date === todayIso) ||
+                    (periodFilterMode === 'yesterday' && dayItem.date === yesterdayIso) ||
+                    (periodFilterMode === 'date' && filterSpecificDate === dayItem.date);
+                  const dayLabelShort = dayItem.date === todayIso
+                    ? 'Today'
+                    : dayItem.date === yesterdayIso
+                      ? 'Yesterday'
+                      : formatShortDate(dayItem.date);
+                  return (
+                    <button
+                      key={dayItem.date}
+                      type="button"
+                      onClick={() => selectExactDate(dayItem.date)}
+                      style={{
+                        padding: '6px 11px',
+                        borderRadius: 999,
+                        border: isDaySelected ? `1.5px solid ${palette.activeBlue}` : `1px solid ${palette.border}`,
+                        background: isDaySelected
+                          ? (isLight ? '#eff6ff' : 'rgba(59, 130, 246, 0.16)')
+                          : palette.surfaceAlt,
+                        color: palette.text,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        fontSize: 11.5,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span>{dayLabelShort}</span>
+                      {dayItem.spent > 0 && <span style={{ color: palette.debit }}>-₹{formatINRShort(dayItem.spent)}</span>}
+                      {dayItem.received > 0 && <span style={{ color: palette.credit }}>+₹{formatINRShort(dayItem.received)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-            <button
-              type="button"
-              className="flutter-m3-action-chip"
-              onClick={() => openQuickAddModal(null, 'credit')}
-              style={{
-                padding: '9px 6px',
-                borderRadius: 12,
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                background: 'rgba(16, 185, 129, 0.1)',
-                color: '#34d399',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <span>↙️</span>
-              <span>Add In</span>
-            </button>
+            {/* HERO ROW 4: Clean 4-Button Quick Action Row */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gap: 8,
+            }}>
+              <button
+                type="button"
+                className="flutter-m3-action-chip"
+                onClick={() => openQuickAddModal(null, 'debit')}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: 12,
+                  border: isLight ? '1px solid #fecdd3' : '1px solid rgba(244, 63, 94, 0.3)',
+                  background: isLight ? '#fff1f2' : 'rgba(244, 63, 94, 0.1)',
+                  color: palette.debit,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>↗️</span>
+                <span>Add Spent</span>
+              </button>
 
-            <button
-              type="button"
-              className="flutter-m3-action-chip"
-              onClick={() => triggerMobileTransactionScan(3650)}
-              disabled={isScanning}
-              style={{
-                padding: '9px 6px',
-                borderRadius: 12,
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                background: 'rgba(56, 189, 248, 0.1)',
-                color: '#38bdf8',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <span>🔄</span>
-              <span>{isScanning ? 'Syncing...' : 'Sync Apps'}</span>
-            </button>
+              <button
+                type="button"
+                className="flutter-m3-action-chip"
+                onClick={() => openQuickAddModal(null, 'credit')}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: 12,
+                  border: isLight ? '1px solid #a7f3d0' : '1px solid rgba(16, 185, 129, 0.3)',
+                  background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.1)',
+                  color: palette.credit,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>↙️</span>
+                <span>Add In</span>
+              </button>
 
-            <button
-              type="button"
-              className="flutter-m3-action-chip"
-              onClick={() => setShowSuggestionModal((prev) => !prev)}
-              style={{
-                padding: '9px 6px',
-                borderRadius: 12,
-                border: '1px solid rgba(245, 158, 11, 0.4)',
-                background: showSuggestionModal ? 'rgba(245, 158, 11, 0.24)' : 'rgba(245, 158, 11, 0.12)',
-                color: isLight ? '#b45309' : '#fcd34d',
-                fontWeight: 800,
-                fontSize: 11.5,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <span>💡</span>
-              <span>Suggest</span>
-            </button>
+              <button
+                type="button"
+                className="flutter-m3-action-chip"
+                onClick={() => triggerMobileTransactionScan(3650)}
+                disabled={isScanning}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: 12,
+                  border: isLight ? '1px solid #bfdbfe' : '1px solid rgba(56, 189, 248, 0.3)',
+                  background: isLight ? '#eff6ff' : 'rgba(56, 189, 248, 0.1)',
+                  color: palette.activeBlue,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>🔄</span>
+                <span>{isScanning ? 'Syncing...' : 'Sync Apps'}</span>
+              </button>
+
+              <button
+                type="button"
+                className="flutter-m3-action-chip"
+                onClick={() => setShowSuggestionModal((prev) => !prev)}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: 12,
+                  border: isLight ? '1px solid #fde68a' : '1px solid rgba(245, 158, 11, 0.4)',
+                  background: showSuggestionModal
+                    ? 'rgba(245, 158, 11, 0.24)'
+                    : (isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.12)'),
+                  color: isLight ? '#b45309' : '#fcd34d',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>💡</span>
+                <span>Suggest</span>
+              </button>
+            </div>
+
+            <input
+              ref={statementFileInputRef}
+              type="file"
+              accept=".csv,.txt,.json"
+              onChange={handleImportPaymentAppFile}
+              style={{ display: 'none' }}
+            />
           </div>
 
-          <input
-            ref={statementFileInputRef}
-            type="file"
-            accept=".csv,.txt,.json"
-            onChange={handleImportPaymentAppFile}
-            style={{ display: 'none' }}
-          />
+          {/* ═══════════════════════════════════════════════════════════════════════
+              SECTION 2: CLEAN 2x2 BENTO SUMMARY GRID (Matches Today Attendance Grid!)
+             ═══════════════════════════════════════════════════════════════════════ */}
+          {subTab === 'overview' && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 10,
+            }}>
+              {/* Tile 1: Period Spent */}
+              <div style={{
+                padding: '14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                boxShadow: isLight ? '0 2px 10px rgba(15, 23, 42, 0.03)' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Spent · {periodFilterMode === 'today' ? 'Today' : periodFilterMode === 'yesterday' ? 'Yesterday' : 'Selected'}
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: '2px 7px',
+                    borderRadius: 999,
+                    background: isLight ? '#fff1f2' : 'rgba(244, 63, 94, 0.15)',
+                    color: palette.debit,
+                  }}>
+                    Debit
+                  </span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: palette.debit, letterSpacing: '-0.02em' }}>
+                  -₹{formatINR(periodSummary.spent)}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                  {periodSummary.label}
+                </div>
+              </div>
+
+              {/* Tile 2: Period Received */}
+              <div style={{
+                padding: '14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                boxShadow: isLight ? '0 2px 10px rgba(15, 23, 42, 0.03)' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Received · In
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: '2px 7px',
+                    borderRadius: 999,
+                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.15)',
+                    color: palette.credit,
+                  }}>
+                    Credit
+                  </span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: palette.credit, letterSpacing: '-0.02em' }}>
+                  +₹{formatINR(periodSummary.received)}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                  Last Day Spent: ₹{formatINRShort(analytics.yesterdaySpent || 0)}
+                </div>
+              </div>
+
+              {/* Tile 3: Total Spent (This Month) */}
+              <div style={{
+                padding: '14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                boxShadow: isLight ? '0 2px 10px rgba(15, 23, 42, 0.03)' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Spent (This Month)
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: '2px 7px',
+                    borderRadius: 999,
+                    background: isLight ? '#eff6ff' : 'rgba(59, 130, 246, 0.15)',
+                    color: palette.activeBlue,
+                  }}>
+                    {analytics.totalCount} Txns
+                  </span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: palette.text, letterSpacing: '-0.02em' }}>
+                  ₹{formatINR(analytics.netSpending)}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                  Month {selectedMonth} Ledger
+                </div>
+              </div>
+
+              {/* Tile 4: Salary Left After Expenses */}
+              <div style={{
+                padding: '14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                boxShadow: isLight ? '0 2px 10px rgba(15, 23, 42, 0.03)' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Salary Left
+                  </span>
+                  {typeof onToggleSalaryVisibility === 'function' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSalaryVisibility();
+                      }}
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.text,
+                        fontSize: 10.5,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {salaryVisible ? '🙈' : '👁️'}
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: palette.credit, letterSpacing: '-0.02em' }}>
+                  {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                  After month expenses
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -3567,63 +3737,41 @@ export default function ExpensesModule({
             )}
           </div>
 
-          {/* Compact Flutter M3 Month & Salary Summary Card */}
+          {/* Clean 4-Category Bento Strip */}
           <div
             className="flutter-m3-card"
             style={{
-              padding: mobileMode ? '14px' : '16px 18px',
+              padding: '12px 14px',
               borderRadius: 18,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
               color: palette.text,
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
+              flexDirection: 'column',
+              gap: 8,
             }}
           >
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Total Spent (This Month)
-              </div>
-              <div style={{ fontSize: mobileMode ? 22 : 26, fontWeight: 900, marginTop: 2, color: palette.text }}>
-                ₹{formatINR(analytics.netSpending)}
-              </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: palette.textSub, marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span>{analytics.totalCount} Month Txns</span>
-                <span>·</span>
-                <span>Last Day: ₹{formatINRShort(analytics.yesterdaySpent || 0)}</span>
-                <span>·</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ color: '#10b981' }}>Salary Left: {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}</span>
-                  {typeof onToggleSalaryVisibility === 'function' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleSalaryVisibility();
-                      }}
-                      style={{
-                        padding: '2px 7px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.text,
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {salaryVisible ? '🙈' : '👁️'}
-                    </button>
-                  )}
-                </span>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Spend by Category
+              </span>
+              <button
+                type="button"
+                onClick={() => setSubTab('insights')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: palette.activeBlue,
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                View Insights ›
+              </button>
             </div>
-
-            {/* 4 Category Pills */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
               {screen7CategoryCards.map((cat) => (
                 <button
                   key={cat.label}
@@ -3633,17 +3781,21 @@ export default function ExpensesModule({
                     setSubTab('transactions');
                   }}
                   style={{
-                    padding: '6px 10px',
+                    padding: '8px 10px',
                     borderRadius: 10,
                     background: palette.surfaceAlt,
                     border: `1px solid ${palette.border}`,
                     color: palette.textSub,
-                    fontSize: 11,
-                    fontWeight: 700,
+                    fontSize: 11.5,
+                    fontWeight: 800,
                     cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
-                  {cat.label}: ₹{formatINRShort(cat.amount)}
+                  <span>{cat.label}</span>
+                  <span style={{ color: palette.text, fontWeight: 900 }}>₹{formatINRShort(cat.amount)}</span>
                 </button>
               ))}
             </div>

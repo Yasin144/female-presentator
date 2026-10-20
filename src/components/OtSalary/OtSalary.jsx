@@ -2238,9 +2238,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.0.0';
+      return localStorage.getItem('pattan.ota.version') || '8.1.0';
     } catch (_) {
-      return '8.0.0';
+      return '8.1.0';
     }
   });
 
@@ -4357,207 +4357,299 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       <div style={{ maxWidth: 500, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* V8.0 ULTRA-CLEAN MODERN WORKSPACE HEADER */}
+        {/* V8.1 SPACIOUS 2-ROW MODERN WORKSPACE HEADER (NO CROWDED TITLES) */}
         <div
           className="ot-no-print"
           style={{
-            padding: '10px 14px',
-            borderRadius: 20,
+            padding: '14px 16px',
+            borderRadius: 22,
             background: ui.cardBg,
             border: `1px solid ${ui.border}`,
             boxShadow: ui.shadow,
             color: ui.textPrimary,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
+            flexDirection: 'column',
+            gap: 12,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-            {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
+          {/* Header Row 1: Avatar + Full Unobstructed Title + Right Icon Buttons */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, flex: 1 }}>
+              {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const res = goBackStep();
+                    if (res !== 'handled' && onClose) onClose();
+                  }}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 15,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                  title="Go Back"
+                >
+                  ←
+                </button>
+              )}
+
+              <div
+                onClick={() => setShowSplash(true)}
+                title="Tap to view Workspace Info"
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 14,
+                  background: isLight ? '#eff6ff' : 'rgba(37, 99, 235, 0.2)',
+                  border: isLight ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#2563eb',
+                  fontWeight: 900,
+                  fontSize: 15,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                {isEmailLinked ? getEmployeeInitials(settings.employeeName) : '₹'}
+              </div>
+
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                  fontSize: 16,
+                  fontWeight: 900,
+                  color: ui.textPrimary,
+                  lineHeight: 1.25,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {isEmailLinked ? normalizeEmployeeName(settings.employeeName) : 'Salary & Expense Workspace'}
+                </div>
+                <div style={{
+                  fontSize: 11.5,
+                  color: ui.textSecondary,
+                  fontWeight: 600,
+                  marginTop: 2,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {mobileTab === 'today'
+                    ? 'Today Attendance & Salary'
+                    : mobileTab === 'expenses'
+                      ? 'Expense Memory & Passbook'
+                      : mobileTab === 'month'
+                        ? 'Monthly Attendance Sheet'
+                        : mobileTab === 'summary'
+                          ? 'Monthly Salary Slip'
+                          : 'Shift Rules & Account Sync'}{' '}
+                  · v{liveOtaVersion}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <button
                 type="button"
-                onClick={() => {
-                  const res = goBackStep();
-                  if (res !== 'handled' && onClose) onClose();
-                }}
+                onClick={() => setShowNotificationsModal(true)}
+                title="Notifications & Activity Center"
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
                   border: `1px solid ${ui.border}`,
                   background: ui.cardSubBg,
                   color: ui.textPrimary,
-                  fontWeight: 800,
                   fontSize: 14,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  flexShrink: 0,
                 }}
-                title="Go Back"
               >
-                ←
+                🔔
               </button>
-            )}
 
-            <div
-              onClick={() => setShowChangeMobileModal(true)}
-              title="Account & Sync"
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
-                background: isLight ? '#eff6ff' : 'rgba(37, 99, 235, 0.2)',
-                border: isLight ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#2563eb',
-                fontWeight: 900,
-                fontSize: 13,
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              {isEmailLinked ? getEmployeeInitials(settings.employeeName) : '₹'}
-            </div>
-
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{
-                fontSize: 14,
-                fontWeight: 800,
-                color: ui.textPrimary,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}>
-                {isEmailLinked ? normalizeEmployeeName(settings.employeeName) : 'My Workspace'}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(e) => {
-                    if (e.target.value) setSelectedMonth(e.target.value);
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    padding: 0,
-                    color: '#2563eb',
-                    fontWeight: 700,
-                    fontSize: 11.5,
-                    cursor: 'pointer',
-                    outline: 'none',
-                    width: 102,
-                  }}
-                />
-                <span style={{ fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  v{liveOtaVersion}
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={toggleThemeMode}
+                title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {isLight ? '🌙' : '☀️'}
+              </button>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => setShowGlobalSuggestionModal(true)}
-              title="Drop a Suggestion or Request a New Feature"
-              style={{
-                height: 32,
-                padding: '0 10px',
-                borderRadius: 999,
-                border: isLight ? '1px solid #fde68a' : '1px solid rgba(245, 158, 11, 0.4)',
-                background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
-                color: isLight ? '#b45309' : '#fcd34d',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span>💡</span>
-              <span>Suggest</span>
-            </button>
+          {/* Header Row 2: Dedicated Month Picker & Action Pills (Zero Title Overlap!) */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            paddingTop: 10,
+            borderTop: `1px solid ${ui.border}`,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '5px 10px',
+              borderRadius: 10,
+              background: ui.cardSubBg,
+              border: `1px solid ${ui.border}`,
+            }}>
+              <span style={{ fontSize: 12 }}>📅</span>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => {
+                  if (e.target.value) setSelectedMonth(e.target.value);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  color: '#2563eb',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  outline: 'none',
+                  width: 108,
+                }}
+              />
+            </div>
 
-            <button
-              type="button"
-              onClick={() => checkAndApplyLiveOtaUpdate(true)}
-              disabled={otaBusy}
-              title={
-                availableOtaUpdate
-                  ? `New Update v${availableOtaUpdate.version} Available`
-                  : `Check Live Update (v${liveOtaVersion})`
-              }
-              style={{
-                height: 32,
-                padding: '0 10px',
-                borderRadius: 999,
-                border: availableOtaUpdate
-                  ? 'none'
-                  : `1px solid ${ui.border}`,
-                background: availableOtaUpdate
-                  ? '#2563eb'
-                  : ui.cardSubBg,
-                color: availableOtaUpdate ? '#ffffff' : ui.textPrimary,
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: otaBusy ? 'wait' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span>{otaBusy ? '⏳' : availableOtaUpdate ? '🚀' : '🔄'}</span>
-              <span>{otaBusy ? '...' : availableOtaUpdate ? `v${availableOtaUpdate.version}` : 'Update'}</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {workspaceSection === 'expenses' && expensesBiometricUnlocked && (
+                <button
+                  type="button"
+                  onClick={() => setExpensesBiometricUnlocked(false)}
+                  title="Lock Private Expense Vault"
+                  style={{
+                    height: 32,
+                    padding: '0 10px',
+                    borderRadius: 10,
+                    border: isLight ? '1px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
+                    background: isLight ? '#fef2f2' : 'rgba(239, 68, 68, 0.14)',
+                    color: isLight ? '#dc2626' : '#fca5a5',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <span>🔒</span>
+                  <span>Lock</span>
+                </button>
+              )}
 
-            <button
-              type="button"
-              onClick={() => setShowNotificationsModal(true)}
-              title="Notifications"
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 999,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              🔔
-            </button>
+              <button
+                type="button"
+                onClick={() => setShowChangeMobileModal(true)}
+                title="Account & Mobile Sync"
+                style={{
+                  height: 32,
+                  padding: '0 11px',
+                  borderRadius: 10,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>📱</span>
+                <span>Sync</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={toggleThemeMode}
-              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 999,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {isLight ? '🌙' : '☀️'}
-            </button>
+              <button
+                type="button"
+                onClick={() => setShowGlobalSuggestionModal(true)}
+                title="Drop a Suggestion or Request a New Feature"
+                style={{
+                  height: 32,
+                  padding: '0 11px',
+                  borderRadius: 10,
+                  border: isLight ? '1px solid #fde68a' : '1px solid rgba(245, 158, 11, 0.4)',
+                  background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
+                  color: isLight ? '#b45309' : '#fcd34d',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>💡</span>
+                <span>Suggest</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                disabled={otaBusy}
+                title={
+                  availableOtaUpdate
+                    ? `New Update v${availableOtaUpdate.version} Available`
+                    : `Check Live Update (v${liveOtaVersion})`
+                }
+                style={{
+                  height: 32,
+                  padding: '0 11px',
+                  borderRadius: 10,
+                  border: availableOtaUpdate ? 'none' : `1px solid ${ui.border}`,
+                  background: availableOtaUpdate ? '#2563eb' : ui.cardSubBg,
+                  color: availableOtaUpdate ? '#ffffff' : ui.textPrimary,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: otaBusy ? 'wait' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>{otaBusy ? '⏳' : availableOtaUpdate ? '🚀' : '🔄'}</span>
+                <span>{otaBusy ? 'Updating' : availableOtaUpdate ? `Update v${availableOtaUpdate.version}` : 'Update'}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -5364,55 +5456,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 10px',
-                  borderRadius: 12,
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  border: '1px solid rgba(16, 185, 129, 0.28)',
-                }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    🔓 {activeAccountEmail}
-                  </span>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowChangeMobileModal(true)}
-                      style={{
-                        padding: '4px 9px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(52, 211, 153, 0.45)',
-                        background: 'rgba(16, 185, 129, 0.16)',
-                        color: isLight ? '#047857' : '#34d399',
-                        fontWeight: 800,
-                        fontSize: 10.5,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      📱 Account
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setExpensesBiometricUnlocked(false)}
-                      style={{
-                        padding: '4px 9px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(239, 68, 68, 0.4)',
-                        background: 'rgba(239, 68, 68, 0.14)',
-                        color: isLight ? '#b91c1c' : '#fca5a5',
-                        fontWeight: 800,
-                        fontSize: 10.5,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      🔒 Lock
-                    </button>
-                  </div>
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <ExpensesModule
                   expensesMap={expensesMap}
                   onUpdateExpenses={handleUpdateExpenses}
@@ -7745,6 +7789,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <div style={{ fontSize: 14, fontWeight: 900, color: ui.textPrimary, marginBottom: 4 }}>
                 App &amp; Data
               </div>
+
+              {workspaceSection === 'expenses' && expensesBiometricUnlocked && (
+                <button
+                  type="button"
+                  onClick={() => setExpensesBiometricUnlocked(false)}
+                  title="Lock Private Expense Vault"
+                  style={{
+                    height: 32,
+                    padding: '0 10px',
+                    borderRadius: 10,
+                    border: isLight ? '1px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
+                    background: isLight ? '#fef2f2' : 'rgba(239, 68, 68, 0.14)',
+                    color: isLight ? '#dc2626' : '#fca5a5',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <span>🔒</span>
+                  <span>Lock</span>
+                </button>
+              )}
 
               <button
                 type="button"

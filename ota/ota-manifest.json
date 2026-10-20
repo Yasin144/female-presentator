@@ -1,8 +1,8 @@
 {
-  "version": "8.0.0",
+  "version": "8.1.0",
   "cssFile": "app-bundle.css",
-  "buildId": "ota_8_0_0_1792517045",
-  "notes": "v8.0.0: Complete Ground-Up UI & Layout Redesign — Crisp Light-First Bento Workspace, Top-Priority Today Punch Hero, 2x2 Summary Bento Grid, Floating Pill Navigation Dock, and Clean Segmented Passbook.",
+  "buildId": "ota_8_1_0_1792518200",
+  "notes": "v8.1.0: Spacious 2-Row Workspace Top Header (Zero Crowded Titles) + Matching 2-Row Date Hero & 2x2 Bento Summary Grid in Expenses Module.",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-20T11:54:05Z"
+  "updatedAt": "2026-10-20T12:09:00Z"
 }
