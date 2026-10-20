@@ -1,5 +1,14 @@
 [
   {
+    "id": "sug_1792491760449_zx2m",
+    "text": "The notification should only speak when my time is done but it is speaking whenever I open the app and whenever the new update is ready it should get through the notification but not when I open the app",
+    "accountEmail": "patanyasin144@gmail.com",
+    "createdAt": "2026-10-20T10:22:40.449Z",
+    "timestampMs": 1792491760449,
+    "status": "completed_in_v7.8.8",
+    "processedByAi": true
+  },
+  {
     "id": "sug_1792490317255_221a",
     "text": "Never show cred",
     "accountEmail": "patanyasin144@gmail.com",

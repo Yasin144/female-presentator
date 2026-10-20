@@ -1,8 +1,8 @@
 {
-  "version": "7.8.7",
-  "buildId": "ota_7_8_7_1792491425",
-  "releasedAt": "2026-10-20T10:17:05Z",
+  "version": "7.8.8",
+  "buildId": "ota_7_8_8_1792492175",
+  "releasedAt": "2026-10-20T10:29:35Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v7.8.7 Live OTA (Implemented your suggestion 'Never show cred'): Permanently stripped 'CRED' from all bank account pills, balances, and transactions (fixed bug where bank SMS containing 'credited' was mislabeled as CRED), and upgraded the live AI suggestion listener with automatic reactive wakeup."
+  "notes": "v7.8.8 Live OTA: Fixed voice notification so 'Your time is completed' ONLY speaks at the exact moment your office shift time finishes (never when opening the app), and new OTA updates notify cleanly via notification banner without speaking on app open."
 }

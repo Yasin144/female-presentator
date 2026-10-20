@@ -532,21 +532,9 @@ export default function ExpensesModule({
       setSuggestionSubmitting(false);
       setScanStatus(
         deliveredOnline
-          ? '🚀 Suggestion sent to AI Developer! Work has started — you will get a spoken New Update Notification as soon as it is ready.'
-          : '✅ Suggestion saved & queued for AI Developer! You will receive a spoken New Update Notification when the update is pushed.'
+          ? '🚀 Suggestion sent to AI Developer! Work has started — you will get an Update Notification as soon as it is ready.'
+          : '✅ Suggestion saved & queued for AI Developer! You will receive an Update Notification when the update is pushed.'
       );
-
-      try {
-        if (typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
-          window.speechSynthesis.cancel();
-          const u = new window.SpeechSynthesisUtterance(
-            'Your suggestion has been sent. You will receive a voice update notification when the new feature update is ready.'
-          );
-          u.lang = 'en-IN';
-          u.rate = 1.0;
-          window.speechSynthesis.speak(u);
-        }
-      } catch (_) {}
     },
     [suggestionInputText, activeAccountEmail, submittedSuggestionsList]
   );
@@ -3009,7 +2997,7 @@ export default function ExpensesModule({
                     • {item.text}
                   </span>
                   <span style={{ color: '#34d399', fontWeight: 800, fontSize: 10, flexShrink: 0 }}>
-                    {/never show cred/i.test(String(item.text || '')) ? '✅ Done in v7.8.7' : '✓ Sent to AI'}
+                    {/never show cred|only speak when my time is done/i.test(String(item.text || '')) ? '✅ Done in v7.8.8' : '✓ Sent to AI'}
                   </span>
                 </div>
               ))}

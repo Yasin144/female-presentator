@@ -2236,9 +2236,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.7';
+      return localStorage.getItem('pattan.ota.version') || '7.8.8';
     } catch (_) {
-      return '7.8.7';
+      return '7.8.8';
     }
   });
 
@@ -2285,65 +2285,47 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       setGlobalSuggestionSending(false);
       setGlobalSuggestionInput('');
       setShowGlobalSuggestionModal(false);
-      setSaveNotice('🚀 Sent to AI Developer! You will get a spoken New Update Notification when ready.');
-      try {
-        if (typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
-          window.speechSynthesis.cancel();
-          const u = new window.SpeechSynthesisUtterance(
-            'Suggestion sent to AI developer. You will receive a spoken update notification as soon as the new update is ready.'
-          );
-          u.lang = 'en-IN';
-          u.rate = 1.0;
-          window.speechSynthesis.speak(u);
-        }
-      } catch (_) {}
+      setSaveNotice('🚀 Sent to AI Developer! You will get an Update Notification when ready.');
     },
     [globalSuggestionInput, liveOtaVersion]
   );
 
-  // Speak out loud + play chime + trigger Android system notification whenever a new OTA update is available
-  const speakOtaUpdateNotification = useCallback((versionStr = '7.8.5', notesStr = '', mode = 'available') => {
-    const cleanVer = String(versionStr || '7.8.5').trim();
-    const spokenMessage =
+  // Show visual notification + subtle chime when a new OTA update becomes ready (NEVER speaks "Your time is completed" and NEVER speaks on app open!)
+  const speakOtaUpdateNotification = useCallback((versionStr = '7.8.8', notesStr = '', mode = 'available') => {
+    const cleanVer = String(versionStr || '7.8.8').trim();
+    const notifTitle =
+      mode === 'applying'
+        ? `🔄 Installing Update v${cleanVer}...`
+        : `🚀 New Update v${cleanVer} Ready`;
+    const notifBody =
       mode === 'applying'
         ? `Updating app to version ${cleanVer}. Your real transactions and attendance are safe.`
-        : `New update version ${cleanVer} is available. ${notesStr ? notesStr : 'Please tap Update Now to get the latest features.'}`;
-    const notifTitle = `🚀 New Update v${cleanVer} Available`;
-    const notifBody = spokenMessage;
+        : notesStr
+          ? String(notesStr)
+          : `Tap Update Now to install v${cleanVer}.`;
 
     playBiometricBeep('in');
-    triggerBiometricHaptic(140);
+    triggerBiometricHaptic(90);
+    setSaveNotice(`${notifTitle} — Tap Update Now`);
 
     if (typeof window !== 'undefined') {
+      // IMPORTANT: Do NOT call nativeBridge.triggerOfficeEndOtStartNotification here because that native alarm method speaks "Your time is completed"!
       try {
-        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
-        if (nativeBridge && typeof nativeBridge.triggerOfficeEndOtStartNotification === 'function') {
-          nativeBridge.triggerOfficeEndOtStartNotification(notifTitle, notifBody);
-        }
-      } catch (_) {}
-
-      try {
-        if (typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
-          window.speechSynthesis.cancel();
-          const utter = new window.SpeechSynthesisUtterance(spokenMessage);
-          utter.lang = 'en-IN';
-          utter.rate = 0.98;
-          utter.pitch = 1.0;
-          utter.volume = 1.0;
-          window.speechSynthesis.speak(utter);
-        }
-      } catch (_) {}
-
-      try {
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification(notifTitle, { body: notifBody });
+        if (typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            new Notification(notifTitle, { body: notifBody });
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then((perm) => {
+              if (perm === 'granted') new Notification(notifTitle, { body: notifBody });
+            }).catch(() => {});
+          }
         }
       } catch (_) {}
     }
   }, []);
 
-  // Proactively check GitHub OTA manifest and NEVER stay silent when an update is available
-  const checkOtaUpdateAvailability = useCallback(async () => {
+  // Check GitHub OTA manifest in background; only fire notification when a new update becomes ready (not when simply opening the app)
+  const checkOtaUpdateAvailability = useCallback(async (isBackgroundCheck = false) => {
     if (otaBusy) return null;
     try {
       const ts = Date.now();
@@ -2382,7 +2364,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
 
       const remoteBuildId = String(manifest.buildId || '').trim();
-      const remoteVersion = String(manifest.version || '7.8.5').trim();
+      const remoteVersion = String(manifest.version || '7.8.8').trim();
       const hasNewBuild =
         Boolean(remoteBuildId) &&
         (String(remoteBuildId) !== String(currentBuildId) ||
@@ -2391,7 +2373,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       if (hasNewBuild) {
         const updateNotes = String(
           manifest.notes ||
-            'Real transaction data across all payment apps, exact date passbook & voice update notifications are ready.'
+            'New features and fixes are ready to install.'
         );
         const updateInfo = {
           version: remoteVersion,
@@ -2402,8 +2384,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           cssFile: manifest.cssFile || 'app-bundle.css',
         };
         setAvailableOtaUpdate(updateInfo);
-        if (lastNotifiedOtaBuildRef.current !== remoteBuildId) {
+        let previouslyNotifiedBuildId = '';
+        try {
+          previouslyNotifiedBuildId = localStorage.getItem('pattan.ota.lastNotifiedBuildId') || '';
+        } catch (_) {}
+        if (
+          isBackgroundCheck &&
+          lastNotifiedOtaBuildRef.current !== remoteBuildId &&
+          previouslyNotifiedBuildId !== remoteBuildId
+        ) {
           lastNotifiedOtaBuildRef.current = remoteBuildId;
+          try {
+            localStorage.setItem('pattan.ota.lastNotifiedBuildId', remoteBuildId);
+          } catch (_) {}
           setOtaPromptDismissedBuildId('');
           speakOtaUpdateNotification(remoteVersion, updateNotes, 'available');
         }
@@ -2556,19 +2549,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [otaBusy, liveOtaVersion, speakOtaUpdateNotification]);
 
-  // Continuously poll for new OTA updates in the background (startup + every 12s + focus) and ASK user to update
+  // Continuously poll for new OTA updates in the background (silent on app open/focus; triggers notification only when a new update becomes ready)
   useEffect(() => {
     const startupTimer = setTimeout(() => {
-      checkOtaUpdateAvailability();
-    }, 1200);
+      checkOtaUpdateAvailability(false);
+    }, 1500);
     const pollInterval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        checkOtaUpdateAvailability();
+        checkOtaUpdateAvailability(true);
       }
     }, 12000);
     const onFocusOrVisible = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        checkOtaUpdateAvailability();
+        checkOtaUpdateAvailability(false);
       }
     };
     window.addEventListener('focus', onFocusOrVisible);
@@ -3648,7 +3641,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [settings.officeEndTime, settings.officeStartTime, settings.otTimeCalcMode, settings.employeeName, daysMap, rates.shiftMins]);
 
+  const prevOfficeCheckClockMinsRef = useRef(-1);
+  const appMountedAtMsRef = useRef(Date.now());
   useEffect(() => {
+    const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
+    const prevMins = prevOfficeCheckClockMinsRef.current;
+    prevOfficeCheckClockMinsRef.current = nowMins;
+    if (nowMins < 0) return;
+
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso];
     if (!todayRec?.inTime) return; // Only notify if user has punched IN today
@@ -3663,8 +3663,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
     }
 
-    const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
-    if (nowMins < 0) return;
+    // Never speak "Your time is completed" simply because the user opened the app!
+    // Only trigger when the clock transitions across targetEndMins live (prevMins < targetEndMins && nowMins >= targetEndMins)
+    if (Date.now() - appMountedAtMsRef.current < 10000) return;
+    if (prevMins < 0 || prevMins >= targetEndMins) return;
 
     if (nowMins >= targetEndMins && targetEndMins < 1440) {
       let alreadyNotifiedDate = '';
