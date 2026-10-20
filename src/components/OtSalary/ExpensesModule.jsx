@@ -482,7 +482,7 @@ export default function ExpensesModule({
     if (!item || typeof item !== 'object') return false;
     if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
     const t = String(item.text || '').trim();
-    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable/i.test(t)) return true;
+    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui/i.test(t)) return true;
     return false;
   }, []);
 
@@ -2422,22 +2422,22 @@ export default function ExpensesModule({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text, overflowAnchor: 'none' }}>
-      {/* Flutter Material 3 Segmented Sub-Navigation Bar */}
+      {/* V8.0 Clean Pill Segmented Sub-Navigation Bar */}
       <div style={{
         display: 'flex',
         gap: 6,
         overflowX: 'auto',
-        padding: '4px',
-        borderRadius: 14,
-        background: isLight ? '#f1f5f9' : '#111827',
+        padding: '5px',
+        borderRadius: 16,
+        background: isLight ? '#ffffff' : '#111827',
         border: `1px solid ${palette.border}`,
       }}>
         {[
-          { id: 'overview', label: '🏠 Overview' },
-          { id: 'transactions', label: `📜 Passbook (${analytics.allTimeCount || analytics.totalCount || 0})` },
-          { id: 'insights', label: '📊 Insights' },
-          { id: 'missing-notes', label: `📝 Notes (${analytics.missingNotesCount})` },
-          { id: 'settings', label: '⚙️ Sync & CSV' },
+          { id: 'overview', label: 'Overview' },
+          { id: 'transactions', label: `Passbook (${analytics.allTimeCount || analytics.totalCount || 0})` },
+          { id: 'insights', label: 'Insights' },
+          { id: 'missing-notes', label: `Notes (${analytics.missingNotesCount})` },
+          { id: 'settings', label: 'Sync & CSV' },
         ].map((tab) => {
           const active = subTab === tab.id;
           return (
@@ -2447,18 +2447,17 @@ export default function ExpensesModule({
               onClick={() => setSubTab(tab.id)}
               style={{
                 flex: '1 0 auto',
-                padding: '8px 13px',
-                borderRadius: 10,
-                border: active ? '1px solid rgba(99, 102, 241, 0.45)' : '1px solid transparent',
+                padding: '7px 12px',
+                borderRadius: 12,
+                border: 'none',
                 background: active
-                  ? 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)'
+                  ? '#2563eb'
                   : 'transparent',
                 color: active ? '#ffffff' : palette.textMuted,
                 fontWeight: 800,
                 fontSize: 12,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: active ? '0 4px 12px rgba(99, 102, 241, 0.28)' : 'none',
               }}
             >
               {tab.label}
