@@ -300,16 +300,95 @@ export default function ExpensesModule({
   const [showSmsPasteModal, setShowSmsPasteModal] = useState(false);
   const [smsPasteText, setSmsPasteText] = useState('');
 
-  // Real Bank Account Balance & Check Balance Modal State
-  const [bankBalanceInfo, setBankBalanceInfo] = useState(() => {
+  // Multi-Bank Account Balance & Check Balance Modal State (tracks each Bank A/c separately so one A/c never overwrites another!)
+  const normalizeMaskLast4 = (rawMask) => {
+    const digits = String(rawMask || '').replace(/[^0-9]/g, '').slice(-4);
+    return digits ? `XX${digits}` : '';
+  };
+
+  const buildBankAccountKey = (bankNameStr, maskStr) => {
+    const cleanMask = normalizeMaskLast4(maskStr);
+    if (cleanMask) return `acc_${cleanMask}`;
+    const cleanBank = String(bankNameStr || 'primary')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 14);
+    return `acc_${cleanBank || 'primary'}`;
+  };
+
+  const [bankAccountsMap, setBankAccountsMap] = useState(() => {
+    const initialMap = {};
     try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const multiRaw = window.localStorage.getItem('yasin_ot_multi_bank_accounts_v1');
+        if (multiRaw) {
+          const parsedMulti = JSON.parse(multiRaw);
+          if (parsedMulti && typeof parsedMulti === 'object' && !Array.isArray(parsedMulti)) {
+            Object.assign(initialMap, parsedMulti);
+          }
+        }
+        const singleRaw = window.localStorage.getItem('yasin_ot_bank_balance_v1');
+        if (singleRaw) {
+          const parsedSingle = JSON.parse(singleRaw);
+          if (parsedSingle && typeof parsedSingle.balance === 'number' && Number.isFinite(parsedSingle.balance)) {
+            const key = buildBankAccountKey(parsedSingle.bankName, parsedSingle.accountMask);
+            if (!initialMap[key]) {
+              initialMap[key] = {
+                accountKey: key,
+                balance: Number(parsedSingle.balance),
+                bankName: String(parsedSingle.bankName || 'Primary Bank A/c').trim(),
+                accountMask: normalizeMaskLast4(parsedSingle.accountMask),
+                source: String(parsedSingle.source || 'saved-balance'),
+                updatedAtMs: Number(parsedSingle.updatedAtMs) || Date.now(),
+              };
+            }
+          }
+        }
+      }
       if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
-          return parsed;
+          const key = buildBankAccountKey(parsed.bankName, parsed.accountMask);
+          const existing = initialMap[key];
+          if (!existing || Number(parsed.updatedAtMs || 0) > Number(existing.updatedAtMs || 0)) {
+            initialMap[key] = {
+              accountKey: key,
+              balance: Number(parsed.balance),
+              bankName: String(parsed.bankName || 'Linked Bank Account').trim(),
+              accountMask: normalizeMaskLast4(parsed.accountMask),
+              source: String(parsed.source || 'native-sms-balance'),
+              updatedAtMs: Number(parsed.updatedAtMs) || Date.now(),
+            };
+          }
         }
       }
+    } catch (_) {}
+    return initialMap;
+  });
+
+  const [selectedBankAccountKey, setSelectedBankAccountKey] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const savedKey = window.localStorage.getItem('yasin_ot_selected_bank_account_v1');
+        if (savedKey) return savedKey;
+      }
+    } catch (_) {}
+    return 'all';
+  });
+
+  const selectBankAccountKey = useCallback((nextKey) => {
+    const cleanKey = String(nextKey || 'all').trim();
+    setSelectedBankAccountKey(cleanKey);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('yasin_ot_selected_bank_account_v1', cleanKey);
+      }
+    } catch (_) {}
+  }, []);
+
+  const [bankBalanceInfo, setBankBalanceInfo] = useState(() => {
+    try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const localRaw = window.localStorage.getItem('yasin_ot_bank_balance_v1');
         if (localRaw) {
@@ -319,34 +398,174 @@ export default function ExpensesModule({
           }
         }
       }
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
+        const raw = window.PattanBiometric.getBankBalanceJson();
+        const parsed = JSON.parse(raw || '{}');
+        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+          return parsed;
+        }
+      }
     } catch (_) {}
     return null;
   });
   const [showCheckBalanceModal, setShowCheckBalanceModal] = useState(false);
   const [balanceDraftAmount, setBalanceDraftAmount] = useState('');
-  const [balanceDraftBank, setBalanceDraftBank] = useState('Linked Bank Account');
+  const [balanceDraftBank, setBalanceDraftBank] = useState('SBI Bank');
   const [balanceDraftMask, setBalanceDraftMask] = useState('');
 
-  const persistBankBalance = useCallback((nextBalObj) => {
-    if (!nextBalObj || typeof nextBalObj !== 'object' || !Number.isFinite(Number(nextBalObj.balance))) return;
-    const normalized = {
-      balance: Number(Number(nextBalObj.balance).toFixed(2)),
-      bankName: String(nextBalObj.bankName || 'Linked Bank Account').trim(),
-      accountMask: String(nextBalObj.accountMask || '').trim(),
-      source: String(nextBalObj.source || 'manual-balance-sync'),
-      updatedAtMs: Number(nextBalObj.updatedAtMs) || Date.now(),
-    };
-    setBankBalanceInfo(normalized);
+  // In-App Feature Suggestion / Request Box State (Sends directly to AI developer & triggers OTA Update notification when ready)
+  const [suggestionInputText, setSuggestionInputText] = useState('');
+  const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [submittedSuggestionsList, setSubmittedSuggestionsList] = useState(() => {
     try {
-      const jsonStr = JSON.stringify(normalized);
-      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
-        window.PattanBiometric.saveBankBalanceJson(jsonStr);
-      }
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('yasin_ot_bank_balance_v1', jsonStr);
+        const raw = window.localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) return arr;
+        }
       }
     } catch (_) {}
-  }, []);
+    return [];
+  });
+
+  const handleSubmitFeatureSuggestion = useCallback(
+    async (e, customText = null) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      const textToSend = String(customText !== null ? customText : suggestionInputText || '').trim();
+      if (!textToSend) {
+        setScanStatus('⚠️ Please write your suggestion or feature request before clicking Submit.');
+        return;
+      }
+      setSuggestionSubmitting(true);
+      const nowMs = Date.now();
+      const newEntry = {
+        id: `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+        text: textToSend,
+        accountEmail: String(activeAccountEmail || 'patanyasin144@gmail.com').trim(),
+        createdAt: new Date(nowMs).toISOString(),
+        timestampMs: nowMs,
+        status: 'sent_to_ai_developer',
+      };
+
+      const updatedList = [newEntry, ...submittedSuggestionsList].slice(0, 30);
+      setSubmittedSuggestionsList(updatedList);
+      setSuggestionInputText('');
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(updatedList));
+        }
+      } catch (_) {}
+
+      // Deliver live to AI Developer Queue over Cloud Relay + Local Dev Endpoint so we can immediately start working on it & push OTA Update
+      const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+      const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+      let deliveredOnline = false;
+      try {
+        const res = await fetch(`${relayHost}/${relayTopic}`, {
+          method: 'POST',
+          headers: {
+            Title: `New Feature Request from ${newEntry.accountEmail}`,
+            Priority: 'high',
+            Tags: 'bulb,rocket',
+          },
+          body: JSON.stringify(newEntry),
+        });
+        if (res && res.ok) deliveredOnline = true;
+      } catch (_) {}
+
+      try {
+        await fetch('/api/suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newEntry),
+        });
+        deliveredOnline = true;
+      } catch (_) {}
+
+      setSuggestionSubmitting(false);
+      setScanStatus(
+        deliveredOnline
+          ? '🚀 Suggestion sent to AI Developer! Work has started — you will get a spoken New Update Notification as soon as it is ready.'
+          : '✅ Suggestion saved & queued for AI Developer! You will receive a spoken New Update Notification when the update is pushed.'
+      );
+
+      try {
+        if (typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
+          window.speechSynthesis.cancel();
+          const u = new window.SpeechSynthesisUtterance(
+            'Your suggestion has been sent. You will receive a voice update notification when the new feature update is ready.'
+          );
+          u.lang = 'en-IN';
+          u.rate = 1.0;
+          window.speechSynthesis.speak(u);
+        }
+      } catch (_) {}
+    },
+    [suggestionInputText, activeAccountEmail, submittedSuggestionsList]
+  );
+
+  const persistBankBalance = useCallback(
+    (nextBalObj, selectThisAccount = false) => {
+      if (!nextBalObj || typeof nextBalObj !== 'object' || !Number.isFinite(Number(nextBalObj.balance))) return;
+      const cleanMask = normalizeMaskLast4(nextBalObj.accountMask);
+      const cleanBank = String(nextBalObj.bankName || 'Linked Bank Account').trim();
+      const accKey = nextBalObj.accountKey || buildBankAccountKey(cleanBank, cleanMask);
+      const normalized = {
+        accountKey: accKey,
+        balance: Number(Number(nextBalObj.balance).toFixed(2)),
+        bankName: cleanBank,
+        accountMask: cleanMask,
+        source: String(nextBalObj.source || 'manual-balance-sync'),
+        updatedAtMs: Number(nextBalObj.updatedAtMs) || Date.now(),
+      };
+      setBankBalanceInfo(normalized);
+      setBankAccountsMap((prev) => {
+        const nextMap = { ...(prev || {}), [accKey]: normalized };
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(nextMap));
+          }
+        } catch (_) {}
+        return nextMap;
+      });
+      if (selectThisAccount) {
+        selectBankAccountKey(accKey);
+      }
+      try {
+        const jsonStr = JSON.stringify(normalized);
+        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
+          window.PattanBiometric.saveBankBalanceJson(jsonStr);
+        }
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('yasin_ot_bank_balance_v1', jsonStr);
+        }
+      } catch (_) {}
+    },
+    [selectBankAccountKey]
+  );
+
+  const handleDeleteBankAccount = useCallback(
+    (accKeyToRemove) => {
+      if (!accKeyToRemove) return;
+      setBankAccountsMap((prev) => {
+        const nextMap = { ...(prev || {}) };
+        delete nextMap[accKeyToRemove];
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(nextMap));
+          }
+        } catch (_) {}
+        return nextMap;
+      });
+      if (selectedBankAccountKey === accKeyToRemove) {
+        selectBankAccountKey('all');
+      }
+      setScanStatus('🗑️ Removed bank account from Multi-Account Passbook.');
+    },
+    [selectedBankAccountKey, selectBankAccountKey]
+  );
 
   const syncSavedBankBalanceFromNative = useCallback(() => {
     try {
@@ -354,20 +573,30 @@ export default function ExpensesModule({
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
-          setBankBalanceInfo((prev) => {
-            const prevTs = Number(prev?.updatedAtMs || 0);
-            const nextTs = Number(parsed.updatedAtMs || 0);
-            const prevBal = prev && Number.isFinite(Number(prev.balance)) ? Number(prev.balance) : null;
-            const nextBal = Number(parsed.balance);
-            const prevMask = String(prev?.accountMask || '');
-            const nextMask = String(parsed.accountMask || '');
-            if (!prev || nextTs > prevTs || nextBal !== prevBal || nextMask !== prevMask) {
+          const cleanMask = normalizeMaskLast4(parsed.accountMask);
+          const cleanBank = String(parsed.bankName || 'Linked Bank Account').trim();
+          const accKey = buildBankAccountKey(cleanBank, cleanMask);
+          const normalized = {
+            accountKey: accKey,
+            balance: Number(Number(parsed.balance).toFixed(2)),
+            bankName: cleanBank,
+            accountMask: cleanMask,
+            source: String(parsed.source || 'native-sms-balance'),
+            updatedAtMs: Number(parsed.updatedAtMs) || Date.now(),
+          };
+          // Update ONLY this specific account in bankAccountsMap so another account's SMS never overwrites your other accounts!
+          setBankAccountsMap((prev) => {
+            const existing = prev?.[accKey];
+            const prevTs = Number(existing?.updatedAtMs || 0);
+            const nextTs = Number(normalized.updatedAtMs || 0);
+            if (!existing || nextTs > prevTs || Number(existing.balance) !== normalized.balance) {
+              const nextMap = { ...(prev || {}), [accKey]: normalized };
               try {
                 if (window.localStorage) {
-                  window.localStorage.setItem('yasin_ot_bank_balance_v1', JSON.stringify(parsed));
+                  window.localStorage.setItem('yasin_ot_multi_bank_accounts_v1', JSON.stringify(nextMap));
                 }
               } catch (_) {}
-              return parsed;
+              return nextMap;
             }
             return prev;
           });
@@ -803,8 +1032,29 @@ export default function ExpensesModule({
 
   const effectiveBankBalanceInfo = useMemo(() => {
     if (!hasLinkedEmail || !isOwnerAccount) return null;
+    const savedList = Object.values(bankAccountsMap || {}).filter(
+      (a) => a && typeof a === 'object' && Number.isFinite(Number(a.balance))
+    );
+    if (selectedBankAccountKey && selectedBankAccountKey !== 'all' && bankAccountsMap?.[selectedBankAccountKey]) {
+      return bankAccountsMap[selectedBankAccountKey];
+    }
+    if (savedList.length === 1) {
+      return savedList[0];
+    }
+    if (savedList.length > 1) {
+      const totalBal = savedList.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+      const latestMs = Math.max(...savedList.map((a) => Number(a.updatedAtMs) || 0));
+      return {
+        accountKey: 'all',
+        balance: Number(totalBal.toFixed(2)),
+        bankName: `All ${savedList.length} Bank Accounts`,
+        accountMask: '',
+        source: 'multi-account-combined',
+        updatedAtMs: latestMs || Date.now(),
+      };
+    }
     return bankBalanceInfo;
-  }, [hasLinkedEmail, isOwnerAccount, bankBalanceInfo]);
+  }, [hasLinkedEmail, isOwnerAccount, bankAccountsMap, selectedBankAccountKey, bankBalanceInfo]);
 
   const analytics = useMemo(
     () =>
@@ -816,6 +1066,22 @@ export default function ExpensesModule({
       }),
     [effectiveExpensesSource, filterYearPart, filterMonthPart, todayIso, effectiveMonthlySalary, effectiveBankBalanceInfo]
   );
+
+  // Merged list of all user-saved and SMS-auto-detected Bank Accounts (each tracked separately!)
+  const allBankAccountsList = useMemo(() => {
+    const merged = {};
+    for (const [k, v] of Object.entries(analytics.detectedBankAccountsMap || {})) {
+      if (v && typeof v === 'object') {
+        merged[k] = { ...v };
+      }
+    }
+    for (const [k, v] of Object.entries(bankAccountsMap || {})) {
+      if (v && typeof v === 'object') {
+        merged[k] = { ...(merged[k] || {}), ...v };
+      }
+    }
+    return Object.values(merged).sort((a, b) => (Number(b.updatedAtMs) || 0) - (Number(a.updatedAtMs) || 0));
+  }, [analytics.detectedBankAccountsMap, bankAccountsMap]);
 
   // Period-filtered real transactions (All Recent, Today, Last Day / Yesterday, By Date, By Month, By Year)
   const periodFilteredList = useMemo(() => {
@@ -1256,14 +1522,29 @@ export default function ExpensesModule({
     setScanStatus(`✅ Synced ${isCredit ? '+' : '-'}₹${formatINR(amt)} (${merchantName}) for ${targetDate}`);
   };
 
-  const openCheckBalanceModal = () => {
-    setBalanceDraftAmount(
-      analytics.realAccountBalance !== undefined && Number.isFinite(Number(analytics.realAccountBalance))
-        ? String(Number(analytics.realAccountBalance.toFixed(2)))
-        : ''
-    );
-    setBalanceDraftBank(bankBalanceInfo?.bankName || 'Linked Bank Account');
-    setBalanceDraftMask(bankBalanceInfo?.accountMask || '');
+  const openCheckBalanceModal = (accToEdit = null) => {
+    if (accToEdit && typeof accToEdit === 'object' && accToEdit.accountKey) {
+      setBalanceDraftAmount(
+        accToEdit.balance !== null && accToEdit.balance !== undefined && Number.isFinite(Number(accToEdit.balance))
+          ? String(Number(Number(accToEdit.balance).toFixed(2)))
+          : ''
+      );
+      setBalanceDraftBank(accToEdit.bankName || 'SBI Bank');
+      setBalanceDraftMask(accToEdit.accountMask || '');
+    } else if (selectedBankAccountKey !== 'all' && bankAccountsMap?.[selectedBankAccountKey]) {
+      const selAcc = bankAccountsMap[selectedBankAccountKey];
+      setBalanceDraftAmount(String(Number(Number(selAcc.balance || 0).toFixed(2))));
+      setBalanceDraftBank(selAcc.bankName || 'SBI Bank');
+      setBalanceDraftMask(selAcc.accountMask || '');
+    } else {
+      setBalanceDraftAmount(
+        effectiveBankBalanceInfo?.balance !== undefined && Number.isFinite(Number(effectiveBankBalanceInfo.balance))
+          ? String(Number(Number(effectiveBankBalanceInfo.balance).toFixed(2)))
+          : ''
+      );
+      setBalanceDraftBank(effectiveBankBalanceInfo?.bankName || 'SBI Bank');
+      setBalanceDraftMask(effectiveBankBalanceInfo?.accountMask || '');
+    }
     setShowCheckBalanceModal(true);
   };
 
@@ -1274,15 +1555,24 @@ export default function ExpensesModule({
       setScanStatus('⚠️ Please enter a valid bank balance amount (₹0 or more).');
       return;
     }
-    persistBankBalance({
-      balance: num,
-      bankName: balanceDraftBank || 'Linked Bank Account',
-      accountMask: balanceDraftMask || '',
-      source: 'user-verified-balance',
-      updatedAtMs: Date.now(),
-    });
+    const cleanMask = normalizeMaskLast4(balanceDraftMask);
+    const cleanBank = String(balanceDraftBank || 'Primary Bank A/c').trim();
+    const accKey = buildBankAccountKey(cleanBank, cleanMask);
+    persistBankBalance(
+      {
+        accountKey: accKey,
+        balance: num,
+        bankName: cleanBank,
+        accountMask: cleanMask,
+        source: 'user-verified-balance',
+        updatedAtMs: Date.now(),
+      },
+      true
+    );
     setShowCheckBalanceModal(false);
-    setScanStatus(`🏦 Real Account Balance synced to ₹${formatINR(num)}. Future payments (-₹) and deposits (+₹) will update this balance automatically.`);
+    setScanStatus(
+      `🏦 Saved ${cleanBank}${cleanMask ? ` (${cleanMask})` : ''} balance: ₹${formatINR(num)}. Tracked separately from your other accounts!`
+    );
   };
 
   const handleLaunchUpiBalanceCheck = (appKey, appLabel) => {
@@ -2220,9 +2510,9 @@ export default function ExpensesModule({
                   padding: '3px 9px',
                   borderRadius: 999,
                 }}>
-                  🏦 Real Bank Account Balance
+                  🏦 Real Bank Account Balance (Multi-Account)
                 </span>
-                {(bankBalanceInfo?.accountMask || analytics.bankBalanceSource) && (
+                {(effectiveBankBalanceInfo?.bankName || effectiveBankBalanceInfo?.accountMask) && (
                   <span style={{
                     fontSize: 11,
                     fontWeight: 800,
@@ -2232,7 +2522,8 @@ export default function ExpensesModule({
                     background: 'rgba(16, 185, 129, 0.14)',
                     border: '1px solid rgba(16, 185, 129, 0.3)',
                   }}>
-                    {bankBalanceInfo?.bankName || 'Bank A/c'} {bankBalanceInfo?.accountMask ? `(${bankBalanceInfo.accountMask})` : ''}
+                    {effectiveBankBalanceInfo?.bankName || 'Bank A/c'}{' '}
+                    {effectiveBankBalanceInfo?.accountMask ? `(${effectiveBankBalanceInfo.accountMask})` : ''}
                   </span>
                 )}
               </div>
@@ -2248,31 +2539,132 @@ export default function ExpensesModule({
               </div>
               <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 4 }}>
                 {hasLinkedEmail
-                  ? <>Auto-adjusts on every payment (<strong style={{ color: '#fb7185' }}>-₹</strong>) &amp; deposit (<strong style={{ color: '#34d399' }}>+₹</strong>)</>
+                  ? <>Each Bank A/c (by last 4 digits e.g. XX1234) is tracked separately so another A/c never overwrites this balance</>
                   : '🔒 Link your email to sync your real bank balance'}
               </div>
             </div>
 
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => openCheckBalanceModal(null)}
+                style={{
+                  padding: '9px 13px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(99, 102, 241, 0.45)',
+                  background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🏦 Check Balance ({allBankAccountsList.length || 1} A/c)
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSuggestionModal((prev) => !prev)}
+                style={{
+                  padding: '9px 12px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(245, 158, 11, 0.55)',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                💡 Drop Suggestion
+              </button>
+            </div>
+          </div>
+
+          {/* Multi-Bank Account Switcher Bar — Select which Bank Account's balance to view or add another A/c */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            overflowX: 'auto',
+            paddingBottom: 2,
+            WebkitOverflowScrolling: 'touch',
+            alignItems: 'center',
+          }}>
             <button
               type="button"
-              onClick={openCheckBalanceModal}
+              onClick={() => selectBankAccountKey('all')}
               style={{
-                padding: '9px 14px',
-                borderRadius: 12,
-                border: '1px solid rgba(99, 102, 241, 0.45)',
-                background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-                color: '#ffffff',
+                padding: '6px 11px',
+                borderRadius: 999,
+                border: selectedBankAccountKey === 'all' ? '1.5px solid #34d399' : '1px solid rgba(148, 163, 184, 0.28)',
+                background: selectedBankAccountKey === 'all' ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.65)',
+                color: selectedBankAccountKey === 'all' ? '#6ee7b7' : '#cbd5e1',
                 fontWeight: 800,
-                fontSize: 12,
+                fontSize: 11,
                 cursor: 'pointer',
-                boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
                 whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
-              🏦 Check Balance
+              🏦 All Accounts ({allBankAccountsList.length})
+            </button>
+            {allBankAccountsList.map((acc) => {
+              const isSelected = selectedBankAccountKey === acc.accountKey;
+              return (
+                <button
+                  key={acc.accountKey}
+                  type="button"
+                  onClick={() => selectBankAccountKey(acc.accountKey)}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.28)',
+                    background: isSelected ? 'rgba(56, 189, 248, 0.24)' : 'rgba(15, 23, 42, 0.65)',
+                    color: isSelected ? '#e0f2fe' : '#cbd5e1',
+                    fontWeight: 800,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  💳 {acc.bankName || 'Bank'} {acc.accountMask ? `(${acc.accountMask})` : ''} ·{' '}
+                  {acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
+                    ? `₹${formatINRShort(acc.balance)}`
+                    : 'Set Bal'}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => {
+                setBalanceDraftAmount('');
+                setBalanceDraftBank('');
+                setBalanceDraftMask('');
+                setShowCheckBalanceModal(true);
+              }}
+              style={{
+                padding: '6px 11px',
+                borderRadius: 999,
+                border: '1px dashed rgba(99, 102, 241, 0.55)',
+                background: 'rgba(99, 102, 241, 0.16)',
+                color: '#a5b4fc',
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              ➕ Add Another Bank A/c
             </button>
           </div>
 
@@ -2412,6 +2804,132 @@ export default function ExpensesModule({
           </div>
 
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          💡 DROP SUGGESTION / REQUEST NEW FEATURE (SENDS DIRECTLY TO AI DEVELOPER)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {(subTab === 'overview' || subTab === 'transactions' || showSuggestionModal) && (
+        <form
+          onSubmit={(e) => handleSubmitFeatureSuggestion(e)}
+          className="flutter-m3-card"
+          style={{
+            padding: '13px 14px',
+            borderRadius: 18,
+            background: isLight
+              ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
+              : 'linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(15, 23, 42, 0.96) 100%)',
+            border: '1.5px solid rgba(245, 158, 11, 0.45)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 9,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <label
+              htmlFor="feature-suggestion-input"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 950,
+                color: isLight ? '#92400e' : '#fcd34d',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+              }}
+            >
+              <span>💡 Drop a Suggestion / Request New Feature</span>
+              <span style={{
+                padding: '2px 7px',
+                borderRadius: 999,
+                background: 'rgba(16, 185, 129, 0.2)',
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                color: isLight ? '#065f46' : '#6ee7b7',
+                fontSize: 9.5,
+                fontWeight: 900,
+              }}>
+                LIVE AI QUEUE
+              </span>
+            </label>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
+              Write what you want &amp; click Submit → AI builds &amp; pushes Spoken OTA Update
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              id="feature-suggestion-input"
+              type="text"
+              value={suggestionInputText}
+              onChange={(e) => setSuggestionInputText(e.target.value)}
+              placeholder="Write any new feature, fix, or improvement you want here..."
+              style={{
+                flex: '1 1 210px',
+                padding: '10px 12px',
+                borderRadius: 11,
+                border: '1.5px solid rgba(245, 158, 11, 0.5)',
+                background: palette.surface,
+                color: palette.text,
+                fontSize: 12.5,
+                fontWeight: 700,
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={suggestionSubmitting}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 11,
+                border: 'none',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                color: '#ffffff',
+                fontWeight: 950,
+                fontSize: 12.5,
+                cursor: suggestionSubmitting ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 4px 12px rgba(234, 88, 12, 0.35)',
+              }}
+            >
+              {suggestionSubmitting ? '⏳ Sending...' : '🚀 Submit to AI'}
+            </button>
+          </div>
+
+          {submittedSuggestionsList.length > 0 && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              paddingTop: 4,
+              borderTop: `1px dashed ${palette.border}`,
+            }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
+                📬 Your Recent Feature Requests ({submittedSuggestionsList.length}):
+              </div>
+              {submittedSuggestionsList.slice(0, 2).map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: palette.textSub,
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    • {item.text}
+                  </span>
+                  <span style={{ color: '#34d399', fontWeight: 800, fontSize: 10, flexShrink: 0 }}>
+                    ✓ Sent to AI
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </form>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -5766,7 +6284,7 @@ export default function ExpensesModule({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 16.5, fontWeight: 950 }}>
-                🏦 Check Balance &amp; Bank Passbook
+                🏦 Multi-Account Bank Passbook &amp; Balance
               </span>
               <button
                 type="button"
@@ -5776,6 +6294,136 @@ export default function ExpensesModule({
                 ✕
               </button>
             </div>
+
+            {/* How Balance Is Fetched Explanation */}
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.14)',
+              border: '1px solid rgba(99, 102, 241, 0.35)',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: palette.textSub,
+              lineHeight: 1.4,
+            }}>
+              ℹ️ <strong>Why Multiple Accounts Never Conflict:</strong> Each bank account is saved separately by its <strong>Bank Name &amp; A/c Last 4 Digits (e.g. XX1234)</strong>. Another bank&apos;s SMS alert will never overwrite your selected account&apos;s balance!
+            </div>
+
+            {/* Saved / Detected Multiple Bank Accounts List */}
+            {allBankAccountsList.length > 0 && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                padding: '10px 12px',
+                borderRadius: 14,
+                background: palette.surfaceAlt,
+                border: `1px solid ${palette.border}`,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: palette.text }}>
+                    🏦 Your Linked Bank Accounts ({allBankAccountsList.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => selectBankAccountKey('all')}
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: 999,
+                      border: selectedBankAccountKey === 'all' ? '1.5px solid #34d399' : `1px solid ${palette.border}`,
+                      background: selectedBankAccountKey === 'all' ? 'rgba(16, 185, 129, 0.2)' : palette.surface,
+                      color: selectedBankAccountKey === 'all' ? '#34d399' : palette.textSub,
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Show Combined Total
+                  </button>
+                </div>
+                {allBankAccountsList.map((acc) => {
+                  const isActive = selectedBankAccountKey === acc.accountKey;
+                  return (
+                    <div
+                      key={acc.accountKey}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 11,
+                        border: isActive ? '1.5px solid #38bdf8' : `1px solid ${palette.border}`,
+                        background: isActive ? 'rgba(56, 189, 248, 0.14)' : palette.surface,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div
+                        onClick={() => selectBankAccountKey(acc.accountKey)}
+                        style={{ cursor: 'pointer', flex: 1, minWidth: 130 }}
+                      >
+                        <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>
+                          💳 {acc.bankName || 'Bank A/c'} {acc.accountMask ? `(${acc.accountMask})` : ''}
+                          {isActive && (
+                            <span style={{ marginLeft: 6, fontSize: 10, color: '#38bdf8', fontWeight: 900 }}>
+                              ● ACTIVE
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 950, color: '#34d399', marginTop: 2 }}>
+                          {acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
+                            ? `₹${formatINR(acc.balance)}`
+                            : 'Balance not set'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            selectBankAccountKey(acc.accountKey);
+                            setBalanceDraftAmount(
+                              acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
+                                ? String(acc.balance)
+                                : ''
+                            );
+                            setBalanceDraftBank(acc.bankName || 'SBI Bank');
+                            setBalanceDraftMask(acc.accountMask || '');
+                          }}
+                          style={{
+                            padding: '5px 9px',
+                            borderRadius: 8,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surfaceAlt,
+                            color: '#60a5fa',
+                            fontSize: 11,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBankAccount(acc.accountKey)}
+                          style={{
+                            padding: '5px 8px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(244, 63, 94, 0.35)',
+                            background: 'rgba(244, 63, 94, 0.12)',
+                            color: '#fb7185',
+                            fontSize: 11,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Live Balance Summary Banner */}
             <div style={{

@@ -1094,14 +1094,19 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
       assert.equal(otSalarySrc.includes('scrubFakeTransactionsFromLocalStorage'), true);
       assert.equal(expensesSrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
-      // v7.8.4 & v7.8.5: Exact date selection + Proactive OTA Update Voice Notification + Multi-App Statement Importer
+      // v7.8.4–v7.8.6: Exact date selection + Proactive OTA Update Voice Notification + Multi-Account Bank Passbook + Live Feature Suggestion Box
       assert.equal(expensesSrc.includes('selectExactDate'), true);
       assert.equal(expensesSrc.includes('shiftSelectedDateByDays'), true);
       assert.equal(expensesSrc.includes('allDatesGroupedByDay'), true);
       assert.equal(expensesSrc.includes('overviewDisplayGroups'), true);
       assert.equal(expensesSrc.includes('handleImportPaymentAppFile'), true);
+      assert.equal(expensesSrc.includes('bankAccountsMap'), true);
+      assert.equal(expensesSrc.includes('selectedBankAccountKey'), true);
+      assert.equal(expensesSrc.includes('allBankAccountsList'), true);
+      assert.equal(expensesSrc.includes('handleSubmitFeatureSuggestion'), true);
       assert.equal(otSalarySrc.includes('checkOtaUpdateAvailability'), true);
       assert.equal(otSalarySrc.includes('speakOtaUpdateNotification'), true);
+      assert.equal(otSalarySrc.includes('submitGlobalFeatureSuggestion'), true);
       assert.equal(otSalarySrc.includes('availableOtaUpdate'), true);
       assert.equal(otSalarySrc.includes('New Update Available'), true);
     });

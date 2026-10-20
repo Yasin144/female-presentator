@@ -1,8 +1,8 @@
 {
-  "version": "7.8.5",
-  "buildId": "ota_7_8_5_1792486831",
-  "releasedAt": "2026-10-20T09:00:31Z",
+  "version": "7.8.6",
+  "buildId": "ota_7_8_6_1792489845",
+  "releasedAt": "2026-10-20T09:50:45Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v7.8.5 Live OTA: Restored real transaction data across all dates & payment apps (excluding any erroneous Rs. 60 today entry), added Payment App Statement Importer (.csv/.txt/.json), and added spoken voice notification whenever a new update is available."
+  "notes": "v7.8.6 Live OTA: Multi-Account Bank Balance Manager (isolates each bank account by A/c last 4 digits so one account never overwrites another's balance, with instant account switcher pills) + In-App 'Drop a Suggestion / Request New Feature' box that sends your feature request directly to AI for live OTA updates with spoken voice notification."
 }

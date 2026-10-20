@@ -757,13 +757,54 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
   let allTimeReceived = 0;
   let allTimeRefunds = 0;
   let latestSmsBalanceTx = null;
+  const detectedBankAccountsMap = {};
+
+  const targetAnchorMask = String(bankBalanceInfo?.accountMask || '').trim().toUpperCase();
+  const txMatchesTargetAccount = (t) => {
+    if (!targetAnchorMask) return true;
+    const tMask = String(t?.accountMask || '').trim().toUpperCase();
+    if (!tMask) return true;
+    return tMask === targetAnchorMask || tMask.slice(-4) === targetAnchorMask.slice(-4);
+  };
 
   for (const tx of chronoValid) {
     const amt = Number(tx.amount) || 0;
     if (tx.type === 'debit') allTimeSpent += amt;
     else if (tx.type === 'credit') allTimeReceived += amt;
     else if (tx.type === 'refund') allTimeRefunds += amt;
-    if (tx.accountBalance !== null && Number.isFinite(tx.accountBalance)) {
+
+    const txMask = String(tx.accountMask || '').trim().toUpperCase();
+    if (txMask) {
+      const accKey = `acc_${txMask.slice(-4)}`;
+      if (!detectedBankAccountsMap[accKey]) {
+        detectedBankAccountsMap[accKey] = {
+          accountKey: accKey,
+          bankName: tx.app && !/upi|gpay|phonepe|paytm|bhim/i.test(tx.app) ? tx.app : 'Bank A/c',
+          accountMask: txMask,
+          balance: Number.isFinite(Number(tx.accountBalance)) && tx.accountBalance !== null ? Number(tx.accountBalance) : null,
+          updatedAtMs: Number(tx.timestampMs) || 0,
+          txCount: 0,
+          spent: 0,
+          received: 0,
+        };
+      }
+      const accEntry = detectedBankAccountsMap[accKey];
+      accEntry.txCount += 1;
+      if (tx.type === 'credit' || tx.type === 'refund') accEntry.received += amt;
+      else if (tx.type === 'debit') accEntry.spent += amt;
+      if (tx.accountBalance !== null && Number.isFinite(Number(tx.accountBalance))) {
+        accEntry.balance = Number(tx.accountBalance);
+        accEntry.updatedAtMs = Number(tx.timestampMs) || Date.now();
+      } else if (accEntry.balance !== null && Number.isFinite(Number(accEntry.balance))) {
+        if (tx.type === 'credit' || tx.type === 'refund') {
+          accEntry.balance = Number((accEntry.balance + amt).toFixed(2));
+        } else if (tx.type === 'debit') {
+          accEntry.balance = Number((accEntry.balance - amt).toFixed(2));
+        }
+      }
+    }
+
+    if (tx.accountBalance !== null && Number.isFinite(tx.accountBalance) && txMatchesTargetAccount(tx)) {
       latestSmsBalanceTx = tx;
     }
   }
@@ -798,6 +839,10 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       openingAccountBalance = anchorBal;
       for (let i = 0; i < chronoValid.length; i++) {
         const t = chronoValid[i];
+        if (!txMatchesTargetAccount(t)) {
+          t.runningBalance = running;
+          continue;
+        }
         if (t.accountBalance !== null && Number.isFinite(t.accountBalance)) {
           running = t.accountBalance;
         } else if (t.type === 'credit' || t.type === 'refund') {
@@ -810,19 +855,21 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       realAccountBalance = running;
     } else {
       chronoValid[anchorIdx].runningBalance =
-        chronoValid[anchorIdx].accountBalance !== null
+        chronoValid[anchorIdx].accountBalance !== null && txMatchesTargetAccount(chronoValid[anchorIdx])
           ? chronoValid[anchorIdx].accountBalance
           : anchorBal;
       // Walk backward from anchorIdx
       let backBal = chronoValid[anchorIdx].runningBalance;
       for (let i = anchorIdx - 1; i >= 0; i--) {
         const nextT = chronoValid[i + 1];
-        if (nextT.type === 'credit' || nextT.type === 'refund') {
-          backBal = Number((backBal - nextT.amount).toFixed(2));
-        } else if (nextT.type === 'debit') {
-          backBal = Number((backBal + nextT.amount).toFixed(2));
+        if (txMatchesTargetAccount(nextT)) {
+          if (nextT.type === 'credit' || nextT.type === 'refund') {
+            backBal = Number((backBal - nextT.amount).toFixed(2));
+          } else if (nextT.type === 'debit') {
+            backBal = Number((backBal + nextT.amount).toFixed(2));
+          }
         }
-        if (chronoValid[i].accountBalance !== null && Number.isFinite(chronoValid[i].accountBalance)) {
+        if (chronoValid[i].accountBalance !== null && Number.isFinite(chronoValid[i].accountBalance) && txMatchesTargetAccount(chronoValid[i])) {
           backBal = chronoValid[i].accountBalance;
         }
         chronoValid[i].runningBalance = backBal;
@@ -841,6 +888,10 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
       let fwdBal = chronoValid[anchorIdx].runningBalance;
       for (let i = anchorIdx + 1; i < chronoValid.length; i++) {
         const t = chronoValid[i];
+        if (!txMatchesTargetAccount(t)) {
+          t.runningBalance = fwdBal;
+          continue;
+        }
         if (t.accountBalance !== null && Number.isFinite(t.accountBalance)) {
           fwdBal = t.accountBalance;
         } else if (t.type === 'credit' || t.type === 'refund') {
@@ -1183,6 +1234,8 @@ export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {
     hasVerifiedBankBalance,
     latestBankName,
     latestAccountMask,
+    detectedBankAccountsMap,
+    detectedBankAccountsList: Object.values(detectedBankAccountsMap),
     selfTransfersTotal: Number(selfTransfersTotal.toFixed(2)),
     failedOrReversedTotal: Number(failedOrReversedTotal.toFixed(2)),
     duplicatePendingCount,
