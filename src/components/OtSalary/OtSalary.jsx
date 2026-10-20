@@ -2236,9 +2236,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.8';
+      return localStorage.getItem('pattan.ota.version') || '7.8.9';
     } catch (_) {
-      return '7.8.8';
+      return '7.8.9';
     }
   });
 
@@ -2259,19 +2259,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         version: liveOtaVersion,
         createdAt: new Date(nowMs).toISOString(),
         timestampMs: nowMs,
-        status: 'sent_to_ai_developer',
+        deliveredOnline: false,
+        processedByAi: false,
+        status: 'sending',
       };
-      try {
-        const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
-        const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
-        const nextArr = [payload, ...(Array.isArray(existingArr) ? existingArr : [])].slice(0, 30);
-        localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
-      } catch (_) {}
 
       const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+      let deliveredOnline = false;
       try {
-        await fetch(`${relayHost}/${relayTopic}`, {
+        const res = await fetch(`${relayHost}/${relayTopic}`, {
           method: 'POST',
           headers: {
             Title: `Feature Request (${payload.accountEmail})`,
@@ -2280,12 +2277,29 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           },
           body: JSON.stringify(payload),
         });
+        if (res && res.ok) deliveredOnline = true;
+      } catch (_) {}
+
+      const finalPayload = {
+        ...payload,
+        deliveredOnline,
+        status: deliveredOnline ? 'ai_working' : 'queued_offline',
+      };
+      try {
+        const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
+        const nextArr = [finalPayload, ...(Array.isArray(existingArr) ? existingArr : [])].slice(0, 30);
+        localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
       } catch (_) {}
 
       setGlobalSuggestionSending(false);
       setGlobalSuggestionInput('');
       setShowGlobalSuggestionModal(false);
-      setSaveNotice('🚀 Sent to AI Developer! You will get an Update Notification when ready.');
+      setSaveNotice(
+        deliveredOnline
+          ? '⏳ Sent to AI! Loading indicator active — will show "✅ Update Completed" when ready.'
+          : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
+      );
     },
     [globalSuggestionInput, liveOtaVersion]
   );

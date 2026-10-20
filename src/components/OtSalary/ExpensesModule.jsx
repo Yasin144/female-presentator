@@ -458,10 +458,13 @@ export default function ExpensesModule({
   const [balanceDraftBank, setBalanceDraftBank] = useState('SBI Bank');
   const [balanceDraftMask, setBalanceDraftMask] = useState('');
 
-  // In-App Feature Suggestion / Request Box State (Sends directly to AI developer & triggers OTA Update notification when ready)
+  // In-App Feature Suggestion / Request Box State (Works Online & Offline, shows Live Loading Indicator while AI works, and shows "✅ Update Completed" when done)
   const [suggestionInputText, setSuggestionInputText] = useState('');
   const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [isNetworkOnline, setIsNetworkOnline] = useState(() =>
+    typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true
+  );
   const [submittedSuggestionsList, setSubmittedSuggestionsList] = useState(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -475,6 +478,128 @@ export default function ExpensesModule({
     return [];
   });
 
+  const isSuggestionCompletedHelper = useCallback((item) => {
+    if (!item || typeof item !== 'object') return false;
+    if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
+    const t = String(item.text || '').trim();
+    if (/never show cred|only speak when my time is done/i.test(t)) return true;
+    return false;
+  }, []);
+
+  // Background Offline-to-Online Auto-Retry & Live "Update Completed" Status Poller (every 8s + window 'online' event)
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+    const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+
+    const syncSuggestionsAndStatus = async () => {
+      const onlineNow = typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
+      setIsNetworkOnline(onlineNow);
+      if (!onlineNow) return;
+
+      let currentList = [];
+      try {
+        const raw = window.localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) currentList = parsed;
+        }
+      } catch (_) {}
+      if (currentList.length === 0) return;
+
+      let listChanged = false;
+      const nextList = [...currentList];
+
+      // 1. Retry any suggestion that was submitted while Offline
+      for (let i = 0; i < nextList.length; i++) {
+        const item = nextList[i];
+        if (item && item.deliveredOnline === false && !isSuggestionCompletedHelper(item)) {
+          try {
+            const res = await fetch(`${relayHost}/${relayTopic}`, {
+              method: 'POST',
+              headers: {
+                Title: `Queued Feature Request from ${item.accountEmail || 'patanyasin144@gmail.com'}`,
+                Priority: 'high',
+                Tags: 'bulb,rocket',
+              },
+              body: JSON.stringify(item),
+            });
+            if (res && res.ok) {
+              nextList[i] = {
+                ...item,
+                deliveredOnline: true,
+                status: 'ai_working',
+              };
+              listChanged = true;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 2. Check GitHub ota/incoming-suggestions.json to see if AI has completed any pending suggestion
+      const hasPendingWork = nextList.some((x) => x && !isSuggestionCompletedHelper(x));
+      if (hasPendingWork) {
+        try {
+          const ts = Date.now();
+          const res = await fetch(
+            `https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota/incoming-suggestions.json?t=${ts}`,
+            { cache: 'no-store' }
+          );
+          if (res && res.ok) {
+            const remoteArr = await res.json();
+            if (Array.isArray(remoteArr)) {
+              for (let i = 0; i < nextList.length; i++) {
+                const localItem = nextList[i];
+                if (!localItem || isSuggestionCompletedHelper(localItem)) continue;
+                const matchedRemote = remoteArr.find(
+                  (r) =>
+                    r &&
+                    (r.id === localItem.id ||
+                      String(r.text || '').trim().toLowerCase() === String(localItem.text || '').trim().toLowerCase())
+                );
+                if (
+                  matchedRemote &&
+                  (matchedRemote.processedByAi === true || String(matchedRemote.status || '').startsWith('completed'))
+                ) {
+                  nextList[i] = {
+                    ...localItem,
+                    deliveredOnline: true,
+                    processedByAi: true,
+                    status: matchedRemote.status || 'completed',
+                    completedAt: new Date().toISOString(),
+                  };
+                  listChanged = true;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (listChanged) {
+        setSubmittedSuggestionsList(nextList);
+        try {
+          window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextList));
+        } catch (_) {}
+      }
+    };
+
+    syncSuggestionsAndStatus();
+    const timer = setInterval(syncSuggestionsAndStatus, 8000);
+    const handleOnline = () => {
+      setIsNetworkOnline(true);
+      syncSuggestionsAndStatus();
+    };
+    const handleOffline = () => setIsNetworkOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [isSuggestionCompletedHelper]);
+
   const handleSubmitFeatureSuggestion = useCallback(
     async (e, customText = null) => {
       if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -485,25 +610,38 @@ export default function ExpensesModule({
       }
       setSuggestionSubmitting(true);
       const nowMs = Date.now();
+      let currentBuildId = '';
+      let currentVer = '7.8.9';
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          currentBuildId = window.localStorage.getItem('pattan.ota.buildId') || '';
+          currentVer = window.localStorage.getItem('pattan.ota.version') || '7.8.9';
+        }
+      } catch (_) {}
+
       const newEntry = {
         id: `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
         text: textToSend,
         accountEmail: String(activeAccountEmail || 'patanyasin144@gmail.com').trim(),
         createdAt: new Date(nowMs).toISOString(),
         timestampMs: nowMs,
-        status: 'sent_to_ai_developer',
+        submittedBuildId: currentBuildId,
+        submittedVersion: currentVer,
+        deliveredOnline: false,
+        processedByAi: false,
+        status: 'sending',
       };
 
-      const updatedList = [newEntry, ...submittedSuggestionsList].slice(0, 30);
-      setSubmittedSuggestionsList(updatedList);
+      const initialList = [newEntry, ...submittedSuggestionsList].slice(0, 30);
+      setSubmittedSuggestionsList(initialList);
       setSuggestionInputText('');
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(updatedList));
+          window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(initialList));
         }
       } catch (_) {}
 
-      // Deliver live to AI Developer Queue over Cloud Relay + Local Dev Endpoint so we can immediately start working on it & push OTA Update
+      // Deliver live to AI Developer Queue over Cloud Relay + Local Dev Endpoint (or queue offline if no internet)
       const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
       let deliveredOnline = false;
@@ -521,19 +659,32 @@ export default function ExpensesModule({
       } catch (_) {}
 
       try {
-        await fetch('/api/suggestions', {
+        const localRes = await fetch('/api/suggestions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newEntry),
         });
-        deliveredOnline = true;
+        if (localRes && localRes.ok) deliveredOnline = true;
+      } catch (_) {}
+
+      const finalizedEntry = {
+        ...newEntry,
+        deliveredOnline,
+        status: deliveredOnline ? 'ai_working' : 'queued_offline',
+      };
+      const updatedList = [finalizedEntry, ...submittedSuggestionsList].slice(0, 30);
+      setSubmittedSuggestionsList(updatedList);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(updatedList));
+        }
       } catch (_) {}
 
       setSuggestionSubmitting(false);
       setScanStatus(
         deliveredOnline
-          ? '🚀 Suggestion sent to AI Developer! Work has started — you will get an Update Notification as soon as it is ready.'
-          : '✅ Suggestion saved & queued for AI Developer! You will receive an Update Notification when the update is pushed.'
+          ? '⏳ Sent to AI! Loading indicator active — will show "✅ Update Completed" as soon as ready.'
+          : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
       );
     },
     [suggestionInputText, activeAccountEmail, submittedSuggestionsList]
@@ -2916,17 +3067,17 @@ export default function ExpensesModule({
               <span style={{
                 padding: '2px 7px',
                 borderRadius: 999,
-                background: 'rgba(16, 185, 129, 0.2)',
-                border: '1px solid rgba(16, 185, 129, 0.45)',
-                color: isLight ? '#065f46' : '#6ee7b7',
+                background: isNetworkOnline ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.22)',
+                border: isNetworkOnline ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(245, 158, 11, 0.5)',
+                color: isNetworkOnline ? (isLight ? '#065f46' : '#6ee7b7') : (isLight ? '#92400e' : '#fcd34d'),
                 fontSize: 9.5,
                 fontWeight: 900,
               }}>
-                LIVE AI QUEUE
+                {isNetworkOnline ? '🟢 ONLINE AI QUEUE' : '📡 OFFLINE AUTO-QUEUE'}
               </span>
             </label>
             <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
-              Write what you want &amp; click Submit → AI builds &amp; pushes Spoken OTA Update
+              Works Online &amp; Offline → Shows Loading Indicator while AI works &amp; &quot;✅ Update Completed&quot; when ready
             </span>
           </div>
 
@@ -2969,38 +3120,141 @@ export default function ExpensesModule({
             </button>
           </div>
 
+          {submittedSuggestionsList.some((x) => x && !isSuggestionCompletedHelper(x)) && (
+            <div
+              style={{
+                padding: '9px 12px',
+                borderRadius: 11,
+                background: isLight ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.18)',
+                border: '1px solid rgba(59, 130, 246, 0.45)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    border: '2.5px solid rgba(59, 130, 246, 0.3)',
+                    borderTopColor: '#3b82f6',
+                    animation: 'spin 0.9s linear infinite',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontSize: 11.5, fontWeight: 900, color: isLight ? '#1e40af' : '#93c5fd' }}>
+                  ⏳ AI is working on your new request — Building Live OTA Update...
+                </span>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted }}>
+                Auto-checks every 8s
+              </span>
+            </div>
+          )}
+
           {submittedSuggestionsList.length > 0 && (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 4,
-              paddingTop: 4,
+              gap: 6,
+              paddingTop: 6,
               borderTop: `1px dashed ${palette.border}`,
             }}>
               <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
-                📬 Your Recent Feature Requests ({submittedSuggestionsList.length}):
+                📬 Your Feature Requests &amp; Live Build Status ({submittedSuggestionsList.length}):
               </div>
-              {submittedSuggestionsList.slice(0, 2).map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: palette.textSub,
-                  }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    • {item.text}
-                  </span>
-                  <span style={{ color: '#34d399', fontWeight: 800, fontSize: 10, flexShrink: 0 }}>
-                    {/never show cred|only speak when my time is done/i.test(String(item.text || '')) ? '✅ Done in v7.8.8' : '✓ Sent to AI'}
-                  </span>
-                </div>
-              ))}
+              {submittedSuggestionsList.slice(0, 3).map((item) => {
+                const isDone = isSuggestionCompletedHelper(item);
+                const isOfflineQueued = !isDone && item.deliveredOnline === false;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 9px',
+                      borderRadius: 9,
+                      background: isDone
+                        ? (isLight ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.12)')
+                        : (isLight ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.14)'),
+                      border: isDone
+                        ? '1px solid rgba(16, 185, 129, 0.35)'
+                        : '1px solid rgba(245, 158, 11, 0.38)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: palette.text,
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      • {item.text}
+                    </span>
+                    {isDone ? (
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: 'rgba(16, 185, 129, 0.22)',
+                          color: isLight ? '#065f46' : '#34d399',
+                          fontWeight: 900,
+                          fontSize: 10,
+                          flexShrink: 0,
+                        }}
+                      >
+                        ✅ Update Completed
+                      </span>
+                    ) : isOfflineQueued ? (
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: 'rgba(245, 158, 11, 0.22)',
+                          color: isLight ? '#92400e' : '#fcd34d',
+                          fontWeight: 900,
+                          fontSize: 10,
+                          flexShrink: 0,
+                        }}
+                      >
+                        📡 Queued Offline (Auto-Sync)
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: 'rgba(59, 130, 246, 0.22)',
+                          color: isLight ? '#1d4ed8' : '#93c5fd',
+                          fontWeight: 900,
+                          fontSize: 10,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 9,
+                            height: 9,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(59, 130, 246, 0.35)',
+                            borderTopColor: '#3b82f6',
+                            animation: 'spin 0.9s linear infinite',
+                          }}
+                        />
+                        ⏳ Working on Update...
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </form>

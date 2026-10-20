@@ -1,8 +1,8 @@
 {
-  "version": "7.8.8",
-  "buildId": "ota_7_8_8_1792492175",
-  "releasedAt": "2026-10-20T10:29:35Z",
+  "version": "7.8.9",
+  "buildId": "ota_7_8_9_1792493125",
+  "releasedAt": "2026-10-20T10:45:25Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v7.8.8 Live OTA: Fixed voice notification so 'Your time is completed' ONLY speaks at the exact moment your office shift time finishes (never when opening the app), and new OTA updates notify cleanly via notification banner without speaking on app open."
+  "notes": "v7.8.9 Live OTA: Added Online + Offline Auto-Queue for Feature Suggestions, animated Loading Indicator ('⏳ Working on Update...') while AI builds your feature, and live '✅ Update Completed' badge as soon as the update is finished."
 }
