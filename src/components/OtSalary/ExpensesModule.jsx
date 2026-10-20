@@ -562,6 +562,7 @@ export default function ExpensesModule({
     const yObj = new Date(tObj.getTime() - 86400000);
     return `${yObj.getFullYear()}-${String(yObj.getMonth() + 1).padStart(2, '0')}-${String(yObj.getDate()).padStart(2, '0')}`;
   }, [todayIso]);
+  const yesterdayIso = yesterdayIsoCalculated;
 
   const activeTargetDateIso = useMemo(() => {
     if (periodFilterMode === 'yesterday') return yesterdayIsoCalculated;
@@ -679,25 +680,31 @@ export default function ExpensesModule({
   };
 
   const effectiveExpensesSource = useMemo(() => {
-    if (!hasLinkedEmail) return {};
     const cleanMap = {};
     if (expensesMap && typeof expensesMap === 'object') {
       for (const [k, v] of Object.entries(expensesMap)) {
         const keyStr = String(k || v?.id || '');
         const srcStr = String(v?.source || '').toLowerCase();
         const refStr = String(v?.refId || '');
-        if (
-          v &&
-          typeof v === 'object' &&
-          !v._demoPreview &&
-          !v.isDemoPreview &&
-          srcStr !== 'demo-preview' &&
-          srcStr !== 'owner-master-vault' &&
-          !keyStr.startsWith('demo_tx_') &&
-          !keyStr.startsWith('tx_yasin_master_') &&
-          refStr !== 'OTP1821202619' &&
-          refStr !== 'SAL1013202612'
-        ) {
+        const isFakeCredit =
+          keyStr.startsWith('demo_tx_') ||
+          keyStr.endsWith('_salary') ||
+          keyStr.endsWith('_ot_payout') ||
+          srcStr === 'demo-preview' ||
+          refStr === 'OTP1821202619' ||
+          refStr === 'SAL1013202612';
+        if (!v || typeof v !== 'object' || v._demoPreview || v.isDemoPreview || isFakeCredit) {
+          continue;
+        }
+        // When email is linked, show all real & vault transactions; when unlinked, still show any user-added/captured transactions
+        const isUserCreatedOrCaptured =
+          srcStr === 'manual' ||
+          srcStr === 'date-quick-sync' ||
+          srcStr === 'sms-paste' ||
+          srcStr === 'clipboard-sync' ||
+          srcStr.includes('android') ||
+          v.detectionStatus === 'user_confirmed';
+        if (hasLinkedEmail || isUserCreatedOrCaptured) {
           const restored = { ...v };
           delete restored._deleted;
           cleanMap[k] = restored;
@@ -775,6 +782,62 @@ export default function ExpensesModule({
 
   // Recent payments list: reflects the selected Date/Month/Year filter (defaults to All Recent so yesterday's transactions always show!)
   const recentPaymentsList = useMemo(() => periodFilteredList, [periodFilteredList]);
+
+  // Group recentPaymentsList by Day & Date so Overview also shows crystal-clear Day/Date headers
+  const overviewGroupedByDay = useMemo(() => {
+    const groups = [];
+    const map = new Map();
+    for (const tx of recentPaymentsList) {
+      const d = tx.date || todayIso;
+      if (!map.has(d)) {
+        const g = {
+          date: d,
+          label: formatFriendlyDate(d, todayIso),
+          items: [],
+          daySpent: 0,
+          dayReceived: 0,
+        };
+        map.set(d, g);
+        groups.push(g);
+      }
+      const grp = map.get(d);
+      grp.items.push(tx);
+      if (tx.type === 'credit' || tx.type === 'refund') {
+        grp.dayReceived += Number(tx.amount) || 0;
+      } else {
+        grp.daySpent += Number(tx.amount) || 0;
+      }
+    }
+    return groups;
+  }, [recentPaymentsList, todayIso]);
+
+  // Day-by-Day interactive summary strip across all dates that have transactions (plus Today & Yesterday)
+  const allDaysSummaryList = useMemo(() => {
+    const dayMap = new Map();
+    const ensureDay = (dIso) => {
+      if (!dayMap.has(dIso)) {
+        dayMap.set(dIso, {
+          date: dIso,
+          label: dIso === todayIso ? `Today (${formatShortDate(dIso)})` : dIso === yesterdayIso ? `Last Day (${formatShortDate(dIso)})` : formatShortDate(dIso),
+          count: 0,
+          spent: 0,
+          received: 0,
+        });
+      }
+      return dayMap.get(dIso);
+    };
+    ensureDay(todayIso);
+    ensureDay(yesterdayIso);
+    for (const tx of analytics.allActiveList || []) {
+      const d = tx.date || todayIso;
+      const entry = ensureDay(d);
+      entry.count += 1;
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'credit' || tx.type === 'refund') entry.received += amt;
+      else entry.spent += amt;
+    }
+    return Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  }, [analytics.allActiveList, todayIso, yesterdayIso]);
 
   // Sync detail drafts when a transaction is opened in Screen 9
   const selectedTx = useMemo(() => {
@@ -959,16 +1022,15 @@ export default function ExpensesModule({
     for (const [k, v] of Object.entries(combined)) {
       const keyStr = String(k || v?.id || '');
       const srcStr = String(v?.source || '').toLowerCase();
-      if (
-        v &&
-        typeof v === 'object' &&
-        !v._demoPreview &&
-        !v.isDemoPreview &&
-        srcStr !== 'demo-preview' &&
-        srcStr !== 'owner-master-vault' &&
-        !keyStr.startsWith('demo_tx_') &&
-        !keyStr.startsWith('tx_yasin_master_')
-      ) {
+      const refStr = String(v?.refId || '');
+      const isFakeCredit =
+        keyStr.startsWith('demo_tx_') ||
+        keyStr.endsWith('_salary') ||
+        keyStr.endsWith('_ot_payout') ||
+        srcStr === 'demo-preview' ||
+        refStr === 'OTP1821202619' ||
+        refStr === 'SAL1013202612';
+      if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview && !isFakeCredit) {
         const copy = { ...v };
         delete copy._deleted;
         clean[k] = copy;
@@ -989,7 +1051,7 @@ export default function ExpensesModule({
       setFormPaymentRemark(norm.paymentRemark || '');
       setFormCategory(norm.category || 'Food & Dining');
       setFormPaymentMethod(norm.paymentMethod || 'UPI');
-      setFormApp(norm.app || 'GPay');
+      setFormApp(norm.app || 'UPI');
       setFormDate(norm.date || todayIso);
       setFormTime(norm.time || '12:00');
       setFormTagsInput((norm.tags || []).join(', '));
@@ -1013,8 +1075,10 @@ export default function ExpensesModule({
     setShowAddModal(true);
   };
 
-  const handleQuickSaveForSelectedDate = (e) => {
-    if (e && e.preventDefault) e.preventDefault();
+  const handleQuickSaveForSelectedDate = (directionArg = 'debit') => {
+    if (directionArg && typeof directionArg === 'object' && directionArg.preventDefault) {
+      directionArg.preventDefault();
+    }
     const amt = Number(String(quickDateAmount || '').replace(/,/g, '').trim());
     if (!Number.isFinite(amt) || amt <= 0) {
       setScanStatus('⚠️ Enter an amount (₹) to save for the selected date.');
@@ -1026,7 +1090,7 @@ export default function ExpensesModule({
     const baseMap = getMaterializedBaseMap();
     const txId = `tx_date_${nowMs}_${Math.random().toString(36).slice(2, 7)}`;
     const cleanText = String(quickDateMerchant || '').trim();
-    const isCredit = quickDateType === 'credit';
+    const isCredit = directionArg === 'credit' || (directionArg !== 'debit' && quickDateType === 'credit');
     const merchantName = cleanText || (isCredit ? 'Deposit / Received' : 'UPI Payment');
 
     const record = migrateAndNormalizeExpenseRecord({
@@ -1038,11 +1102,11 @@ export default function ExpensesModule({
       personalNote: cleanText,
       paymentRemark: cleanText,
       note: cleanText,
-      category: isCredit ? 'income' : 'food',
+      category: isCredit ? 'Salary / Income' : 'Food & Dining',
       paymentMethod: 'UPI',
       app: 'UPI',
       date: targetDate,
-      time: '12:00',
+      time: `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
       tags: [],
       status: 'completed',
       detectionStatus: 'user_confirmed',
@@ -2290,97 +2354,218 @@ export default function ExpensesModule({
             })}
           </div>
 
-          {/* Date / Month / Year Pickers (Always accessible when filtering by Last Day, Date, Month, or Year) */}
-          {(periodFilterMode === 'yesterday' || periodFilterMode === 'date' || periodFilterMode === 'month' || periodFilterMode === 'year') && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 140px' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Date:</span>
-                <input
-                  type="date"
-                  value={periodFilterMode === 'yesterday' ? yesterdayIso : filterSpecificDate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val) {
-                      setFilterSpecificDate(val);
+          {/* Date / Month / Year Pickers — Always visible for instant By-Day / By-Date selection */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 145px' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>📅 Date:</span>
+              <input
+                type="date"
+                value={
+                  periodFilterMode === 'yesterday'
+                    ? yesterdayIso
+                    : periodFilterMode === 'today'
+                      ? todayIso
+                      : filterSpecificDate
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) {
+                    setFilterSpecificDate(val);
+                    if (val === todayIso) {
+                      setPeriodFilterMode('today');
+                    } else if (val === yesterdayIso) {
+                      setPeriodFilterMode('yesterday');
+                    } else {
                       setPeriodFilterMode('date');
                     }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '6px 9px',
-                    borderRadius: 9,
-                    border: (periodFilterMode === 'date' || periodFilterMode === 'yesterday') ? '1px solid #6366f1' : `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: palette.text,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
-                />
-              </div>
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 9px',
+                  borderRadius: 9,
+                  border: (periodFilterMode === 'date' || periodFilterMode === 'yesterday' || periodFilterMode === 'today')
+                    ? '1.5px solid #6366f1'
+                    : `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                }}
+              />
+            </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 130px' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Month:</span>
-                <select
-                  value={filterMonthPart}
-                  onChange={(e) => {
-                    setFilterMonthPart(e.target.value);
-                    setPeriodFilterMode('month');
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '6px 8px',
-                    borderRadius: 9,
-                    border: periodFilterMode === 'month' ? '1px solid #6366f1' : `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: palette.text,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
-                >
-                  {[
-                    { v: '01', l: 'Jan (01)' },
-                    { v: '02', l: 'Feb (02)' },
-                    { v: '03', l: 'Mar (03)' },
-                    { v: '04', l: 'Apr (04)' },
-                    { v: '05', l: 'May (05)' },
-                    { v: '06', l: 'Jun (06)' },
-                    { v: '07', l: 'Jul (07)' },
-                    { v: '08', l: 'Aug (08)' },
-                    { v: '09', l: 'Sep (09)' },
-                    { v: '10', l: 'Oct (10)' },
-                    { v: '11', l: 'Nov (11)' },
-                    { v: '12', l: 'Dec (12)' },
-                  ].map((m) => (
-                    <option key={m.v} value={m.v}>{m.l}</option>
-                  ))}
-                </select>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 130px' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>🗓️ Month:</span>
+              <select
+                value={filterMonthPart}
+                onChange={(e) => {
+                  setFilterMonthPart(e.target.value);
+                  setPeriodFilterMode('month');
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: 9,
+                  border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                }}
+              >
+                {[
+                  { v: '01', l: 'Jan (01)' },
+                  { v: '02', l: 'Feb (02)' },
+                  { v: '03', l: 'Mar (03)' },
+                  { v: '04', l: 'Apr (04)' },
+                  { v: '05', l: 'May (05)' },
+                  { v: '06', l: 'Jun (06)' },
+                  { v: '07', l: 'Jul (07)' },
+                  { v: '08', l: 'Aug (08)' },
+                  { v: '09', l: 'Sep (09)' },
+                  { v: '10', l: 'Oct (10)' },
+                  { v: '11', l: 'Nov (11)' },
+                  { v: '12', l: 'Dec (12)' },
+                ].map((m) => (
+                  <option key={m.v} value={m.v}>{m.l}</option>
+                ))}
+              </select>
+            </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 110px' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>Year:</span>
-                <select
-                  value={filterYearPart}
-                  onChange={(e) => {
-                    setFilterYearPart(e.target.value);
-                    if (periodFilterMode !== 'month') {
-                      setPeriodFilterMode('year');
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '6px 8px',
-                    borderRadius: 9,
-                    border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1px solid #6366f1' : `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: palette.text,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
-                >
-                  {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 105px' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>📆 Year:</span>
+              <select
+                value={filterYearPart}
+                onChange={(e) => {
+                  setFilterYearPart(e.target.value);
+                  if (periodFilterMode !== 'month') {
+                    setPeriodFilterMode('year');
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: 9,
+                  border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                }}
+              >
+                {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
+                  <option key={yr} value={yr}>{yr}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Interactive By-Day / By-Date Strip — Tap any Day/Date to inspect that day's transactions */}
+          {allDaysSummaryList.length > 0 && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 5,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  📆 By Day / By Date Ledger ({allDaysSummaryList.length} Active Days)
+                </span>
+                {periodFilterMode !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setPeriodFilterMode('all')}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#818cf8',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    Show All Days ✕
+                  </button>
+                )}
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: 6,
+                overflowX: 'auto',
+                paddingBottom: 3,
+                WebkitOverflowScrolling: 'touch',
+              }}>
+                {allDaysSummaryList.map((dayItem) => {
+                  const isDaySelected =
+                    (periodFilterMode === 'today' && dayItem.date === todayIso) ||
+                    (periodFilterMode === 'yesterday' && dayItem.date === yesterdayIso) ||
+                    (periodFilterMode === 'date' && filterSpecificDate === dayItem.date);
+                  const dayLabelShort = dayItem.date === todayIso
+                    ? `Today (${formatShortDate(dayItem.date)})`
+                    : dayItem.date === yesterdayIso
+                      ? `Last Day (${formatShortDate(dayItem.date)})`
+                      : formatShortDate(dayItem.date);
+                  return (
+                    <button
+                      key={dayItem.date}
+                      type="button"
+                      onClick={() => {
+                        if (isDaySelected) {
+                          setPeriodFilterMode('all');
+                        } else if (dayItem.date === todayIso) {
+                          setFilterSpecificDate(todayIso);
+                          setPeriodFilterMode('today');
+                        } else if (dayItem.date === yesterdayIso) {
+                          setFilterSpecificDate(yesterdayIso);
+                          setPeriodFilterMode('yesterday');
+                        } else {
+                          setFilterSpecificDate(dayItem.date);
+                          setPeriodFilterMode('date');
+                        }
+                      }}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 11,
+                        border: isDaySelected
+                          ? '1.5px solid #6366f1'
+                          : `1px solid ${palette.border}`,
+                        background: isDaySelected
+                          ? (isLight ? 'rgba(99, 102, 241, 0.16)' : 'rgba(99, 102, 241, 0.25)')
+                          : palette.surfaceAlt,
+                        color: palette.text,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: 2,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        minWidth: 112,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: isDaySelected ? (isLight ? '#4f46e5' : '#a5b4fc') : palette.text }}>
+                          {dayLabelShort}
+                        </span>
+                        <span style={{
+                          fontSize: 9.5,
+                          fontWeight: 800,
+                          padding: '1px 5px',
+                          borderRadius: 999,
+                          background: 'rgba(99, 102, 241, 0.16)',
+                          color: '#818cf8',
+                        }}>
+                          {dayItem.count}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, fontSize: 10.5, fontWeight: 800 }}>
+                        {dayItem.spent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINRShort(dayItem.spent)}</span>}
+                        {dayItem.received > 0 && <span style={{ color: '#34d399' }}>+₹{formatINRShort(dayItem.received)}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2534,6 +2719,429 @@ export default function ExpensesModule({
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
+          {/* Recent Payments (Auto Detected & Permanent Ledger — Grouped By Day & Date) */}
+          <div style={{
+            background: palette.surface,
+            borderRadius: 20,
+            border: `1px solid ${palette.border}`,
+            padding: mobileMode ? '14px 12px' : '16px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>📜 Recent Payments (Permanent Ledger) — By Day &amp; By Date</span>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    color: '#34d399',
+                    fontSize: 10,
+                    fontWeight: 800,
+                  }}>
+                    {recentPaymentsList.length} {periodFilterMode === 'all' ? 'Saved' : `in ${periodSummary.label}`}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
+                  📅 Grouped by Day &amp; Date · Tap any day chip above or transaction below
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {recentPaymentsList.length > 3 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                      style={{
+                        padding: '5px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                      title="Scroll to Latest (Top)"
+                    >
+                      ↑ Top
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                      style={{
+                        padding: '5px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.textSub,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                      title="Scroll to Oldest (Bottom)"
+                    >
+                      ↓ Bottom
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSubTab('transactions')}
+                  style={{
+                    background: 'rgba(99, 102, 241, 0.14)',
+                    border: '1px solid rgba(99, 102, 241, 0.32)',
+                    borderRadius: 999,
+                    padding: '5px 12px',
+                    color: isLight ? '#4f46e5' : '#818cf8',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  See All ({recentPaymentsList.length}) ›
+                </button>
+              </div>
+            </div>
+
+            {recentPaymentsList.length === 0 ? (
+              <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
+                <div style={{ fontWeight: 800, color: palette.text }}>
+                  No payments recorded for {periodSummary.label}.
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  Use <strong>⚡ Quick Add ({activeTargetDateIso})</strong> above, tap <strong>➕ Add Entry</strong>, or switch to <strong>All ({analytics.allTimeCount || 0})</strong> to view all days.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                  {periodFilterMode !== 'all' && (analytics.allTimeCount || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPeriodFilterMode('all')}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: 10,
+                        border: 'none',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      📅 Show All Days ({analytics.allTimeCount})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openQuickAddModal(null)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: '#6366f1',
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ➕ Add Payment Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerMobileTransactionScan()}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surfaceAlt,
+                      color: isLight ? '#4f46e5' : '#818cf8',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📲 Sync UPI &amp; Bank Alerts
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={recentScrollerRef}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 14,
+                  maxHeight: mobileMode ? 520 : 600,
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  paddingRight: 4,
+                  scrollBehavior: 'smooth',
+                }}
+              >
+                {overviewGroupedByDay.map((dayGroup) => (
+                  <div
+                    key={dayGroup.date}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    {/* Sticky Day / Date Header Banner */}
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 12,
+                        background: isLight
+                          ? 'linear-gradient(90deg, #eef2ff 0%, #f8fafc 100%)'
+                          : 'linear-gradient(90deg, rgba(99, 102, 241, 0.22) 0%, rgba(30, 41, 59, 0.9) 100%)',
+                        border: '1px solid rgba(99, 102, 241, 0.35)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#312e81' : '#e0e7ff' }}>
+                          📅 {dayGroup.label}
+                        </span>
+                        <span style={{
+                          padding: '2px 7px',
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          background: 'rgba(99, 102, 241, 0.18)',
+                          color: isLight ? '#4f46e5' : '#a5b4fc',
+                        }}>
+                          {dayGroup.date} · {dayGroup.items.length} {dayGroup.items.length === 1 ? 'txn' : 'txns'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, fontSize: 11.5, fontWeight: 900 }}>
+                        {dayGroup.daySpent > 0 && (
+                          <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(dayGroup.daySpent)}</span>
+                        )}
+                        {dayGroup.dayReceived > 0 && (
+                          <span style={{ color: '#34d399' }}>In: +₹{formatINR(dayGroup.dayReceived)}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Transactions for this Day / Date */}
+                    {dayGroup.items.map((tx) => {
+                      const isCredit = tx.type === 'credit' || tx.type === 'refund';
+                      const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                      const hasNote = Boolean(noteText);
+                      const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                      const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                      const txBal = Number.isFinite(Number(tx.runningBalance))
+                        ? Number(tx.runningBalance)
+                        : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
+                          ? Number(tx.accountBalance)
+                          : null);
+                      return (
+                        <div
+                          key={tx.id}
+                          className="flutter-m3-list-tile"
+                          style={{
+                            padding: mobileMode ? '12px' : '14px',
+                            borderRadius: 16,
+                            background: palette.surfaceAlt,
+                            border: isCredit ? '1px solid rgba(16, 185, 129, 0.3)' : `1px solid ${palette.border}`,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 9,
+                          }}
+                        >
+                          {/* Top Row: Avatar + Name + Date/Time + Amount + Running Balance */}
+                          <div
+                            onClick={() => setSelectedTxId(tx.id)}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              gap: 10,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                              <BrandPaymentAvatar tx={tx} size={40} />
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{
+                                    fontSize: 14,
+                                    fontWeight: 800,
+                                    color: palette.text,
+                                    wordBreak: 'break-word',
+                                    lineHeight: 1.25,
+                                  }}>
+                                    {tx.merchant || (isCredit ? 'Bank Deposit' : 'UPI Payment')}
+                                  </span>
+                                  <span style={{
+                                    padding: '2px 7px',
+                                    borderRadius: 999,
+                                    fontSize: 9.5,
+                                    fontWeight: 800,
+                                    background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.12)',
+                                    color: isCredit ? '#34d399' : '#fb7185',
+                                  }}>
+                                    {isCredit ? 'IN' : 'OUT'}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  fontSize: 11.5,
+                                  color: palette.textMuted,
+                                  fontWeight: 600,
+                                  marginTop: 4,
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: 6,
+                                  alignItems: 'center',
+                                }}>
+                                  <span style={{ color: palette.textSub, fontWeight: 800 }}>
+                                    🕒 {tx.date === todayIso ? `Today (${formatShortDate(tx.date)}), ${formatTime12h(tx.time)}` : tx.date === yesterdayIso ? `Last Day (${formatShortDate(tx.date)}), ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}
+                                  </span>
+                                  <span>·</span>
+                                  <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
+                                  {tx.accountMask && (
+                                    <>
+                                      <span>·</span>
+                                      <span>A/c {tx.accountMask}</span>
+                                    </>
+                                  )}
+                                  {tx.refId && (
+                                    <>
+                                      <span>·</span>
+                                      <span>Ref: {String(tx.refId).slice(-8)}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
+                                {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
+                              </div>
+                              {txBal !== null && (
+                                <div style={{
+                                  fontSize: 10.5,
+                                  fontWeight: 900,
+                                  color: '#34d399',
+                                  marginTop: 2,
+                                  background: 'rgba(16, 185, 129, 0.12)',
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  display: 'inline-block',
+                                }}>
+                                  🏦 Bal: ₹{formatINR(txBal)}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                                🔒 {tx.category || 'Payment'} ›
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Prominent Purpose / Which Thing Badge */}
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: 11,
+                              background: hasNote
+                                ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
+                                : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
+                              border: hasNote
+                                ? '1px solid rgba(59, 130, 246, 0.35)'
+                                : '1px dashed rgba(245, 158, 11, 0.45)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
+                                📌 <strong>For What / Which Thing:</strong>{' '}
+                                {hasNote ? noteText : 'Not noted yet — write what you bought/paid for below'}
+                              </div>
+                              {hasNote && !isEditingInline && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
+                                  style={{
+                                    padding: '3px 8px',
+                                    borderRadius: 7,
+                                    border: `1px solid ${palette.border}`,
+                                    background: palette.surface,
+                                    color: '#60a5fa',
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ✏️ Edit Note
+                                </button>
+                              )}
+                            </div>
+
+                            {(!hasNote || isEditingInline) && (
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <input
+                                  type="text"
+                                  value={inlineDraft}
+                                  onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && inlineDraft.trim()) {
+                                      handleUpdatePersonalNote(tx.id, inlineDraft);
+                                    }
+                                  }}
+                                  placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch, Grocery)..."
+                                  style={{
+                                    flex: '1 1 180px',
+                                    padding: '7px 10px',
+                                    borderRadius: 9,
+                                    border: `1px solid ${palette.border}`,
+                                    background: palette.surface,
+                                    color: palette.text,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    outline: 'none',
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
+                                  style={{
+                                    padding: '7px 12px',
+                                    borderRadius: 9,
+                                    border: 'none',
+                                    background: '#2563eb',
+                                    color: '#fff',
+                                    fontWeight: 800,
+                                    fontSize: 11.5,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Save Note
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Compact Flutter M3 Month & Salary Summary Card */}
           <div
             className="flutter-m3-card"
@@ -2813,354 +3421,6 @@ export default function ExpensesModule({
               ))}
             </div>
           )}
-
-          {/* Recent Payments (Auto Detected & Permanent Ledger) List (Screen 7) */}
-          <div style={{
-            background: palette.surface,
-            borderRadius: 20,
-            border: `1px solid ${palette.border}`,
-            padding: mobileMode ? '14px 12px' : '16px',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: palette.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span>Recent Payments (Permanent Ledger)</span>
-                  <span style={{
-                    padding: '2px 8px',
-                    borderRadius: 999,
-                    background: 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                    color: '#34d399',
-                    fontSize: 10,
-                    fontWeight: 800,
-                  }}>
-                    📜 {recentPaymentsList.length} Saved
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
-                  🔒 Permanent passbook · All notes &amp; edits saved
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {recentPaymentsList.length > 3 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                      style={{
-                        padding: '5px 9px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.textSub,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                      title="Scroll to Latest (Top)"
-                    >
-                      ↑ Top
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                      style={{
-                        padding: '5px 9px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.textSub,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                      title="Scroll to Oldest (Bottom)"
-                    >
-                      ↓ Bottom
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSubTab('transactions')}
-                  style={{
-                    background: 'rgba(99, 102, 241, 0.14)',
-                    border: '1px solid rgba(99, 102, 241, 0.32)',
-                    borderRadius: 999,
-                    padding: '5px 12px',
-                    color: isLight ? '#4f46e5' : '#818cf8',
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  See All ({recentPaymentsList.length}) ›
-                </button>
-              </div>
-            </div>
-
-            {recentPaymentsList.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
-                <div style={{ fontWeight: 800, color: palette.text }}>No payments recorded yet.</div>
-                <div style={{ marginTop: 4 }}>
-                  Make or receive any UPI or Bank transfer, or tap <strong>➕ Add Entry</strong> and your completed payment, time, purpose &amp; amount will stay saved forever.
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                  <button
-                    type="button"
-                    onClick={() => openQuickAddModal(null)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 10,
-                      border: 'none',
-                      background: '#6366f1',
-                      color: '#ffffff',
-                      fontWeight: 800,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ➕ Add Payment Now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerMobileTransactionScan()}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surfaceAlt,
-                      color: isLight ? '#4f46e5' : '#818cf8',
-                      fontWeight: 800,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    📲 Sync UPI &amp; Bank Alerts
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                ref={recentScrollerRef}
-                onTouchStart={(e) => e.stopPropagation()}
-                onTouchEnd={(e) => e.stopPropagation()}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                  maxHeight: mobileMode ? 440 : 520,
-                  overflowY: 'auto',
-                  overscrollBehavior: 'contain',
-                  WebkitOverflowScrolling: 'touch',
-                  paddingRight: 4,
-                  scrollBehavior: 'smooth',
-                }}
-              >
-                {recentPaymentsList.map((tx) => {
-                  const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                  const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
-                  const hasNote = Boolean(noteText);
-                  const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
-                  const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                  const txBal = Number.isFinite(Number(tx.runningBalance))
-                    ? Number(tx.runningBalance)
-                    : (tx.accountBalance !== null && tx.accountBalance !== undefined && Number.isFinite(Number(tx.accountBalance))
-                      ? Number(tx.accountBalance)
-                      : null);
-                  return (
-                    <div
-                      key={tx.id}
-                      className="flutter-m3-list-tile"
-                      style={{
-                        padding: mobileMode ? '12px' : '14px',
-                        borderRadius: 16,
-                        background: palette.surfaceAlt,
-                        border: isCredit ? '1px solid rgba(16, 185, 129, 0.3)' : `1px solid ${palette.border}`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 9,
-                      }}
-                    >
-                      {/* Top Row: Avatar + Name + Time + Amount + Running Balance */}
-                      <div
-                        onClick={() => setSelectedTxId(tx.id)}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          gap: 10,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
-                          <BrandPaymentAvatar tx={tx} size={40} />
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <span style={{
-                                fontSize: 14,
-                                fontWeight: 800,
-                                color: palette.text,
-                                wordBreak: 'break-word',
-                                lineHeight: 1.25,
-                              }}>
-                                {tx.merchant || (isCredit ? 'Bank Deposit' : 'UPI Payment')}
-                              </span>
-                              <span style={{
-                                padding: '2px 7px',
-                                borderRadius: 999,
-                                fontSize: 9.5,
-                                fontWeight: 800,
-                                background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.12)',
-                                color: isCredit ? '#34d399' : '#fb7185',
-                              }}>
-                                {isCredit ? 'IN' : 'OUT'}
-                              </span>
-                            </div>
-                            <div style={{
-                              fontSize: 11.5,
-                              color: palette.textMuted,
-                              fontWeight: 600,
-                              marginTop: 4,
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: 6,
-                              alignItems: 'center',
-                            }}>
-                              <span>🕒 {tx.date === todayIso ? `Today, ${formatTime12h(tx.time)}` : `${formatShortDate(tx.date)}, ${formatTime12h(tx.time)}`}</span>
-                              <span>·</span>
-                              <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
-                              {tx.accountMask && (
-                                <>
-                                  <span>·</span>
-                                  <span>A/c {tx.accountMask}</span>
-                                </>
-                              )}
-                              {tx.refId && (
-                                <>
-                                  <span>·</span>
-                                  <span>Ref: {String(tx.refId).slice(-8)}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                            {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
-                          </div>
-                          {txBal !== null && (
-                            <div style={{
-                              fontSize: 10.5,
-                              fontWeight: 900,
-                              color: '#34d399',
-                              marginTop: 2,
-                              background: 'rgba(16, 185, 129, 0.12)',
-                              padding: '2px 6px',
-                              borderRadius: 6,
-                              display: 'inline-block',
-                            }}>
-                              🏦 Bal: ₹{formatINR(txBal)}
-                            </div>
-                          )}
-                          <div style={{ fontSize: 10, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                            🔒 {tx.category || 'Payment'} ›
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Prominent Purpose / Which Thing Badge */}
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: 11,
-                          background: hasNote
-                            ? (isLight ? 'rgba(37, 99, 235, 0.08)' : 'rgba(37, 99, 235, 0.16)')
-                            : (isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)'),
-                          border: hasNote
-                            ? '1px solid rgba(59, 130, 246, 0.35)'
-                            : '1px dashed rgba(245, 158, 11, 0.45)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 6,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ fontSize: 12, fontWeight: 800, color: hasNote ? palette.text : '#fbbf24', wordBreak: 'break-word' }}>
-                            📌 <strong>For What / Which Thing:</strong>{' '}
-                            {hasNote ? noteText : 'Not noted yet — write what you bought/paid for below'}
-                          </div>
-                          {hasNote && !isEditingInline && (
-                            <button
-                              type="button"
-                              onClick={() => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }))}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: 7,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surface,
-                                color: '#60a5fa',
-                                fontSize: 10.5,
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              ✏️ Edit Note
-                            </button>
-                          )}
-                        </div>
-
-                        {(!hasNote || isEditingInline) && (
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <input
-                              type="text"
-                              value={inlineDraft}
-                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && inlineDraft.trim()) {
-                                  handleUpdatePersonalNote(tx.id, inlineDraft);
-                                }
-                              }}
-                              placeholder="Type purpose / which thing (e.g. Tea, Petrol, Lunch, Grocery)..."
-                              style={{
-                                flex: '1 1 180px',
-                                padding: '7px 10px',
-                                borderRadius: 9,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surface,
-                                color: palette.text,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                outline: 'none',
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                              style={{
-                                padding: '7px 12px',
-                                borderRadius: 9,
-                                border: 'none',
-                                background: '#2563eb',
-                                color: '#fff',
-                                fontWeight: 800,
-                                fontSize: 11.5,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Save Note
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </>
       )}
 

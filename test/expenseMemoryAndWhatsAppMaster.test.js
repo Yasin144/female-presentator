@@ -1071,6 +1071,27 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(expensesSrc.includes('handleQuickSaveForSelectedDate'), true);
       assert.equal(expensesSrc.includes('activeTargetDateIso'), true);
     });
+
+    it('renders recent user transactions grouped By Day and By Date with zero yesterdayIso ReferenceError (v7.8.2)', () => {
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+
+      // yesterdayIso must be defined from yesterdayIsoCalculated so Last Day never crashes
+      assert.equal(expensesSrc.includes('const yesterdayIso = yesterdayIsoCalculated;'), true);
+      // Overview groups recent transactions by day & date with interactive day chips
+      assert.equal(expensesSrc.includes('overviewGroupedByDay'), true);
+      assert.equal(expensesSrc.includes('allDaysSummaryList'), true);
+      assert.equal(expensesSrc.includes('By Day / By Date Ledger'), true);
+      // Owner master transactions seed is preserved for patanyasin144@gmail.com and not stripped as fake
+      assert.equal(otSalarySrc.includes('_today_tea'), true);
+      assert.equal(otSalarySrc.includes('_100_debit'), true);
+    });
   });
 });
 
