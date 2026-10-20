@@ -1094,6 +1094,12 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
       assert.equal(otSalarySrc.includes('scrubFakeTransactionsFromLocalStorage'), true);
       assert.equal(expensesSrc.includes("keyStr.startsWith('tx_yasin_master_')"), true);
+      // v7.8.4: Exact date selection (selectExactDate, shiftSelectedDateByDays) + Proactive OTA Update Prompt (never stays silent)
+      assert.equal(expensesSrc.includes('selectExactDate'), true);
+      assert.equal(expensesSrc.includes('shiftSelectedDateByDays'), true);
+      assert.equal(otSalarySrc.includes('checkOtaUpdateAvailability'), true);
+      assert.equal(otSalarySrc.includes('availableOtaUpdate'), true);
+      assert.equal(otSalarySrc.includes('New Update Available'), true);
     });
   });
 });

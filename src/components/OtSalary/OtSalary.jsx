@@ -2025,23 +2025,102 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   // In-App Live Over-The-Air (OTA) Update Engine — Pulls new features directly from GitHub without rebuilding/reinstalling APK
   const [otaBusy, setOtaBusy] = useState(false);
+  const [availableOtaUpdate, setAvailableOtaUpdate] = useState(null);
+  const [otaPromptDismissedBuildId, setOtaPromptDismissedBuildId] = useState('');
+  const lastNotifiedOtaBuildRef = useRef('');
   const [liveOtaVersion, setLiveOtaVersion] = useState(() => {
     try {
       if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.3';
+      return localStorage.getItem('pattan.ota.version') || '7.8.4';
     } catch (_) {
-      return '7.8.3';
+      return '7.8.4';
     }
   });
+
+  // Proactively check GitHub OTA manifest and NEVER stay silent when an update is available
+  const checkOtaUpdateAvailability = useCallback(async () => {
+    if (otaBusy) return null;
+    try {
+      const ts = Date.now();
+      const baseUrls = [
+        'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota',
+        'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota',
+      ];
+      let manifest = null;
+      let activeBase = baseUrls[0];
+      for (const base of baseUrls) {
+        try {
+          const res = await fetch(`${base}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          if (res.ok) {
+            manifest = await res.json();
+            activeBase = base;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (!manifest || !manifest.buildId) return null;
+
+      let currentBuildId = '';
+      let currentStoredVersion = '';
+      try {
+        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
+          const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
+          currentBuildId = st.buildId || '';
+          currentStoredVersion = st.version || '';
+        }
+        if (!currentBuildId) {
+          currentBuildId = localStorage.getItem('pattan.ota.buildId') || '';
+        }
+        if (!currentStoredVersion) {
+          currentStoredVersion = localStorage.getItem('pattan.ota.version') || '';
+        }
+      } catch (_) {}
+
+      const remoteBuildId = String(manifest.buildId || '').trim();
+      const remoteVersion = String(manifest.version || '7.8.4').trim();
+      const hasNewBuild =
+        Boolean(remoteBuildId) &&
+        (String(remoteBuildId) !== String(currentBuildId) ||
+          (currentStoredVersion && String(remoteVersion) !== String(currentStoredVersion)));
+
+      if (hasNewBuild) {
+        const updateInfo = {
+          version: remoteVersion,
+          buildId: remoteBuildId,
+          notes: String(
+            manifest.notes ||
+              'New features, real-time date transaction view & instant update notifications are ready.'
+          ),
+          activeBase,
+          jsFile: manifest.jsFile || 'app-bundle.js',
+          cssFile: manifest.cssFile || 'app-bundle.css',
+        };
+        setAvailableOtaUpdate(updateInfo);
+        if (lastNotifiedOtaBuildRef.current !== remoteBuildId) {
+          lastNotifiedOtaBuildRef.current = remoteBuildId;
+          setOtaPromptDismissedBuildId('');
+          try {
+            if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+              navigator.vibrate([70, 40, 110]);
+            }
+          } catch (_) {}
+        }
+        return updateInfo;
+      } else {
+        setAvailableOtaUpdate(null);
+      }
+    } catch (_) {}
+    return null;
+  }, [otaBusy]);
 
   const checkAndApplyLiveOtaUpdate = useCallback(async (isManualTap = false) => {
     if (otaBusy) return;
     if (isManualTap) {
       setOtaBusy(true);
-      setSaveNotice('🔄 Checking & pulling latest Live Update...');
+      setSaveNotice('🔄 Checking & applying latest Live Update...');
     }
     try {
       // Also trigger a full transaction & notification sync whenever Update is tapped
@@ -2094,6 +2173,27 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return;
       }
 
+      // If this is a background check and a new update is found, DO NOT stay silent — prompt the user!
+      if (hasNewBuild && !isManualTap) {
+        const remoteBuildId = String(manifest.buildId);
+        setAvailableOtaUpdate({
+          version: String(manifest.version || '7.8.4'),
+          buildId: remoteBuildId,
+          notes: String(
+            manifest.notes ||
+              'New features, real-time date transaction view & instant update notifications are ready.'
+          ),
+          activeBase,
+          jsFile: manifest.jsFile || 'app-bundle.js',
+          cssFile: manifest.cssFile || 'app-bundle.css',
+        });
+        if (lastNotifiedOtaBuildRef.current !== remoteBuildId) {
+          lastNotifiedOtaBuildRef.current = remoteBuildId;
+          setOtaPromptDismissedBuildId('');
+        }
+        return;
+      }
+
       const [jsRes, cssRes] = await Promise.all([
         fetch(`${activeBase}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
         fetch(`${activeBase}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
@@ -2115,7 +2215,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
           savedNative = Boolean(
             window.PattanBiometric.saveLiveOtaBundle(
-              String(manifest.version || '7.8'),
+              String(manifest.version || '7.8.4'),
               String(manifest.buildId),
               jsText,
               cssText
@@ -2124,18 +2224,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         }
         try {
           localStorage.setItem('pattan.ota.buildId', String(manifest.buildId));
-          localStorage.setItem('pattan.ota.version', String(manifest.version || '7.8'));
+          localStorage.setItem('pattan.ota.version', String(manifest.version || '7.8.4'));
         } catch (_) {}
-        setLiveOtaVersion(String(manifest.version || '7.8'));
+        setLiveOtaVersion(String(manifest.version || '7.8.4'));
+        setAvailableOtaUpdate(null);
 
         if (hasNewBuild || isManualTap) {
-          setSaveNotice(`✅ Updated to v${manifest.version || '7.8'}! Applying live update...`);
+          setSaveNotice(`✅ Updated to v${manifest.version || '7.8.4'}! Applying live update...`);
           setTimeout(() => {
             setOtaBusy(false);
-            if (savedNative || hasNewBuild) {
+            if (savedNative || hasNewBuild || isManualTap) {
               window.location.reload();
             }
-          }, 550);
+          }, 450);
           return;
         }
       }
@@ -2149,13 +2250,30 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [otaBusy, liveOtaVersion]);
 
-  // Automatically check for new OTA updates in the background on startup
+  // Continuously poll for new OTA updates in the background (startup + every 12s + focus) and ASK user to update
   useEffect(() => {
-    const timer = setTimeout(() => {
-      checkAndApplyLiveOtaUpdate(false);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [checkAndApplyLiveOtaUpdate]);
+    const startupTimer = setTimeout(() => {
+      checkOtaUpdateAvailability();
+    }, 1200);
+    const pollInterval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        checkOtaUpdateAvailability();
+      }
+    }, 12000);
+    const onFocusOrVisible = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        checkOtaUpdateAvailability();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      clearTimeout(startupTimer);
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [checkOtaUpdateAvailability]);
 
   const handleUpdateExpenses = useCallback((nextExpensesMap, noticeMessage = '') => {
     const merged = mergeExpensesNonDestructive(expensesMapRef.current || {}, nextExpensesMap || {});
@@ -4141,25 +4259,40 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               type="button"
               onClick={() => checkAndApplyLiveOtaUpdate(true)}
               disabled={otaBusy}
-              title={`Pull Latest Live Update (v${liveOtaVersion})`}
+              title={
+                availableOtaUpdate
+                  ? `🚀 New Update v${availableOtaUpdate.version} Available — Tap to Update Now!`
+                  : `Pull Latest Live Update (v${liveOtaVersion})`
+              }
               style={{
                 height: 34,
                 padding: '0 9px',
                 borderRadius: 11,
-                border: isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(16, 185, 129, 0.45)',
-                background: isLight ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.18)',
-                color: isLight ? '#047857' : '#34d399',
-                fontWeight: 800,
+                border: availableOtaUpdate
+                  ? '1.5px solid #f59e0b'
+                  : (isLight ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(16, 185, 129, 0.45)'),
+                background: availableOtaUpdate
+                  ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)'
+                  : (isLight ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.18)'),
+                color: availableOtaUpdate ? '#ffffff' : (isLight ? '#047857' : '#34d399'),
+                fontWeight: 900,
                 fontSize: 11,
                 cursor: otaBusy ? 'wait' : 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
                 whiteSpace: 'nowrap',
+                boxShadow: availableOtaUpdate ? '0 0 14px rgba(245, 158, 11, 0.55)' : 'none',
               }}
             >
-              <span>{otaBusy ? '⏳' : '🔄'}</span>
-              <span>{otaBusy ? 'Updating' : 'Update'}</span>
+              <span>{otaBusy ? '⏳' : availableOtaUpdate ? '🚀' : '🔄'}</span>
+              <span>
+                {otaBusy
+                  ? 'Updating'
+                  : availableOtaUpdate
+                    ? `Update (v${availableOtaUpdate.version})`
+                    : 'Update'}
+              </span>
             </button>
 
             {/* Compact Account / Change Mobile Chip */}
@@ -4188,6 +4321,149 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </button>
           </div>
         </div>
+
+        {/* 🚀 PROACTIVE UPDATE AVAILABLE BANNER & MODAL — NEVER STAYS SILENT WHEN AN UPDATE IS READY */}
+        {availableOtaUpdate && (
+          <>
+            <div
+              className="ot-no-print"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 16,
+                background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #065f46 100%)',
+                border: '1.5px solid #34d399',
+                boxShadow: '0 10px 28px rgba(16, 185, 129, 0.32)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 10,
+                color: '#ffffff',
+              }}
+            >
+              <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 950, color: '#6ee7b7', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>🚀 New App Update Available (v{availableOtaUpdate.version})</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#e2e8f0', fontWeight: 700, marginTop: 2, lineHeight: 1.35 }}>
+                  {availableOtaUpdate.notes}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  disabled={otaBusy}
+                  onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#ffffff',
+                    fontWeight: 950,
+                    fontSize: 12,
+                    cursor: otaBusy ? 'wait' : 'pointer',
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.45)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {otaBusy ? '⏳ Updating...' : '⚡ Update Now'}
+                </button>
+              </div>
+            </div>
+
+            {otaPromptDismissedBuildId !== availableOtaUpdate.buildId && (
+              <div
+                className="ot-no-print"
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 99999,
+                  background: 'rgba(2, 6, 23, 0.82)',
+                  backdropFilter: 'blur(6px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 16,
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: 400,
+                    borderRadius: 22,
+                    padding: '20px 18px',
+                    background: isLight ? '#ffffff' : '#0f172a',
+                    border: '2px solid #10b981',
+                    boxShadow: '0 24px 60px rgba(0, 0, 0, 0.65)',
+                    color: isLight ? '#0f172a' : '#f8fafc',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 36, lineHeight: 1 }}>🚀</div>
+                  <div style={{ fontSize: 17, fontWeight: 950 }}>
+                    New Update Available (v{availableOtaUpdate.version})
+                  </div>
+                  <div style={{ fontSize: 12.5, color: isLight ? '#475569' : '#cbd5e1', fontWeight: 700, lineHeight: 1.45 }}>
+                    {availableOtaUpdate.notes}
+                  </div>
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: 12,
+                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    color: isLight ? '#065f46' : '#6ee7b7',
+                  }}>
+                    🔒 100% of your saved attendance &amp; real transactions remain safe. No APK reinstall needed!
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setOtaPromptDismissedBuildId(availableOtaUpdate.buildId)}
+                      style={{
+                        flex: 1,
+                        padding: '11px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textSecondary,
+                        fontWeight: 800,
+                        fontSize: 12.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Later
+                    </button>
+                    <button
+                      type="button"
+                      disabled={otaBusy}
+                      onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                      style={{
+                        flex: 2,
+                        padding: '11px 16px',
+                        borderRadius: 12,
+                        border: 'none',
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: '#ffffff',
+                        fontWeight: 950,
+                        fontSize: 13.5,
+                        cursor: otaBusy ? 'wait' : 'pointer',
+                        boxShadow: '0 8px 20px rgba(16, 185, 129, 0.4)',
+                      }}
+                    >
+                      {otaBusy ? '⏳ Updating...' : '⚡ Update Now'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Fixed Floating Save Notice Toast (Auto-closes in 2.2s + Tap to close immediately) */}
         {saveNotice && (
@@ -4779,6 +5055,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   onUpdateExpenses={handleUpdateExpenses}
                   selectedMonth={selectedMonth}
                   onChangeMonth={(m) => setSelectedMonth(m)}
+                  selectedDate={selectedDate}
+                  onSelectDate={(d) => {
+                    if (d) {
+                      setSelectedDate(d);
+                      if (d.slice(0, 7) !== selectedMonth) {
+                        setSelectedMonth(d.slice(0, 7));
+                      }
+                    }
+                  }}
                   netMonthlySalary={monthSummary.fullMonthNetPayable}
                   baseMonthlySalary={rates.salary}
                   salaryVisible={salaryBiometricVisible}

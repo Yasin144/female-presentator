@@ -225,6 +225,8 @@ export default function ExpensesModule({
   onUpdateExpenses,
   selectedMonth,
   onChangeMonth,
+  selectedDate,
+  onSelectDate,
   monthlyNetSalary = 0,
   netMonthlySalary = 0,
   salaryVisible = false,
@@ -563,19 +565,6 @@ export default function ExpensesModule({
 
   const todayIso = getTodayIso();
 
-  // Filter by Date / Month / Year state (defaults to 'all' = All Recent so yesterday/last-day transactions are always visible!)
-  const [periodFilterMode, setPeriodFilterMode] = useState('all'); // 'all' | 'today' | 'yesterday' | 'date' | 'month' | 'year'
-  const [filterSpecificDate, setFilterSpecificDate] = useState(() => {
-    const tObj = new Date(`${todayIso}T12:00:00`);
-    const yObj = new Date(tObj.getTime() - 86400000);
-    return `${yObj.getFullYear()}-${String(yObj.getMonth() + 1).padStart(2, '0')}-${String(yObj.getDate()).padStart(2, '0')}`;
-  });
-  const [filterMonthPart, setFilterMonthPart] = useState(() => String(selectedMonth || todayIso).slice(5, 7) || '10');
-  const [filterYearPart, setFilterYearPart] = useState(() => String(selectedMonth || todayIso).slice(0, 4) || '2026');
-  const [quickDateAmount, setQuickDateAmount] = useState('');
-  const [quickDateMerchant, setQuickDateMerchant] = useState('');
-  const [quickDateType, setQuickDateType] = useState('debit');
-
   const yesterdayIsoCalculated = useMemo(() => {
     const tObj = new Date(`${todayIso}T12:00:00`);
     const yObj = new Date(tObj.getTime() - 86400000);
@@ -583,11 +572,74 @@ export default function ExpensesModule({
   }, [todayIso]);
   const yesterdayIso = yesterdayIsoCalculated;
 
+  // Filter by Date / Month / Year state — defaults to the exact selected date so whatever date you pick shows ONLY that day's real transactions!
+  const [filterSpecificDate, setFilterSpecificDate] = useState(() => selectedDate || todayIso);
+  const [periodFilterMode, setPeriodFilterMode] = useState(() => {
+    const initDate = selectedDate || todayIso;
+    if (initDate === todayIso) return 'today';
+    if (initDate === yesterdayIsoCalculated) return 'yesterday';
+    return 'date';
+  }); // 'today' | 'yesterday' | 'date' | 'month' | 'year' | 'all'
+  const [filterMonthPart, setFilterMonthPart] = useState(() => String(selectedDate || selectedMonth || todayIso).slice(5, 7) || '10');
+  const [filterYearPart, setFilterYearPart] = useState(() => String(selectedDate || selectedMonth || todayIso).slice(0, 4) || '2026');
+  const [quickDateAmount, setQuickDateAmount] = useState('');
+  const [quickDateMerchant, setQuickDateMerchant] = useState('');
+  const [quickDateType, setQuickDateType] = useState('debit');
+
+  // Keep Expenses date filter synchronized whenever parent selectedDate changes
+  useEffect(() => {
+    if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+      setFilterSpecificDate(selectedDate);
+      setFilterMonthPart(selectedDate.slice(5, 7));
+      setFilterYearPart(selectedDate.slice(0, 4));
+      if (selectedDate === todayIso) {
+        setPeriodFilterMode('today');
+      } else if (selectedDate === yesterdayIsoCalculated) {
+        setPeriodFilterMode('yesterday');
+      } else {
+        setPeriodFilterMode('date');
+      }
+    }
+  }, [selectedDate, todayIso, yesterdayIsoCalculated]);
+
+  const selectExactDate = useCallback(
+    (targetIso) => {
+      if (!targetIso || !/^\d{4}-\d{2}-\d{2}$/.test(targetIso)) return;
+      setFilterSpecificDate(targetIso);
+      setFilterMonthPart(targetIso.slice(5, 7));
+      setFilterYearPart(targetIso.slice(0, 4));
+      if (targetIso === todayIso) {
+        setPeriodFilterMode('today');
+      } else if (targetIso === yesterdayIsoCalculated) {
+        setPeriodFilterMode('yesterday');
+      } else {
+        setPeriodFilterMode('date');
+      }
+      if (typeof onSelectDate === 'function') {
+        onSelectDate(targetIso);
+      }
+    },
+    [todayIso, yesterdayIsoCalculated, onSelectDate]
+  );
+
   const activeTargetDateIso = useMemo(() => {
+    if (periodFilterMode === 'today') return todayIso;
     if (periodFilterMode === 'yesterday') return yesterdayIsoCalculated;
     if (periodFilterMode === 'date' && filterSpecificDate) return filterSpecificDate;
-    return todayIso;
+    return filterSpecificDate || todayIso;
   }, [periodFilterMode, yesterdayIsoCalculated, filterSpecificDate, todayIso]);
+
+  const shiftSelectedDateByDays = useCallback(
+    (deltaDays) => {
+      const baseIso = activeTargetDateIso || todayIso;
+      const baseObj = new Date(`${baseIso}T12:00:00`);
+      if (Number.isNaN(baseObj.getTime())) return;
+      const nextObj = new Date(baseObj.getTime() + deltaDays * 86400000);
+      const nextIso = `${nextObj.getFullYear()}-${String(nextObj.getMonth() + 1).padStart(2, '0')}-${String(nextObj.getDate()).padStart(2, '0')}`;
+      selectExactDate(nextIso);
+    },
+    [activeTargetDateIso, todayIso, selectExactDate]
+  );
 
   const triggerMobileTransactionScan = async (daysToScanInput = 3650) => {
     const daysToScan = typeof daysToScanInput === 'number' && daysToScanInput > 0 ? daysToScanInput : 3650;
@@ -721,6 +773,16 @@ export default function ExpensesModule({
       '628966554433',
       '628855443322',
     ]);
+    let deletedSet = new Set();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const rawDel = window.localStorage.getItem('pattan.expenses.deletedIds');
+        if (rawDel) {
+          const parsedDel = JSON.parse(rawDel);
+          if (Array.isArray(parsedDel)) deletedSet = new Set(parsedDel.map(String));
+        }
+      }
+    } catch (_) {}
     const cleanMap = {};
     if (expensesMap && typeof expensesMap === 'object') {
       for (const [k, v] of Object.entries(expensesMap)) {
@@ -735,7 +797,7 @@ export default function ExpensesModule({
           srcStr === 'demo-preview' ||
           srcStr === 'owner-master-vault' ||
           fakeRefIds.has(refStr);
-        if (!v || typeof v !== 'object' || v._deleted || v._demoPreview || v.isDemoPreview || isFakeSeed) {
+        if (!v || typeof v !== 'object' || v._deleted || deletedSet.has(keyStr) || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
         }
         cleanMap[k] = { ...v };
@@ -1349,6 +1411,15 @@ export default function ExpensesModule({
     if (!existing) return;
     const snapshot = { ...baseMap };
     const nowMs = Date.now();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const rawDel = window.localStorage.getItem('pattan.expenses.deletedIds');
+        const arrDel = rawDel ? JSON.parse(rawDel) : [];
+        const setDel = new Set(Array.isArray(arrDel) ? arrDel.map(String) : []);
+        setDel.add(String(txId));
+        window.localStorage.setItem('pattan.expenses.deletedIds', JSON.stringify(Array.from(setDel)));
+      }
+    } catch (_) {}
     const nextMap = {
       ...baseMap,
       [txId]: {
@@ -1361,6 +1432,7 @@ export default function ExpensesModule({
     setUndoBanner({
       message: `🗑️ Removed ₹${formatINR(existing.amount)} (${existing.merchant || 'Transaction'})`,
       snapshot,
+      deletedTxId: String(txId),
     });
     if (selectedTxId === txId) {
       setSelectedTxId(null);
@@ -1979,6 +2051,18 @@ export default function ExpensesModule({
               <button
                 type="button"
                 onClick={() => {
+                  if (undoBanner.deletedTxId) {
+                    try {
+                      if (typeof window !== 'undefined' && window.localStorage) {
+                        const rawDel = window.localStorage.getItem('pattan.expenses.deletedIds');
+                        const arrDel = rawDel ? JSON.parse(rawDel) : [];
+                        const nextDel = (Array.isArray(arrDel) ? arrDel : []).filter(
+                          (id) => String(id) !== String(undoBanner.deletedTxId)
+                        );
+                        window.localStorage.setItem('pattan.expenses.deletedIds', JSON.stringify(nextDel));
+                      }
+                    } catch (_) {}
+                  }
                   if (undoBanner.snapshot && typeof onUpdateExpenses === 'function') {
                     onUpdateExpenses(undoBanner.snapshot, '↩️ Restored transaction');
                   }
@@ -2236,117 +2320,29 @@ export default function ExpensesModule({
             </button>
           </div>
 
-          {/* 4-Column Period Summary Strip: Today | Last Day | Month | All Recent */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: mobileMode ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
-            gap: 8,
-          }}>
-            <div
-              onClick={() => setPeriodFilterMode('today')}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'today' ? 'rgba(99, 102, 241, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                border: periodFilterMode === 'today' ? '1px solid #818cf8' : '1px solid rgba(148, 163, 184, 0.14)',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase' }}>
-                📍 Today ({analytics.todayCount || 0})
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#fb7185', marginTop: 2 }}>
-                -₹{formatINR(analytics.todaySpent)}
-              </div>
-              <div style={{ fontSize: 9.5, color: '#34d399', fontWeight: 700 }}>
-                In: +₹{formatINRShort(analytics.todayReceived)}
-              </div>
-            </div>
-
-            <div
-              onClick={() => setPeriodFilterMode('yesterday')}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'yesterday' ? 'rgba(99, 102, 241, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                border: periodFilterMode === 'yesterday' ? '1px solid #818cf8' : '1px solid rgba(148, 163, 184, 0.14)',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#a5b4fc', textTransform: 'uppercase' }}>
-                ⏮️ Last Day ({analytics.yesterdayCount || 0})
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#ffffff', marginTop: 2 }}>
-                -₹{formatINR(analytics.yesterdaySpent || 0)}
-              </div>
-              <div style={{ fontSize: 9.5, color: '#34d399', fontWeight: 700 }}>
-                In: +₹{formatINRShort(analytics.yesterdayReceived || 0)}
-              </div>
-            </div>
-
-            <div
-              onClick={() => setPeriodFilterMode('month')}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'month' ? 'rgba(99, 102, 241, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                border: periodFilterMode === 'month' ? '1px solid #818cf8' : '1px solid rgba(148, 163, 184, 0.14)',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase' }}>
-                🗓️ Month ({analytics.totalCount || 0})
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#fb7185', marginTop: 2 }}>
-                -₹{formatINR(analytics.netSpending)}
-              </div>
-              <div style={{ fontSize: 9.5, color: '#34d399', fontWeight: 700 }}>
-                In: +₹{formatINRShort(analytics.totalIncome)}
-              </div>
-            </div>
-
-            <div
-              onClick={() => setPeriodFilterMode('all')}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 12,
-                background: periodFilterMode === 'all' ? 'rgba(99, 102, 241, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                border: periodFilterMode === 'all' ? '1px solid #818cf8' : '1px solid rgba(148, 163, 184, 0.14)',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: '#34d399', textTransform: 'uppercase' }}>
-                ⚡ All Recent ({analytics.allTimeCount || 0})
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#34d399', marginTop: 2 }}>
-                +₹{formatINR(analytics.allTimeReceived)}
-              </div>
-              <div style={{ fontSize: 9.5, color: '#fb7185', fontWeight: 700 }}>
-                Out: -₹{formatINRShort(analytics.allTimeSpent)}
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
           📅 FILTER & SYNC TRANSACTIONS BY DATE · MONTH · YEAR (FLUTTER M3)
+          WHATEVER DATE YOU SELECT SHOWS ONLY THE REAL TRANSACTIONS OF THAT DAY
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
         <div
           className="flutter-m3-card"
           style={{
-            padding: '12px 14px',
+            padding: '13px 14px',
             borderRadius: 18,
             background: palette.surface,
-            border: `1px solid ${palette.border}`,
+            border: `1.5px solid ${palette.border}`,
             display: 'flex',
             flexDirection: 'column',
-            gap: 9,
+            gap: 10,
           }}
         >
+          {/* Header Row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>📅 Filter &amp; Sync by Date · Month · Year</span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2365,7 +2361,7 @@ export default function ExpensesModule({
                   cursor: 'pointer',
                 }}
               >
-                {isScanning ? '⏳ Syncing...' : '🔄 Sync Transactions'}
+                {isScanning ? '⏳ Syncing...' : '🔄 Sync Real Transactions'}
               </button>
               <button
                 type="button"
@@ -2386,148 +2382,218 @@ export default function ExpensesModule({
             </div>
           </div>
 
-          {/* Filter Mode Pills */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-            {[
-              { id: 'all', label: `⚡ All Recent (${analytics.allTimeCount || 0})` },
-              { id: 'today', label: `📍 Today (${analytics.todayCount || 0})` },
-              { id: 'yesterday', label: `⏮️ Last Day (${analytics.yesterdayCount || 0})` },
-              { id: 'date', label: '📅 By Date' },
-              { id: 'month', label: '🗓️ By Month' },
-              { id: 'year', label: '📆 By Year' },
-            ].map((m) => {
-              const active = periodFilterMode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPeriodFilterMode(m.id)}
+          {/* PRIMARY DATE NAVIGATOR: ◀ Prev Day | Calendar Date Picker | Next Day ▶ */}
+          <div style={{
+            padding: '10px 12px',
+            borderRadius: 14,
+            background: isLight
+              ? 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)'
+              : 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(15, 23, 42, 0.9) 100%)',
+            border: '1.5px solid rgba(99, 102, 241, 0.45)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => shiftSelectedDateByDays(-1)}
+                style={{
+                  padding: '8px 11px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontWeight: 900,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Previous Day"
+              >
+                ◀ Prev Day
+              </button>
+
+              <div style={{ flex: '1 1 150px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="date"
+                  value={activeTargetDateIso}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val) {
+                      selectExactDate(val);
+                    }
+                  }}
                   style={{
-                    padding: '6px 12px',
-                    borderRadius: 999,
-                    border: active ? '1px solid rgba(99, 102, 241, 0.5)' : `1px solid ${palette.border}`,
-                    background: active ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surfaceAlt,
-                    color: active ? '#ffffff' : palette.textSub,
-                    fontWeight: 800,
-                    fontSize: 11.5,
+                    width: '100%',
+                    padding: '8px 11px',
+                    borderRadius: 10,
+                    border: '2px solid #6366f1',
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 13.5,
+                    fontWeight: 900,
                     cursor: 'pointer',
-                    whiteSpace: 'nowrap',
+                  }}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => shiftSelectedDateByDays(1)}
+                style={{
+                  padding: '8px 11px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontWeight: 900,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Next Day"
+              >
+                Next Day ▶
+              </button>
+            </div>
+
+            {/* 1-Tap Quick Date Mode Pills: Today | Yesterday | This Month | All Dates */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => selectExactDate(todayIso)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  border: periodFilterMode === 'today' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: periodFilterMode === 'today' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
+                  color: periodFilterMode === 'today' ? '#ffffff' : palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                📍 Today ({analytics.todayCount || 0})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => selectExactDate(yesterdayIso)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  border: periodFilterMode === 'yesterday' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: periodFilterMode === 'yesterday' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
+                  color: periodFilterMode === 'yesterday' ? '#ffffff' : palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                ⏮️ Yesterday / Last Day ({analytics.yesterdayCount || 0})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPeriodFilterMode('month')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: periodFilterMode === 'month' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
+                  color: periodFilterMode === 'month' ? '#ffffff' : palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🗓️ Month ({analytics.totalCount || 0})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPeriodFilterMode('all')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  border: periodFilterMode === 'all' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                  background: periodFilterMode === 'all' ? 'linear-gradient(135deg, #6366f1, #3b82f6)' : palette.surface,
+                  color: periodFilterMode === 'all' ? '#ffffff' : palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                📜 All Dates ({analytics.allTimeCount || 0})
+              </button>
+
+              {/* Month & Year selectors when viewing by Month/Year */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
+                <select
+                  value={filterMonthPart}
+                  onChange={(e) => {
+                    setFilterMonthPart(e.target.value);
+                    setPeriodFilterMode('month');
+                  }}
+                  style={{
+                    padding: '5px 7px',
+                    borderRadius: 8,
+                    border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 11,
+                    fontWeight: 800,
                   }}
                 >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Date / Month / Year Pickers — Always visible for instant By-Day / By-Date selection */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 145px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>📅 Date:</span>
-              <input
-                type="date"
-                value={
-                  periodFilterMode === 'yesterday'
-                    ? yesterdayIso
-                    : periodFilterMode === 'today'
-                      ? todayIso
-                      : filterSpecificDate
-                }
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val) {
-                    setFilterSpecificDate(val);
-                    if (val === todayIso) {
-                      setPeriodFilterMode('today');
-                    } else if (val === yesterdayIso) {
-                      setPeriodFilterMode('yesterday');
-                    } else {
-                      setPeriodFilterMode('date');
+                  {[
+                    { v: '01', l: 'Jan' },
+                    { v: '02', l: 'Feb' },
+                    { v: '03', l: 'Mar' },
+                    { v: '04', l: 'Apr' },
+                    { v: '05', l: 'May' },
+                    { v: '06', l: 'Jun' },
+                    { v: '07', l: 'Jul' },
+                    { v: '08', l: 'Aug' },
+                    { v: '09', l: 'Sep' },
+                    { v: '10', l: 'Oct' },
+                    { v: '11', l: 'Nov' },
+                    { v: '12', l: 'Dec' },
+                  ].map((m) => (
+                    <option key={m.v} value={m.v}>{m.l}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterYearPart}
+                  onChange={(e) => {
+                    setFilterYearPart(e.target.value);
+                    if (periodFilterMode !== 'month') {
+                      setPeriodFilterMode('year');
                     }
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: '6px 9px',
-                  borderRadius: 9,
-                  border: (periodFilterMode === 'date' || periodFilterMode === 'yesterday' || periodFilterMode === 'today')
-                    ? '1.5px solid #6366f1'
-                    : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 130px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>🗓️ Month:</span>
-              <select
-                value={filterMonthPart}
-                onChange={(e) => {
-                  setFilterMonthPart(e.target.value);
-                  setPeriodFilterMode('month');
-                }}
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  borderRadius: 9,
-                  border: periodFilterMode === 'month' ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                }}
-              >
-                {[
-                  { v: '01', l: 'Jan (01)' },
-                  { v: '02', l: 'Feb (02)' },
-                  { v: '03', l: 'Mar (03)' },
-                  { v: '04', l: 'Apr (04)' },
-                  { v: '05', l: 'May (05)' },
-                  { v: '06', l: 'Jun (06)' },
-                  { v: '07', l: 'Jul (07)' },
-                  { v: '08', l: 'Aug (08)' },
-                  { v: '09', l: 'Sep (09)' },
-                  { v: '10', l: 'Oct (10)' },
-                  { v: '11', l: 'Nov (11)' },
-                  { v: '12', l: 'Dec (12)' },
-                ].map((m) => (
-                  <option key={m.v} value={m.v}>{m.l}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '1 1 105px' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: palette.textSub }}>📆 Year:</span>
-              <select
-                value={filterYearPart}
-                onChange={(e) => {
-                  setFilterYearPart(e.target.value);
-                  if (periodFilterMode !== 'month') {
-                    setPeriodFilterMode('year');
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  borderRadius: 9,
-                  border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                }}
-              >
-                {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
-                  <option key={yr} value={yr}>{yr}</option>
-                ))}
-              </select>
+                  }}
+                  style={{
+                    padding: '5px 7px',
+                    borderRadius: 8,
+                    border: (periodFilterMode === 'year' || periodFilterMode === 'month') ? '1.5px solid #6366f1' : `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
+                >
+                  {['2027', '2026', '2025', '2024', '2023'].map((yr) => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Interactive By-Day / By-Date Strip — Tap any Day/Date to inspect that day's transactions */}
+          {/* Interactive By-Day / By-Date Strip — Tap any Day/Date to show ONLY that day's real transactions */}
           {allDaysSummaryList.length > 0 && (
             <div style={{
               display: 'flex',
@@ -2536,7 +2602,7 @@ export default function ExpensesModule({
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  📆 By Day / By Date Ledger ({allDaysSummaryList.length} Active Days)
+                  📆 By Day / By Date Ledger — Tap Any Date to View That Day&apos;s Real Transactions
                 </span>
                 {periodFilterMode !== 'all' && (
                   <button
@@ -2552,7 +2618,7 @@ export default function ExpensesModule({
                       padding: 0,
                     }}
                   >
-                    Show All Days ✕
+                    Show All Dates ({analytics.allTimeCount || 0})
                   </button>
                 )}
               </div>
@@ -2577,28 +2643,15 @@ export default function ExpensesModule({
                     <button
                       key={dayItem.date}
                       type="button"
-                      onClick={() => {
-                        if (isDaySelected) {
-                          setPeriodFilterMode('all');
-                        } else if (dayItem.date === todayIso) {
-                          setFilterSpecificDate(todayIso);
-                          setPeriodFilterMode('today');
-                        } else if (dayItem.date === yesterdayIso) {
-                          setFilterSpecificDate(yesterdayIso);
-                          setPeriodFilterMode('yesterday');
-                        } else {
-                          setFilterSpecificDate(dayItem.date);
-                          setPeriodFilterMode('date');
-                        }
-                      }}
+                      onClick={() => selectExactDate(dayItem.date)}
                       style={{
                         padding: '6px 10px',
                         borderRadius: 11,
                         border: isDaySelected
-                          ? '1.5px solid #6366f1'
+                          ? '2px solid #6366f1'
                           : `1px solid ${palette.border}`,
                         background: isDaySelected
-                          ? (isLight ? 'rgba(99, 102, 241, 0.16)' : 'rgba(99, 102, 241, 0.25)')
+                          ? (isLight ? 'rgba(99, 102, 241, 0.16)' : 'rgba(99, 102, 241, 0.28)')
                           : palette.surfaceAlt,
                         color: palette.text,
                         display: 'flex',
@@ -2628,6 +2681,7 @@ export default function ExpensesModule({
                       <div style={{ display: 'flex', gap: 6, fontSize: 10.5, fontWeight: 800 }}>
                         {dayItem.spent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINRShort(dayItem.spent)}</span>}
                         {dayItem.received > 0 && <span style={{ color: '#34d399' }}>+₹{formatINRShort(dayItem.received)}</span>}
+                        {dayItem.spent === 0 && dayItem.received === 0 && <span style={{ color: palette.textMuted }}>₹0</span>}
                       </div>
                     </button>
                   );
@@ -2636,7 +2690,7 @@ export default function ExpensesModule({
             </div>
           )}
 
-          {/* Inline Quick Sync / Add Transaction for Selected Date (Last Day / Specific Date / Today) */}
+          {/* Inline Quick Sync / Add Transaction for Selected Date */}
           <div style={{
             padding: '8px 10px',
             borderRadius: 12,
@@ -2737,24 +2791,24 @@ export default function ExpensesModule({
             </button>
           </div>
 
-          {/* Active Period Summary Strip */}
+          {/* Active Selected Date / Period Summary Banner */}
           <div style={{
-            padding: '7px 11px',
+            padding: '8px 12px',
             borderRadius: 10,
-            background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.1)',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
+            background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.14)',
+            border: '1px solid rgba(99, 102, 241, 0.35)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: 8,
             fontSize: 11.5,
-            fontWeight: 700,
+            fontWeight: 800,
           }}>
             <span style={{ color: palette.text }}>
-              📌 <strong>{periodSummary.label}:</strong> {periodSummary.count} real txn{periodSummary.count === 1 ? '' : 's'}
+              📌 Showing Real Transactions for <strong>{periodSummary.label}</strong>: {periodSummary.count} txn{periodSummary.count === 1 ? '' : 's'}
             </span>
-            <div style={{ display: 'flex', gap: 10, fontWeight: 800, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, fontWeight: 900, alignItems: 'center' }}>
               <span style={{ color: '#fb7185' }}>Out: -₹{formatINR(periodSummary.spent)}</span>
               <span style={{ color: '#34d399' }}>In: +₹{formatINR(periodSummary.received)}</span>
               {periodSummary.count === 0 && (analytics.allTimeCount || 0) > 0 && (
@@ -2772,7 +2826,7 @@ export default function ExpensesModule({
                     cursor: 'pointer',
                   }}
                 >
-                  Show All ({analytics.allTimeCount})
+                  Show All Dates ({analytics.allTimeCount})
                 </button>
               )}
             </div>
@@ -2785,7 +2839,7 @@ export default function ExpensesModule({
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
-          {/* Recent Payments (Auto Detected & Permanent Ledger — Grouped By Day & Date) */}
+          {/* Real Transactions for the Selected Date / Period */}
           <div style={{
             background: palette.surface,
             borderRadius: 20,
@@ -2795,7 +2849,9 @@ export default function ExpensesModule({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span>📜 Recent Payments (Permanent Ledger) — By Day &amp; By Date</span>
+                  <span>
+                    📅 {periodSummary.label} · Recent Payments (Permanent Ledger)
+                  </span>
                   <span style={{
                     padding: '2px 8px',
                     borderRadius: 999,
@@ -2805,11 +2861,11 @@ export default function ExpensesModule({
                     fontSize: 10,
                     fontWeight: 800,
                   }}>
-                    {recentPaymentsList.length} {periodFilterMode === 'all' ? 'Saved' : `in ${periodSummary.label}`}
+                    {recentPaymentsList.length} Real {recentPaymentsList.length === 1 ? 'Txn' : 'Txns'}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600, marginTop: 2 }}>
-                  📅 Grouped by Day &amp; Date · Tap any day chip above or transaction below
+                  Zero fake entries · Showing only real transactions for your selected date ({activeTargetDateIso})
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2874,12 +2930,30 @@ export default function ExpensesModule({
               <div style={{ padding: '24px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
                 <div style={{ fontSize: 28, marginBottom: 6 }}>💳</div>
                 <div style={{ fontWeight: 800, color: palette.text }}>
-                  No payments recorded for {periodSummary.label}.
+                  No real transactions recorded on {periodSummary.label}.
                 </div>
                 <div style={{ marginTop: 4 }}>
-                  Use <strong>⚡ Quick Add ({activeTargetDateIso})</strong> above, tap <strong>➕ Add Entry</strong>, or switch to <strong>All ({analytics.allTimeCount || 0})</strong> to view all days.
+                  Pick another date above, tap <strong>⏮️ Yesterday</strong>, or use <strong>⚡ Quick Add ({activeTargetDateIso})</strong> to record a payment for this date.
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                  {periodFilterMode !== 'yesterday' && (analytics.yesterdayCount || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => selectExactDate(yesterdayIso)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: 10,
+                        border: 'none',
+                        background: '#0ea5e9',
+                        color: '#ffffff',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ⏮️ View Yesterday ({analytics.yesterdayCount})
+                    </button>
+                  )}
                   {periodFilterMode !== 'all' && (analytics.allTimeCount || 0) > 0 && (
                     <button
                       type="button"
@@ -2895,7 +2969,7 @@ export default function ExpensesModule({
                         cursor: 'pointer',
                       }}
                     >
-                      📅 Show All Days ({analytics.allTimeCount})
+                      📅 Show All Dates ({analytics.allTimeCount})
                     </button>
                   )}
                   <button

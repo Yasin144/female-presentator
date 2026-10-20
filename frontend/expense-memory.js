@@ -324,6 +324,32 @@ export function getExpenseStorageStatus() {
   };
 }
 
+const FAKE_SEED_REF_IDS = new Set([
+  'OTP1821202619',
+  'SAL1013202612',
+  '629400112211',
+  '629300112233',
+  '629300998877',
+  '629300445566',
+  '629288776655',
+  '629177665544',
+  '628966554433',
+  '628855443322',
+]);
+
+function getDeletedExpenseIdsSet() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem('pattan.expenses.deletedIds');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr.map(String));
+      }
+    }
+  } catch (_) {}
+  return new Set();
+}
+
 /**
  * Loads the user's real transaction statement from Android Keystore AES-GCM encrypted storage.
  * Never reads from or writes to plaintext localStorage for production transactions.
@@ -331,21 +357,29 @@ export function getExpenseStorageStatus() {
 export function loadEncryptedExpenseStore() {
   try {
     if (hasNativeEncryptedBridge()) {
+      const deletedSet = getDeletedExpenseIdsSet();
       const rawJson = window.PattanBiometric.loadEncryptedExpenseStoreJson();
       const cleanMap = {};
       if (rawJson && typeof rawJson === 'string') {
         const parsed = JSON.parse(rawJson);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
           for (const [id, tx] of Object.entries(parsed)) {
+            const keyStr = String(id || tx?.id || '');
+            const refStr = String(tx?.refId || '').trim();
             if (
               !tx ||
               typeof tx !== 'object' ||
+              tx._deleted ||
+              deletedSet.has(keyStr) ||
               tx.isDemoPreview ||
               tx._demoPreview ||
               tx.source === 'demo-preview' ||
               tx.source === 'owner-master-vault' ||
-              String(id).startsWith('demo_tx_') ||
-              String(id).startsWith('tx_yasin_master_')
+              keyStr.startsWith('demo_tx_') ||
+              keyStr.startsWith('tx_yasin_master_') ||
+              keyStr.endsWith('_salary') ||
+              keyStr.endsWith('_ot_payout') ||
+              FAKE_SEED_REF_IDS.has(refStr)
             ) {
               continue;
             }
@@ -389,17 +423,25 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
     };
   }
 
+  const deletedSet = getDeletedExpenseIdsSet();
   const sanitizedMap = {};
   for (const [id, tx] of Object.entries(expensesMap || {})) {
+    const keyStr = String(id || tx?.id || '');
+    const refStr = String(tx?.refId || '').trim();
     if (
       !tx ||
       typeof tx !== 'object' ||
+      tx._deleted ||
+      deletedSet.has(keyStr) ||
       tx.isDemoPreview ||
       tx._demoPreview ||
       tx.source === 'demo-preview' ||
       tx.source === 'owner-master-vault' ||
-      String(id).startsWith('demo_tx_') ||
-      String(id).startsWith('tx_yasin_master_')
+      keyStr.startsWith('demo_tx_') ||
+      keyStr.startsWith('tx_yasin_master_') ||
+      keyStr.endsWith('_salary') ||
+      keyStr.endsWith('_ot_payout') ||
+      FAKE_SEED_REF_IDS.has(refStr)
     ) {
       continue;
     }

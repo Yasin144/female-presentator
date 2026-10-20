@@ -1,7 +1,8 @@
-{
-    "buildId": "v7.8.3-index-BBO2fNy_",
-    "updatedAt": "2026-10-20T13:37:45.0000000+05:30",
-    "cssFile": "app-bundle.css",
-    "jsFile": "app-bundle.js",
-    "version": "7.8.3"
+﻿{
+    "version":  "7.8.4",
+    "cssFile":  "app-bundle.css",
+    "buildId":  "ota_v7_8_4_1792485251",
+    "notes":  "v7.8.4: Zero-confusion date selector (whatever date you select shows ONLY the real transactions of that day with Prev/Next Day \u0026 1-tap Today/Yesterday) + Proactive Update Available popup \u0026 banner (never stays silent when an update is ready).",
+    "jsFile":  "app-bundle.js",
+    "updatedAt":  "2026-10-20T08:34:11Z"
 }
