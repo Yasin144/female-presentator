@@ -2236,9 +2236,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '7.8.9';
+      return localStorage.getItem('pattan.ota.version') || '7.9.0';
     } catch (_) {
-      return '7.8.9';
+      return '7.9.0';
     }
   });
 

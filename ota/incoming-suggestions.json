@@ -1,5 +1,17 @@
 [
   {
+    "id": "sug_1792493684122_6efj",
+    "text": "Don't show the all accounts disable the row of account and bal",
+    "accountEmail": "patanyasin144@gmail.com",
+    "createdAt": "2026-10-20T10:54:44.122Z",
+    "timestampMs": 1792493684122,
+    "submittedBuildId": "ota_7_8_9_1792493125",
+    "submittedVersion": "7.8.9",
+    "deliveredOnline": true,
+    "processedByAi": true,
+    "status": "completed_in_v7.9.0"
+  },
+  {
     "id": "sug_1792491760449_zx2m",
     "text": "The notification should only speak when my time is done but it is speaking whenever I open the app and whenever the new update is ready it should get through the notification but not when I open the app",
     "accountEmail": "patanyasin144@gmail.com",

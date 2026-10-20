@@ -482,7 +482,7 @@ export default function ExpensesModule({
     if (!item || typeof item !== 'object') return false;
     if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
     const t = String(item.text || '').trim();
-    if (/never show cred|only speak when my time is done/i.test(t)) return true;
+    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account/i.test(t)) return true;
     return false;
   }, []);
 
@@ -2721,139 +2721,135 @@ export default function ExpensesModule({
             gap: 14,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#a5b4fc',
-                  background: 'rgba(99, 102, 241, 0.18)',
-                  border: '1px solid rgba(99, 102, 241, 0.35)',
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                }}>
-                  🏦 Real Bank Account Balance (Multi-Account)
-                </span>
-                {(effectiveBankBalanceInfo?.bankName || effectiveBankBalanceInfo?.accountMask) && (
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 800,
-                    color: '#34d399',
-                    padding: '2px 8px',
-                    borderRadius: 999,
-                    background: 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                  }}>
-                    {effectiveBankBalanceInfo?.bankName || 'Bank A/c'}{' '}
-                    {effectiveBankBalanceInfo?.accountMask ? `(${effectiveBankBalanceInfo.accountMask})` : ''}
-                  </span>
-                )}
-              </div>
-              <div style={{
-                fontSize: mobileMode ? 30 : 34,
-                fontWeight: 900,
-                color: '#ffffff',
-                letterSpacing: '-0.02em',
-                marginTop: 6,
-                lineHeight: 1.1,
-              }}>
-                ₹{formatINR(analytics.realAccountBalance)}
-              </div>
-              <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 4 }}>
-                {hasLinkedEmail
-                  ? <>Each Bank A/c (by last 4 digits e.g. XX1234) is tracked separately so another A/c never overwrites this balance</>
-                  : '🔒 Link your email to sync your real bank balance'}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => openCheckBalanceModal(null)}
-                style={{
-                  padding: '9px 13px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(99, 102, 241, 0.45)',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-                  color: '#ffffff',
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                🏦 Check Balance ({allBankAccountsList.length || 1} A/c)
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSuggestionModal((prev) => !prev)}
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(245, 158, 11, 0.55)',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                💡 Drop Suggestion
-              </button>
-            </div>
-          </div>
-
-          {/* Multi-Bank Account Switcher Bar — Select which Bank Account's balance to view or add another A/c */}
-          <div style={{
-            display: 'flex',
-            gap: 6,
-            overflowX: 'auto',
-            paddingBottom: 2,
-            WebkitOverflowScrolling: 'touch',
-            alignItems: 'center',
-          }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: '#a5b4fc',
+              background: 'rgba(99, 102, 241, 0.18)',
+              border: '1px solid rgba(99, 102, 241, 0.35)',
+              padding: '4px 10px',
+              borderRadius: 999,
+            }}>
+              ⚡ Quick Actions & Feature Suggestions
+            </span>
             <button
               type="button"
-              onClick={() => selectBankAccountKey('all')}
+              onClick={() => setShowSuggestionModal((prev) => !prev)}
               style={{
-                padding: '6px 11px',
-                borderRadius: 999,
-                border: selectedBankAccountKey === 'all' ? '1.5px solid #34d399' : '1px solid rgba(148, 163, 184, 0.28)',
-                background: selectedBankAccountKey === 'all' ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.65)',
-                color: selectedBankAccountKey === 'all' ? '#6ee7b7' : '#cbd5e1',
-                fontWeight: 800,
-                fontSize: 11,
+                padding: '9px 12px',
+                borderRadius: 12,
+                border: '1px solid rgba(245, 158, 11, 0.55)',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 11.5,
                 cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
                 whiteSpace: 'nowrap',
-                flexShrink: 0,
               }}
             >
-              🏦 All Accounts ({allBankAccountsList.length})
+              💡 Drop Suggestion
             </button>
-            {allBankAccountsList.map((acc) => {
-              const isSelected = selectedBankAccountKey === acc.accountKey;
-              return (
+          </div>
+
+          {false && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: '#a5b4fc',
+                      background: 'rgba(99, 102, 241, 0.18)',
+                      border: '1px solid rgba(99, 102, 241, 0.35)',
+                      padding: '3px 9px',
+                      borderRadius: 999,
+                    }}>
+                      🏦 Real Bank Account Balance (Multi-Account)
+                    </span>
+                    {(effectiveBankBalanceInfo?.bankName || effectiveBankBalanceInfo?.accountMask) && (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: '#34d399',
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(16, 185, 129, 0.14)',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                      }}>
+                        {effectiveBankBalanceInfo?.bankName || 'Bank A/c'}{' '}
+                        {effectiveBankBalanceInfo?.accountMask ? `(${effectiveBankBalanceInfo.accountMask})` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: mobileMode ? 30 : 34,
+                    fontWeight: 900,
+                    color: '#ffffff',
+                    letterSpacing: '-0.02em',
+                    marginTop: 6,
+                    lineHeight: 1.1,
+                  }}>
+                    ₹{formatINR(analytics.realAccountBalance)}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 4 }}>
+                    {hasLinkedEmail
+                      ? <>Each Bank A/c (by last 4 digits e.g. XX1234) is tracked separately so another A/c never overwrites this balance</>
+                      : '🔒 Link your email to sync your real bank balance'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => openCheckBalanceModal(null)}
+                    style={{
+                      padding: '9px 13px',
+                      borderRadius: 12,
+                      border: '1px solid rgba(99, 102, 241, 0.45)',
+                      background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+                      color: '#ffffff',
+                      fontWeight: 800,
+                      fontSize: 11.5,
+                      cursor: 'pointer',
+                      boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    🏦 Check Balance ({allBankAccountsList.length || 1} A/c)
+                  </button>
+                </div>
+              </div>
+
+              {/* Multi-Bank Account Switcher Bar — Disabled per user preference */}
+              <div style={{
+                display: 'flex',
+                gap: 6,
+                overflowX: 'auto',
+                paddingBottom: 2,
+                WebkitOverflowScrolling: 'touch',
+                alignItems: 'center',
+              }}>
                 <button
-                  key={acc.accountKey}
                   type="button"
-                  onClick={() => selectBankAccountKey(acc.accountKey)}
+                  onClick={() => selectBankAccountKey('all')}
                   style={{
                     padding: '6px 11px',
                     borderRadius: 999,
-                    border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.28)',
-                    background: isSelected ? 'rgba(56, 189, 248, 0.24)' : 'rgba(15, 23, 42, 0.65)',
-                    color: isSelected ? '#e0f2fe' : '#cbd5e1',
+                    border: selectedBankAccountKey === 'all' ? '1.5px solid #34d399' : '1px solid rgba(148, 163, 184, 0.28)',
+                    background: selectedBankAccountKey === 'all' ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.65)',
+                    color: selectedBankAccountKey === 'all' ? '#6ee7b7' : '#cbd5e1',
                     fontWeight: 800,
                     fontSize: 11,
                     cursor: 'pointer',
@@ -2861,37 +2857,61 @@ export default function ExpensesModule({
                     flexShrink: 0,
                   }}
                 >
-                  💳 {acc.bankName || 'Bank'} {acc.accountMask ? `(${acc.accountMask})` : ''} ·{' '}
-                  {acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
-                    ? `₹${formatINRShort(acc.balance)}`
-                    : 'Set Bal'}
+                  🏦 All Accounts ({allBankAccountsList.length})
                 </button>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => {
-                setBalanceDraftAmount('');
-                setBalanceDraftBank('');
-                setBalanceDraftMask('');
-                setShowCheckBalanceModal(true);
-              }}
-              style={{
-                padding: '6px 11px',
-                borderRadius: 999,
-                border: '1px dashed rgba(99, 102, 241, 0.55)',
-                background: 'rgba(99, 102, 241, 0.16)',
-                color: '#a5b4fc',
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
-              ➕ Add Another Bank A/c
-            </button>
-          </div>
+                {allBankAccountsList.map((acc) => {
+                  const isSelected = selectedBankAccountKey === acc.accountKey;
+                  return (
+                    <button
+                      key={acc.accountKey}
+                      type="button"
+                      onClick={() => selectBankAccountKey(acc.accountKey)}
+                      style={{
+                        padding: '6px 11px',
+                        borderRadius: 999,
+                        border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.28)',
+                        background: isSelected ? 'rgba(56, 189, 248, 0.24)' : 'rgba(15, 23, 42, 0.65)',
+                        color: isSelected ? '#e0f2fe' : '#cbd5e1',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                      }}
+                    >
+                      💳 {acc.bankName || 'Bank'} {acc.accountMask ? `(${acc.accountMask})` : ''} ·{' '}
+                      {acc.balance !== null && acc.balance !== undefined && Number.isFinite(Number(acc.balance))
+                        ? `₹${formatINRShort(acc.balance)}`
+                        : 'Set Bal'}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBalanceDraftAmount('');
+                    setBalanceDraftBank('');
+                    setBalanceDraftMask('');
+                    setShowCheckBalanceModal(true);
+                  }}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    border: '1px dashed rgba(99, 102, 241, 0.55)',
+                    background: 'rgba(99, 102, 241, 0.16)',
+                    color: '#a5b4fc',
+                    fontWeight: 800,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  ➕ Add Another Bank A/c
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Flutter M3 4-Button Quick Action Row */}
           <div style={{
@@ -4114,7 +4134,7 @@ export default function ExpensesModule({
                                   </span>
                                   <span>·</span>
                                   <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
-                                  {tx.accountMask && (
+                                  {false && tx.accountMask && (
                                     <>
                                       <span>·</span>
                                       <span>A/c {tx.accountMask}</span>
@@ -4133,7 +4153,7 @@ export default function ExpensesModule({
                               <div style={{ fontSize: 15.5, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                                 {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                               </div>
-                              {txBal !== null && (
+                              {false && txBal !== null && (
                                 <div style={{
                                   fontSize: 10.5,
                                   fontWeight: 900,
@@ -5027,7 +5047,7 @@ export default function ExpensesModule({
                                 <span>🕒 {formatTime12h(tx.time)}</span>
                                 <span>·</span>
                                 <span style={{ color: '#818cf8', fontWeight: 800 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
-                                {tx.accountMask && (
+                                {false && tx.accountMask && (
                                   <>
                                     <span>·</span>
                                     <span>A/c {tx.accountMask}</span>
@@ -5046,7 +5066,7 @@ export default function ExpensesModule({
                             <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                               {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
                             </div>
-                            {txBal !== null && (
+                            {false && txBal !== null && (
                               <div style={{
                                 fontSize: 10.5,
                                 fontWeight: 900,

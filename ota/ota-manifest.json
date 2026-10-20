@@ -1,8 +1,8 @@
-{
-  "version": "7.8.9",
-  "buildId": "ota_7_8_9_1792493125",
-  "releasedAt": "2026-10-20T10:45:25Z",
-  "jsFile": "app-bundle.js",
-  "cssFile": "app-bundle.css",
-  "notes": "v7.8.9 Live OTA: Added Online + Offline Auto-Queue for Feature Suggestions, animated Loading Indicator ('⏳ Working on Update...') while AI builds your feature, and live '✅ Update Completed' badge as soon as the update is finished."
+﻿{
+    "version":  "7.9.0",
+    "cssFile":  "app-bundle.css",
+    "buildId":  "ota_7_9_0_1792513948",
+    "notes":  "v7.9.0: Completed your suggestion (\u0027Don\u0027t show the all accounts disable the row of account and bal\u0027) — Disabled the All Accounts switcher bar, Real Bank Account Balance header row, and inline A/c \u0026 Bal row badges.",
+    "jsFile":  "app-bundle.js",
+    "updatedAt":  "2026-10-20T11:02:28Z"
 }
