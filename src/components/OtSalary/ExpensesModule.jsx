@@ -593,7 +593,7 @@ export default function ExpensesModule({
       const itemVer = String(item.version || item.submittedVersion || '').trim();
       const curVer = String(
         (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
-          '8.2.3'
+          '8.2.4'
       ).trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -606,7 +606,7 @@ export default function ExpensesModule({
     } catch (_) {}
     const t = String(item.text || '').trim();
     if (
-      /loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+      /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
         t
       )
     ) {
@@ -766,11 +766,11 @@ export default function ExpensesModule({
       setSuggestionSubmitting(true);
       const nowMs = Date.now();
       let currentBuildId = '';
-      let currentVer = '8.2.3';
+      let currentVer = '8.2.4';
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           currentBuildId = window.localStorage.getItem('pattan.ota.buildId') || '';
-          currentVer = window.localStorage.getItem('pattan.ota.version') || '8.2.3';
+          currentVer = window.localStorage.getItem('pattan.ota.version') || '8.2.4';
         }
       } catch (_) {}
 

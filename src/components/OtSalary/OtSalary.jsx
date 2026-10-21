@@ -1824,6 +1824,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
+    if (showProfileModal) {
+      setShowProfileModal(false);
+      return 'handled';
+    }
     if (showChangeMobileModal) {
       setShowChangeMobileModal(false);
       return 'handled';
@@ -1870,7 +1874,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showProfileModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2299,11 +2303,116 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.3';
+      return localStorage.getItem('pattan.ota.version') || '8.2.4';
     } catch (_) {
-      return '8.2.3';
+      return '8.2.4';
     }
   });
+
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [customProfileName, setCustomProfileName] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_custom_profile_name_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileRoleText, setProfileRoleText] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_custom_profile_role_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileAvatarDataUrl, setProfileAvatarDataUrl] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_profile_avatar_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileNameInput, setProfileNameInput] = useState('');
+  const [profileRoleInput, setProfileRoleInput] = useState('');
+  const profilePhotoInputRef = useRef(null);
+
+  const displayProfileName = useMemo(() => {
+    const cleanCustom = String(customProfileName || '').trim();
+    if (cleanCustom) return cleanCustom;
+    const fromSettings = String(settings.employeeName || '').trim();
+    if (
+      fromSettings &&
+      fromSettings !== 'Guest (Link Email to Sync)' &&
+      fromSettings.toLowerCase() !== 'abdul haseeb'
+    ) {
+      return fromSettings;
+    }
+    return isEmailLinked ? normalizeEmployeeName(settings.employeeName, activeAccountEmail) : 'Yasin Pattan';
+  }, [customProfileName, settings.employeeName, isEmailLinked, activeAccountEmail]);
+
+  const openProfileModal = useCallback(() => {
+    setProfileNameInput(displayProfileName);
+    setProfileRoleInput(profileRoleText);
+    setShowProfileModal(true);
+  }, [displayProfileName, profileRoleText]);
+
+  const handleSelectProfilePhoto = useCallback((ev) => {
+    const file = ev?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || '');
+      if (!rawDataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const size = 256;
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            const minSide = Math.min(img.width || size, img.height || size);
+            const sx = Math.max(0, Math.floor(((img.width || size) - minSide) / 2));
+            const sy = Math.max(0, Math.floor(((img.height || size) - minSide) / 2));
+            ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+            const compressed = canvas.toDataURL('image/jpeg', 0.8);
+            setProfileAvatarDataUrl(compressed);
+            try {
+              localStorage.setItem('yasin_profile_avatar_v1', compressed);
+            } catch (_) {}
+            return;
+          }
+        } catch (_) {}
+        setProfileAvatarDataUrl(rawDataUrl);
+        try {
+          localStorage.setItem('yasin_profile_avatar_v1', rawDataUrl);
+        } catch (_) {}
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+    if (ev.target) ev.target.value = '';
+  }, []);
+
+  const saveProfileChanges = useCallback(
+    (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      const cleanName = String(profileNameInput || '').trim() || 'Yasin Pattan';
+      const cleanRole = String(profileRoleInput || '').trim();
+      setCustomProfileName(cleanName);
+      setProfileRoleText(cleanRole);
+      try {
+        localStorage.setItem('yasin_custom_profile_name_v1', cleanName);
+        localStorage.setItem('yasin_custom_profile_role_v1', cleanRole);
+      } catch (_) {}
+      settingsUpdatedAtRef.current = Date.now();
+      const nextSettings = { ...settings, employeeName: cleanName };
+      setSettings(nextSettings);
+      persistStore(nextSettings, daysMap, `✓ Profile updated: ${cleanName}`);
+      setShowProfileModal(false);
+    },
+    [profileNameInput, profileRoleInput, settings, daysMap, persistStore]
+  );
 
   const [globalSuggestionsList, setGlobalSuggestionsList] = useState(() => {
     try {
@@ -2330,7 +2439,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.3').trim();
+      const curVer = String(liveOtaVersion || '8.2.4').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -2341,7 +2450,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
       const t = String(item.text || '').trim();
       if (
-        /loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
           t
         )
       ) {
@@ -3487,6 +3596,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const updateSetting = (key, value) => {
     settingsUpdatedAtRef.current = Date.now();
+    if (key === 'employeeName') {
+      const cleanVal = String(value ?? '');
+      setCustomProfileName(cleanVal);
+      try {
+        localStorage.setItem('yasin_custom_profile_name_v1', cleanVal);
+      } catch (_) {}
+    }
     const next = { ...settings, [key]: value };
     setSettings(next);
     persistStore(next, daysMap, 'Updated salary settings');
@@ -4770,9 +4886,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               )}
 
               <div
-                onClick={() => setShowSplash(true)}
-                title="Tap to view Workspace Info"
+                onClick={openProfileModal}
+                title="Tap to Edit Profile & Change Name"
                 style={{
+                  position: 'relative',
                   width: 42,
                   height: 42,
                   borderRadius: 14,
@@ -4789,10 +4906,45 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   boxShadow: '0 6px 16px rgba(79, 70, 229, 0.28)',
                 }}
               >
-                {isEmailLinked ? getEmployeeInitials(settings.employeeName) : '₹'}
+                {profileAvatarDataUrl ? (
+                  <img
+                    src={profileAvatarDataUrl}
+                    alt={displayProfileName}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      borderRadius: 13,
+                    }}
+                  />
+                ) : (
+                  getEmployeeInitials(displayProfileName)
+                )}
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: -4,
+                    bottom: -4,
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    background: isLight ? '#ffffff' : '#0f172a',
+                    border: `1px solid ${ui.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 9,
+                  }}
+                >
+                  ✏️
+                </span>
               </div>
 
-              <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                onClick={openProfileModal}
+                title="Tap to Edit Profile & Change Name"
+                style={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
+              >
                 <div style={{
                   fontSize: 16,
                   fontWeight: 900,
@@ -4801,8 +4953,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}>
-                  {isEmailLinked ? normalizeEmployeeName(settings.employeeName) : 'Salary & Expense Workspace'}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayProfileName}
+                  </span>
+                  <span style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }}>✏️</span>
                 </div>
                 <div style={{
                   fontSize: 11.5,
@@ -4813,21 +4971,46 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}>
-                  {mobileTab === 'today'
-                    ? 'Today Attendance & Salary'
-                    : mobileTab === 'expenses'
-                      ? 'Expense Memory & Passbook'
-                      : mobileTab === 'month'
-                        ? 'Monthly Attendance Sheet'
-                        : mobileTab === 'summary'
-                          ? 'Monthly Salary Slip'
-                          : 'Shift Rules & Account Sync'}{' '}
-                  · v{liveOtaVersion}
+                  {profileRoleText
+                    ? `${profileRoleText} · v${liveOtaVersion}`
+                    : `${
+                        mobileTab === 'today'
+                          ? 'Today Attendance & Salary'
+                          : mobileTab === 'expenses'
+                            ? 'Expense Memory & Passbook'
+                            : mobileTab === 'month'
+                              ? 'Monthly Attendance Sheet'
+                              : mobileTab === 'summary'
+                                ? 'Monthly Salary Slip'
+                                : 'Shift Rules & Account Sync'
+                      } · v${liveOtaVersion}`}
                 </div>
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={openProfileModal}
+                title="My Profile & Change Name"
+                aria-label="My Profile & Change Name"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                👤
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowNotificationsModal(true)}
@@ -6671,86 +6854,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
             </div>
-
-            {/* SECTION 3: CLEAN 4-PILL WORKSPACE SHORTCUT BAR */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 8,
-            }}>
-              <button
-                type="button"
-                className="stitch-bento-card"
-                onClick={() => toggleSalaryVisibilityWithBiometric()}
-                style={{
-                  padding: '10px 6px',
-                  borderRadius: 14,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardBg,
-                  color: ui.textPrimary,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: ui.shadow,
-                }}
-              >
-                {salaryBiometricVisible ? '🙈 Hide Pay' : '👁️ Show Pay'}
-              </button>
-              <button
-                type="button"
-                className="stitch-bento-card"
-                onClick={() => navigateTab('month')}
-                style={{
-                  padding: '10px 6px',
-                  borderRadius: 14,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardBg,
-                  color: ui.textPrimary,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: ui.shadow,
-                }}
-              >
-                📅 Month Sheet
-              </button>
-              <button
-                type="button"
-                className="stitch-bento-card"
-                onClick={() => navigateTab('summary')}
-                style={{
-                  padding: '10px 6px',
-                  borderRadius: 14,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardBg,
-                  color: ui.textPrimary,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: ui.shadow,
-                }}
-              >
-                🧾 Salary Slip
-              </button>
-              <button
-                type="button"
-                className="stitch-bento-card"
-                onClick={() => navigateTab('expenses')}
-                style={{
-                  padding: '10px 6px',
-                  borderRadius: 14,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.accentGrad,
-                  color: '#ffffff',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: ui.shadow,
-                }}
-              >
-                💳 Expenses
-              </button>
-            </div>
           </>
         )}
 
@@ -7775,7 +7878,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                   </div>
                   <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
-                    {normalizeEmployeeName(settings.employeeName)} · Full Salary Not Cut by Expenses
+                    {displayProfileName} · Full Salary Not Cut by Expenses
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -7838,7 +7941,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     Monthly Salary Slip
                   </div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600 }}>
-                    {formattedMonthLabel} · {normalizeEmployeeName(settings.employeeName)}
+                    {formattedMonthLabel} · {displayProfileName}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -7859,7 +7962,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {/* Structured Key-Value Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { label: 'Employee Name', value: normalizeEmployeeName(settings.employeeName), color: ui.textPrimary, isSalary: false },
+                  { label: 'Employee Name', value: displayProfileName, color: ui.textPrimary, isSalary: false },
                   { label: 'Synced Account Email', value: activeAccountEmail, color: isOwnerAccount ? '#10b981' : '#f59e0b', isSalary: false },
                   { label: 'Base Monthly Salary', value: formatSalaryMask(rates.salary), color: ui.textPrimary, isSalary: true },
                   { label: 'Salary Credit Cycle', value: `${creditCycles.salaryStartDay}–${creditCycles.salaryEndDay} of every month (${creditCycles.salaryWindowLabel})`, color: '#10b981', isSalary: false },
@@ -8016,6 +8119,80 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showRulesSection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* 👤 MY PROFILE & CHANGE NAME HERO CARD */}
+            <div
+              className="stitch-screen-card stitch-bank-hero-card"
+              style={{
+                padding: '16px 18px',
+                borderRadius: 24,
+                background: ui.heroCardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                <div
+                  onClick={openProfileModal}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 16,
+                    background: ui.accentGrad,
+                    border: `1px solid ${ui.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 17,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {profileAvatarDataUrl ? (
+                    <img
+                      src={profileAvatarDataUrl}
+                      alt={displayProfileName}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    getEmployeeInitials(displayProfileName)
+                  )}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 950, color: ui.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayProfileName}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
+                    {profileRoleText || (isEmailLinked ? activeAccountEmail : 'Tap Edit Profile to change name or photo')}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={openProfileModal}
+                style={{
+                  padding: '8px 13px',
+                  borderRadius: 12,
+                  border: `1px solid ${ui.accentColor}`,
+                  background: ui.accentGrad,
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                ✏️ Edit Profile
+              </button>
+            </div>
+
             <div
               className="stitch-screen-card"
               style={{
@@ -8052,12 +8229,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {/* Employee Name */}
                 <div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 700, marginBottom: 5 }}>
-                    Employee Name
+                    Profile / Employee Name
                   </div>
                   <input
                     type="text"
-                    value={settings.employeeName ?? 'Yasin Pattan'}
-                    placeholder="Yasin Pattan"
+                    value={customProfileName || settings.employeeName || 'Yasin Pattan'}
+                    placeholder="Enter your name"
                     onChange={(e) => updateSetting('employeeName', e.target.value)}
                     style={{
                       width: '100%',
@@ -9260,6 +9437,258 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           })}
         </div>
       </div>
+
+      {/* 👤 MY PROFILE & CHANGE NAME MODAL */}
+      {showProfileModal && (
+        <div
+          className="ot-no-print"
+          onClick={() => setShowProfileModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1700,
+            background: 'rgba(2, 6, 23, 0.84)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={saveProfileChanges}
+            className="stitch-screen-card"
+            style={{
+              width: '100%',
+              maxWidth: 420,
+              borderRadius: 24,
+              padding: '20px 18px',
+              background: isLight ? '#ffffff' : '#0f172a',
+              border: `1.5px solid ${ui.accentColor}`,
+              boxShadow: '0 24px 60px rgba(0, 0, 0, 0.72)',
+              color: ui.textPrimary,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
+                  👤 My Profile &amp; Name
+                </div>
+                <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
+                  Customize your display name, role &amp; profile photo
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Avatar + Photo Upload Row */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                padding: '12px 14px',
+                borderRadius: 16,
+                background: ui.cardSubBg,
+                border: `1px solid ${ui.border}`,
+              }}
+            >
+              <div
+                onClick={() => profilePhotoInputRef.current?.click()}
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 20,
+                  background: ui.accentGrad,
+                  border: `1.5px solid ${ui.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  fontWeight: 950,
+                  fontSize: 22,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  boxShadow: '0 8px 20px rgba(79, 70, 229, 0.3)',
+                }}
+              >
+                {profileAvatarDataUrl ? (
+                  <img
+                    src={profileAvatarDataUrl}
+                    alt="Profile"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  getEmployeeInitials(profileNameInput || displayProfileName)
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                <input
+                  ref={profilePhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleSelectProfilePhoto}
+                  style={{ display: 'none' }}
+                />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => profilePhotoInputRef.current?.click()}
+                    style={{
+                      padding: '7px 12px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📷 {profileAvatarDataUrl ? 'Change Photo' : 'Add Photo'}
+                  </button>
+                  {profileAvatarDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileAvatarDataUrl('');
+                        try {
+                          localStorage.removeItem('yasin_profile_avatar_v1');
+                        } catch (_) {}
+                      }}
+                      style={{
+                        padding: '7px 10px',
+                        borderRadius: 10,
+                        border: '1px solid rgba(244, 63, 94, 0.4)',
+                        background: 'rgba(244, 63, 94, 0.12)',
+                        color: '#f43f5e',
+                        fontWeight: 800,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ✕ Remove
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>
+                  Shown in the top header &amp; monthly salary slip
+                </div>
+              </div>
+            </div>
+
+            {/* Profile Name Input */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: ui.textSecondary, marginBottom: 6 }}>
+                Your Name
+              </div>
+              <input
+                type="text"
+                value={profileNameInput}
+                onChange={(e) => setProfileNameInput(e.target.value)}
+                placeholder="Enter your name (e.g. Yasin Pattan)"
+                autoFocus
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  border: `1.5px solid ${ui.accentColor}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 900,
+                  fontSize: 15,
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* Optional Role / Title Input */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: ui.textSecondary, marginBottom: 6 }}>
+                Role / Subtitle (Optional)
+              </div>
+              <input
+                type="text"
+                value={profileRoleInput}
+                onChange={(e) => setProfileRoleInput(e.target.value)}
+                placeholder="e.g. Personal Work & Finance"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '11px 14px',
+                  borderRadius: 12,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 700,
+                  fontSize: 13.5,
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '11px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textSecondary,
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1.6,
+                  padding: '11px 16px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: ui.accentGrad,
+                  color: '#ffffff',
+                  fontWeight: 950,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  boxShadow: '0 8px 20px rgba(79, 70, 229, 0.35)',
+                }}
+              >
+                ✓ Save Profile Name
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Mobile App, QR Code, Offline Download & PC Sync Modal */}
       {showMobileAppModal && (
