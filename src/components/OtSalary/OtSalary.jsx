@@ -2370,9 +2370,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.1';
+      return localStorage.getItem('pattan.ota.version') || '8.2.2';
     } catch (_) {
-      return '8.2.1';
+      return '8.2.2';
     }
   });
 
@@ -4832,29 +4832,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
               {mobileTab === 'expenses' && expensesBiometricUnlocked && (
                 <button
                   type="button"
                   onClick={() => setExpensesBiometricUnlocked(false)}
                   title="Lock Private Expense Vault"
+                  aria-label="Lock Private Expense Vault"
                   style={{
-                    height: 32,
-                    padding: '0 10px',
-                    borderRadius: 10,
+                    width: 34,
+                    height: 34,
+                    padding: 0,
+                    borderRadius: 11,
                     border: isLight ? '1px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
                     background: isLight ? '#fef2f2' : 'rgba(239, 68, 68, 0.14)',
                     color: isLight ? '#dc2626' : '#fca5a5',
-                    fontWeight: 800,
-                    fontSize: 11.5,
+                    fontSize: 15,
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
+                    justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
                   <span>🔒</span>
-                  <span>Lock</span>
+                  <span style={{ display: 'none' }}>Lock</span>
                 </button>
               )}
 
@@ -4862,72 +4864,78 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 type="button"
                 onClick={() => setShowChangeMobileModal(true)}
                 title="Account & Mobile Sync"
+                aria-label="Account & Mobile Sync"
                 style={{
-                  height: 32,
-                  padding: '0 11px',
-                  borderRadius: 10,
+                  width: 34,
+                  height: 34,
+                  padding: 0,
+                  borderRadius: 11,
                   border: `1px solid ${ui.border}`,
                   background: ui.cardSubBg,
                   color: ui.textPrimary,
-                  fontWeight: 800,
-                  fontSize: 11.5,
+                  fontSize: 15,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 5,
+                  justifyContent: 'center',
+                  flexShrink: 0,
                 }}
               >
                 <span>📱</span>
-                <span>Sync</span>
+                <span style={{ display: 'none' }}>Sync</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowStitchStudioModal(true)}
                 title="Google Stitch Project 13519284942366029207 UI Studio & Design System"
+                aria-label="Stitch UI Studio"
                 style={{
-                  height: 32,
-                  padding: '0 11px',
-                  borderRadius: 10,
+                  width: 34,
+                  height: 34,
+                  padding: 0,
+                  borderRadius: 11,
                   border: '1px solid rgba(139, 92, 246, 0.48)',
                   background: isLight
                     ? 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)'
                     : 'linear-gradient(135deg, rgba(79, 70, 229, 0.26) 0%, rgba(14, 165, 233, 0.22) 100%)',
                   color: isLight ? '#4f46e5' : '#c4b5fd',
-                  fontWeight: 800,
-                  fontSize: 11.5,
+                  fontSize: 15,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 5,
+                  justifyContent: 'center',
+                  flexShrink: 0,
                   boxShadow: isLight ? 'none' : '0 4px 12px rgba(99, 102, 241, 0.22)',
                 }}
               >
                 <span>✨</span>
-                <span>Stitch UI</span>
+                <span style={{ display: 'none' }}>Stitch UI</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowGlobalSuggestionModal(true)}
                 title="Drop a Suggestion or Request a New Feature"
+                aria-label="Suggest a Feature"
                 style={{
-                  height: 32,
-                  padding: '0 11px',
-                  borderRadius: 10,
+                  width: 34,
+                  height: 34,
+                  padding: 0,
+                  borderRadius: 11,
                   border: isLight ? '1px solid #fde68a' : '1px solid rgba(245, 158, 11, 0.4)',
                   background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
                   color: isLight ? '#b45309' : '#fcd34d',
-                  fontWeight: 800,
-                  fontSize: 11.5,
+                  fontSize: 15,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 5,
+                  justifyContent: 'center',
+                  flexShrink: 0,
                 }}
               >
                 <span>💡</span>
-                <span>Suggest</span>
+                <span style={{ display: 'none' }}>Suggest</span>
               </button>
 
               <button
@@ -4939,63 +4947,68 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     ? `New Update v${availableOtaUpdate.version} Available`
                     : `Check Live Update (v${liveOtaVersion})`
                 }
+                aria-label="Check Live Update"
                 style={{
-                  height: 32,
-                  padding: '0 11px',
-                  borderRadius: 10,
+                  width: 34,
+                  height: 34,
+                  padding: 0,
+                  borderRadius: 11,
                   border: availableOtaUpdate ? 'none' : `1px solid ${ui.border}`,
                   background: availableOtaUpdate ? ui.accentGrad : ui.cardSubBg,
                   color: availableOtaUpdate ? '#ffffff' : ui.textPrimary,
-                  fontWeight: 800,
-                  fontSize: 11.5,
+                  fontSize: 15,
                   cursor: otaBusy ? 'wait' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 5,
+                  justifyContent: 'center',
+                  flexShrink: 0,
                 }}
               >
                 <span>{otaBusy ? '⏳' : availableOtaUpdate ? '🚀' : '🔄'}</span>
-                <span>{otaBusy ? 'Updating' : availableOtaUpdate ? `Update v${availableOtaUpdate.version}` : 'Update'}</span>
+                <span style={{ display: 'none' }}>{otaBusy ? 'Updating' : availableOtaUpdate ? `Update v${availableOtaUpdate.version}` : 'Update'}</span>
               </button>
             </div>
           </div>
 
-          {/* Header Row 3: 1-Tap Google Stitch Theme Preset Switcher (Applies to ALL 12 Screens Instantly) */}
+          {/* Header Row 3: 1-Tap Google Stitch Icon-Only Theme Preset Switcher */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 6,
+            gap: 8,
             paddingTop: 8,
             borderTop: `1px dashed ${ui.border}`,
           }}>
             {[
-              { id: 'stitch-aurora', label: '🌌 Aurora', mode: 'dark' },
-              { id: 'stitch-cyber-emerald', label: '💎 Emerald', mode: 'dark' },
-              { id: 'stitch-royal-amethyst', label: '🔮 Amethyst', mode: 'dark' },
-              { id: 'stitch-alabaster-pro', label: '☀️ Daylight', mode: 'light' },
+              { id: 'stitch-aurora', icon: '🌌', title: 'Obsidian Aurora', mode: 'dark' },
+              { id: 'stitch-cyber-emerald', icon: '💎', title: 'Emerald Neo-Vault', mode: 'dark' },
+              { id: 'stitch-royal-amethyst', icon: '🔮', title: 'Royal Amethyst', mode: 'dark' },
+              { id: 'stitch-alabaster-pro', icon: '☀️', title: 'Alabaster Daylight', mode: 'light' },
             ].map((p) => {
               const active = stitchPreset === p.id;
               return (
                 <button
                   key={p.id}
                   type="button"
+                  title={p.title}
+                  aria-label={p.title}
                   onClick={() => selectStitchPreset(p.id)}
                   style={{
-                    padding: '6px 4px',
-                    borderRadius: 10,
+                    height: 34,
+                    padding: 0,
+                    borderRadius: 11,
                     border: active ? `1.5px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
                     background: active ? ui.accentGrad : ui.cardSubBg,
                     color: active ? '#ffffff' : ui.textSecondary,
-                    fontWeight: 800,
-                    fontSize: 10.5,
+                    fontSize: 16,
                     cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     boxShadow: active ? '0 4px 12px rgba(79, 70, 229, 0.25)' : 'none',
                   }}
                 >
-                  {p.label}
+                  <span>{p.icon}</span>
+                  <span style={{ display: 'none' }}>{p.title}</span>
                 </button>
               );
             })}

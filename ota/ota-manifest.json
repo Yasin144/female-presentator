@@ -1,8 +1,8 @@
 {
-  "version": "8.2.1",
-  "buildId": "ota_8_2_1_1792567000",
-  "releasedAt": "2026-10-21T12:47:00+05:30",
+  "version": "8.2.2",
+  "buildId": "ota_8_2_2_1792568000",
+  "releasedAt": "2026-10-21T13:04:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.1: Full 12-Screen Google Stitch Signature UI — Applied Stitch Glassmorphic Cards (.stitch-screen-card), Top Glowing Accent Bars, Virtual Hero Cards (.stitch-bank-hero-card), Active Preset Gradients, and a 1-Tap Header Preset Switcher (Aurora · Emerald · Amethyst · Daylight) across ALL 12 screens (Splash, Today Punch Hero, Day Editor, Month Calendar & Bulk Sheet, Salary Slip Paycheck Hero, Rules & Sync, Expenses Overview, Passbook, Transaction Details, Insights, Missing Notes, and Modals)."
+  "notes": "v8.2.2: Icon-Only Header Action & Stitch Theme Buttons — Converted the Workspace Header action buttons (🔒, 📱, ✨, 💡, 🔄) and the 4 Google Stitch Theme Preset buttons (🌌, 💎, 🔮, ☀️) into sleek, compact icon-only buttons with zero text truncation or wrapping."
 }

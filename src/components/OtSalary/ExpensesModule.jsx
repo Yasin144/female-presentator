@@ -584,7 +584,7 @@ export default function ExpensesModule({
     if (!item || typeof item !== 'object') return false;
     if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
     const t = String(item.text || '').trim();
-    if (/never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(t)) return true;
+    if (/make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(t)) return true;
     return false;
   }, []);
 
