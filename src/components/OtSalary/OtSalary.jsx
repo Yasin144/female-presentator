@@ -87,6 +87,8 @@ const DEFAULT_SETTINGS = {
   salaryCreditEndDay: 13,
   otCreditStartDay: 18, // OT Payment credited 18-21 of every month
   otCreditEndDay: 21,
+  salaryCreditDate: '', // User-selected exact Salary Credit Date (YYYY-MM-DD)
+  otCreditDate: '', // User-selected exact OT Payment Credit Date (YYYY-MM-DD)
 };
 
 function normalizeAccountEmail(email) {
@@ -109,13 +111,15 @@ function sanitizeEmailKey(email) {
 function computeMonthlyCreditCycles(nowDate = new Date(), settings = DEFAULT_SETTINGS) {
   const dt = nowDate instanceof Date && !Number.isNaN(nowDate.getTime()) ? nowDate : new Date();
   const dayOfMonth = dt.getDate();
-  const salaryStart = Math.max(1, Math.min(28, Number(settings?.salaryCreditStartDay) || 10));
+  const salaryStart = Math.max(1, Math.min(31, Number(settings?.salaryCreditStartDay) || 10));
   const salaryEnd = Math.max(salaryStart, Math.min(31, Number(settings?.salaryCreditEndDay) || 13));
-  const otStart = Math.max(1, Math.min(28, Number(settings?.otCreditStartDay) || 18));
+  const otStart = Math.max(1, Math.min(31, Number(settings?.otCreditStartDay) || 18));
   const otEnd = Math.max(otStart, Math.min(31, Number(settings?.otCreditEndDay) || 21));
+  const salaryCreditDate = String(settings?.salaryCreditDate || '').trim();
+  const otCreditDate = String(settings?.otCreditDate || '').trim();
 
   let salaryState = 'upcoming';
-  let salaryBadge = `⏳ In ${salaryStart - dayOfMonth}d (${salaryStart}–${salaryEnd})`;
+  let salaryBadge = `⏳ In ${Math.max(0, salaryStart - dayOfMonth)}d (${salaryStart}–${salaryEnd})`;
   let salaryDetail = `Base Salary credits ${salaryStart}th–${salaryEnd}th of every month`;
   if (dayOfMonth >= salaryStart && dayOfMonth <= salaryEnd) {
     salaryState = 'active';
@@ -126,9 +130,12 @@ function computeMonthlyCreditCycles(nowDate = new Date(), settings = DEFAULT_SET
     salaryBadge = `✅ Cycle ${salaryStart}–${salaryEnd} Done`;
     salaryDetail = `Credited ${salaryStart}th–${salaryEnd}th · Next cycle: ${salaryStart}th–${salaryEnd}th next month`;
   }
+  if (salaryCreditDate) {
+    salaryBadge = `📅 ${salaryCreditDate} (${salaryStart}–${salaryEnd})`;
+  }
 
   let otState = 'upcoming';
-  let otBadge = `⏳ In ${otStart - dayOfMonth}d (${otStart}–${otEnd})`;
+  let otBadge = `⏳ In ${Math.max(0, otStart - dayOfMonth)}d (${otStart}–${otEnd})`;
   let otDetail = `OT Payment credits ${otStart}th–${otEnd}th of every month`;
   if (dayOfMonth >= otStart && dayOfMonth <= otEnd) {
     otState = 'active';
@@ -139,20 +146,31 @@ function computeMonthlyCreditCycles(nowDate = new Date(), settings = DEFAULT_SET
     otBadge = `✅ Cycle ${otStart}–${otEnd} Done`;
     otDetail = `OT credited ${otStart}th–${otEnd}th · Next cycle: ${otStart}th–${otEnd}th next month`;
   }
+  if (otCreditDate) {
+    otBadge = `📅 ${otCreditDate} (${otStart}–${otEnd})`;
+  }
 
   return {
     dayOfMonth,
     salaryStart,
+    salaryStartDay: salaryStart,
     salaryEnd,
+    salaryEndDay: salaryEnd,
     otStart,
+    otStartDay: otStart,
     otEnd,
+    otEndDay: otEnd,
+    salaryCreditDate,
+    otCreditDate,
     salaryCycleLabel: `${salaryStart}–${salaryEnd} of Every Month`,
     otCycleLabel: `${otStart}–${otEnd} of Every Month`,
     salaryState,
     salaryBadge,
+    salaryWindowLabel: salaryBadge,
     salaryDetail,
     otState,
     otBadge,
+    otWindowLabel: otBadge,
     otDetail,
   };
 }
@@ -2140,9 +2158,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.8';
+      return localStorage.getItem('pattan.ota.version') || '8.2.9';
     } catch (_) {
-      return '8.2.8';
+      return '8.2.9';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2342,7 +2360,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.8').trim();
+      const curVer = String(liveOtaVersion || '8.2.9').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -3710,6 +3728,164 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       biometricPendingOutCount,
     };
   }, [monthRows, rates]);
+
+  // Salary & OT Payment Credit Date / Cycle State & Ledger Recorder
+  const [showCreditCycleEditor, setShowCreditCycleEditor] = useState(false);
+  const [salaryCreditDateInput, setSalaryCreditDateInput] = useState(() => {
+    const saved = String(settings?.salaryCreditDate || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(saved)) return saved;
+    const startDay = String(Math.max(1, Math.min(28, Number(settings?.salaryCreditStartDay) || 10))).padStart(2, '0');
+    return `${selectedMonth}-${startDay}`;
+  });
+  const [otCreditDateInput, setOtCreditDateInput] = useState(() => {
+    const saved = String(settings?.otCreditDate || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(saved)) return saved;
+    const startDay = String(Math.max(1, Math.min(28, Number(settings?.otCreditStartDay) || 18))).padStart(2, '0');
+    return `${selectedMonth}-${startDay}`;
+  });
+  const [salaryCreditAmountInput, setSalaryCreditAmountInput] = useState('');
+  const [otCreditAmountInput, setOtCreditAmountInput] = useState('');
+
+  const handleSaveCreditCycleDatesOnly = useCallback(() => {
+    const salDate = String(salaryCreditDateInput || '').trim();
+    const otDate = String(otCreditDateInput || '').trim();
+    const salDayMatch = salDate.match(/^\d{4}-\d{2}-(\d{2})$/);
+    const otDayMatch = otDate.match(/^\d{4}-\d{2}-(\d{2})$/);
+    const pickedSalDay = salDayMatch ? Math.max(1, Math.min(31, parseInt(salDayMatch[1], 10))) : null;
+    const pickedOtDay = otDayMatch ? Math.max(1, Math.min(31, parseInt(otDayMatch[1], 10))) : null;
+
+    const nextSettings = {
+      ...settings,
+      salaryCreditDate: salDate,
+      otCreditDate: otDate,
+      ...(pickedSalDay
+        ? {
+            salaryCreditStartDay: pickedSalDay,
+            salaryCreditEndDay: Math.min(31, Math.max(pickedSalDay, Number(settings.salaryCreditEndDay) || pickedSalDay)),
+          }
+        : {}),
+      ...(pickedOtDay
+        ? {
+            otCreditStartDay: pickedOtDay,
+            otCreditEndDay: Math.min(31, Math.max(pickedOtDay, Number(settings.otCreditEndDay) || pickedOtDay)),
+          }
+        : {}),
+    };
+    setSettings(nextSettings);
+    persistStore(
+      nextSettings,
+      daysMap,
+      `✅ Saved Credit Cycle: Salary (${nextSettings.salaryCreditStartDay}–${nextSettings.salaryCreditEndDay}) · OT (${nextSettings.otCreditStartDay}–${nextSettings.otCreditEndDay})`
+    );
+    setShowCreditCycleEditor(false);
+  }, [salaryCreditDateInput, otCreditDateInput, settings, daysMap, persistStore]);
+
+  const handleRecordCreditCyclePayment = useCallback((kind = 'salary') => {
+    const isOt = kind === 'ot';
+    const rawDate = String(isOt ? otCreditDateInput : salaryCreditDateInput).trim() || todayIso;
+    const defaultAmt = isOt
+      ? Math.round((Number(monthSummary.totalOtPay) || 0) + (Number(monthSummary.totalExtraAllowance) || 0))
+      : Math.round(Number(rates.salary) || 0);
+    const customAmt = Number(isOt ? otCreditAmountInput : salaryCreditAmountInput);
+    const finalAmt = Number.isFinite(customAmt) && customAmt > 0 ? customAmt : defaultAmt;
+
+    const dateDayMatch = rawDate.match(/^\d{4}-\d{2}-(\d{2})$/);
+    const pickedDay = dateDayMatch ? Math.max(1, Math.min(31, parseInt(dateDayMatch[1], 10))) : null;
+
+    const nextSettings = {
+      ...settings,
+      ...(isOt
+        ? {
+            otCreditDate: rawDate,
+            ...(pickedDay
+              ? {
+                  otCreditStartDay: pickedDay,
+                  otCreditEndDay: Math.min(31, Math.max(pickedDay, Number(settings.otCreditEndDay) || pickedDay)),
+                }
+              : {}),
+          }
+        : {
+            salaryCreditDate: rawDate,
+            ...(pickedDay
+              ? {
+                  salaryCreditStartDay: pickedDay,
+                  salaryCreditEndDay: Math.min(31, Math.max(pickedDay, Number(settings.salaryCreditEndDay) || pickedDay)),
+                }
+              : {}),
+          }),
+    };
+    setSettings(nextSettings);
+
+    if (finalAmt <= 0) {
+      persistStore(nextSettings, daysMap, `✅ Saved ${isOt ? 'OT Payment' : 'Salary'} Credit Date (${rawDate})`);
+      return;
+    }
+
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const txId = `tx_user_${isOt ? 'ot' : 'sal'}_credit_${rawDate.replace(/[^0-9]/g, '')}_${nowMs}`;
+    const label = isOt
+      ? `OT Payment Credit (${rawDate})`
+      : `Monthly Base Salary Credit (${rawDate})`;
+
+    const record = migrateAndNormalizeExpenseRecord({
+      id: txId,
+      amount: Number(finalAmt.toFixed(2)),
+      currency: 'INR',
+      type: 'credit',
+      merchant: label,
+      personalNote: label,
+      paymentRemark: label,
+      note: label,
+      category: 'Salary / Income',
+      paymentMethod: 'Bank Transfer',
+      app: 'Bank',
+      date: rawDate,
+      time: `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
+      tags: [isOt ? 'ot-credit' : 'salary-credit'],
+      status: 'completed',
+      detectionStatus: 'user_confirmed',
+      noteReviewed: true,
+      source: 'date-quick-sync',
+      timestampMs: new Date(`${rawDate}T12:00:00`).getTime() || nowMs,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      updatedAtMs: nowMs,
+    });
+    delete record._demoPreview;
+    delete record.isDemoPreview;
+    delete record._deleted;
+
+    const nextExpenses = { ...(expensesMapRef.current || {}), [txId]: record };
+    expensesMapRef.current = nextExpenses;
+    setExpensesMap(nextExpenses);
+    if (isOwnerMasterEmail(activeAccountEmailRef.current)) {
+      saveEncryptedExpenseStore(nextExpenses);
+    }
+    persistStore(
+      nextSettings,
+      daysMap,
+      `✅ Added +₹${formatINR(finalAmt)} ${isOt ? 'OT Payment Credit' : 'Salary Credit'} on ${rawDate}`,
+      nextExpenses
+    );
+    if (isOt) {
+      setOtCreditAmountInput('');
+    } else {
+      setSalaryCreditAmountInput('');
+    }
+  }, [
+    otCreditDateInput,
+    salaryCreditDateInput,
+    todayIso,
+    monthSummary.totalOtPay,
+    monthSummary.totalExtraAllowance,
+    rates.salary,
+    otCreditAmountInput,
+    salaryCreditAmountInput,
+    settings,
+    daysMap,
+    persistStore,
+  ]);
 
   const saveAllMonthDays = () => {
     const nextDays = { ...daysMap };
@@ -6597,9 +6773,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
                   <span>Base {formatSalaryMask(rates.salary)}</span>
-                  <span style={{ color: isLight ? '#2563eb' : '#38bdf8', fontWeight: 700 }}>
-                    Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreditCycleEditor((v) => !v)}
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      border: `1px solid ${isLight ? 'rgba(37,99,235,0.35)' : 'rgba(56,189,248,0.4)'}`,
+                      background: isLight ? 'rgba(37,99,235,0.08)' : 'rgba(56,189,248,0.12)',
+                      color: isLight ? '#2563eb' : '#38bdf8',
+                      fontWeight: 800,
+                      fontSize: 10,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} 📅 +Date
+                  </button>
                 </div>
               </div>
 
@@ -6650,9 +6839,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
                   <span>{monthSummary.savedDaysCount}/{monthRows.length} Days</span>
-                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>
-                    Credit {creditCycles.otStartDay}–{creditCycles.otEndDay}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreditCycleEditor((v) => !v)}
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(245,158,11,0.45)',
+                      background: 'rgba(245,158,11,0.12)',
+                      color: '#f59e0b',
+                      fontWeight: 800,
+                      fontSize: 10,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Credit {creditCycles.otStartDay}–{creditCycles.otEndDay} 📅 +Date
+                  </button>
                 </div>
               </div>
 
@@ -6746,6 +6948,335 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   Month: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.allTimeCount} txns)
                 </div>
               </div>
+            </div>
+
+            {/* 🏦 Quick Add Date: Salary & OT Payment Credit Cycle Card on Today Tab */}
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 20,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div
+                onClick={() => setShowCreditCycleEditor((v) => !v)}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
+                    🏦 Salary &amp; OT Payment Credit Cycle Date
+                  </div>
+                  <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 700, marginTop: 2 }}>
+                    Salary: <span style={{ color: '#10b981' }}>{creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}{creditCycles.salaryCreditDate ? ` (${creditCycles.salaryCreditDate})` : ''}</span>
+                    {' · '}
+                    OT: <span style={{ color: '#f59e0b' }}>{creditCycles.otStartDay}–{creditCycles.otEndDay}{creditCycles.otCreditDate ? ` (${creditCycles.otCreditDate})` : ''}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: `1px solid ${ui.accentColor}`,
+                    background: ui.accentGrad,
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {showCreditCycleEditor ? '▲ Hide' : '📅 + Add Date / Credit'}
+                </button>
+              </div>
+
+              {showCreditCycleEditor && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 6, borderTop: `1px solid ${ui.border}` }}>
+                  {/* Salary Credit Date & Window */}
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: 14,
+                    background: ui.cardSubBg,
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 900, color: '#10b981' }}>
+                        💰 Salary Credit Cycle &amp; Date
+                      </span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: ui.textSecondary }}>
+                        Cycle: Day {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
+                          Exact Credit Date
+                        </div>
+                        <input
+                          type="date"
+                          value={salaryCreditDateInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSalaryCreditDateInput(val);
+                            updateSetting('salaryCreditDate', val);
+                          }}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 8px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 800,
+                            fontSize: 12,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
+                          Cycle Days (Start – End)
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={settings.salaryCreditStartDay ?? 10}
+                            onChange={(e) => updateSetting('salaryCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 10)))}
+                            style={{
+                              width: '100%',
+                              padding: '7px 6px',
+                              borderRadius: 10,
+                              border: `1px solid ${ui.border}`,
+                              background: ui.cardBg,
+                              color: ui.textPrimary,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              textAlign: 'center',
+                            }}
+                          />
+                          <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>–</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={settings.salaryCreditEndDay ?? 13}
+                            onChange={(e) => updateSetting('salaryCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 13)))}
+                            style={{
+                              width: '100%',
+                              padding: '7px 6px',
+                              borderRadius: 10,
+                              border: `1px solid ${ui.border}`,
+                              background: ui.cardBg,
+                              color: ui.textPrimary,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              textAlign: 'center',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder={`Salary Amount (Default ₹${formatINR(rates.salary)})`}
+                        value={salaryCreditAmountInput}
+                        onChange={(e) => setSalaryCreditAmountInput(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardBg,
+                          color: ui.textPrimary,
+                          fontWeight: 800,
+                          fontSize: 12,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRecordCreditCyclePayment('salary')}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid #10b981',
+                          background: 'linear-gradient(135deg, #10b981, #059669)',
+                          color: '#ffffff',
+                          fontWeight: 900,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        + Add Salary Credit
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* OT Payment Credit Date & Window */}
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: 14,
+                    background: ui.cardSubBg,
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 900, color: '#f59e0b' }}>
+                        ⚡ OT Payment Credit Cycle &amp; Date
+                      </span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: ui.textSecondary }}>
+                        Cycle: Day {creditCycles.otStartDay}–{creditCycles.otEndDay}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
+                          Exact OT Credit Date
+                        </div>
+                        <input
+                          type="date"
+                          value={otCreditDateInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOtCreditDateInput(val);
+                            updateSetting('otCreditDate', val);
+                          }}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 8px',
+                            borderRadius: 10,
+                            border: `1px solid ${ui.border}`,
+                            background: ui.cardBg,
+                            color: ui.textPrimary,
+                            fontWeight: 800,
+                            fontSize: 12,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
+                          Cycle Days (Start – End)
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={settings.otCreditStartDay ?? 18}
+                            onChange={(e) => updateSetting('otCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 18)))}
+                            style={{
+                              width: '100%',
+                              padding: '7px 6px',
+                              borderRadius: 10,
+                              border: `1px solid ${ui.border}`,
+                              background: ui.cardBg,
+                              color: ui.textPrimary,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              textAlign: 'center',
+                            }}
+                          />
+                          <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>–</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={settings.otCreditEndDay ?? 21}
+                            onChange={(e) => updateSetting('otCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 21)))}
+                            style={{
+                              width: '100%',
+                              padding: '7px 6px',
+                              borderRadius: 10,
+                              border: `1px solid ${ui.border}`,
+                              background: ui.cardBg,
+                              color: ui.textPrimary,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              textAlign: 'center',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder={`OT Amount (Default ₹${formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)})`}
+                        value={otCreditAmountInput}
+                        onChange={(e) => setOtCreditAmountInput(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardBg,
+                          color: ui.textPrimary,
+                          fontWeight: 800,
+                          fontSize: 12,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRecordCreditCyclePayment('ot')}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid #f59e0b',
+                          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                          color: '#ffffff',
+                          fontWeight: 900,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        + Add OT Credit
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveCreditCycleDatesOnly}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.accentColor}`,
+                      background: ui.accentGrad,
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✓ Save Salary &amp; OT Credit Cycle Dates
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -7793,8 +8324,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 900, color: ui.textPrimary, marginTop: 2 }}>
                     {formatSalaryMask(rates.salary)}
                   </div>
-                  <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
+                  <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700, marginTop: 2 }}>
                     Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
+                    {creditCycles.salaryCreditDate ? ` · 📅 ${creditCycles.salaryCreditDate}` : ''}
                   </div>
                 </div>
 
@@ -7811,8 +8343,189 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
                     {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}
                   </div>
-                  <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>
+                  <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700, marginTop: 2 }}>
                     Credit {creditCycles.otStartDay}–{creditCycles.otEndDay}
+                    {creditCycles.otCreditDate ? ` · 📅 ${creditCycles.otCreditDate}` : ''}
+                  </div>
+                </div>
+              </div>
+
+              {/* 🏦 Interactive Add Date: Salary & OT Payment Credit Cycle inside Slip Tab */}
+              <div style={{
+                padding: '12px',
+                borderRadius: 16,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
+                  🏦 Add Date: Salary &amp; OT Payment Credit Cycle
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {/* Salary Date & Window */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: '#10b981' }}>
+                      💰 Salary Credit Date &amp; Days
+                    </div>
+                    <input
+                      type="date"
+                      value={salaryCreditDateInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSalaryCreditDateInput(val);
+                        updateSetting('salaryCreditDate', val);
+                      }}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '7px 8px',
+                        borderRadius: 10,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 800,
+                        fontSize: 12,
+                      }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={settings.salaryCreditStartDay ?? 10}
+                        onChange={(e) => updateSetting('salaryCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 10)))}
+                        style={{
+                          width: '100%',
+                          padding: '6px',
+                          borderRadius: 8,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardSubBg,
+                          color: ui.textPrimary,
+                          fontWeight: 900,
+                          fontSize: 12,
+                          textAlign: 'center',
+                        }}
+                      />
+                      <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>to</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={settings.salaryCreditEndDay ?? 13}
+                        onChange={(e) => updateSetting('salaryCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 13)))}
+                        style={{
+                          width: '100%',
+                          padding: '6px',
+                          borderRadius: 8,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardSubBg,
+                          color: ui.textPrimary,
+                          fontWeight: 900,
+                          fontSize: 12,
+                          textAlign: 'center',
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRecordCreditCyclePayment('salary')}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: '1px solid #10b981',
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: '#ffffff',
+                        fontWeight: 900,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      + Add Salary Credit
+                    </button>
+                  </div>
+
+                  {/* OT Payment Date & Window */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: '#f59e0b' }}>
+                      ⚡ OT Payment Date &amp; Days
+                    </div>
+                    <input
+                      type="date"
+                      value={otCreditDateInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOtCreditDateInput(val);
+                        updateSetting('otCreditDate', val);
+                      }}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '7px 8px',
+                        borderRadius: 10,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.cardSubBg,
+                        color: ui.textPrimary,
+                        fontWeight: 800,
+                        fontSize: 12,
+                      }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={settings.otCreditStartDay ?? 18}
+                        onChange={(e) => updateSetting('otCreditStartDay', Math.min(31, Math.max(1, Number(e.target.value) || 18)))}
+                        style={{
+                          width: '100%',
+                          padding: '6px',
+                          borderRadius: 8,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardSubBg,
+                          color: ui.textPrimary,
+                          fontWeight: 900,
+                          fontSize: 12,
+                          textAlign: 'center',
+                        }}
+                      />
+                      <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>to</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={settings.otCreditEndDay ?? 21}
+                        onChange={(e) => updateSetting('otCreditEndDay', Math.min(31, Math.max(1, Number(e.target.value) || 21)))}
+                        style={{
+                          width: '100%',
+                          padding: '6px',
+                          borderRadius: 8,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardSubBg,
+                          color: ui.textPrimary,
+                          fontWeight: 900,
+                          fontSize: 12,
+                          textAlign: 'center',
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRecordCreditCyclePayment('ot')}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: '1px solid #f59e0b',
+                        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                        color: '#ffffff',
+                        fontWeight: 900,
+                        fontSize: 11.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      + Add OT Credit
+                    </button>
                   </div>
                 </div>
               </div>
@@ -8359,13 +9072,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   gap: 10,
                 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
-                    🏦 Monthly Credit Cycle Dates (Salary: 10–13 · OT Payment: 18–21)
+                    🏦 Monthly Credit Cycle Dates (Salary: {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} · OT Payment: {creditCycles.otStartDay}–{creditCycles.otEndDay})
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: '#10b981', marginBottom: 4 }}>
-                        💰 Salary Credit Window (Day of Month)
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#10b981' }}>
+                        💰 Salary Credit Window &amp; Date
                       </div>
+                      <input
+                        type="date"
+                        value={salaryCreditDateInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSalaryCreditDateInput(val);
+                          updateSetting('salaryCreditDate', val);
+                        }}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardBg,
+                          color: ui.textPrimary,
+                          fontWeight: 800,
+                          fontSize: 12.5,
+                        }}
+                      />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input
                           type="number"
@@ -8403,12 +9136,48 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           }}
                         />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRecordCreditCyclePayment('salary')}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: '1px solid #10b981',
+                          background: 'linear-gradient(135deg, #10b981, #059669)',
+                          color: '#ffffff',
+                          fontWeight: 900,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Add Salary Credit
+                      </button>
                     </div>
 
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', marginBottom: 4 }}>
-                        ⚡ OT Payment Window (Day of Month)
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b' }}>
+                        ⚡ OT Payment Window &amp; Date
                       </div>
+                      <input
+                        type="date"
+                        value={otCreditDateInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setOtCreditDateInput(val);
+                          updateSetting('otCreditDate', val);
+                        }}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${ui.border}`,
+                          background: ui.cardBg,
+                          color: ui.textPrimary,
+                          fontWeight: 800,
+                          fontSize: 12.5,
+                        }}
+                      />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input
                           type="number"
@@ -8446,6 +9215,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           }}
                         />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRecordCreditCyclePayment('ot')}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: '1px solid #f59e0b',
+                          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                          color: '#ffffff',
+                          fontWeight: 900,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Add OT Credit
+                      </button>
                     </div>
                   </div>
                 </div>
