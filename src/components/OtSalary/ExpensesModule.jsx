@@ -601,7 +601,7 @@ export default function ExpensesModule({
       const itemVer = String(item.version || item.submittedVersion || '').trim();
       const curVer = String(
         (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
-          '8.2.10'
+          '8.2.11'
       ).trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -4844,7 +4844,7 @@ export default function ExpensesModule({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
                 <div>
                   <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>From Date</label>
                   <input
@@ -6408,7 +6408,7 @@ export default function ExpensesModule({
             </div>
 
             {/* Date, Time & Tags Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
               <div>
                 <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Date</label>
                 <input

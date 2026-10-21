@@ -1,8 +1,8 @@
 {
-  "version": "8.2.10",
-  "buildId": "ota_8_2_10_fix_todayiso_and_salary_ot_credit_cycle_date",
-  "releasedAt": "2026-10-21T18:29:30+05:30",
+  "version": "8.2.11",
+  "buildId": "ota_8_2_11_responsive_anti_overlap_mobile_layout",
+  "releasedAt": "2026-10-21T18:52:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.10: Fixed todayIso ReferenceError on Launch & Added Interactive Date & Credit Cycle Controls for Salary & OT Payment — Defined todayIso at the top of OtSalary component scope and added Exact Date Pickers (YYYY-MM-DD), Cycle Day Ranges (1–31), and 1-Tap '+ Add Salary Credit' & '+ Add OT Credit' buttons across Today, Slip, and Rules screens."
+  "notes": "v8.2.11: Full Mobile Responsive & Anti-Overlap Layout Audit — Enforced global min-width:0, max-width:100%, and box-sizing:border-box across all cards, grids, flex rows, and date/time/number inputs. Upgraded Salary & OT Credit Cycle Date cards, Bento tiles, Month bulk inputs, Slip key-value rows, and Expenses date/time pickers to responsive auto-fit grids and wrapping flex rows with zero overlapping or oversized elements."
 }

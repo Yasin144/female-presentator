@@ -2159,9 +2159,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.10';
+      return localStorage.getItem('pattan.ota.version') || '8.2.11';
     } catch (_) {
-      return '8.2.10';
+      return '8.2.11';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2361,7 +2361,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.10').trim();
+      const curVer = String(liveOtaVersion || '8.2.11').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -6772,23 +6772,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: ui.textPrimary, letterSpacing: '-0.02em' }}>
                   {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  <span>Base {formatSalaryMask(rates.salary)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
+                  <span style={{ whiteSpace: 'nowrap' }}>Base {formatSalaryMask(rates.salary)}</span>
                   <button
                     type="button"
                     onClick={() => setShowCreditCycleEditor((v) => !v)}
                     style={{
-                      padding: '2px 7px',
+                      padding: '2px 6px',
                       borderRadius: 999,
                       border: `1px solid ${isLight ? 'rgba(37,99,235,0.35)' : 'rgba(56,189,248,0.4)'}`,
                       background: isLight ? 'rgba(37,99,235,0.08)' : 'rgba(56,189,248,0.12)',
                       color: isLight ? '#2563eb' : '#38bdf8',
                       fontWeight: 800,
-                      fontSize: 10,
+                      fontSize: 9.5,
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} 📅 +Date
+                    📅 {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
                   </button>
                 </div>
               </div>
@@ -6838,23 +6839,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: isLight ? '#059669' : '#34d399', letterSpacing: '-0.02em' }}>
                   {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  <span>{monthSummary.savedDaysCount}/{monthRows.length} Days</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
+                  <span style={{ whiteSpace: 'nowrap' }}>{monthSummary.savedDaysCount}/{monthRows.length} Days</span>
                   <button
                     type="button"
                     onClick={() => setShowCreditCycleEditor((v) => !v)}
                     style={{
-                      padding: '2px 7px',
+                      padding: '2px 6px',
                       borderRadius: 999,
                       border: '1px solid rgba(245,158,11,0.45)',
                       background: 'rgba(245,158,11,0.12)',
                       color: '#f59e0b',
                       fontWeight: 800,
-                      fontSize: 10,
+                      fontSize: 9.5,
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    Credit {creditCycles.otStartDay}–{creditCycles.otEndDay} 📅 +Date
+                    📅 {creditCycles.otStartDay}–{creditCycles.otEndDay}
                   </button>
                 </div>
               </div>
@@ -6971,11 +6973,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
                   gap: 8,
                   cursor: 'pointer',
                 }}
               >
-                <div>
+                <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
                     🏦 Salary &amp; OT Payment Credit Cycle Date
                   </div>
@@ -7015,7 +7018,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     flexDirection: 'column',
                     gap: 8,
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 900, color: '#10b981' }}>
                         💰 Salary Credit Cycle &amp; Date
                       </span>
@@ -7023,7 +7026,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         Cycle: Day {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
                       </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
                       <div>
                         <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
                           Exact Credit Date
@@ -7094,7 +7097,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <input
                         type="number"
                         min="0"
@@ -7102,7 +7105,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         value={salaryCreditAmountInput}
                         onChange={(e) => setSalaryCreditAmountInput(e.target.value)}
                         style={{
-                          flex: 1,
+                          flex: '1 1 150px',
+                          minWidth: 0,
                           padding: '8px 10px',
                           borderRadius: 10,
                           border: `1px solid ${ui.border}`,
@@ -7116,6 +7120,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         type="button"
                         onClick={() => handleRecordCreditCyclePayment('salary')}
                         style={{
+                          flex: '1 0 auto',
                           padding: '8px 12px',
                           borderRadius: 10,
                           border: '1px solid #10b981',
@@ -7142,7 +7147,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     flexDirection: 'column',
                     gap: 8,
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 900, color: '#f59e0b' }}>
                         ⚡ OT Payment Credit Cycle &amp; Date
                       </span>
@@ -7150,7 +7155,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         Cycle: Day {creditCycles.otStartDay}–{creditCycles.otEndDay}
                       </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
                       <div>
                         <div style={{ fontSize: 10, fontWeight: 800, color: ui.textSecondary, marginBottom: 3 }}>
                           Exact OT Credit Date
@@ -7221,7 +7226,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <input
                         type="number"
                         min="0"
@@ -7229,7 +7234,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         value={otCreditAmountInput}
                         onChange={(e) => setOtCreditAmountInput(e.target.value)}
                         style={{
-                          flex: 1,
+                          flex: '1 1 150px',
+                          minWidth: 0,
                           padding: '8px 10px',
                           borderRadius: 10,
                           border: `1px solid ${ui.border}`,
@@ -7243,6 +7249,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         type="button"
                         onClick={() => handleRecordCreditCyclePayment('ot')}
                         style={{
+                          flex: '1 0 auto',
                           padding: '8px 12px',
                           borderRadius: 10,
                           border: '1px solid #f59e0b',
@@ -7317,8 +7324,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               }}
             >
               {/* Header */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <button
                     type="button"
                     onClick={() => setShowManualEditor(false)}
@@ -7331,12 +7338,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       color: ui.textPrimary,
                       fontWeight: 900,
                       cursor: 'pointer',
+                      flexShrink: 0,
                     }}
                   >
                     ←
                   </button>
-                  <div>
-                    <div style={{ fontSize: 17, fontWeight: 900 }}>Edit Today&apos;s Attendance</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 16.5, fontWeight: 900 }}>Edit Today&apos;s Attendance</div>
                     <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600 }}>
                       Date: {selectedDate}
                     </div>
@@ -7356,6 +7364,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     color: ui.textPrimary,
                     fontSize: 11.5,
                     fontWeight: 700,
+                    width: 'auto',
                   }}
                 />
               </div>
@@ -7847,7 +7856,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {/* Bulk IN Time, OUT Time, Status Inputs */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
                 gap: 8,
               }}>
                 <div style={{
@@ -8364,9 +8373,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
                   🏦 Add Date: Salary &amp; OT Payment Credit Cycle
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
                   {/* Salary Date & Window */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px', borderRadius: 12, background: ui.cardSubBg, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                     <div style={{ fontSize: 10.5, fontWeight: 800, color: '#10b981' }}>
                       💰 Salary Credit Date &amp; Days
                     </div>
@@ -8384,7 +8393,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         padding: '7px 8px',
                         borderRadius: 10,
                         border: `1px solid ${ui.border}`,
-                        background: ui.cardSubBg,
+                        background: ui.cardBg,
                         color: ui.textPrimary,
                         fontWeight: 800,
                         fontSize: 12,
@@ -8402,7 +8411,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           padding: '6px',
                           borderRadius: 8,
                           border: `1px solid ${ui.border}`,
-                          background: ui.cardSubBg,
+                          background: ui.cardBg,
                           color: ui.textPrimary,
                           fontWeight: 900,
                           fontSize: 12,
@@ -8421,7 +8430,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           padding: '6px',
                           borderRadius: 8,
                           border: `1px solid ${ui.border}`,
-                          background: ui.cardSubBg,
+                          background: ui.cardBg,
                           color: ui.textPrimary,
                           fontWeight: 900,
                           fontSize: 12,
@@ -8448,7 +8457,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
 
                   {/* OT Payment Date & Window */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px', borderRadius: 12, background: ui.cardSubBg, border: '1px solid rgba(245, 158, 11, 0.3)' }}>
                     <div style={{ fontSize: 10.5, fontWeight: 800, color: '#f59e0b' }}>
                       ⚡ OT Payment Date &amp; Days
                     </div>
@@ -8466,7 +8475,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         padding: '7px 8px',
                         borderRadius: 10,
                         border: `1px solid ${ui.border}`,
-                        background: ui.cardSubBg,
+                        background: ui.cardBg,
                         color: ui.textPrimary,
                         fontWeight: 800,
                         fontSize: 12,
@@ -8484,7 +8493,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           padding: '6px',
                           borderRadius: 8,
                           border: `1px solid ${ui.border}`,
-                          background: ui.cardSubBg,
+                          background: ui.cardBg,
                           color: ui.textPrimary,
                           fontWeight: 900,
                           fontSize: 12,
@@ -8503,7 +8512,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           padding: '6px',
                           borderRadius: 8,
                           border: `1px solid ${ui.border}`,
-                          background: ui.cardSubBg,
+                          background: ui.cardBg,
                           color: ui.textPrimary,
                           fontWeight: 900,
                           fontSize: 12,
@@ -8599,6 +8608,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      flexWrap: 'wrap',
                       paddingBottom: 8,
                       borderBottom: `1px solid ${ui.border}`,
                       fontSize: 13,
@@ -8606,7 +8616,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     }}
                   >
                     <span style={{ color: ui.textSecondary, fontWeight: 600 }}>{item.label}</span>
-                    <span style={{ color: item.color, fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: item.color, fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 6, textAlign: 'right', wordBreak: 'break-word' }}>
                       <span>{item.value}</span>
                       {item.isSalary && renderSalaryEyeButton(true)}
                     </span>
@@ -9075,7 +9085,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
                     🏦 Monthly Credit Cycle Dates (Salary: {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} · OT Payment: {creditCycles.otStartDay}–{creditCycles.otEndDay})
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ fontSize: 11, fontWeight: 800, color: '#10b981' }}>
                         💰 Salary Credit Window &amp; Date
@@ -9642,6 +9652,119 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span>›</span>
               </button>
             </div>
+
+            {/* END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER (Shown on Rules Tab Only) */}
+            <div
+              className="ot-no-print stitch-screen-card"
+              style={{
+                marginTop: 4,
+                marginBottom: 4,
+                padding: '12px 14px',
+                borderRadius: 16,
+                background: isLight
+                  ? 'rgba(241, 245, 249, 0.92)'
+                  : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(17, 24, 39, 0.92) 100%)',
+                border: `1px solid ${ui.border}`,
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: 999,
+                    background: '#10b981',
+                    boxShadow: '0 0 8px #10b981',
+                    flexShrink: 0,
+                  }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: ui.textPrimary,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span>Build Version: v{liveOtaVersion}</span>
+                    <span
+                      style={{
+                        padding: '1px 7px',
+                        borderRadius: 999,
+                        fontSize: 10,
+                        fontWeight: 800,
+                        background: 'rgba(16, 185, 129, 0.16)',
+                        border: '1px solid rgba(16, 185, 129, 0.45)',
+                        color: '#10b981',
+                      }}
+                    >
+                      LIVE OTA
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: ui.textSecondary,
+                      fontWeight: 600,
+                      marginTop: 1,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      maxWidth: 220,
+                    }}
+                    title={liveOtaBuildId}
+                  >
+                    ID: {liveOtaBuildId || `ota_${String(liveOtaVersion).replace(/\./g, '_')}`}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                  disabled={otaBusy}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 10,
+                    border: `1px solid ${ui.border}`,
+                    background: ui.cardSubBg,
+                    color: ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 11,
+                    cursor: otaBusy ? 'wait' : 'pointer',
+                  }}
+                >
+                  {otaBusy ? '⏳ Checking...' : '🔄 Check Update'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalSuggestionModal(true)}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(99, 102, 241, 0.5)',
+                    background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(79, 70, 229, 0.28)',
+                  }}
+                >
+                  🆘 AI Submit / Reach Out Help
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -10000,14 +10123,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div style={{ fontSize: 11, fontWeight: 800, color: ui.textSecondary, marginBottom: 4 }}>
                     📥 Have a Change Mobile Sync Code from your old phone? Paste below to restore &amp; merge:
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <input
                       type="text"
                       value={changeMobileSyncCodeInput}
                       onChange={(e) => setChangeMobileSyncCodeInput(e.target.value)}
                       placeholder="Paste PATTAN_SYNC_V74:... code or JSON here"
                       style={{
-                        flex: 1,
+                        flex: '1 1 160px',
+                        minWidth: 0,
                         padding: '8px 10px',
                         borderRadius: 10,
                         border: `1px solid ${ui.border}`,
@@ -10034,119 +10158,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       Restore
                     </button>
                   </div>
-                </div>
-              </div>
-
-              {/* END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER (Shown on Rules Tab Only) */}
-              <div
-                className="ot-no-print stitch-screen-card"
-                style={{
-                  marginTop: 6,
-                  marginBottom: 4,
-                  padding: '12px 14px',
-                  borderRadius: 16,
-                  background: isLight
-                    ? 'rgba(241, 245, 249, 0.92)'
-                    : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(17, 24, 39, 0.92) 100%)',
-                  border: `1px solid ${ui.border}`,
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                  <span
-                    style={{
-                      width: 9,
-                      height: 9,
-                      borderRadius: 999,
-                      background: '#10b981',
-                      boxShadow: '0 0 8px #10b981',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 900,
-                        color: ui.textPrimary,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span>Build Version: v{liveOtaVersion}</span>
-                      <span
-                        style={{
-                          padding: '1px 7px',
-                          borderRadius: 999,
-                          fontSize: 10,
-                          fontWeight: 800,
-                          background: 'rgba(16, 185, 129, 0.16)',
-                          border: '1px solid rgba(16, 185, 129, 0.45)',
-                          color: '#10b981',
-                        }}
-                      >
-                        LIVE OTA
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: ui.textSecondary,
-                        fontWeight: 600,
-                        marginTop: 1,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        maxWidth: 220,
-                      }}
-                      title={liveOtaBuildId}
-                    >
-                      ID: {liveOtaBuildId || `ota_${String(liveOtaVersion).replace(/\./g, '_')}`}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => checkAndApplyLiveOtaUpdate(true)}
-                    disabled={otaBusy}
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: 10,
-                      border: `1px solid ${ui.border}`,
-                      background: ui.cardSubBg,
-                      color: ui.textPrimary,
-                      fontWeight: 800,
-                      fontSize: 11,
-                      cursor: otaBusy ? 'wait' : 'pointer',
-                    }}
-                  >
-                    {otaBusy ? '⏳ Checking...' : '🔄 Check Update'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowGlobalSuggestionModal(true)}
-                    style={{
-                      padding: '6px 11px',
-                      borderRadius: 10,
-                      border: '1px solid rgba(99, 102, 241, 0.5)',
-                      background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(79, 70, 229, 0.28)',
-                    }}
-                  >
-                    🆘 AI Submit / Reach Out Help
-                  </button>
                 </div>
               </div>
             </div>

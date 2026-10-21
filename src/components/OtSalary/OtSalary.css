@@ -93,9 +93,44 @@
 .ot-pro-shell select {
   user-select: text;
   font-family: inherit;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   transition: border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
               box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1),
               background-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Global Anti-Overlap & Responsive Guards for Mobile Screens */
+.ot-pro-shell,
+.ot-pro-shell *,
+.ot-pro-shell *::before,
+.ot-pro-shell *::after {
+  box-sizing: border-box;
+}
+
+.ot-pro-shell div,
+.ot-pro-shell span,
+.ot-pro-shell label,
+.ot-pro-shell button {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ot-pro-shell input[type="date"],
+.ot-pro-shell input[type="time"],
+.ot-pro-shell input[type="month"],
+.ot-pro-shell input[type="number"] {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: 100%;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 420px) {
+  .ot-pro-shell button {
+    word-break: break-word;
+  }
 }
 
 .ot-pro-shell input:focus,
