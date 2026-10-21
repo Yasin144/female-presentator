@@ -1,8 +1,8 @@
 {
-  "version": "8.2.6",
-  "buildId": "ota_8_2_6_multi_relay_instant_ai_sync",
-  "releasedAt": "2026-10-21T15:03:15+05:30",
+  "version": "8.2.7",
+  "buildId": "ota_8_2_7_build_version_on_rules_tab_only",
+  "releasedAt": "2026-10-21T15:11:30+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.6: Upgraded Live AI Prompt Relay to 4-Server Redundant Pool & Auto-Flush — Added ntfy.envs.net, ntfy.adminforge.de, and ntfy.mzte.de alongside ntfy.sh so prompts and screenshots reach AI in <300ms even when ntfy.sh is blocked or timing out, plus automatic background flush of any previously submitted prompt on your phone."
+  "notes": "v8.2.7: Build Version & AI Submit Footer Shown on Rules Tab Only — Moved the End-of-App Build Version & AI Submit Help footer card so it only displays at the bottom of the Rules tab and keeps Today, Expenses, Month, and Slip screens clean."
 }

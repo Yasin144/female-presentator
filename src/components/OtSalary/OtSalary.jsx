@@ -2330,9 +2330,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.6';
+      return localStorage.getItem('pattan.ota.version') || '8.2.7';
     } catch (_) {
-      return '8.2.6';
+      return '8.2.7';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2341,9 +2341,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_6_multi_relay_instant_ai_sync';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_7_build_version_on_rules_tab_only';
     } catch (_) {
-      return 'ota_8_2_6_multi_relay_instant_ai_sync';
+      return 'ota_8_2_7_build_version_on_rules_tab_only';
     }
   });
 
@@ -2450,7 +2450,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     let uploadedScreenshotUrl = String(item.screenshotUrl || '');
     const attachedDataUrl = String(item.screenshotDataUrl || '');
 
-    if (attachedDataUrl && !uploadedScreenshotUrl) {
+    if (attachedDataUrl && (!uploadedScreenshotUrl || uploadedScreenshotUrl.includes('nt' + 'fy.sh'))) {
       try {
         const blobRes = await fetch(attachedDataUrl);
         const blob = await blobRes.blob();
@@ -2518,7 +2518,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
       const t = String(item.text || '').trim();
       if (
-        /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        /only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
           t
         )
       ) {
@@ -2532,7 +2532,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.6').trim();
+      const curVer = String(liveOtaVersion || '8.2.7').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -9440,122 +9440,122 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
                 </div>
               </div>
+
+              {/* END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER (Shown on Rules Tab Only) */}
+              <div
+                className="ot-no-print stitch-screen-card"
+                style={{
+                  marginTop: 6,
+                  marginBottom: 4,
+                  padding: '12px 14px',
+                  borderRadius: 16,
+                  background: isLight
+                    ? 'rgba(241, 245, 249, 0.92)'
+                    : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(17, 24, 39, 0.92) 100%)',
+                  border: `1px solid ${ui.border}`,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: 999,
+                      background: '#10b981',
+                      boxShadow: '0 0 8px #10b981',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: ui.textPrimary,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span>Build Version: v{liveOtaVersion}</span>
+                      <span
+                        style={{
+                          padding: '1px 7px',
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          background: 'rgba(16, 185, 129, 0.16)',
+                          border: '1px solid rgba(16, 185, 129, 0.45)',
+                          color: '#10b981',
+                        }}
+                      >
+                        LIVE OTA
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: ui.textSecondary,
+                        fontWeight: 600,
+                        marginTop: 1,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: 220,
+                      }}
+                      title={liveOtaBuildId}
+                    >
+                      ID: {liveOtaBuildId || `ota_${String(liveOtaVersion).replace(/\./g, '_')}`}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                    disabled={otaBusy}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 800,
+                      fontSize: 11,
+                      cursor: otaBusy ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {otaBusy ? '⏳ Checking...' : '🔄 Check Update'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGlobalSuggestionModal(true)}
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(99, 102, 241, 0.5)',
+                      background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(79, 70, 229, 0.28)',
+                    }}
+                  >
+                    🆘 AI Submit / Reach Out Help
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
-
-        {/* END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER */}
-        <div
-          className="ot-no-print stitch-screen-card"
-          style={{
-            marginTop: 14,
-            marginBottom: 8,
-            padding: '12px 14px',
-            borderRadius: 16,
-            background: isLight
-              ? 'rgba(241, 245, 249, 0.92)'
-              : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(17, 24, 39, 0.92) 100%)',
-            border: `1px solid ${ui.border}`,
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 10,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: 999,
-                background: '#10b981',
-                boxShadow: '0 0 8px #10b981',
-                flexShrink: 0,
-              }}
-            />
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 900,
-                  color: ui.textPrimary,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>Build Version: v{liveOtaVersion}</span>
-                <span
-                  style={{
-                    padding: '1px 7px',
-                    borderRadius: 999,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    background: 'rgba(16, 185, 129, 0.16)',
-                    border: '1px solid rgba(16, 185, 129, 0.45)',
-                    color: '#10b981',
-                  }}
-                >
-                  LIVE OTA
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: ui.textSecondary,
-                  fontWeight: 600,
-                  marginTop: 1,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: 220,
-                }}
-                title={liveOtaBuildId}
-              >
-                ID: {liveOtaBuildId || `ota_${String(liveOtaVersion).replace(/\./g, '_')}`}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => checkAndApplyLiveOtaUpdate(true)}
-              disabled={otaBusy}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 10,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: otaBusy ? 'wait' : 'pointer',
-              }}
-            >
-              {otaBusy ? '⏳ Checking...' : '🔄 Check Update'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowGlobalSuggestionModal(true)}
-              style={{
-                padding: '6px 11px',
-                borderRadius: 10,
-                border: '1px solid rgba(99, 102, 241, 0.5)',
-                background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: 11,
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.28)',
-              }}
-            >
-              🆘 AI Submit / Reach Out Help
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* V8.2 GOOGLE STITCH FLOATING FROSTED GLASS BOTTOM NAVIGATION DOCK */}
