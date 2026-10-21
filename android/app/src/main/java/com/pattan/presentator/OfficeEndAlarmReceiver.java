@@ -37,7 +37,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
 
         String time12h = format12h(hour24, minute);
         String title = "⏰ " + time12h;
-        String message = "Your time is completed";
+        String message = "Your time has completed";
 
         showOfficeEndOtStartNotification(context, title, message);
 
@@ -49,7 +49,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         if (context == null) return;
         final String textToSpeak = (speechText != null && !speechText.trim().isEmpty())
             ? speechText.trim()
-            : "Your time is completed";
+            : "Your time has completed";
         try {
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
@@ -64,11 +64,14 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                     activeTts = new TextToSpeech(appCtx, status -> {
                         if (status == TextToSpeech.SUCCESS && activeTts != null) {
                             try {
-                                activeTts.setLanguage(Locale.US);
+                                int langRes = activeTts.setLanguage(Locale.US);
+                                if (langRes == TextToSpeech.LANG_MISSING_DATA || langRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                    activeTts.setLanguage(Locale.getDefault());
+                                }
                                 activeTts.setSpeechRate(0.95f);
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                                     AudioAttributes attrs = new AudioAttributes.Builder()
-                                        .setUsage(AudioAttributes.USAGE_ALARM)
+                                        .setUsage(AudioAttributes.USAGE_MEDIA)
                                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                                         .build();
                                     activeTts.setAudioAttributes(attrs);
@@ -98,7 +101,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                     "Office Time Completed Alerts",
                     NotificationManager.IMPORTANCE_HIGH
                 );
-                channel.setDescription("Announces Your time is completed at 06:30 PM");
+                channel.setDescription("Announces Your time has completed at 06:30 PM");
                 channel.enableVibration(true);
                 channel.setVibrationPattern(new long[]{0, 300, 150, 400});
                 nm.createNotificationChannel(channel);
@@ -110,7 +113,10 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         if (context == null) return;
         try {
             ensureChannel(context);
-            speakAnnouncement(context, "Your time is completed");
+            String safeBody = (message != null && !message.trim().isEmpty())
+                ? message.trim()
+                : "Your time has completed";
+            speakAnnouncement(context, safeBody);
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
 
@@ -127,9 +133,6 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
             String safeTitle = (title != null && !title.trim().isEmpty())
                 ? title.trim()
                 : "⏰ 06:30 PM";
-            String safeBody = (message != null && !message.trim().isEmpty())
-                ? message.trim()
-                : "Your time is completed";
 
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)

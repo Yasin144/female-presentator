@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
+import { speakTimeCompletedOutLoud, ensureVoiceAudioUnlocked } from './timeCompletedVoice.js';
 import './OtSalary.css';
 import {
   loadEncryptedExpenseStore,
@@ -2133,12 +2134,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return () => clearTimeout(timer);
   }, [saveNotice]);
 
-  // Auto-close OT time started banner after 4.5 seconds
+  // Auto-close OT time started banner after 12 seconds so user can see & tap Speak
   useEffect(() => {
     if (!otTimeStartedBanner) return undefined;
     const timer = setTimeout(() => {
       setOtTimeStartedBanner(null);
-    }, 4500);
+    }, 12000);
     return () => clearTimeout(timer);
   }, [otTimeStartedBanner]);
 
@@ -2159,9 +2160,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.11';
+      return localStorage.getItem('pattan.ota.version') || '8.2.12';
     } catch (_) {
-      return '8.2.11';
+      return '8.2.12';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -4063,7 +4064,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return false;
   }, [settings.employeeName, settings.officeStartTime]);
 
-  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time is completed" only at 06:30 PM
+  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time has completed"
   const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
@@ -4071,10 +4072,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const endHHMM = endHHMMOverride || settings.officeEndTime || '18:30';
     const endFormatted = formatTime12h(endHHMM);
     const title = `⏰ ${endFormatted}`;
-    const body = 'Your time is completed';
+    const body = 'Your time has completed';
 
     playBiometricBeep('in');
-    triggerBiometricHaptic(140);
+    triggerBiometricHaptic(160);
+    speakTimeCompletedOutLoud();
 
     setOtTimeStartedBanner({
       date: todayIso,
@@ -4084,46 +4086,32 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       title,
       body,
     });
-    setSaveNotice(`⏰ ${endFormatted} — Your time is completed`);
+    setSaveNotice(`🔊 ${endFormatted} — Your time has completed`);
 
     if (typeof window !== 'undefined') {
       try {
         const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
         if (nativeBridge && typeof nativeBridge.triggerOfficeEndOtStartNotification === 'function') {
           nativeBridge.triggerOfficeEndOtStartNotification(title, body);
-        } else {
-          if (typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function') {
-            window.speechSynthesis.cancel();
-            const utter = new window.SpeechSynthesisUtterance('Your time is completed');
-            utter.rate = 0.95;
-            window.speechSynthesis.speak(utter);
-          }
-          if (typeof Notification !== 'undefined') {
-            if (Notification.permission === 'granted') {
-              new Notification(title, { body });
-            } else if (Notification.permission !== 'denied') {
-              Notification.requestPermission().then((perm) => {
-                if (perm === 'granted') new Notification(title, { body });
-              }).catch(() => {});
-            }
+        } else if (typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            new Notification(title, { body });
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then((perm) => {
+              if (perm === 'granted') new Notification(title, { body });
+            }).catch(() => {});
           }
         }
       } catch (_) {}
     }
   }, [settings.officeStartTime, settings.officeEndTime, daysMap, entryInTime]);
 
-  // Sync Native Android Daily Alarm for Normal Office End Time & Live Auto-Trigger when Office Time Ends
+  // Sync Native Android Daily Alarm for Normal Office End Time & Unlock Voice Audio
   useEffect(() => {
-    const todayIso = getTodayIsoDate();
-    const todayRec = daysMap[todayIso];
+    ensureVoiceAudioUnlocked();
     const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
-    let targetEndMins = officeEndDefaultMins;
-    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
-      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
-      targetEndMins = (inM + rates.shiftMins) % 1440;
-    }
-    const endHour24 = Math.floor(targetEndMins / 60);
-    const endMin = targetEndMins % 60;
+    const endHour24 = Math.floor(officeEndDefaultMins / 60);
+    const endMin = officeEndDefaultMins % 60;
 
     if (typeof window !== 'undefined') {
       try {
@@ -4137,19 +4125,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         }
       } catch (_) {}
     }
-  }, [settings.officeEndTime, settings.officeStartTime, settings.otTimeCalcMode, settings.employeeName, daysMap, rates.shiftMins]);
+  }, [settings.officeEndTime, settings.employeeName]);
 
-  const prevOfficeCheckClockMinsRef = useRef(-1);
-  const appMountedAtMsRef = useRef(Date.now());
   useEffect(() => {
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
-    const prevMins = prevOfficeCheckClockMinsRef.current;
-    prevOfficeCheckClockMinsRef.current = nowMins;
     if (nowMins < 0) return;
 
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso];
-    if (!todayRec?.inTime) return; // Only notify if user has punched IN today
     if (todayRec?.status === 'leave') return;
     if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
 
@@ -4157,22 +4140,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     let targetEndMins = officeEndDefaultMins;
     if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
       const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
-      // Do not wrap with % 1440 for same-day comparison so punching IN in the afternoon/evening never immediately triggers office-end
-      targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
+      // Only adjust if morning punch-in was within normal morning window (<= 10:30 AM) so afternoon test punches never delay 06:30 PM voice alert
+      if (inM <= 10 * 60 + 30) {
+        targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
+      }
     }
 
-    // Never speak "Your time is completed" simply because the user opened the app!
-    // Only trigger when the clock transitions across targetEndMins live (prevMins < targetEndMins && nowMins >= targetEndMins)
-    if (Date.now() - appMountedAtMsRef.current < 10000) return;
-    if (prevMins < 0 || prevMins >= targetEndMins) return;
-
-    if (nowMins >= targetEndMins && targetEndMins < 1440) {
-      let alreadyNotifiedDate = '';
+    // Trigger once per day as soon as current time is at or past targetEndMins (up to 11:45 PM)
+    if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 45) {
+      let alreadySpokenDate = '';
       try {
-        alreadyNotifiedDate = localStorage.getItem('pattan.ot.officeEndNotifiedDate') || '';
+        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8212') || '';
       } catch (_) {}
-      if (alreadyNotifiedDate !== todayIso) {
+      if (alreadySpokenDate !== todayIso) {
         try {
+          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8212', todayIso);
           localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
         } catch (_) {}
         const endHHMM = minutesToTimeInput(targetEndMins % 1440);
@@ -5907,9 +5889,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexWrap: 'wrap',
             gap: 10,
           }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ minWidth: 0, flex: '1 1 160px' }}>
               <div style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#92400e' : '#fde68a' }}>
                 {otTimeStartedBanner.title}
               </div>
@@ -5917,23 +5900,42 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {otTimeStartedBanner.body}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setOtTimeStartedBanner(null)}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 9,
-                border: `1px solid ${ui.border}`,
-                background: ui.cardSubBg,
-                color: ui.textPrimary,
-                fontWeight: 800,
-                fontSize: 11,
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              Got It ✓
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => speakTimeCompletedOutLoud()}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 9,
+                  border: '1px solid rgba(245, 158, 11, 0.6)',
+                  background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                🔊 Speak
+              </button>
+              <button
+                type="button"
+                onClick={() => setOtTimeStartedBanner(null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 9,
+                  border: `1px solid ${ui.border}`,
+                  background: ui.cardSubBg,
+                  color: ui.textPrimary,
+                  fontWeight: 800,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Got It ✓
+              </button>
+            </div>
           </div>
         )}
 

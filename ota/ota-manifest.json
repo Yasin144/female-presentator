@@ -1,8 +1,8 @@
 {
-  "version": "8.2.11",
-  "buildId": "ota_8_2_11_responsive_anti_overlap_mobile_layout",
-  "releasedAt": "2026-10-21T18:52:00+05:30",
+  "version": "8.2.12",
+  "buildId": "ota_8_2_12_guaranteed_time_completed_voice_speech",
+  "releasedAt": "2026-10-21T19:27:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.11: Full Mobile Responsive & Anti-Overlap Layout Audit — Enforced global min-width:0, max-width:100%, and box-sizing:border-box across all cards, grids, flex rows, and date/time/number inputs. Upgraded Salary & OT Credit Cycle Date cards, Bento tiles, Month bulk inputs, Slip key-value rows, and Expenses date/time pickers to responsive auto-fit grids and wrapping flex rows with zero overlapping or oversized elements."
+  "notes": "v8.2.12: Guaranteed Voice Announcement ('Your time has completed') — Added embedded 8kHz voice audio (WebAudio + WAV + SpeechSynthesis + Native Android TTS) so the phone always speaks 'Your time has completed' out loud even when Android WebView TTS is silent, and automatically triggers if opened after 06:30 PM when today's shift completion hasn't spoken yet."
 }
