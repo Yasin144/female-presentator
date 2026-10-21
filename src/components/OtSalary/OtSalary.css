@@ -1,6 +1,8 @@
 /* ============================================================================
-   OT & SALARY PRO · GOOGLE STITCH SIGNATURE DESIGN SYSTEM (v8.2.0)
+   OT & SALARY PRO · GOOGLE STITCH SIGNATURE DESIGN SYSTEM (v8.2.1)
    Connected Project: https://stitch.withgoogle.com/projects/13519284942366029207
+   Applied Globally Across All 12 Screens (Today · Expenses · Passbook · Insights ·
+   Notes · Sync · Month Calendar · Salary Slip · Rules · Modals)
    ============================================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap');
@@ -37,16 +39,15 @@
   }
 }
 
-@keyframes stitchAuroraFloat {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
+/* Global Stitch Preset CSS Variables Applied to All Screens */
 .ot-pro-shell {
+  --stitch-accent: #6366f1;
+  --stitch-accent-2: #0ea5e9;
+  --stitch-accent-3: #10b981;
+  --stitch-grad: linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%);
+  --stitch-hero-bg: linear-gradient(135deg, rgba(30, 58, 138, 0.62) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.55) 100%);
+  --stitch-border-glow: rgba(99, 102, 241, 0.36);
+  --stitch-top-bar: linear-gradient(90deg, #4f46e5 0%, #0ea5e9 55%, #10b981 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -55,6 +56,36 @@
   position: relative;
   font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   letter-spacing: -0.01em;
+}
+
+.ot-pro-shell[data-stitch-preset="stitch-cyber-emerald"] {
+  --stitch-accent: #10b981;
+  --stitch-accent-2: #06b6d4;
+  --stitch-accent-3: #3b82f6;
+  --stitch-grad: linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%);
+  --stitch-hero-bg: linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(7, 24, 19, 0.94) 58%, rgba(14, 116, 144, 0.52) 100%);
+  --stitch-border-glow: rgba(16, 185, 129, 0.42);
+  --stitch-top-bar: linear-gradient(90deg, #10b981 0%, #06b6d4 55%, #3b82f6 100%);
+}
+
+.ot-pro-shell[data-stitch-preset="stitch-royal-amethyst"] {
+  --stitch-accent: #a855f7;
+  --stitch-accent-2: #ec4899;
+  --stitch-accent-3: #6366f1;
+  --stitch-grad: linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%);
+  --stitch-hero-bg: linear-gradient(135deg, rgba(88, 28, 135, 0.72) 0%, rgba(20, 12, 38, 0.94) 58%, rgba(157, 23, 77, 0.52) 100%);
+  --stitch-border-glow: rgba(168, 85, 247, 0.42);
+  --stitch-top-bar: linear-gradient(90deg, #8b5cf6 0%, #ec4899 55%, #f43f5e 100%);
+}
+
+.ot-pro-shell[data-stitch-preset="stitch-alabaster-pro"] {
+  --stitch-accent: #4f46e5;
+  --stitch-accent-2: #2563eb;
+  --stitch-accent-3: #059669;
+  --stitch-grad: linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0ea5e9 100%);
+  --stitch-hero-bg: linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%);
+  --stitch-border-glow: rgba(99, 102, 241, 0.32);
+  --stitch-top-bar: linear-gradient(90deg, #4f46e5 0%, #2563eb 55%, #10b981 100%);
 }
 
 .ot-pro-shell input,
@@ -71,7 +102,7 @@
 .ot-pro-shell textarea:focus,
 .ot-pro-shell select:focus {
   outline: none;
-  border-color: #6366f1 !important;
+  border-color: var(--stitch-accent) !important;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.24) !important;
 }
 
@@ -93,23 +124,36 @@
   filter: brightness(1.08);
 }
 
-/* Stitch Glassmorphic Bento Surface Card */
+/* Stitch Glassmorphic Bento Surface Card (Applied to All Screens) */
 .ot-hero-vault-card,
 .flutter-m3-card,
-.stitch-bento-card {
+.stitch-bento-card,
+.stitch-screen-card {
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   animation: flutterPageEnter 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow: 0 14px 34px -8px rgba(2, 6, 23, 0.55),
+  box-shadow: 0 14px 34px -8px rgba(2, 6, 23, 0.52),
               inset 0 1px 0 rgba(255, 255, 255, 0.1);
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
               box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.22s ease;
 }
 
-/* Stitch Virtual Metallic Bank Card Effect */
+.stitch-screen-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--stitch-top-bar);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Stitch Virtual Metallic Bank / Hero Card Effect */
 .stitch-bank-hero-card {
   position: relative;
   overflow: hidden;
@@ -148,12 +192,14 @@
   transform: scale(0.95);
 }
 
-/* Stitch ListTile Transaction Card */
+/* Stitch ListTile Transaction & Attendance Card */
 .flutter-m3-list-tile {
   position: relative;
   overflow: hidden;
-  box-shadow: 0 6px 18px -4px rgba(2, 6, 23, 0.3),
-              inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 18px -4px rgba(2, 6, 23, 0.28),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.2s ease,
               background-color 0.2s ease;
@@ -212,7 +258,7 @@
 }
 
 .ot-pro-shell ::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.55);
+  background: var(--stitch-accent);
   border-radius: 999px;
 }
 

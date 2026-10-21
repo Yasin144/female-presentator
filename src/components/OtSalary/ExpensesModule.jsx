@@ -994,6 +994,8 @@ export default function ExpensesModule({
         textMuted: '#64748b',
         pillBg: '#e2e8f0',
         activeBlue: '#4f46e5',
+        activeGrad: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0ea5e9 100%)',
+        heroBg: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%)',
         debit: '#e11d48',
         credit: '#059669',
       };
@@ -1010,6 +1012,8 @@ export default function ExpensesModule({
         textMuted: '#6ee7b7',
         pillBg: 'rgba(16, 185, 129, 0.16)',
         activeBlue: '#10b981',
+        activeGrad: 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)',
+        heroBg: 'linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(7, 24, 19, 0.94) 58%, rgba(14, 116, 144, 0.52) 100%)',
         debit: '#fb7185',
         credit: '#34d399',
       };
@@ -1026,6 +1030,8 @@ export default function ExpensesModule({
         textMuted: '#a78bfa',
         pillBg: 'rgba(139, 92, 246, 0.18)',
         activeBlue: '#8b5cf6',
+        activeGrad: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)',
+        heroBg: 'linear-gradient(135deg, rgba(88, 28, 135, 0.72) 0%, rgba(20, 12, 38, 0.94) 58%, rgba(157, 23, 77, 0.52) 100%)',
         debit: '#fb7185',
         credit: '#34d399',
       };
@@ -1041,6 +1047,8 @@ export default function ExpensesModule({
       textMuted: '#94a3b8',
       pillBg: 'rgba(30, 41, 59, 0.9)',
       activeBlue: '#6366f1',
+      activeGrad: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%)',
+      heroBg: 'linear-gradient(135deg, rgba(30, 58, 138, 0.65) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.58) 100%)',
       debit: '#fb7185',
       credit: '#34d399',
     };
@@ -2409,14 +2417,17 @@ export default function ExpensesModule({
     const txRefDisplay = selectedTx.refId || `T${String(selectedTx.timestampMs || Date.now()).slice(-12)}`;
 
     return (
-      <div style={{
-        background: palette.bg,
-        borderRadius: 24,
-        border: `1px solid ${palette.border}`,
-        padding: mobileMode ? '16px 14px 22px' : '22px 24px 28px',
-        color: palette.text,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
-      }}>
+      <div
+        className="stitch-screen-card"
+        style={{
+          background: palette.surface,
+          borderRadius: 24,
+          border: `1px solid ${palette.border}`,
+          padding: mobileMode ? '16px 14px 22px' : '22px 24px 28px',
+          color: palette.text,
+          boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
+        }}
+      >
         {/* Top Bar: < Back & Delete/Edit */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <button
@@ -2427,7 +2438,7 @@ export default function ExpensesModule({
               height: 38,
               borderRadius: 12,
               border: `1px solid ${palette.border}`,
-              background: palette.surface,
+              background: palette.surfaceAlt,
               color: palette.text,
               fontSize: 18,
               fontWeight: 900,
@@ -2449,7 +2460,7 @@ export default function ExpensesModule({
                 padding: '7px 12px',
                 borderRadius: 10,
                 border: `1px solid ${palette.border}`,
-                background: palette.surface,
+                background: palette.surfaceAlt,
                 color: palette.textSub,
                 fontSize: 11.5,
                 fontWeight: 800,
@@ -2479,7 +2490,20 @@ export default function ExpensesModule({
         </div>
 
         {/* Centered Avatar & Amount Hero (Screen 9) */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 20 }}>
+        <div
+          className="stitch-bank-hero-card"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            marginBottom: 18,
+            padding: '18px 16px',
+            borderRadius: 22,
+            background: palette.heroBg,
+            border: `1px solid ${palette.border}`,
+          }}
+        >
           <BrandPaymentAvatar tx={selectedTx} size={64} />
           <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 10 }}>
             {selectedTx.merchant || sanitizeBrandFreeAppLabel(selectedTx.app)}
@@ -2502,16 +2526,19 @@ export default function ExpensesModule({
         </div>
 
         {/* Structured Details Card (Screen 9) */}
-        <div style={{
-          background: palette.surface,
-          borderRadius: 18,
-          border: `1px solid ${palette.border}`,
-          padding: '14px 16px',
-          marginBottom: 14,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 11,
-        }}>
+        <div
+          className="stitch-bento-card"
+          style={{
+            background: palette.surfaceAlt,
+            borderRadius: 18,
+            border: `1px solid ${palette.border}`,
+            padding: '14px 16px',
+            marginBottom: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 11,
+          }}
+        >
           {[
             { label: 'Statement Entry', value: isCredit ? '💰 CREDIT / DEPOSIT (+₹)' : '💸 DEBIT / PAYMENT (-₹)' },
             { label: 'Type', value: selectedTx.paymentMethod === 'UPI' ? 'UPI Payment' : (selectedTx.paymentMethod || 'Payment') },
@@ -2610,7 +2637,7 @@ export default function ExpensesModule({
           </div>
         </div>
 
-        {/* Save Note Primary Royal Blue Button (Screen 9) */}
+        {/* Save Note Primary Stitch Gradient Button (Screen 9) */}
         <button
           type="button"
           onClick={() => {
@@ -2622,12 +2649,12 @@ export default function ExpensesModule({
             padding: '15px 18px',
             borderRadius: 16,
             border: 'none',
-            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            background: palette.activeGrad,
             color: '#ffffff',
             fontWeight: 900,
             fontSize: 15,
             cursor: 'pointer',
-            boxShadow: '0 10px 25px rgba(37, 99, 235, 0.4)',
+            boxShadow: '0 10px 25px rgba(79, 70, 229, 0.35)',
           }}
         >
           Save Note
@@ -2639,17 +2666,20 @@ export default function ExpensesModule({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text, overflowAnchor: 'none' }}>
       {/* V8.2 Google Stitch Signature Pill Segmented Sub-Navigation Bar */}
-      <div style={{
-        display: 'flex',
-        gap: 6,
-        overflowX: 'auto',
-        padding: '6px',
-        borderRadius: 18,
-        background: palette.surface,
-        border: `1px solid ${palette.border}`,
-        backdropFilter: 'blur(16px)',
-        boxShadow: isLight ? '0 4px 14px rgba(15, 23, 42, 0.04)' : '0 8px 22px rgba(2, 6, 23, 0.45)',
-      }}>
+      <div
+        className="stitch-screen-card"
+        style={{
+          display: 'flex',
+          gap: 6,
+          overflowX: 'auto',
+          padding: '6px',
+          borderRadius: 18,
+          background: palette.surface,
+          border: `1px solid ${palette.border}`,
+          backdropFilter: 'blur(16px)',
+          boxShadow: isLight ? '0 4px 14px rgba(15, 23, 42, 0.04)' : '0 8px 22px rgba(2, 6, 23, 0.45)',
+        }}
+      >
         {[
           { id: 'overview', label: '✨ Overview' },
           { id: 'transactions', label: `📜 Passbook (${analytics.allTimeCount || analytics.totalCount || 0})` },
@@ -2669,7 +2699,7 @@ export default function ExpensesModule({
                 borderRadius: 13,
                 border: active ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid transparent',
                 background: active
-                  ? `linear-gradient(135deg, ${palette.activeBlue} 0%, #2563eb 100%)`
+                  ? palette.activeGrad
                   : 'transparent',
                 color: active ? '#ffffff' : palette.textMuted,
                 fontWeight: 800,
@@ -3038,10 +3068,10 @@ export default function ExpensesModule({
           </div>
 
           <div
-            className="flutter-m3-card"
+            className="flutter-m3-card stitch-screen-card"
             style={{
               padding: mobileMode ? '16px' : '18px 20px',
-              borderRadius: 20,
+              borderRadius: 22,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
               color: palette.text,
@@ -3189,7 +3219,7 @@ export default function ExpensesModule({
                         padding: '8px 6px',
                         borderRadius: 10,
                         border: active ? 'none' : `1px solid ${palette.border}`,
-                        background: active ? palette.activeBlue : palette.surfaceAlt,
+                        background: active ? palette.activeGrad : palette.surfaceAlt,
                         color: active ? '#ffffff' : palette.textSub,
                         fontWeight: 800,
                         fontSize: 11.5,
@@ -3865,15 +3895,18 @@ export default function ExpensesModule({
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
-          <div style={{
-            background: palette.surface,
-            borderRadius: 20,
-            border: `1px solid ${palette.border}`,
-            padding: mobileMode ? '14px 12px' : '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}>
+          <div
+            className="stitch-screen-card"
+            style={{
+              background: palette.surface,
+              borderRadius: 22,
+              border: `1px solid ${palette.border}`,
+              padding: mobileMode ? '14px 12px' : '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
             {/* Clean Section Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
@@ -4221,10 +4254,10 @@ export default function ExpensesModule({
 
           {/* Clean 4-Category Bento Strip */}
           <div
-            className="flutter-m3-card"
+            className="flutter-m3-card stitch-screen-card"
             style={{
               padding: '12px 14px',
-              borderRadius: 18,
+              borderRadius: 22,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
               color: palette.text,
@@ -4284,12 +4317,15 @@ export default function ExpensesModule({
           </div>
 
           {/* 🧠 Ask Expense Memory (Natural-Language Q&A with Smart Question Chips) */}
-          <div style={{
-            padding: '14px 16px',
-            borderRadius: 18,
-            background: palette.surface,
-            border: `1px solid ${palette.border}`,
-          }}>
+          <div
+            className="stitch-screen-card"
+            style={{
+              padding: '14px 16px',
+              borderRadius: 22,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: isLight ? '#4f46e5' : '#818cf8' }}>
                 🧠 Ask Expense Memory
@@ -4487,15 +4523,18 @@ export default function ExpensesModule({
           SCREEN 8: TRANSACTIONS (AUTO SAVED)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'transactions' && (
-        <div style={{
-          background: palette.surface,
-          borderRadius: 22,
-          border: `1px solid ${palette.border}`,
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}>
+        <div
+          className="stitch-screen-card"
+          style={{
+            background: palette.surface,
+            borderRadius: 24,
+            border: `1px solid ${palette.border}`,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
@@ -4542,7 +4581,7 @@ export default function ExpensesModule({
                   padding: '7px 12px',
                   borderRadius: 10,
                   border: 'none',
-                  background: '#2563eb',
+                  background: palette.activeGrad,
                   color: '#fff',
                   fontWeight: 800,
                   fontSize: 12,
@@ -4587,7 +4626,7 @@ export default function ExpensesModule({
                     padding: '7px 16px',
                     borderRadius: 999,
                     border: active ? 'none' : `1px solid ${palette.border}`,
-                    background: active ? '#2563eb' : palette.surfaceAlt,
+                    background: active ? palette.activeGrad : palette.surfaceAlt,
                     color: active ? '#ffffff' : palette.textSub,
                     fontWeight: 800,
                     fontSize: 12,
@@ -4879,9 +4918,10 @@ export default function ExpensesModule({
                     return (
                       <div
                         key={tx.id}
+                        className="stitch-bento-card flutter-m3-list-tile"
                         style={{
                           padding: '11px 12px',
-                          borderRadius: 14,
+                          borderRadius: 16,
                           background: palette.surfaceAlt,
                           border: `1px solid ${palette.border}`,
                           display: 'flex',
@@ -5034,15 +5074,18 @@ export default function ExpensesModule({
           SCREEN 10: EXPENSE INSIGHTS (OVERVIEW | CATEGORIES | METHODS | TRENDS)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'insights' && (
-        <div style={{
-          background: palette.surface,
-          borderRadius: 22,
-          border: `1px solid ${palette.border}`,
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}>
+        <div
+          className="stitch-screen-card"
+          style={{
+            background: palette.surface,
+            borderRadius: 24,
+            border: `1px solid ${palette.border}`,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
@@ -5097,7 +5140,7 @@ export default function ExpensesModule({
                     padding: '8px 6px',
                     borderRadius: 9,
                     border: 'none',
-                    background: active ? '#2563eb' : 'transparent',
+                    background: active ? palette.activeGrad : 'transparent',
                     color: active ? '#ffffff' : palette.textMuted,
                     fontWeight: 800,
                     fontSize: 11.5,
@@ -5111,15 +5154,18 @@ export default function ExpensesModule({
           </div>
 
           {/* Total Spent Comparison Card (Always visible in Insights) */}
-          <div style={{
-            padding: '16px',
-            borderRadius: 18,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}>
+          <div
+            className="stitch-bank-hero-card"
+            style={{
+              padding: '16px',
+              borderRadius: 20,
+              background: palette.heroBg,
+              border: `1px solid ${palette.border}`,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: palette.textMuted }}>Total Spent</div>
               <div style={{ fontSize: 28, fontWeight: 950, color: palette.text, marginTop: 2 }}>
@@ -5509,15 +5555,18 @@ export default function ExpensesModule({
           SCREEN 11: MISSING NOTES (REVIEW)
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'missing-notes' && (
-        <div style={{
-          background: palette.surface,
-          borderRadius: 22,
-          border: `1px solid ${palette.border}`,
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}>
+        <div
+          className="stitch-screen-card"
+          style={{
+            background: palette.surface,
+            borderRadius: 24,
+            border: `1px solid ${palette.border}`,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               type="button"
@@ -5555,7 +5604,7 @@ export default function ExpensesModule({
                     padding: '7px 14px',
                     borderRadius: 999,
                     border: active ? 'none' : `1px solid ${palette.border}`,
-                    background: active ? '#2563eb' : palette.surfaceAlt,
+                    background: active ? palette.activeGrad : palette.surfaceAlt,
                     color: active ? '#ffffff' : palette.textSub,
                     fontWeight: 800,
                     fontSize: 12,
@@ -5763,15 +5812,18 @@ export default function ExpensesModule({
           SETTINGS, PRIVACY, AUTO-DETECTION & EXPORT
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'settings' && (
-        <div style={{
-          background: palette.surface,
-          borderRadius: 22,
-          border: `1px solid ${palette.border}`,
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}>
+        <div
+          className="stitch-screen-card"
+          style={{
+            background: palette.surface,
+            borderRadius: 24,
+            border: `1px solid ${palette.border}`,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
           <div style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
             🔒 Private Expense Memory &amp; CSV Export
           </div>
@@ -5994,6 +6046,7 @@ export default function ExpensesModule({
           }}
         >
           <form
+            className="stitch-screen-card"
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveTransactionForm}
             style={{
@@ -6377,6 +6430,7 @@ export default function ExpensesModule({
           }}
         >
           <div
+            className="stitch-screen-card"
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 'min(460px, 100%)',
@@ -6464,6 +6518,7 @@ export default function ExpensesModule({
           }}
         >
           <form
+            className="stitch-screen-card"
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveBankBalanceManual}
             style={{

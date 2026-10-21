@@ -2370,9 +2370,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.0';
+      return localStorage.getItem('pattan.ota.version') || '8.2.1';
     } catch (_) {
-      return '8.2.0';
+      return '8.2.1';
     }
   });
 
@@ -4474,11 +4474,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     textPrimary: isLight ? '#0f172a' : '#f8fafc',
     textSecondary: isLight ? '#475569' : '#94a3b8',
     textMuted: isLight ? '#64748b' : '#64748b',
+    accentColor: isEmeraldPreset
+      ? '#10b981'
+      : isAmethystPreset
+        ? '#a855f7'
+        : '#6366f1',
     accentGrad: isEmeraldPreset
       ? 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)'
       : isAmethystPreset
         ? 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)'
         : 'linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%)',
+    heroCardBg: isLight
+      ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%)'
+      : isEmeraldPreset
+        ? 'linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(7, 24, 19, 0.94) 58%, rgba(14, 116, 144, 0.52) 100%)'
+        : isAmethystPreset
+          ? 'linear-gradient(135deg, rgba(88, 28, 135, 0.72) 0%, rgba(20, 12, 38, 0.94) 58%, rgba(157, 23, 77, 0.52) 100%)'
+          : 'linear-gradient(135deg, rgba(30, 58, 138, 0.65) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.58) 100%)',
     shadow: isLight
       ? '0 8px 24px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9)'
       : '0 14px 34px rgba(2, 6, 23, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.07)',
@@ -4523,6 +4535,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   return (
     <div
       className="ot-pro-shell"
+      data-stitch-preset={stitchPreset}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       style={{
@@ -4544,72 +4557,90 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             position: 'fixed',
             inset: 0,
             zIndex: 2000,
-            background: '#0f172a',
+            background: ui.pageMesh || '#0f172a',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             padding: 28,
             textAlign: 'center',
-            color: '#f8fafc',
+            color: ui.textPrimary,
           }}
         >
-          <div style={{
-            width: 96,
-            height: 96,
-            borderRadius: 28,
-            background: 'linear-gradient(135deg, #2563eb 0%, #10b981 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 20,
-            fontSize: 38,
-            fontWeight: 900,
-            color: '#fff',
-          }}>
-            ₹
-          </div>
-          <div style={{
-            fontSize: 22,
-            fontWeight: 900,
-            color: '#ffffff',
-          }}>
-            Work &amp; Money Workspace
-          </div>
-          <div style={{
-            fontSize: 13,
-            color: '#94a3b8',
-            marginTop: 8,
-            maxWidth: 280,
-            lineHeight: 1.5,
-          }}>
-            Clean Attendance · Salary · Expense Ledger (v{liveOtaVersion})
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowSplash(false)}
+          <div
+            className="stitch-screen-card stitch-bank-hero-card"
             style={{
-              marginTop: 24,
-              padding: '11px 28px',
-              borderRadius: 999,
-              border: 'none',
-              background: '#2563eb',
-              color: '#fff',
-              fontWeight: 800,
-              fontSize: 13.5,
-              cursor: 'pointer',
+              maxWidth: 360,
+              width: '100%',
+              padding: '32px 24px',
+              borderRadius: 28,
+              background: ui.heroCardBg,
+              border: `1px solid ${ui.border}`,
+              boxShadow: ui.shadow,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
             }}
           >
-            Open Workspace →
-          </button>
+            <div style={{
+              width: 92,
+              height: 92,
+              borderRadius: 28,
+              background: ui.accentGrad,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 18,
+              fontSize: 38,
+              fontWeight: 900,
+              color: '#fff',
+              boxShadow: '0 14px 30px rgba(79, 70, 229, 0.35)',
+            }}>
+              ₹
+            </div>
+            <div style={{
+              fontSize: 22,
+              fontWeight: 900,
+              color: ui.textPrimary,
+            }}>
+              Work &amp; Money Workspace
+            </div>
+            <div style={{
+              fontSize: 13,
+              color: ui.textSecondary,
+              marginTop: 8,
+              maxWidth: 280,
+              lineHeight: 1.5,
+            }}>
+              Google Stitch Signature UI · Attendance · Salary · Expense Ledger (v{liveOtaVersion})
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSplash(false)}
+              style={{
+                marginTop: 22,
+                padding: '12px 28px',
+                borderRadius: 999,
+                border: 'none',
+                background: ui.accentGrad,
+                color: '#fff',
+                fontWeight: 800,
+                fontSize: 13.5,
+                cursor: 'pointer',
+                boxShadow: '0 10px 24px rgba(37, 99, 235, 0.32)',
+              }}
+            >
+              Open Workspace →
+            </button>
+          </div>
         </div>
       )}
 
       <div style={{ maxWidth: 500, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* V8.1 SPACIOUS 2-ROW MODERN WORKSPACE HEADER (NO CROWDED TITLES) */}
+        {/* V8.2 GOOGLE STITCH SPACIOUS WORKSPACE HEADER + 1-TAP PRESET BAR */}
         <div
-          className="ot-no-print"
+          className="ot-no-print stitch-screen-card"
           style={{
             padding: '14px 16px',
             borderRadius: 22,
@@ -4619,7 +4650,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             color: ui.textPrimary,
             display: 'flex',
             flexDirection: 'column',
-            gap: 12,
+            gap: 10,
           }}
         >
           {/* Header Row 1: Avatar + Full Unobstructed Title + Right Icon Buttons */}
@@ -4665,16 +4696,17 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   width: 42,
                   height: 42,
                   borderRadius: 14,
-                  background: isLight ? '#eff6ff' : 'rgba(37, 99, 235, 0.2)',
-                  border: isLight ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.35)',
+                  background: ui.accentGrad,
+                  border: `1px solid ${ui.border}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#2563eb',
+                  color: '#ffffff',
                   fontWeight: 900,
                   fontSize: 15,
                   cursor: 'pointer',
                   flexShrink: 0,
+                  boxShadow: '0 6px 16px rgba(79, 70, 229, 0.28)',
                 }}
               >
                 {isEmailLinked ? getEmployeeInitials(settings.employeeName) : '₹'}
@@ -4912,7 +4944,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   padding: '0 11px',
                   borderRadius: 10,
                   border: availableOtaUpdate ? 'none' : `1px solid ${ui.border}`,
-                  background: availableOtaUpdate ? '#2563eb' : ui.cardSubBg,
+                  background: availableOtaUpdate ? ui.accentGrad : ui.cardSubBg,
                   color: availableOtaUpdate ? '#ffffff' : ui.textPrimary,
                   fontWeight: 800,
                   fontSize: 11.5,
@@ -4926,6 +4958,47 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span>{otaBusy ? 'Updating' : availableOtaUpdate ? `Update v${availableOtaUpdate.version}` : 'Update'}</span>
               </button>
             </div>
+          </div>
+
+          {/* Header Row 3: 1-Tap Google Stitch Theme Preset Switcher (Applies to ALL 12 Screens Instantly) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+            gap: 6,
+            paddingTop: 8,
+            borderTop: `1px dashed ${ui.border}`,
+          }}>
+            {[
+              { id: 'stitch-aurora', label: '🌌 Aurora', mode: 'dark' },
+              { id: 'stitch-cyber-emerald', label: '💎 Emerald', mode: 'dark' },
+              { id: 'stitch-royal-amethyst', label: '🔮 Amethyst', mode: 'dark' },
+              { id: 'stitch-alabaster-pro', label: '☀️ Daylight', mode: 'light' },
+            ].map((p) => {
+              const active = stitchPreset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selectStitchPreset(p.id)}
+                  style={{
+                    padding: '6px 4px',
+                    borderRadius: 10,
+                    border: active ? `1.5px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
+                    background: active ? ui.accentGrad : ui.cardSubBg,
+                    color: active ? '#ffffff' : ui.textSecondary,
+                    fontWeight: 800,
+                    fontSize: 10.5,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    boxShadow: active ? '0 4px 12px rgba(79, 70, 229, 0.25)' : 'none',
+                  }}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -5725,30 +5798,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         {showExpensesSection && (
           <ExpensesSectionBoundary>
             {!expensesBiometricUnlocked ? (
-              <div style={{
-                padding: '28px 20px',
-                borderRadius: 22,
-                background: isLight
-                  ? 'linear-gradient(145deg, #ffffff 0%, #fdf2f8 100%)'
-                  : 'linear-gradient(145deg, #0f172a 0%, #1e1b4b 60%, #170d2b 100%)',
-                border: '1px solid rgba(236, 72, 153, 0.45)',
-                boxShadow: ui.shadow,
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 14,
-              }}>
+              <div
+                className="stitch-screen-card stitch-bank-hero-card"
+                style={{
+                  padding: '28px 20px',
+                  borderRadius: 24,
+                  background: ui.heroCardBg,
+                  border: `1px solid ${ui.border}`,
+                  boxShadow: ui.shadow,
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 14,
+                }}
+              >
                 <div style={{
                   width: 68,
                   height: 68,
                   borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #db2777 0%, #7c3aed 100%)',
+                  background: ui.accentGrad,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 32,
-                  boxShadow: '0 10px 25px rgba(219, 39, 119, 0.4)',
+                  boxShadow: '0 10px 25px rgba(99, 102, 241, 0.35)',
                 }}>
                   🔐
                 </div>
@@ -5870,10 +5944,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           <>
             {/* SECTION 1: CLEAN TODAY PUNCH & SHIFT HERO (TOP PRIORITY) */}
             <div
+              className="stitch-screen-card stitch-bank-hero-card"
               style={{
                 padding: '16px',
-                borderRadius: 22,
-                background: ui.cardBg,
+                borderRadius: 24,
+                background: ui.heroCardBg,
                 border: `1px solid ${ui.border}`,
                 boxShadow: ui.shadow,
                 display: 'flex',
@@ -6365,6 +6440,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             }}>
               <button
                 type="button"
+                className="stitch-bento-card"
                 onClick={() => toggleSalaryVisibilityWithBiometric()}
                 style={{
                   padding: '10px 6px',
@@ -6382,6 +6458,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </button>
               <button
                 type="button"
+                className="stitch-bento-card"
                 onClick={() => navigateTab('month')}
                 style={{
                   padding: '10px 6px',
@@ -6399,6 +6476,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </button>
               <button
                 type="button"
+                className="stitch-bento-card"
                 onClick={() => navigateTab('summary')}
                 style={{
                   padding: '10px 6px',
@@ -6416,13 +6494,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </button>
               <button
                 type="button"
+                className="stitch-bento-card"
                 onClick={() => navigateTab('expenses')}
                 style={{
                   padding: '10px 6px',
                   borderRadius: 14,
                   border: `1px solid ${ui.border}`,
-                  background: ui.cardBg,
-                  color: '#2563eb',
+                  background: ui.accentGrad,
+                  color: '#ffffff',
                   fontSize: 11,
                   fontWeight: 800,
                   cursor: 'pointer',
@@ -6454,6 +6533,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             }}
           >
             <div
+              className="stitch-screen-card"
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: '100%',
@@ -6707,13 +6787,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   style={{
                     padding: '12px',
                     borderRadius: 12,
-                    border: '1px solid rgba(59, 130, 246, 0.6)',
-                    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                    border: `1px solid ${ui.accentColor}`,
+                    background: ui.accentGrad,
                     color: '#ffffff',
                     fontWeight: 900,
                     fontSize: 14,
                     cursor: 'pointer',
-                    boxShadow: '0 8px 20px rgba(37, 99, 235, 0.35)',
+                    boxShadow: '0 8px 20px rgba(79, 70, 229, 0.32)',
                   }}
                 >
                   Save Day
@@ -6729,13 +6809,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         {showMonthSection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* Month Navigation Header (< October 2026 >) */}
-            <div style={{
-              padding: '14px 16px',
-              borderRadius: 20,
-              background: ui.cardBg,
-              border: `1px solid ${ui.border}`,
-              boxShadow: ui.shadow,
-            }}>
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '14px 16px',
+                borderRadius: 22,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+              }}
+            >
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -6818,12 +6901,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         height: 34,
                         borderRadius: 9,
                         border: isSel
-                          ? '1.5px solid #60a5fa'
+                          ? `1.5px solid ${ui.accentColor}`
                           : hasOt
                             ? '1px solid rgba(52, 211, 153, 0.45)'
                             : '1px solid transparent',
                         background: isSel
-                          ? '#2563eb'
+                          ? ui.accentGrad
                           : hasOt
                             ? 'rgba(16, 185, 129, 0.14)'
                             : cell.isSaved
@@ -6867,8 +6950,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       style={{
                         padding: '7px 14px',
                         borderRadius: 999,
-                        border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
-                        background: active ? '#2563eb' : ui.cardBg,
+                        border: active ? `1px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
+                        background: active ? ui.accentGrad : ui.cardBg,
                         color: active ? '#ffffff' : ui.textSecondary,
                         fontWeight: 800,
                         fontSize: 12,
@@ -6897,9 +6980,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       style={{
                         padding: '6px 10px',
                         borderRadius: 999,
-                        border: active ? '1px solid #3b82f6' : `1px solid ${ui.border}`,
-                        background: active ? 'rgba(37, 99, 235, 0.16)' : ui.cardBg,
-                        color: active ? (isLight ? '#1d4ed8' : '#93c5fd') : ui.textSecondary,
+                        border: active ? `1px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
+                        background: active ? ui.accentGrad : ui.cardBg,
+                        color: active ? '#ffffff' : ui.textSecondary,
                         fontWeight: 800,
                         fontSize: 11,
                         cursor: 'pointer',
@@ -6913,18 +6996,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
 
             {/* ☑️ MULTI-DAY SELECT & SELECT ALL DAYS (Bulk Set IN / OUT Time) */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: 18,
-              background: isLight
-                ? 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)'
-                : 'linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(16, 185, 129, 0.12) 100%)',
-              border: '1px solid rgba(59, 130, 246, 0.4)',
-              boxShadow: ui.shadow,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}>
+            <div
+              className="stitch-screen-card stitch-bank-hero-card"
+              style={{
+                padding: '14px 16px',
+                borderRadius: 22,
+                background: ui.heroCardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 950, color: ui.textPrimary }}>
@@ -7155,13 +7239,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
             {/* Day Cards List OR Full Table View */}
             {mobileDaysLayout === 'table' ? (
-              <div style={{
-                borderRadius: 18,
-                background: ui.cardBg,
-                border: `1px solid ${ui.border}`,
-                boxShadow: ui.shadow,
-                overflowX: 'auto',
-              }}>
+              <div
+                className="stitch-screen-card"
+                style={{
+                  borderRadius: 20,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                  boxShadow: ui.shadow,
+                  overflowX: 'auto',
+                }}
+              >
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
                   <thead>
                     <tr style={{ background: ui.cardSubBg, color: ui.textSecondary, textAlign: 'left' }}>
@@ -7250,20 +7337,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   return (
                     <div
                       key={row.iso}
+                      className="stitch-bento-card flutter-m3-list-tile"
                       onClick={() => {
                         setSelectedDate(row.iso);
                         setShowManualEditor(true);
                       }}
                       style={{
                         padding: '12px 14px',
-                        borderRadius: 16,
+                        borderRadius: 18,
                         background: isBulkChecked
                           ? (isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.1)')
                           : ui.cardBg,
                         border: isBulkChecked
                           ? '1.5px solid #10b981'
                           : isSelected
-                            ? '1.5px solid #3b82f6'
+                            ? `1.5px solid ${ui.accentColor}`
                             : `1px solid ${ui.border}`,
                         boxShadow: ui.shadow,
                         display: 'flex',
@@ -7394,21 +7482,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             )}
 
-            {/* Bottom Full-Width Royal Blue Save All Month Days Button */}
+            {/* Bottom Full-Width Stitch Gradient Save All Month Days Button */}
             <button
               type="button"
               onClick={saveAllMonthDays}
               style={{
                 width: '100%',
                 padding: '14px',
-                borderRadius: 16,
-                border: '1px solid rgba(59, 130, 246, 0.6)',
-                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                borderRadius: 18,
+                border: `1px solid ${ui.accentColor}`,
+                background: ui.accentGrad,
                 color: '#ffffff',
                 fontWeight: 900,
                 fontSize: 14.5,
                 cursor: 'pointer',
-                boxShadow: '0 10px 24px rgba(37, 99, 235, 0.35)',
+                boxShadow: '0 10px 24px rgba(79, 70, 229, 0.35)',
               }}
             >
               Save All Month Days
@@ -7421,13 +7509,89 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showSummarySection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{
-              padding: '18px',
-              borderRadius: 22,
-              background: ui.cardBg,
-              border: `1px solid ${ui.border}`,
-              boxShadow: ui.shadow,
-            }}>
+            {/* GOOGLE STITCH VIRTUAL PAYCHECK HERO + 2x2 BENTO SUMMARY */}
+            <div
+              className="stitch-screen-card stitch-bank-hero-card"
+              style={{
+                padding: '18px 16px',
+                borderRadius: 24,
+                background: ui.heroCardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: ui.textSecondary, letterSpacing: '0.03em' }}>
+                    GOOGLE STITCH VERIFIED PAYSLIP · {formattedMonthLabel.toUpperCase()}
+                  </div>
+                  <div
+                    className="ot-tabular-nums"
+                    style={{ fontSize: 28, fontWeight: 950, color: ui.textPrimary, marginTop: 4, letterSpacing: '-0.03em' }}
+                  >
+                    {formatSalaryMask(monthSummary.fullMonthNetPayable)}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
+                    {normalizeEmployeeName(settings.employeeName)} · Full Salary Not Cut by Expenses
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {renderSalaryEyeButton(false)}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div
+                  className="stitch-bento-card"
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 16,
+                    background: ui.cardBg,
+                    border: `1px solid ${ui.border}`,
+                  }}
+                >
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>Base Salary</div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 900, color: ui.textPrimary, marginTop: 2 }}>
+                    {formatSalaryMask(rates.salary)}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
+                    Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
+                  </div>
+                </div>
+
+                <div
+                  className="stitch-bento-card"
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 16,
+                    background: ui.cardBg,
+                    border: `1px solid ${ui.border}`,
+                  }}
+                >
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>Extra OT + Bonus</div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
+                    {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>
+                    Credit {creditCycles.otStartDay}–{creditCycles.otEndDay}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '18px',
+                borderRadius: 24,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
                 <div>
                   <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
@@ -7612,13 +7776,58 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showRulesSection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{
-              padding: '18px',
-              borderRadius: 22,
-              background: ui.cardBg,
-              border: `1px solid ${ui.border}`,
-              boxShadow: ui.shadow,
-            }}>
+            {/* GOOGLE STITCH THEME & LAYOUT CARD (Visible directly in Rules Tab) */}
+            <div
+              className="stitch-screen-card stitch-bank-hero-card"
+              style={{
+                padding: '16px 18px',
+                borderRadius: 24,
+                background: ui.heroCardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 950, color: ui.textPrimary }}>
+                    ✨ Google Stitch Design System
+                  </div>
+                  <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600 }}>
+                    Project 13519284942366029207 · Active across all 12 screens
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStitchStudioModal(true)}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: 10,
+                    border: `1px solid ${ui.accentColor}`,
+                    background: ui.accentGrad,
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Open Studio →
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '18px',
+                borderRadius: 24,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
                   Shift &amp; Salary Rules
@@ -7629,8 +7838,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   style={{
                     padding: '6px 14px',
                     borderRadius: 10,
-                    border: '1px solid rgba(59, 130, 246, 0.6)',
-                    background: '#2563eb',
+                    border: `1px solid ${ui.accentColor}`,
+                    background: ui.accentGrad,
                     color: '#ffffff',
                     fontWeight: 800,
                     fontSize: 12.5,
@@ -7976,16 +8185,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
 
             {/* Feature B: After-OUT Automatic WhatsApp Statement Card */}
-            <div style={{
-              padding: '16px 18px',
-              borderRadius: 22,
-              background: ui.cardBg,
-              border: `1px solid ${ui.border}`,
-              boxShadow: ui.shadow,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}>
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '16px 18px',
+                borderRadius: 24,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 14.5, fontWeight: 900, color: ui.textPrimary }}>
@@ -8207,16 +8419,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
 
             {/* App & Data Section (Screen 6 Bottom Card) */}
-            <div style={{
-              padding: '16px 18px',
-              borderRadius: 22,
-              background: ui.cardBg,
-              border: `1px solid ${ui.border}`,
-              boxShadow: ui.shadow,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}>
+            <div
+              className="stitch-screen-card"
+              style={{
+                padding: '16px 18px',
+                borderRadius: 24,
+                background: ui.cardBg,
+                border: `1px solid ${ui.border}`,
+                boxShadow: ui.shadow,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
               <div style={{ fontSize: 14, fontWeight: 900, color: ui.textPrimary, marginBottom: 4 }}>
                 App &amp; Data
               </div>
