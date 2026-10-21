@@ -1466,8 +1466,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [salaryBiometricVisible, setSalaryBiometricVisible] = useState(false);
   const [salaryUnlockBusy, setSalaryUnlockBusy] = useState(false);
 
-  // Office Time Ends & OT Time Starts Live Notification Banner state
+  // Office Time Ends & OT Time Starts Live Notification Banner state + Live OT Running Screen Modal
   const [otTimeStartedBanner, setOtTimeStartedBanner] = useState(null);
+  const [showLiveOtRunnerModal, setShowLiveOtRunnerModal] = useState(false);
+  const autoOpenedLiveOtDateRef = useRef('');
 
   // Multi-Day Select & Bulk Set IN/OUT Time state
   const [selectedBulkDates, setSelectedBulkDates] = useState([]);
@@ -1681,6 +1683,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
+    if (showLiveOtRunnerModal) {
+      setShowLiveOtRunnerModal(false);
+      return 'handled';
+    }
     if (showProfileModal) {
       setShowProfileModal(false);
       return 'handled';
@@ -1731,7 +1737,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showProfileModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showLiveOtRunnerModal, showProfileModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2160,9 +2166,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.12';
+      return localStorage.getItem('pattan.ota.version') || '8.2.13';
     } catch (_) {
-      return '8.2.12';
+      return '8.2.13';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2362,7 +2368,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.11').trim();
+      const curVer = String(liveOtaVersion || '8.2.13').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -3236,6 +3242,112 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     };
   }, [settings, selectedMonth]);
 
+  // Second-by-Second Live OT Minutes & Money Ticker (runs automatically from the exact second normal duty ends)
+  const liveOtTicker = useMemo(() => {
+    const todayRec = daysMap[todayIso] || {};
+    const isLeave = todayRec.status === 'leave';
+    const outTimeStr = String(todayRec.outTime || '').trim();
+    const hasPunchedOut = Boolean(outTimeStr);
+    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
+    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
+
+    let targetEndMins = officeEndDefaultMins;
+    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
+      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
+      if (inM <= 10 * 60 + 30) {
+        targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
+      }
+    }
+
+    const endHHMM = minutesToTimeInput(targetEndMins % 1440);
+    const endFormatted12h = formatTime12h(endHHMM);
+    const targetEndSeconds = targetEndMins * 60;
+    const nowTotalSeconds =
+      liveNow.getHours() * 3600 + liveNow.getMinutes() * 60 + liveNow.getSeconds();
+
+    const otPerMinute = Number(rates.otPerMinuteRate) || 0;
+    const otPerSecond = otPerMinute / 60;
+    const otPerHour = Number(rates.otHourlyRate) || 0;
+    const baseDayPay = Number(rates.perDaySalary) || 0;
+
+    if (hasPunchedOut) {
+      const outMins = parseTimeToMinutes(outTimeStr, -1);
+      const lockedOtMins = outMins > targetEndMins ? outMins - targetEndMins : 0;
+      const lockedOtSeconds = lockedOtMins * 60;
+      const lockedOtMoney = lockedOtMins * otPerMinute;
+      const hrs = Math.floor(lockedOtMins / 60);
+      const mins = lockedOtMins % 60;
+      return {
+        isActive: false,
+        isCompletedShift: lockedOtMins > 0,
+        hasPunchedOut: true,
+        outTimeFormatted: formatTime12h(outTimeStr),
+        inTimeFormatted: formatTime12h(inTimeUsed),
+        officeEndFormatted: endFormatted12h,
+        otElapsedSeconds: lockedOtSeconds,
+        otHoursPart: hrs,
+        otMinsPart: mins,
+        otSecsPart: 0,
+        totalOtMinutes: lockedOtMins,
+        stopwatchStr: `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:00`,
+        minSecLabel: `${lockedOtMins} min 00 sec`,
+        liveOtMoney: lockedOtMoney,
+        completedMinsOtMoney: Math.round(lockedOtMoney),
+        otPerMinute,
+        otPerSecond,
+        otPerHour,
+        baseDayPay,
+        totalTodayPay: baseDayPay + lockedOtMoney,
+        remainingDutySeconds: 0,
+        remainingDutyStr: '00:00:00',
+      };
+    }
+
+    const isShiftTimeCompleted = !isLeave && nowTotalSeconds >= targetEndSeconds;
+    const otElapsedSeconds = isShiftTimeCompleted ? Math.max(0, nowTotalSeconds - targetEndSeconds) : 0;
+    const otHoursPart = Math.floor(otElapsedSeconds / 3600);
+    const otMinsPart = Math.floor((otElapsedSeconds % 3600) / 60);
+    const otSecsPart = otElapsedSeconds % 60;
+    const totalOtMinutes = Math.floor(otElapsedSeconds / 60);
+    const stopwatchStr = `${String(otHoursPart).padStart(2, '0')}:${String(otMinsPart).padStart(2, '0')}:${String(otSecsPart).padStart(2, '0')}`;
+    const minSecLabel = `${totalOtMinutes} min ${String(otSecsPart).padStart(2, '0')} sec`;
+    const liveOtMoney = otElapsedSeconds * otPerSecond;
+    const completedMinsOtMoney = Math.round(totalOtMinutes * otPerMinute);
+
+    const remainingDutySeconds = !isLeave && nowTotalSeconds < targetEndSeconds
+      ? targetEndSeconds - nowTotalSeconds
+      : 0;
+    const remHrs = Math.floor(remainingDutySeconds / 3600);
+    const remMins = Math.floor((remainingDutySeconds % 3600) / 60);
+    const remSecs = remainingDutySeconds % 60;
+    const remainingDutyStr = `${String(remHrs).padStart(2, '0')}:${String(remMins).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`;
+
+    return {
+      isActive: isShiftTimeCompleted,
+      isCompletedShift: isShiftTimeCompleted,
+      hasPunchedOut: false,
+      outTimeFormatted: '',
+      inTimeFormatted: formatTime12h(inTimeUsed),
+      officeEndFormatted: endFormatted12h,
+      otElapsedSeconds,
+      otHoursPart,
+      otMinsPart,
+      otSecsPart,
+      totalOtMinutes,
+      stopwatchStr,
+      minSecLabel,
+      liveOtMoney,
+      completedMinsOtMoney,
+      otPerMinute,
+      otPerSecond,
+      otPerHour,
+      baseDayPay,
+      totalTodayPay: baseDayPay + liveOtMoney,
+      remainingDutySeconds,
+      remainingDutyStr,
+    };
+  }, [daysMap, todayIso, entryInTime, settings.officeStartTime, settings.officeEndTime, settings.otTimeCalcMode, rates, liveNow]);
+
   // Load selectedDate's existing record into the Daily Calculator form when selectedDate changes
   useEffect(() => {
     const existing = daysMap[selectedDate];
@@ -4064,7 +4176,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return false;
   }, [settings.employeeName, settings.officeStartTime]);
 
-  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time has completed"
+  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time has completed" & Opens Live OT Screen
   const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
@@ -4077,6 +4189,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     playBiometricBeep('in');
     triggerBiometricHaptic(160);
     speakTimeCompletedOutLoud();
+    setShowLiveOtRunnerModal(true);
 
     setOtTimeStartedBanner({
       date: todayIso,
@@ -4086,7 +4199,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       title,
       body,
     });
-    setSaveNotice(`🔊 ${endFormatted} — Your time has completed`);
+    setSaveNotice(`🔊 ${endFormatted} — Your time has completed · Live OT Running!`);
 
     if (typeof window !== 'undefined') {
       try {
@@ -4146,15 +4259,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
     }
 
-    // Trigger once per day as soon as current time is at or past targetEndMins (up to 11:45 PM)
-    if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 45) {
+    // Trigger once per day as soon as current time is at or past targetEndMins (up to 11:55 PM)
+    if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 55) {
+      if (autoOpenedLiveOtDateRef.current !== todayIso) {
+        autoOpenedLiveOtDateRef.current = todayIso;
+        setShowLiveOtRunnerModal(true);
+      }
       let alreadySpokenDate = '';
       try {
-        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8212') || '';
+        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8213') || '';
       } catch (_) {}
       if (alreadySpokenDate !== todayIso) {
         try {
-          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8212', todayIso);
+          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8213', todayIso);
           localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
         } catch (_) {}
         const endHHMM = minutesToTimeInput(targetEndMins % 1440);
@@ -5900,7 +6017,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 {otTimeStartedBanner.body}
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setShowLiveOtRunnerModal(true)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 9,
+                  border: '1px solid rgba(16, 185, 129, 0.6)',
+                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                ⏱️ Live OT Screen
+              </button>
               <button
                 type="button"
                 onClick={() => speakTimeCompletedOutLoud()}
@@ -5935,6 +6069,330 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               >
                 Got It ✓
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ⏱️ PERSISTENT SECOND-BY-SECOND LIVE OT MINUTES & MONEY TOP CARD (Active whenever normal shift time completed & before OUT punch) */}
+        {liveOtTicker.isActive && (
+          <div
+            className="stitch-screen-card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 18,
+              background: isLight
+                ? 'linear-gradient(135deg, #ecfdf5 0%, #fef3c7 100%)'
+                : 'linear-gradient(135deg, rgba(6, 78, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 60%, rgba(120, 53, 15, 0.85) 100%)',
+              border: '1.5px solid rgba(16, 185, 129, 0.65)',
+              boxShadow: '0 10px 28px rgba(16, 185, 129, 0.22)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: 999,
+                    background: '#10b981',
+                    boxShadow: '0 0 10px #10b981',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontSize: 11, fontWeight: 950, color: isLight ? '#065f46' : '#6ee7b7', letterSpacing: '0.03em' }}>
+                  LIVE OT RUNNING · SINCE {liveOtTicker.officeEndFormatted}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => speakTimeCompletedOutLoud()}
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(245, 158, 11, 0.55)',
+                    background: 'rgba(245, 158, 11, 0.2)',
+                    color: isLight ? '#92400e' : '#fcd34d',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔊 Speak
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLiveOtRunnerModal(true)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(16, 185, 129, 0.6)',
+                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                    color: '#ffffff',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⤢ Full Screen OT
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
+              <div
+                onClick={() => setShowLiveOtRunnerModal(true)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 14,
+                  background: isLight ? 'rgba(255,255,255,0.85)' : 'rgba(2, 6, 23, 0.58)',
+                  border: '1px solid rgba(56, 189, 248, 0.4)',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#0369a1' : '#7dd3fc' }}>
+                  ⏱️ LIVE OT TIME (MIN &amp; SEC)
+                </div>
+                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 950, color: isLight ? '#0f172a' : '#f8fafc', marginTop: 2 }}>
+                  {liveOtTicker.stopwatchStr}
+                </div>
+                <div className="ot-tabular-nums" style={{ fontSize: 11, fontWeight: 800, color: '#38bdf8', marginTop: 2 }}>
+                  {liveOtTicker.minSecLabel} OT
+                </div>
+              </div>
+
+              <div
+                onClick={() => setShowLiveOtRunnerModal(true)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 14,
+                  background: isLight ? 'rgba(255,255,255,0.85)' : 'rgba(2, 6, 23, 0.58)',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#047857' : '#6ee7b7' }}>
+                  💰 LIVE OT MONEY EARNED
+                </div>
+                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 950, color: '#10b981', marginTop: 2 }}>
+                  + ₹{liveOtTicker.liveOtMoney.toFixed(2)}
+                </div>
+                <div className="ot-tabular-nums" style={{ fontSize: 10.5, fontWeight: 800, color: ui.textSecondary, marginTop: 2 }}>
+                  ₹{liveOtTicker.otPerMinute.toFixed(2)}/min · ₹{formatINR(liveOtTicker.otPerHour)}/hr
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ⏱️ FULL-SCREEN LIVE OT RUNNING STOPWATCH & MONEY MODAL (Opens automatically when normal shift time completes) */}
+        {showLiveOtRunnerModal && (
+          <div
+            onClick={() => setShowLiveOtRunnerModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10005,
+              background: 'rgba(2, 6, 23, 0.88)',
+              backdropFilter: 'blur(14px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 14,
+              overflowY: 'auto',
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 420,
+                borderRadius: 26,
+                padding: '18px 16px',
+                background: 'linear-gradient(160deg, #022c22 0%, #0f172a 52%, #1e1b4b 100%)',
+                border: '1.5px solid rgba(16, 185, 129, 0.65)',
+                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.75)',
+                color: '#f8fafc',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+              }}
+            >
+              {/* Header Row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.2)', border: '1px solid rgba(16, 185, 129, 0.5)', fontSize: 10.5, fontWeight: 950, color: '#6ee7b7' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                    <span>{liveOtTicker.isActive ? 'YOUR TIME HAS COMPLETED · LIVE OT' : 'OT SHIFT TRACKER'}</span>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 950, color: '#ffffff', marginTop: 6 }}>
+                    ⏰ Shift Completed at {liveOtTicker.officeEndFormatted}
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', marginTop: 2 }}>
+                    Enter: {liveOtTicker.inTimeFormatted} · Now: {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowLiveOtRunnerModal(false)}
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(148, 163, 184, 0.35)',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    color: '#e2e8f0',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⤡ Minimize
+                </button>
+              </div>
+
+              {/* Centerpiece 1: Live OT Stopwatch (Hours : Minutes : Seconds + Total OT Mins) */}
+              <div
+                style={{
+                  padding: '16px 14px',
+                  borderRadius: 20,
+                  background: 'rgba(2, 6, 23, 0.65)',
+                  border: '1.5px solid rgba(56, 189, 248, 0.45)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 900, color: '#7dd3fc', letterSpacing: '0.06em' }}>
+                  ⏱️ LIVE RUNNING OT TIME (HRS : MIN : SEC)
+                </div>
+                <div
+                  className="ot-tabular-nums"
+                  style={{
+                    fontSize: 40,
+                    fontWeight: 950,
+                    color: '#ffffff',
+                    letterSpacing: '0.03em',
+                    lineHeight: 1.1,
+                    textShadow: '0 0 24px rgba(56, 189, 248, 0.45)',
+                  }}
+                >
+                  {liveOtTicker.stopwatchStr}
+                </div>
+                <div
+                  className="ot-tabular-nums"
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 999,
+                    background: 'rgba(56, 189, 248, 0.18)',
+                    border: '1px solid rgba(56, 189, 248, 0.45)',
+                    color: '#38bdf8',
+                    fontSize: 13,
+                    fontWeight: 950,
+                  }}
+                >
+                  🔥 {liveOtTicker.minSecLabel} OT Completed
+                </div>
+              </div>
+
+              {/* Centerpiece 2: Live OT Money Earned (Ticking Every Second) */}
+              <div
+                style={{
+                  padding: '16px 14px',
+                  borderRadius: 20,
+                  background: 'rgba(6, 78, 59, 0.42)',
+                  border: '1.5px solid rgba(16, 185, 129, 0.6)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 900, color: '#6ee7b7', letterSpacing: '0.06em' }}>
+                  💰 LIVE OT MONEY EARNED SO FAR
+                </div>
+                <div
+                  className="ot-tabular-nums"
+                  style={{
+                    fontSize: 38,
+                    fontWeight: 950,
+                    color: '#34d399',
+                    letterSpacing: '-0.01em',
+                    lineHeight: 1.1,
+                    textShadow: '0 0 24px rgba(16, 185, 129, 0.45)',
+                  }}
+                >
+                  + ₹{liveOtTicker.liveOtMoney.toFixed(2)}
+                </div>
+                <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 800, color: '#a7f3d0' }}>
+                  + ₹{liveOtTicker.otPerMinute.toFixed(2)} / min · + ₹{formatINR(liveOtTicker.otPerHour)} / hr
+                </div>
+              </div>
+
+              {/* 2-Column Summary Breakdown */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 8 }}>
+                <div style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(148, 163, 184, 0.25)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8' }}>Completed Mins OT</div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: '#f8fafc', marginTop: 2 }}>
+                    {liveOtTicker.totalOtMinutes} mins → + ₹{formatINR(liveOtTicker.completedMinsOtMoney)}
+                  </div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(148, 163, 184, 0.25)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Today Base + Live OT</span>
+                    {renderSalaryEyeButton(true)}
+                  </div>
+                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: '#34d399', marginTop: 2 }}>
+                    {salaryBiometricVisible
+                      ? `₹${liveOtTicker.totalTodayPay.toFixed(2)}`
+                      : `Base + ₹${liveOtTicker.liveOtMoney.toFixed(2)}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Action Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => speakTimeCompletedOutLoud()}
+                  style={{
+                    padding: '12px 12px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(245, 158, 11, 0.6)',
+                    background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
+                    color: '#ffffff',
+                    fontWeight: 950,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔊 Speak Alert
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLiveOtRunnerModal(false);
+                    performBiometricPunch('out');
+                  }}
+                  style={{
+                    padding: '12px 12px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(244, 63, 94, 0.65)',
+                    background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
+                    color: '#ffffff',
+                    fontWeight: 950,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔴 Punch OUT &amp; Save OT
+                </button>
+              </div>
             </div>
           </div>
         )}

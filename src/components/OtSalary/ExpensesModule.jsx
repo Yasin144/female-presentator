@@ -601,7 +601,7 @@ export default function ExpensesModule({
       const itemVer = String(item.version || item.submittedVersion || '').trim();
       const curVer = String(
         (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
-          '8.2.11'
+          '8.2.13'
       ).trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);

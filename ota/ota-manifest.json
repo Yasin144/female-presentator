@@ -1,8 +1,8 @@
 {
-  "version": "8.2.12",
-  "buildId": "ota_8_2_12_guaranteed_time_completed_voice_speech",
-  "releasedAt": "2026-10-21T19:27:00+05:30",
+  "version": "8.2.13",
+  "buildId": "ota_8_2_13_live_ot_seconds_minutes_money_screen",
+  "releasedAt": "2026-10-21T19:42:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.12: Guaranteed Voice Announcement ('Your time has completed') — Added embedded 8kHz voice audio (WebAudio + WAV + SpeechSynthesis + Native Android TTS) so the phone always speaks 'Your time has completed' out loud even when Android WebView TTS is silent, and automatically triggers if opened after 06:30 PM when today's shift completion hasn't spoken yet."
+  "notes": "v8.2.13: Live OT Running Screen (Second-by-Second OT Minutes & Money Ticker) — Automatically opens a full-screen Live OT Stopwatch & Money Counter ('Your time has completed') from the exact second normal shift time completes, ticking live OT Hours:Minutes:Seconds, total OT minutes, and live OT Money Earned (+₹XX.XX) every second, plus a persistent top Live OT card."
 }
