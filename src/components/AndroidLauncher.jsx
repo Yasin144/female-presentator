@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.15';
-  let buildId = 'ota_8_2_15_fix_duplicate_100_credit_190_debit';
+  let version = '8.2.16';
+  let buildId = 'ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup';
   try {
     if (
       typeof window !== 'undefined' &&

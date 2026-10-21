@@ -1226,9 +1226,7 @@ export default function ExpensesModule({
             ? rawArr.filter((item) => item && typeof item === 'object' && !isWhatsAppOrNonRealTx(item))
             : [];
           if (savedArr.length > 0) {
-            const curMap = expensesMapRef.current || {};
-            const hasUnmerged = savedArr.some((item) => item && item.id && !curMap[item.id]);
-            if (savedRaw !== lastSavedNativeRawRef.current || hasUnmerged) {
+            if (savedRaw !== lastSavedNativeRawRef.current) {
               lastSavedNativeRawRef.current = savedRaw;
               mergeDetectedTransactions(savedArr, 'android-saved-notif');
             }
@@ -2270,6 +2268,7 @@ export default function ExpensesModule({
       type: nextType,
       category: nextCategory,
       detectionStatus: 'user_confirmed',
+      userDirectionOverride: true,
       updatedAt: new Date(nowMs).toISOString(),
       updatedAtMs: nowMs,
     });

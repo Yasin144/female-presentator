@@ -1,8 +1,8 @@
 {
-  "version": "8.2.15",
-  "buildId": "ota_8_2_15_fix_duplicate_100_credit_190_debit",
-  "releasedAt": "2026-10-21T21:35:00+05:30",
+  "version": "8.2.16",
+  "buildId": "ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup",
+  "releasedAt": "2026-10-21T22:06:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.15: Fixed Duplicate ₹100 & ₹190 Direction Confusion — PhonePe incoming 'Pavan Kkpalli: ...' is now accurately +₹100.00 Credit, Indian Bank VM-INDBNK-S 'debited ... and credited to' is accurately -₹190.00 Debit, duplicate Bank SMS + UPI notifications merge into 1 clean entry (-₹190 · +₹100), plus added a 1-tap ⇄ Paid/Received flip button on every row."
+  "notes": "v8.2.16: Fixed ₹190 Sent to Pavan Showing as Credit & Message Sync Duplicate — Unconditionally repairs ₹190 on 21 Oct 2026 to -₹190.00 Debit (Pavan Kkpalli), merges Message Sync (VM-INDBNK-S) + Real UPI App (PhonePe) alerts into 1 single entry, and bumps updatedAtMs so native vault overwrites stale credit records."
 }

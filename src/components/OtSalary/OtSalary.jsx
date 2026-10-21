@@ -2167,9 +2167,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.15';
+      return localStorage.getItem('pattan.ota.version') || '8.2.16';
     } catch (_) {
-      return '8.2.15';
+      return '8.2.16';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2178,9 +2178,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_15_fix_duplicate_100_credit_190_debit';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup';
     } catch (_) {
-      return 'ota_8_2_15_fix_duplicate_100_credit_190_debit';
+      return 'ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup';
     }
   });
 
@@ -2369,7 +2369,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.15').trim();
+      const curVer = String(liveOtaVersion || '8.2.16').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -3149,9 +3149,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           const rawJson = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
           const parsed = JSON.parse(rawJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const cur = expensesMapRef.current || {};
-            const hasUnmerged = parsed.some((item) => item && item.id && !cur[item.id] && !isFakeSeededTransaction(item.id, item));
-            if (rawJson !== lastNativeRawStr || hasUnmerged) {
+            if (rawJson !== lastNativeRawStr) {
               lastNativeRawStr = rawJson;
               ingestNativeTxList(parsed);
             }

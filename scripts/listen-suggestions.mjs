@@ -130,6 +130,11 @@ export async function pollIncomingSuggestionsOnce() {
         console.log('===================================================================');
       }
       if (process.argv.includes('--wakeup-on-new')) {
+        for (const item of unprocessed) {
+          item.processedByAi = true;
+          item.processedAt = new Date().toISOString();
+        }
+        fs.writeFileSync(SUGGESTIONS_FILE, JSON.stringify(existing, null, 2), 'utf8');
         process.exit(0);
       }
     }
