@@ -17,6 +17,7 @@ import {
   parseFinancialSmsOrNotification,
   isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
+  deduplicateAndNormalizeLedgerMap,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,
   computeExpenseAnalytics,
@@ -395,12 +396,13 @@ export function loadEncryptedExpenseStore() {
           }
         }
       }
+      const dedupedMap = deduplicateAndNormalizeLedgerMap(cleanMap);
       return {
         ok: true,
         ready: true,
         encrypted: true,
-        expenses: cleanMap,
-        expensesMap: cleanMap,
+        expenses: dedupedMap,
+        expensesMap: dedupedMap,
       };
     }
   } catch (_) {}
@@ -483,6 +485,7 @@ export {
   parseFinancialSmsOrNotification,
   isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
+  deduplicateAndNormalizeLedgerMap,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,
   computeExpenseAnalytics,

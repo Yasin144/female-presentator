@@ -363,10 +363,17 @@ public final class MobileTransactionParser {
                 status = "pending";
             }
 
-            // 3. Determine Type: debit (expense), credit (income/deposit), refund, transfer — never misclassify credit/deposit/received as debit!
+            // 3. Determine Type: debit (expense), credit (income/deposit), refund, transfer — never misclassify credit/deposit/received as debit, and never misclassify "debited ... and credited to" as credit!
             boolean isRefund = lower.contains("refund") || lower.contains("reversed") || lower.contains("reversal") || lower.contains("cashback");
             boolean isSelfTransfer = lower.contains("self transfer") || lower.contains("to self") || lower.contains("own account") || lower.contains("between your accounts");
-            boolean hasStrongCredit = lower.contains("credited") || lower.contains("deposited")
+            boolean hasExplicitAccountDebit = lower.contains("debited") || lower.contains("withdrawn")
+                || lower.contains("deducted") || lower.contains("spent")
+                || lower.contains("upi/dr/") || lower.contains("you paid")
+                || lower.contains("money sent");
+            boolean hasChatIncomingHeader = title != null && title.trim().matches("(?i)^[A-Za-z][A-Za-z0-9 .&]{1,30}:\\s*(\\.{2,}|sent\\b.*|received\\b.*|paid\\s+you\\b.*|has\\s+sent\\b.*|money\\s+received\\b.*|₹.*|rs\\.?\\s*\\d.*)?$");
+            boolean hasStrongCredit = !hasExplicitAccountDebit && (
+                hasChatIncomingHeader
+                || lower.contains("credited") || lower.contains("deposited")
                 || lower.contains("deposit of") || lower.contains("cash deposit")
                 || lower.contains("received from") || lower.contains("money received")
                 || lower.contains("you received") || lower.contains("payment received")
@@ -374,11 +381,9 @@ public final class MobileTransactionParser {
                 || lower.contains("sent to you") || lower.contains("sent to your a/c")
                 || lower.contains("sent to your account") || lower.contains("paid to you")
                 || lower.contains("paid to your a/c") || lower.contains("trf to your a/c")
-                || lower.contains("credit of") || lower.contains("salary credited");
-            boolean hasExplicitAccountDebit = lower.contains("debited") || lower.contains("withdrawn")
-                || lower.contains("deducted") || lower.contains("spent")
-                || lower.contains("upi/dr/") || lower.contains("you paid")
-                || lower.contains("money sent");
+                || lower.contains("has sent ₹") || lower.contains("sent you ₹") || lower.contains("paid you ₹")
+                || lower.contains("credit of") || lower.contains("salary credited")
+            );
             boolean hasStrongDebit = hasExplicitAccountDebit
                 || ((lower.contains("paid to") || lower.contains("sent to") || lower.contains("trf to")
                     || lower.contains("payment of") || lower.contains("payment to"))
@@ -386,7 +391,7 @@ public final class MobileTransactionParser {
                     && !lower.contains("to you") && !lower.contains("to your a/c")
                     && !lower.contains("to your account") && !lower.contains("credited")
                     && !lower.contains("received") && !lower.contains("deposited"));
-            boolean isCredit = hasStrongCredit || lower.contains("received") || lower.contains("credit") || lower.contains("deposit");
+            boolean isCredit = hasStrongCredit || (!hasExplicitAccountDebit && (lower.contains("received") || lower.contains("credit") || lower.contains("deposit")));
             boolean isDebit = hasStrongDebit || ((lower.contains("paid") || lower.contains("sent") || lower.contains("debit")) && !hasStrongCredit);
 
             if (!isCredit && !isDebit && !isRefund && !isSelfTransfer) {
@@ -398,19 +403,16 @@ public final class MobileTransactionParser {
                 type = "transfer";
             } else if (isRefund) {
                 type = "refund";
-            } else if (hasStrongCredit && !hasExplicitAccountDebit) {
+            } else if (hasExplicitAccountDebit) {
+                type = "debit";
+            } else if (hasStrongCredit) {
                 type = "credit";
-            } else if (hasStrongCredit && (lower.contains("credited to your") || lower.contains("deposited to your")
-                || lower.contains("deposited in your") || lower.contains("received from")
-                || lower.contains("money received") || lower.contains("you received")
-                || lower.contains("payment received") || lower.contains("upi/cr/"))) {
-                type = "credit";
-            } else if (hasStrongDebit && !hasStrongCredit) {
+            } else if (hasStrongDebit) {
                 type = "debit";
             } else if (isCredit && !isDebit) {
                 type = "credit";
             } else if (lower.startsWith("received") || lower.startsWith("credited") || lower.startsWith("deposited")
-                || lower.contains("money received") || lower.contains("payment received") || lower.contains("credited to")) {
+                || lower.contains("money received") || lower.contains("payment received") || lower.contains("credited to your")) {
                 type = "credit";
             }
 
@@ -439,13 +441,17 @@ public final class MobileTransactionParser {
             // 6. Extract Merchant / Payee / Depositor
             String merchant = "";
             Matcher mMerch = MERCHANT_PATTERN.matcher(textWithoutBalance);
-            if (mMerch.find()) {
+            while (mMerch.find()) {
                 String candidateMerch = cleanMerchantName(mMerch.group(1));
-                if (!candidateMerch.equalsIgnoreCase("your a/c")
+                if (!candidateMerch.isEmpty()
+                    && !candidateMerch.equalsIgnoreCase("your a/c")
                     && !candidateMerch.equalsIgnoreCase("your account")
                     && !candidateMerch.equalsIgnoreCase("your bank")
-                    && !candidateMerch.toLowerCase(Locale.ROOT).startsWith("a/c ")) {
+                    && !candidateMerch.toLowerCase(Locale.ROOT).startsWith("a/c ")
+                    && !candidateMerch.toLowerCase(Locale.ROOT).startsWith("ac ")
+                    && !candidateMerch.matches("(?i)^[A-Z]{2}-[A-Z0-9]{4,8}(-[A-Z])?$")) {
                     merchant = candidateMerch;
+                    break;
                 }
             }
             if (merchant.isEmpty() && !upiSlashMerchant.isEmpty()) {
@@ -453,7 +459,12 @@ public final class MobileTransactionParser {
             }
             if (merchant.isEmpty() && title != null && !title.trim().isEmpty()) {
                 String cleanTitle = title.trim();
-                if (!cleanTitle.equalsIgnoreCase("Google Pay")
+                if (cleanTitle.contains(":")) {
+                    cleanTitle = cleanTitle.substring(0, cleanTitle.indexOf(':')).trim();
+                }
+                if (!cleanTitle.isEmpty()
+                    && !cleanTitle.matches("(?i)^[A-Z]{2}-[A-Z0-9]{4,8}(-[A-Z])?$")
+                    && !cleanTitle.equalsIgnoreCase("Google Pay")
                     && !cleanTitle.equalsIgnoreCase("GPay")
                     && !cleanTitle.equalsIgnoreCase("PhonePe")
                     && !cleanTitle.equalsIgnoreCase("Paytm")
@@ -1200,6 +1211,7 @@ public final class MobileTransactionParser {
             return "JioPay";
         }
         if (s.contains("airtel")) return "Airtel Pay";
+        if (s.contains("indbnk") || s.contains("indian bank")) return "Indian Bank";
         if (s.contains("hdfc")) return "HDFC Bank";
         if (s.contains("sbi")) return "SBI Bank";
         if (s.contains("icici")) return "ICICI Bank";

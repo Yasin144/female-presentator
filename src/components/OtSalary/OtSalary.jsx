@@ -9,6 +9,7 @@ import {
   reconcileAndMergeTransactions,
   isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
+  deduplicateAndNormalizeLedgerMap,
 } from '../../../frontend/expense-memory.js';
 import {
   WHATSAPP_FIXED_RECIPIENT_DISPLAY,
@@ -485,7 +486,7 @@ function buildOwnerMasterTransactionsSeed() {
 function sanitizeNoCredTx(tx) {
   if (!tx || typeof tx !== 'object') return tx;
   const norm = migrateAndNormalizeExpenseRecord(tx) || { ...tx };
-  const out = { ...tx, type: norm.type || tx.type };
+  const out = { ...tx, ...norm, type: norm.type || tx.type };
   if (out.app && /\b(cred|dreamplug)\b/i.test(String(out.app))) {
     out.app = out.accountMask ? 'Bank Account' : 'UPI';
   }
@@ -551,7 +552,7 @@ function mergeExpensesNonDestructive(baseMap = {}, overlayMap = {}) {
       delete result[k].isDemoPreview;
     }
   }
-  return result;
+  return deduplicateAndNormalizeLedgerMap(result);
 }
 
 function scrubFakeTransactionsFromLocalStorage() {
@@ -2166,9 +2167,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.14';
+      return localStorage.getItem('pattan.ota.version') || '8.2.15';
     } catch (_) {
-      return '8.2.14';
+      return '8.2.15';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2177,9 +2178,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_8_purge_3rd_party_bills_and_fix_credit_debit';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_15_fix_duplicate_100_credit_190_debit';
     } catch (_) {
-      return 'ota_8_2_8_purge_3rd_party_bills_and_fix_credit_debit';
+      return 'ota_8_2_15_fix_duplicate_100_credit_190_debit';
     }
   });
 
@@ -2354,7 +2355,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
       const t = String(item.text || '').trim();
       if (
-        /3rd parties messages|current bill recharge|showing like debit|only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        /duplicateing|he send me 100|i send 190|3rd parties messages|current bill recharge|showing like debit|only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
           t
         )
       ) {
@@ -2368,7 +2369,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.14').trim();
+      const curVer = String(liveOtaVersion || '8.2.15').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);

@@ -6,6 +6,7 @@ import {
   parseSmsOrUpiTextJs,
   isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
+  deduplicateAndNormalizeLedgerMap,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,
   computeExpenseAnalytics,
@@ -1524,10 +1525,14 @@ export default function ExpensesModule({
         if (isWhatsAppOrNonRealTx(normalizedRecord)) {
           continue;
         }
-        const cleanTx = { ...v, type: normalizedRecord.type || v.type };
+        const cleanTx = {
+          ...v,
+          ...normalizedRecord,
+          type: normalizedRecord.type || v.type,
+        };
         if (
           String(cleanTx.source || '') === 'mobile-notification' &&
-          !/\b(bank|sbi|hdfc|icici|axis|kotak|canara|union|baroda|bob|pnb|idfc|indusind|federal|yes)\b/i.test(String(cleanTx.app || ''))
+          !/\b(bank|indian|sbi|hdfc|icici|axis|kotak|canara|union|baroda|bob|pnb|idfc|indusind|federal|yes)\b/i.test(String(cleanTx.app || ''))
         ) {
           cleanTx.accountBalance = null;
         }
@@ -1549,7 +1554,7 @@ export default function ExpensesModule({
         cleanMap[k] = cleanTx;
       }
     }
-    return cleanMap;
+    return deduplicateAndNormalizeLedgerMap(cleanMap);
   }, [expensesMap]);
 
   const effectiveBankBalanceInfo = useMemo(() => {
@@ -2249,6 +2254,34 @@ export default function ExpensesModule({
     });
     if (typeof onUpdateExpenses === 'function') {
       onUpdateExpenses(nextMap, clean ? `📝 Saved note: "${clean}"` : '✓ Marked transaction reviewed');
+    }
+  };
+
+  // 1-Tap toggle between Paid (-₹ Debit) and Received (+₹ Credit)
+  const handleToggleTransactionDirection = (tx) => {
+    if (!tx || !tx.id) return;
+    const baseMap = getMaterializedBaseMap();
+    const existing = baseMap[tx.id] || (effectiveExpensesSource || {})[tx.id] || tx;
+    const nowMs = Date.now();
+    const nextType = existing.type === 'credit' || existing.type === 'refund' ? 'debit' : 'credit';
+    const nextCategory = nextType === 'credit' ? 'income' : existing.category === 'income' ? 'transfer' : (existing.category || 'transfer');
+    const updated = migrateAndNormalizeExpenseRecord({
+      ...existing,
+      type: nextType,
+      category: nextCategory,
+      detectionStatus: 'user_confirmed',
+      updatedAt: new Date(nowMs).toISOString(),
+      updatedAtMs: nowMs,
+    });
+    delete updated._demoPreview;
+    delete updated.isDemoPreview;
+    delete updated._deleted;
+    const nextMap = { ...baseMap, [tx.id]: updated };
+    if (typeof onUpdateExpenses === 'function') {
+      onUpdateExpenses(
+        nextMap,
+        `⇄ Switched ₹${formatINR(updated.amount)} (${updated.merchant || 'Entry'}) to ${nextType === 'credit' ? '+₹ Received (Credit)' : '-₹ Sent (Debit)'}`
+      );
     }
   };
 
@@ -4242,6 +4275,23 @@ export default function ExpensesModule({
                               >
                                 <button
                                   type="button"
+                                  onClick={() => handleToggleTransactionDirection(tx)}
+                                  style={{
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
+                                    border: `1px solid ${palette.border}`,
+                                    background: palette.surface,
+                                    color: isCredit ? '#34d399' : '#fb7185',
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Switch Paid (-₹) / Received (+₹)"
+                                >
+                                  ⇄
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => openQuickAddModal(tx)}
                                   style={{
                                     padding: '2px 6px',
@@ -5030,7 +5080,7 @@ export default function ExpensesModule({
                         }}
                       >
                         <div
-                          onClick={() => setSelectedTxId(tx.id)}
+                          onClick={() => openQuickAddModal(tx)}
                           style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -5087,9 +5137,63 @@ export default function ExpensesModule({
                               )}
                             </div>
                           </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                             <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
                               {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
+                            </div>
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'flex', gap: 4 }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTransactionDirection(tx)}
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: isCredit ? '#34d399' : '#fb7185',
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                }}
+                                title="Switch Paid (-₹) / Received (+₹)"
+                              >
+                                ⇄
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openQuickAddModal(tx)}
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.textMuted,
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                                title="Edit"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTransaction(tx.id)}
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  border: '1px solid rgba(244, 63, 94, 0.25)',
+                                  background: 'rgba(244, 63, 94, 0.08)',
+                                  color: '#fb7185',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                                title="Delete"
+                              >
+                                🗑️
+                              </button>
                             </div>
                           </div>
                         </div>

@@ -1219,6 +1219,110 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       });
       assert.equal(repaired.type, 'credit');
     });
+
+    it('accurately resolves Indian Bank "debited ... and credited to" as debit (-₹190), PhonePe "Pavan Kkpalli: Sent ₹100" as credit (+₹100), and deduplicates Bank SMS + repeated UPI notifications (v8.2.15)', () => {
+      // 1. Indian Bank Debit SMS containing BOTH "debited" and "credited to" must be classified as 'debit' (-₹190.00)
+      const indianBankDebit190 = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.messaging',
+        title: 'VM-INDBNK-S',
+        body: 'Rs.190.00 debited from A/c *1234 on 21-10-26 and credited to a/c *5678 / VPA pavan@ybl (UPI Ref no 629419019019). -Indian Bank',
+        timestampMs: new Date('2026-10-21T21:01:10+05:30').getTime(),
+      });
+      assert.ok(indianBankDebit190);
+      assert.equal(indianBankDebit190.type, 'debit');
+      assert.equal(indianBankDebit190.amount, 190);
+      assert.equal(indianBankDebit190.app, 'Indian Bank');
+
+      // 2. PhonePe incoming notification "Pavan Kkpalli: Sent ₹100 to you" must be classified as 'credit' (+₹100.00)
+      const phonePeIncoming100 = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.phonepe.app',
+        title: 'Pavan Kkpalli: Sent ₹100',
+        body: 'Pavan Kkpalli has sent ₹100.00 to your bank account via PhonePe UPI.',
+        timestampMs: new Date('2026-10-21T21:01:05+05:30').getTime(),
+      });
+      assert.ok(phonePeIncoming100);
+      assert.equal(phonePeIncoming100.type, 'credit');
+      assert.equal(phonePeIncoming100.amount, 100);
+      assert.equal(phonePeIncoming100.merchant, 'Pavan Kkpalli');
+
+      // 3. Reconcile the 4 legacy records from 2026-10-21 screenshot (2x Pavan Kkpalli: ... -₹100, 1x VM-INDBNK-S +₹100, 1x VM-INDBNK-S +₹190)
+      const legacyScreenshotMap = {
+        mob_ts_debit_59753222_10000: {
+          id: 'mob_ts_debit_59753222_10000',
+          amount: 100,
+          type: 'debit',
+          merchant: 'Pavan Kkpalli: ...',
+          originalMerchant: 'Pavan Kkpalli: ...',
+          category: 'transfer',
+          app: 'PhonePe',
+          paymentMethod: 'UPI',
+          date: '2026-10-21',
+          time: '21:01',
+          timestampMs: new Date('2026-10-21T21:01:05+05:30').getTime(),
+          source: 'mobile-notification',
+        },
+        mob_ts_debit_59753223_10000: {
+          id: 'mob_ts_debit_59753223_10000',
+          amount: 100,
+          type: 'debit',
+          merchant: 'Pavan Kkpalli: ...',
+          originalMerchant: 'Pavan Kkpalli: ...',
+          category: 'transfer',
+          app: 'PhonePe',
+          paymentMethod: 'UPI',
+          date: '2026-10-21',
+          time: '21:01',
+          timestampMs: new Date('2026-10-21T21:01:38+05:30').getTime(),
+          source: 'mobile-notification',
+        },
+        mob_ref_credit_629410010010_100: {
+          id: 'mob_ref_credit_629410010010_100',
+          amount: 100,
+          type: 'credit',
+          merchant: 'VM-INDBNK-S',
+          originalMerchant: 'VM-INDBNK-S',
+          category: 'income',
+          app: 'Bank Notice',
+          paymentMethod: 'Bank Account',
+          refId: '629410010010',
+          date: '2026-10-21',
+          time: '20:59',
+          timestampMs: new Date('2026-10-21T20:59:15+05:30').getTime(),
+          source: 'mobile-notification',
+        },
+        mob_ref_credit_629419019019_190: {
+          id: 'mob_ref_credit_629419019019_190',
+          amount: 190,
+          type: 'credit',
+          merchant: 'VM-INDBNK-S',
+          originalMerchant: 'VM-INDBNK-S',
+          category: 'income',
+          app: 'Bank Notice',
+          paymentMethod: 'Bank Account',
+          refId: '629419019019',
+          date: '2026-10-21',
+          time: '21:01',
+          timestampMs: new Date('2026-10-21T21:01:12+05:30').getTime(),
+          source: 'mobile-notification',
+        },
+      };
+
+      const { nextMap: cleanedMap } = reconcileAndMergeTransactions(legacyScreenshotMap, []);
+      const activeList = Object.values(cleanedMap).filter((t) => !t._deleted);
+      assert.equal(activeList.length, 2, 'Should collapse 3 duplicate ₹100 entries into 1 and keep 1 ₹190 entry');
+
+      const tx100 = activeList.find((t) => Math.abs(t.amount - 100) < 0.01);
+      const tx190 = activeList.find((t) => Math.abs(t.amount - 190) < 0.01);
+      assert.ok(tx100);
+      assert.equal(tx100.type, 'credit', 'Pavan sent ₹100 -> must be +₹100 credit');
+      assert.equal(tx100.merchant, 'Pavan Kkpalli');
+      assert.equal(tx100.refId, '629410010010');
+
+      assert.ok(tx190);
+      assert.equal(tx190.type, 'debit', 'User sent ₹190 -> must be -₹190 debit');
+      assert.equal(tx190.merchant, 'Pavan Kkpalli');
+      assert.equal(tx190.app, 'Indian Bank');
+    });
   });
 });
 
