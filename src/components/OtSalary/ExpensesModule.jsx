@@ -4,6 +4,7 @@ import {
   PAYMENT_METHODS,
   QUICK_NOTE_TEMPLATES,
   parseSmsOrUpiTextJs,
+  isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,
@@ -37,24 +38,7 @@ const formatINRShort = (num) => {
 
 const isWhatsAppOrNonRealTx = (tx) => {
   if (!tx || typeof tx !== 'object') return true;
-  const combined = [
-    tx.app,
-    tx.source,
-    tx.senderOrPkg,
-    tx.title,
-    tx.body,
-    tx.rawText,
-    tx.merchant,
-    tx.originalMerchant,
-    tx.note,
-    tx.originalRemark,
-    tx.paymentRemark,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
-    combined
-  );
+  return isWhatsAppOrNonRealTransaction(tx);
 };
 
 const formatTime12h = (hhmm) => {
@@ -604,7 +588,7 @@ export default function ExpensesModule({
     }
     const t = String(item.text || '').trim();
     if (
-      /only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+      /3rd parties messages|current bill recharge|showing like debit|only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
         t
       )
     ) {
@@ -617,7 +601,7 @@ export default function ExpensesModule({
       const itemVer = String(item.version || item.submittedVersion || '').trim();
       const curVer = String(
         (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
-          '8.2.7'
+          '8.2.8'
       ).trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -982,7 +966,8 @@ export default function ExpensesModule({
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
           const isWhatsAppOrAutoCalc =
-            /\b(whatsapp|com\.whatsapp)\b/i.test(String(parsed.bankName || '')) ||
+            /\b(whatsapp|com\.whatsapp|jiopay|myjio|airtel\s*pay|airtel\s*thanks)\b/i.test(String(parsed.bankName || '')) ||
+            (String(parsed.bankName || '').trim() === 'Bank Notice' && !String(parsed.accountMask || '').trim()) ||
             String(parsed.source || '') === 'live-auto-calc';
           if (isWhatsAppOrAutoCalc) {
             // Do not let native live-auto-calc (which could be triggered by a WhatsApp message in older APK) overwrite saved anchor balance
@@ -1498,6 +1483,14 @@ export default function ExpensesModule({
       'OTP1821202619',
       'SAL1013202612',
       '629400112211',
+      '629300112233',
+      '629300998877',
+      '629300445566',
+      '629288776655',
+      '629177665544',
+      '628966554433',
+      '628855443322',
+      '629100998806',
     ]);
     let deletedSet = new Set();
     try {
@@ -1519,14 +1512,19 @@ export default function ExpensesModule({
           keyStr.startsWith('demo_tx_') ||
           keyStr.endsWith('_salary') ||
           keyStr.endsWith('_ot_payout') ||
-          (keyStr.startsWith('tx_yasin_master_') && fakeRefIds.has(refStr)) ||
+          keyStr.startsWith('tx_yasin_master_') ||
           srcStr === 'demo-preview' ||
+          srcStr === 'owner-master-vault' ||
           fakeRefIds.has(refStr) ||
           isWhatsAppOrNonRealTx(v);
         if (!v || typeof v !== 'object' || v._deleted || deletedSet.has(keyStr) || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
         }
-        const cleanTx = { ...v };
+        const normalizedRecord = migrateAndNormalizeExpenseRecord(v) || v;
+        if (isWhatsAppOrNonRealTx(normalizedRecord)) {
+          continue;
+        }
+        const cleanTx = { ...v, type: normalizedRecord.type || v.type };
         if (
           String(cleanTx.source || '') === 'mobile-notification' &&
           !/\b(bank|sbi|hdfc|icici|axis|kotak|canara|union|baroda|bob|pnb|idfc|indusind|federal|yes)\b/i.test(String(cleanTx.app || ''))
@@ -1957,9 +1955,11 @@ export default function ExpensesModule({
         keyStr.startsWith('demo_tx_') ||
         keyStr.endsWith('_salary') ||
         keyStr.endsWith('_ot_payout') ||
-        (keyStr.startsWith('tx_yasin_master_') && fakeRefIds.has(refStr)) ||
+        keyStr.startsWith('tx_yasin_master_') ||
         srcStr === 'demo-preview' ||
-        fakeRefIds.has(refStr);
+        srcStr === 'owner-master-vault' ||
+        fakeRefIds.has(refStr) ||
+        isWhatsAppOrNonRealTx(v);
       if (v && typeof v === 'object' && !v._demoPreview && !v.isDemoPreview && !isFakeSeed) {
         clean[k] = { ...v };
       }

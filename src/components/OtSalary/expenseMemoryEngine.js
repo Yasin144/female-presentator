@@ -108,10 +108,40 @@ export function migrateAndNormalizeExpenseRecord(tx) {
 
   const rawType = String(tx.type || 'debit').toLowerCase();
   let type = 'debit';
-  if (rawType === 'credit' || rawType === 'income') type = 'credit';
+  if (rawType === 'credit' || rawType === 'income' || rawType === 'deposit') type = 'credit';
   else if (rawType === 'transfer' || rawType === 'self_transfer') type = 'transfer';
   else if (rawType === 'refund' || rawType === 'reversal') type = 'refund';
   else if (rawType === 'unknown') type = 'unknown';
+
+  const combinedTypeMeta = [
+    tx.merchant,
+    tx.originalMerchant,
+    tx.note,
+    tx.personalNote,
+    tx.originalRemark,
+    tx.paymentRemark,
+    tx.category,
+    tx.title,
+    tx.body,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (type === 'debit' && combinedTypeMeta) {
+    const hasExplicitDebitMeta = /\b(debited|withdrawn|deducted|paid to|you paid|money sent|upi\/dr)\b/i.test(
+      combinedTypeMeta
+    );
+    if (!hasExplicitDebitMeta) {
+      if (/\b(refund|refunded|reversal|reversed|cashback)\b/i.test(combinedTypeMeta)) {
+        type = 'refund';
+      } else if (
+        /\b(credited|deposit|deposited|money received|payment received|you received|received from|upi\s*credit|bank\s*credit|salary\s*credit|upi\/cr|income|salary|sent to your a\/c|trf to your a\/c|added to your)\b/i.test(
+          combinedTypeMeta
+        )
+      ) {
+        type = 'credit';
+      }
+    }
+  }
 
   const status = ['completed', 'pending', 'failed', 'reversed'].includes(tx.status)
     ? tx.status
@@ -185,14 +215,27 @@ export function migrateAndNormalizeExpenseRecord(tx) {
   };
 }
 
+const THIRD_PARTY_BILL_RECHARGE_REGEX =
+  /\b(current\s+bill|eb\s+bill|power\s+bill|electric(?:ity)?\s+bill|water\s+bill|gas\s+bill|broadband\s+bill|postpaid\s+bill|credit\s+card\s+bill|bill\s+of\s+(?:rs|inr|₹)|bill\s+amount|bill\s+is\s+(?:due|generated|ready)|bill\s+due|bill\s+generated|due\s+date|due\s+on|payment\s+due|total\s+due|minimum\s+due|min\s+due|auto\s*-?\s*debit|autopay|e\s*-?\s*mandate|mandate|recharge|recharged|mobile\s+recharge|dth\s+recharge|fastag\s+recharge|prepaid\s+recharge|data\s+pack|unlimited\s+pack|combo\s+pack|pack\s+validity|validity\s+\d+|pack\s+expir|plan\s+expir|expiring\s+soon|plan\s+of\s+(?:rs|inr|₹)|talktime|top\s*-?\s*up|com\.jio\.myjio|com\.myairtelapp|myjio|jiopay|airtel\s+thanks|airtel\s+pay|vi\s+care|bsnl\s+selfcare|tsspdcl|tsnpdcl|apspdcl|apepdcl|bescom|msedcl|mseb|tneb|tangedco|uppcl|cesc|bses|kseb|discom|consumer\s+no|usc\s+no|service\s+no|sc\s+no|meter\s+no)\b/i;
+
 export function isWhatsAppOrNonRealTransaction(txOrText) {
   if (!txOrText) return false;
   if (typeof txOrText === 'string') {
-    return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
-      txOrText
+    return (
+      /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+        txOrText
+      ) || THIRD_PARTY_BILL_RECHARGE_REGEX.test(txOrText)
     );
   }
   if (typeof txOrText === 'object') {
+    if (txOrText._demoPreview || txOrText.isDemoPreview || txOrText.source === 'demo-preview') {
+      return false;
+    }
+    const idStr = String(txOrText.id || '').trim();
+    const srcStr = String(txOrText.source || '').trim().toLowerCase();
+    if (idStr.startsWith('tx_yasin_master_') || srcStr === 'owner-master-vault') {
+      return true;
+    }
     const combined = [
       txOrText.app,
       txOrText.source,
@@ -208,9 +251,39 @@ export function isWhatsAppOrNonRealTransaction(txOrText) {
     ]
       .filter(Boolean)
       .join(' ');
-    return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
-      combined
-    );
+    if (
+      /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+        combined
+      )
+    ) {
+      return true;
+    }
+    const isManualEntry = srcStr === 'manual-mobile' || srcStr === 'date-quick-sync';
+    if (!isManualEntry) {
+      if (THIRD_PARTY_BILL_RECHARGE_REGEX.test(combined)) {
+        return true;
+      }
+      const catStr = String(txOrText.category || '').trim().toLowerCase();
+      const appStr = String(txOrText.app || '').trim();
+      if (
+        (catStr === 'bills' || catStr === 'bills & utilities' || catStr === 'bills & recharge') &&
+        appStr !== 'CRED' &&
+        String(txOrText.status || '') !== 'pending'
+      ) {
+        return true;
+      }
+      if (/^(jiopay|myjio|airtel\s*pay|airtel\s*thanks)$/i.test(appStr)) {
+        return true;
+      }
+      if (
+        appStr === 'Bank Notice' &&
+        !String(txOrText.accountMask || '').trim() &&
+        !String(txOrText.refId || '').trim()
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
   return false;
 }
@@ -232,9 +305,9 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   const hasCompletionWord = /(debited|credited|paid|sent\b|received|spent|withdrawn|transferred|deducted|trf to|trf from|deposited|deposit of|cash deposit|added to|money added|credit of|debit of|you paid|you received|payment received|refund|reversed|reversal|failed|declined|pending|processing|payment of|payment to|payment from|payment successful|payment completed|money sent|money received)/i.test(lower);
   if (hasOtpWord && !hasCompletionWord) return null;
 
-  // Ignore promotional / loan spam
+  // Ignore promotional / loan / 3rd-party bill reminder spam
   if (
-    /(pre-approved|apply now|loan up to|get flat|win up to|click http)/i.test(lower) &&
+    /(pre-approved|apply now|loan up to|get flat|win up to|click http|recharge now|pay now|bill is due|expiring soon)/i.test(lower) &&
     !/(debited|credited|paid|deposited|received)/i.test(lower)
   ) {
     return null;
@@ -292,21 +365,32 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     status = 'pending';
   }
 
-  // 3. Transaction Type (debit, credit, transfer, refund)
-  const isRefund = /(refund|reversed|reversal|cashback)/i.test(lower);
-  const isSelfTransfer = /(self transfer|to self|own account|between your accounts)/i.test(lower);
-  const hasStrongCredit = /(credited|deposited|deposit of|cash deposit|received from|money received|you received|payment received|added to your|upi\/cr\/)/i.test(lower);
-  const hasStrongDebit = /(debited|withdrawn|deducted|spent|paid to|sent to|money sent|you paid|trf to|upi\/dr\/|payment of|payment to)/i.test(lower);
-  const isCredit = hasStrongCredit || /(received|credit)/i.test(lower);
-  const isDebit = hasStrongDebit || /(paid|sent\b|debit)/i.test(lower);
+  // 3. Transaction Type (debit, credit, transfer, refund) — never misclassify credit/deposit/received as debit!
+  const isRefund = /\b(refund|refunded|reversed|reversal|cashback)\b/i.test(lower);
+  const isSelfTransfer = /\b(self transfer|to self|own account|between your accounts)\b/i.test(lower);
+  const hasStrongCredit = /\b(credited|deposited|deposit of|cash deposit|received from|money received|you received|payment received|received\s+(?:₹|rs\.?|inr)|added to your|upi\/cr\/|sent to you|sent to your a\/c|sent to your account|paid to you|paid to your a\/c|trf to your a\/c|credit of|salary credited)\b/i.test(lower);
+  const hasExplicitAccountDebit = /\b(debited|withdrawn|deducted|spent|upi\/dr\/|you paid|money sent)\b/i.test(lower);
+  const hasStrongDebit =
+    hasExplicitAccountDebit ||
+    (/\b(paid to|sent to|trf to|transferred to|payment of|payment to)\b/i.test(lower) &&
+      !hasStrongCredit &&
+      !/\b(to you|to your a\/c|to your account|to your bank|credited|received|deposited)\b/i.test(lower));
+  const isCredit = hasStrongCredit || /\b(received|credit|deposit)\b/i.test(lower);
+  const isDebit = hasStrongDebit || (/\b(paid|sent\b|debit)\b/i.test(lower) && !hasStrongCredit);
+
+  // If neither credit, debit, refund, nor self-transfer is present, reject rather than falsely showing as debit!
+  if (!isCredit && !isDebit && !isRefund && !isSelfTransfer) {
+    return null;
+  }
 
   let type = 'debit';
   if (isSelfTransfer) type = 'transfer';
   else if (isRefund) type = 'refund';
-  else if (hasStrongCredit && !hasStrongDebit) type = 'credit';
+  else if (hasStrongCredit && !hasExplicitAccountDebit) type = 'credit';
+  else if (hasStrongCredit && /\b(credited to your|deposited to your|deposited in your|received from|money received|you received|payment received|upi\/cr\/)\b/i.test(lower)) type = 'credit';
   else if (hasStrongDebit && !hasStrongCredit) type = 'debit';
   else if (isCredit && !isDebit) type = 'credit';
-  else if (/^(received|credited|deposited)/i.test(lower) || /money received/i.test(lower)) type = 'credit';
+  else if (/^(received|credited|deposited)/i.test(lower) || /\b(money received|payment received|credited to)\b/i.test(lower)) type = 'credit';
 
   // 4. UPI Slash pattern: UPI/<Ref>/<Merchant>/<Remark>
   let refId = '';

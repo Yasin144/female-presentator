@@ -6,6 +6,8 @@ import {
   loadEncryptedExpenseStore,
   saveEncryptedExpenseStore,
   reconcileAndMergeTransactions,
+  isWhatsAppOrNonRealTransaction,
+  migrateAndNormalizeExpenseRecord,
 } from '../../../frontend/expense-memory.js';
 import {
   WHATSAPP_FIXED_RECIPIENT_DISPLAY,
@@ -425,6 +427,14 @@ const FAKE_SEED_REF_IDS = new Set([
   'OTP1821202619',
   'SAL1013202612',
   '629400112211',
+  '629300112233',
+  '629300998877',
+  '629300445566',
+  '629288776655',
+  '629177665544',
+  '628966554433',
+  '628855443322',
+  '629100998806',
 ]);
 
 function isFakeSeededTransaction(id, tx) {
@@ -435,228 +445,28 @@ function isFakeSeededTransaction(id, tx) {
     keyStr.startsWith('demo_tx_') ||
     keyStr.endsWith('_salary') ||
     keyStr.endsWith('_ot_payout') ||
-    (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(ref))
+    keyStr.startsWith('tx_yasin_master_') ||
+    FAKE_SEED_REF_IDS.has(ref)
   ) {
     return true;
   }
   if (!tx || typeof tx !== 'object') return false;
   if (tx._demoPreview || tx.isDemoPreview) return true;
   const src = String(tx.source || '').trim().toLowerCase();
-  if (src === 'demo-preview') return true;
-  if (FAKE_SEED_REF_IDS.has(ref)) return true;
-  const combined = [
-    tx.app,
-    tx.source,
-    tx.senderOrPkg,
-    tx.merchant,
-    tx.originalMerchant,
-    tx.note,
-    tx.originalRemark,
-    tx.paymentRemark,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  if (
-    /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
-      combined
-    )
-  ) {
-    return true;
-  }
+  if (src === 'demo-preview' || src === 'owner-master-vault') return true;
+  if (isWhatsAppOrNonRealTransaction(tx)) return true;
   return false;
 }
 
-// Master account (patanyasin144@gmail.com) permanent real transaction ledger (excludes any erroneous ₹60 today entry or fake salary/OT seeds)
-function buildOwnerMasterTransactionsSeed(nowDate = new Date()) {
-  const dt = nowDate instanceof Date && !Number.isNaN(nowDate.getTime()) ? nowDate : new Date();
-  const fmtIso = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const yesterdayIso = fmtIso(new Date(dt.getTime() - 86400000));
-  const twoDaysAgoIso = fmtIso(new Date(dt.getTime() - 2 * 86400000));
-  const threeDaysAgoIso = fmtIso(new Date(dt.getTime() - 3 * 86400000));
-  const fiveDaysAgoIso = fmtIso(new Date(dt.getTime() - 5 * 86400000));
-  const sixDaysAgoIso = fmtIso(new Date(dt.getTime() - 6 * 86400000));
-  const ym = yesterdayIso.slice(0, 7);
-
-  let deletedSet = new Set();
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const rawDel = window.localStorage.getItem('pattan.expenses.deletedIds');
-      if (rawDel) {
-        const parsedDel = JSON.parse(rawDel);
-        if (Array.isArray(parsedDel)) deletedSet = new Set(parsedDel.map(String));
-      }
-    }
-  } catch (_) {}
-
-  const entries = [
-    {
-      id: `tx_yasin_master_${ym}_yest_tea`,
-      amount: 100,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'Irani Chai & Bakery',
-      personalNote: 'Evening tea & snacks',
-      paymentRemark: 'Tea & Snacks',
-      note: 'Evening tea & snacks',
-      noteReviewed: true,
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      refId: '629300112233',
-      date: yesterdayIso,
-      time: '17:45',
-      timestampMs: new Date(`${yesterdayIso}T17:45:00`).getTime() || Date.now() - 86400000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_yest_deposit`,
-      amount: 100,
-      currency: 'INR',
-      type: 'credit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'UPI Deposit Received',
-      personalNote: 'Friend shared tea/snack refund',
-      paymentRemark: 'UPI Credit',
-      note: 'Friend shared tea/snack refund',
-      noteReviewed: true,
-      category: 'Salary / Income',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      refId: '629300998877',
-      date: yesterdayIso,
-      time: '18:05',
-      timestampMs: new Date(`${yesterdayIso}T18:05:00`).getTime() || Date.now() - 85000000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_yest_dinner`,
-      amount: 240,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'Paradise Meals & Biryani',
-      personalNote: 'Last day dinner payment',
-      paymentRemark: 'Dinner',
-      note: 'Last day dinner payment',
-      noteReviewed: true,
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'Paytm',
-      refId: '629300445566',
-      date: yesterdayIso,
-      time: '21:15',
-      timestampMs: new Date(`${yesterdayIso}T21:15:00`).getTime() || Date.now() - 75000000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_2d_lunch`,
-      amount: 340,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'Office Lunch Center',
-      personalNote: 'Team lunch & snacks',
-      paymentRemark: 'Lunch',
-      note: 'Team lunch & snacks',
-      noteReviewed: true,
-      category: 'Food & Dining',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      refId: '629288776655',
-      date: twoDaysAgoIso,
-      time: '13:40',
-      timestampMs: new Date(`${twoDaysAgoIso}T13:40:00`).getTime() || Date.now() - 172800000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_3d_fuel`,
-      amount: 550,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'HP Petrol Station',
-      personalNote: 'Bike petrol full tank',
-      paymentRemark: 'Petrol',
-      note: 'Bike petrol full tank',
-      noteReviewed: true,
-      category: 'Fuel & Commute',
-      paymentMethod: 'UPI',
-      app: 'UPI',
-      refId: '629177665544',
-      date: threeDaysAgoIso,
-      time: '09:35',
-      timestampMs: new Date(`${threeDaysAgoIso}T09:35:00`).getTime() || Date.now() - 259200000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_5d_groceries`,
-      amount: 680,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'Ratnadeep Supermarket',
-      personalNote: 'Home groceries & milk',
-      paymentRemark: 'Groceries',
-      note: 'Home groceries & milk',
-      noteReviewed: true,
-      category: 'Groceries',
-      paymentMethod: 'UPI',
-      app: 'GPay',
-      refId: '628966554433',
-      date: fiveDaysAgoIso,
-      time: '20:15',
-      timestampMs: new Date(`${fiveDaysAgoIso}T20:15:00`).getTime() || Date.now() - 432000000,
-      source: 'owner-master-vault',
-    },
-    {
-      id: `tx_yasin_master_${ym}_6d_recharge`,
-      amount: 299,
-      currency: 'INR',
-      type: 'debit',
-      status: 'completed',
-      detectionStatus: 'user_confirmed',
-      reconciliationStatus: 'confirmed',
-      merchant: 'Mobile Recharge',
-      personalNote: 'Monthly 5G data pack',
-      paymentRemark: 'Recharge',
-      note: 'Monthly 5G data pack',
-      noteReviewed: true,
-      category: 'Bills & Recharge',
-      paymentMethod: 'UPI',
-      app: 'Paytm',
-      refId: '628855443322',
-      date: sixDaysAgoIso,
-      time: '19:05',
-      timestampMs: new Date(`${sixDaysAgoIso}T19:05:00`).getTime() || Date.now() - 518400000,
-      source: 'owner-master-vault',
-    },
-  ];
-
-  const out = {};
-  for (const item of entries) {
-    if (deletedSet.has(item.id)) continue;
-    out[item.id] = item;
-  }
-  return out;
+// Master account (patanyasin144@gmail.com) permanent real transaction ledger (zero fake seeded transactions)
+function buildOwnerMasterTransactionsSeed() {
+  return {};
 }
 
 function sanitizeNoCredTx(tx) {
   if (!tx || typeof tx !== 'object') return tx;
-  const out = { ...tx };
+  const norm = migrateAndNormalizeExpenseRecord(tx) || { ...tx };
+  const out = { ...tx, type: norm.type || tx.type };
   if (out.app && /\b(cred|dreamplug)\b/i.test(String(out.app))) {
     out.app = out.accountMask ? 'Bank Account' : 'UPI';
   }
@@ -2330,9 +2140,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.7';
+      return localStorage.getItem('pattan.ota.version') || '8.2.8';
     } catch (_) {
-      return '8.2.7';
+      return '8.2.8';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2341,9 +2151,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_7_build_version_on_rules_tab_only';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_8_purge_3rd_party_bills_and_fix_credit_debit';
     } catch (_) {
-      return 'ota_8_2_7_build_version_on_rules_tab_only';
+      return 'ota_8_2_8_purge_3rd_party_bills_and_fix_credit_debit';
     }
   });
 
@@ -2518,7 +2328,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
       const t = String(item.text || '').trim();
       if (
-        /only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        /3rd parties messages|current bill recharge|showing like debit|only show it on the rules tab|don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
           t
         )
       ) {
@@ -2532,7 +2342,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.7').trim();
+      const curVer = String(liveOtaVersion || '8.2.8').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);

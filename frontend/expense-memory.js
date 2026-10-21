@@ -15,6 +15,7 @@ import {
   QUICK_NOTE_TEMPLATES,
   parseSmsOrUpiTextJs,
   parseFinancialSmsOrNotification,
+  isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,
@@ -43,9 +44,7 @@ export const ALLOWED_PAYMENT_PACKAGES = Object.freeze([
   { pkg: 'org.altruist.BajajExperia', label: 'Bajaj Pay UPI', appLabel: 'Bajaj Pay' },
   { pkg: 'com.samsung.android.spay', label: 'Samsung Pay', appLabel: 'Samsung Pay' },
   { pkg: 'com.samsung.android.spaymini', label: 'Samsung Pay Mini', appLabel: 'Samsung Pay' },
-  { pkg: 'com.myairtelapp', label: 'Airtel Thanks UPI', appLabel: 'Airtel Thanks' },
   { pkg: 'com.airtel.PaymentsBank', label: 'Airtel Payments Bank', appLabel: 'Airtel Payments Bank' },
-  { pkg: 'com.jio.myjio', label: 'JioPay', appLabel: 'JioPay' },
   { pkg: 'com.snapwork.hdfc', label: 'HDFC Bank', appLabel: 'HDFC Bank' },
   { pkg: 'com.Snapwork.hdfc', label: 'HDFC Bank', appLabel: 'HDFC Bank' },
   { pkg: 'com.sbi.lotusintouch', label: 'SBI YONO', appLabel: 'SBI YONO' },
@@ -326,25 +325,19 @@ const FAKE_SEED_REF_IDS = new Set([
   'OTP1821202619',
   'SAL1013202612',
   '629400112211',
+  '629300112233',
+  '629300998877',
+  '629300445566',
+  '629288776655',
+  '629177665544',
+  '628966554433',
+  '628855443322',
+  '629100998806',
 ]);
 
 function isWhatsAppOrNonRealRecord(tx) {
   if (!tx || typeof tx !== 'object') return true;
-  const combined = [
-    tx.app,
-    tx.source,
-    tx.senderOrPkg,
-    tx.merchant,
-    tx.originalMerchant,
-    tx.note,
-    tx.originalRemark,
-    tx.paymentRemark,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
-    combined
-  );
+  return isWhatsAppOrNonRealTransaction(tx);
 }
 
 function getDeletedExpenseIdsSet() {
@@ -384,17 +377,18 @@ export function loadEncryptedExpenseStore() {
               tx.isDemoPreview ||
               tx._demoPreview ||
               tx.source === 'demo-preview' ||
+              tx.source === 'owner-master-vault' ||
               keyStr.startsWith('demo_tx_') ||
               keyStr.endsWith('_salary') ||
               keyStr.endsWith('_ot_payout') ||
-              (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
+              keyStr.startsWith('tx_yasin_master_') ||
               FAKE_SEED_REF_IDS.has(refStr) ||
               isWhatsAppOrNonRealRecord(tx)
             ) {
               continue;
             }
             const normalized = migrateAndNormalizeExpenseRecord({ ...tx, _deleted: false, rawText: '' });
-            if (normalized) {
+            if (normalized && !isWhatsAppOrNonRealRecord(normalized)) {
               delete normalized._deleted;
               cleanMap[id] = normalized;
             }
@@ -446,10 +440,11 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
       tx.isDemoPreview ||
       tx._demoPreview ||
       tx.source === 'demo-preview' ||
+      tx.source === 'owner-master-vault' ||
       keyStr.startsWith('demo_tx_') ||
       keyStr.endsWith('_salary') ||
       keyStr.endsWith('_ot_payout') ||
-      (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
+      keyStr.startsWith('tx_yasin_master_') ||
       FAKE_SEED_REF_IDS.has(refStr) ||
       isWhatsAppOrNonRealRecord(tx)
     ) {
@@ -486,6 +481,7 @@ export {
   QUICK_NOTE_TEMPLATES,
   parseSmsOrUpiTextJs,
   parseFinancialSmsOrNotification,
+  isWhatsAppOrNonRealTransaction,
   migrateAndNormalizeExpenseRecord,
   reconcileAndMergeTransactions,
   suggestNotesAndCategoryForMerchant,

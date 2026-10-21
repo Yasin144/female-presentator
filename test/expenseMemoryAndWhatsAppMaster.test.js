@@ -1139,6 +1139,82 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(androidLauncherSrc.includes('🚀 Submit to AI Help Now'), true);
       assert.equal(androidLauncherSrc.includes('Build Version: v{version}'), true);
     });
+
+    it('rejects 3rd-party current bill & recharge messages and accurately classifies Credit vs Debit amounts without false debit signs (v8.2.8)', () => {
+      // 1. 3rd-party messages (current bill, electricity bill, mobile recharge, Jio/Airtel packs, utility reminders) must be rejected
+      const currentBillMsg = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.messaging',
+        title: 'VM-TSSPDCL',
+        body: 'Dear Consumer, Your Current Bill of Rs. 1,450.00 for USC No 10293847 is generated and due on 25-10-2026.',
+        timestampMs: 1792480000000,
+      });
+      assert.equal(currentBillMsg, null);
+
+      const rechargeMsg = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.jio.myjio',
+        title: 'MyJio',
+        body: 'Recharge of Rs. 299.00 successful for your Jio number. Unlimited 5G data pack validity 28 days.',
+        timestampMs: 1792480100000,
+      });
+      assert.equal(rechargeMsg, null);
+
+      // 2. Already-saved 3rd-party bill/recharge or seeded owner-master-vault records must be stripped during reconciliation
+      const { nextMap: scrubbedMap } = reconcileAndMergeTransactions(
+        {
+          tx_yasin_master_2026_10_6d_recharge: {
+            id: 'tx_yasin_master_2026_10_6d_recharge',
+            amount: 299,
+            type: 'debit',
+            merchant: 'Mobile Recharge',
+            category: 'Bills & Recharge',
+            source: 'owner-master-vault',
+          },
+          mob_old_bill_1: {
+            id: 'mob_old_bill_1',
+            amount: 850,
+            type: 'debit',
+            merchant: 'Bank Notice Payment',
+            category: 'bills',
+            app: 'Bank Notice',
+            source: 'mobile-notification',
+          },
+        },
+        []
+      );
+      assert.equal(Object.keys(scrubbedMap).length, 0);
+
+      // 3. Credit messages containing words like "payment of ... received" or "trf to your A/c" must be classified as 'credit' (+₹), NEVER 'debit' (-₹)
+      const creditPaymentReceived = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.messaging',
+        title: 'VM-HDFCBK',
+        body: 'Payment of Rs. 2,500.00 received from RAHUL via UPI/CR/629888777666/RAHUL credited to your A/c XX4321.',
+        timestampMs: 1792480200000,
+      });
+      assert.ok(creditPaymentReceived);
+      assert.equal(creditPaymentReceived.type, 'credit');
+      assert.equal(creditPaymentReceived.amount, 2500);
+
+      const creditTrfToYourAc = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.messaging',
+        title: 'VM-SBIUPI',
+        body: 'Dear UPI user A/C X4321 credited by Rs. 1,200.00 on 21Oct26 trf to your A/c Ref No 629555444333',
+        timestampMs: 1792480300000,
+      });
+      assert.ok(creditTrfToYourAc);
+      assert.equal(creditTrfToYourAc.type, 'credit');
+      assert.equal(creditTrfToYourAc.amount, 1200);
+
+      // 4. Existing record wrongly saved as debit when merchant/note says Deposit/Credited/Received is auto-repaired to 'credit'
+      const repaired = migrateAndNormalizeExpenseRecord({
+        id: 'mob_wrong_debit_1',
+        amount: 500,
+        type: 'debit',
+        merchant: 'UPI Deposit Received',
+        note: 'Money received from friend',
+        source: 'mobile-notification',
+      });
+      assert.equal(repaired.type, 'credit');
+    });
   });
 });
 

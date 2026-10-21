@@ -65,10 +65,8 @@ public final class MobileTransactionParser {
         "org.altruist.bajajexperia",
         "com.samsung.android.spay",
         "com.samsung.android.spaymini",
-        "com.myairtelapp",
         "com.airtel.PaymentsBank",
         "com.airtel.paymentsbank",
-        "com.jio.myjio",
         "com.csam.icici.bank.imobile",
         "com.icicibank.imobile",
         "com.snapwork.hdfc",
@@ -249,6 +247,24 @@ public final class MobileTransactionParser {
                 return null;
             }
 
+            // Reject 3rd-party current bill, electricity bill, mobile recharge, telecom pack, and due reminder messages
+            if (lower.contains("current bill") || lower.contains("electricity bill") || lower.contains("eb bill")
+                || lower.contains("power bill") || lower.contains("water bill") || lower.contains("gas bill")
+                || lower.contains("broadband bill") || lower.contains("postpaid bill") || lower.contains("credit card bill")
+                || lower.contains("bill due") || lower.contains("bill generated") || lower.contains("bill is due")
+                || lower.contains("payment due") || lower.contains("minimum due") || lower.contains("total due")
+                || lower.contains("recharge") || lower.contains("recharged") || lower.contains("data pack")
+                || lower.contains("unlimited pack") || lower.contains("pack validity") || lower.contains("plan expir")
+                || lower.contains("pack expir") || lower.contains("talktime") || lower.contains("top-up")
+                || lower.contains("myjio") || lower.contains("jiopay") || lower.contains("airtel thanks")
+                || lower.contains("tsspdcl") || lower.contains("tsnpdcl") || lower.contains("apspdcl")
+                || lower.contains("apepdcl") || lower.contains("bescom") || lower.contains("msedcl")
+                || lower.contains("tneb") || lower.contains("tangedco") || lower.contains("uppcl")
+                || lower.contains("discom") || lower.contains("consumer no") || lower.contains("usc no")
+                || lower.contains("service no")) {
+                return null;
+            }
+
             // Never parse or store OTPs, PIN prompts, or password messages
             boolean hasOtpWord = lower.contains("otp")
                 || lower.contains("one time password")
@@ -347,35 +363,54 @@ public final class MobileTransactionParser {
                 status = "pending";
             }
 
-            // 3. Determine Type: debit (expense), credit (income/deposit), refund, transfer
+            // 3. Determine Type: debit (expense), credit (income/deposit), refund, transfer — never misclassify credit/deposit/received as debit!
             boolean isRefund = lower.contains("refund") || lower.contains("reversed") || lower.contains("reversal") || lower.contains("cashback");
             boolean isSelfTransfer = lower.contains("self transfer") || lower.contains("to self") || lower.contains("own account") || lower.contains("between your accounts");
             boolean hasStrongCredit = lower.contains("credited") || lower.contains("deposited")
                 || lower.contains("deposit of") || lower.contains("cash deposit")
                 || lower.contains("received from") || lower.contains("money received")
                 || lower.contains("you received") || lower.contains("payment received")
-                || lower.contains("added to your") || lower.contains("upi/cr/");
-            boolean hasStrongDebit = lower.contains("debited") || lower.contains("withdrawn")
+                || lower.contains("added to your") || lower.contains("upi/cr/")
+                || lower.contains("sent to you") || lower.contains("sent to your a/c")
+                || lower.contains("sent to your account") || lower.contains("paid to you")
+                || lower.contains("paid to your a/c") || lower.contains("trf to your a/c")
+                || lower.contains("credit of") || lower.contains("salary credited");
+            boolean hasExplicitAccountDebit = lower.contains("debited") || lower.contains("withdrawn")
                 || lower.contains("deducted") || lower.contains("spent")
-                || lower.contains("paid to") || lower.contains("sent to")
-                || lower.contains("money sent") || lower.contains("you paid")
-                || lower.contains("trf to") || lower.contains("upi/dr/")
-                || lower.contains("payment of") || lower.contains("payment to");
-            boolean isCredit = hasStrongCredit || lower.contains("received") || lower.contains("credit");
-            boolean isDebit = hasStrongDebit || lower.contains("paid") || lower.contains("sent") || lower.contains("debit");
+                || lower.contains("upi/dr/") || lower.contains("you paid")
+                || lower.contains("money sent");
+            boolean hasStrongDebit = hasExplicitAccountDebit
+                || ((lower.contains("paid to") || lower.contains("sent to") || lower.contains("trf to")
+                    || lower.contains("payment of") || lower.contains("payment to"))
+                    && !hasStrongCredit
+                    && !lower.contains("to you") && !lower.contains("to your a/c")
+                    && !lower.contains("to your account") && !lower.contains("credited")
+                    && !lower.contains("received") && !lower.contains("deposited"));
+            boolean isCredit = hasStrongCredit || lower.contains("received") || lower.contains("credit") || lower.contains("deposit");
+            boolean isDebit = hasStrongDebit || ((lower.contains("paid") || lower.contains("sent") || lower.contains("debit")) && !hasStrongCredit);
+
+            if (!isCredit && !isDebit && !isRefund && !isSelfTransfer) {
+                return null;
+            }
 
             String type = "debit";
             if (isSelfTransfer) {
                 type = "transfer";
             } else if (isRefund) {
                 type = "refund";
-            } else if (hasStrongCredit && !hasStrongDebit) {
+            } else if (hasStrongCredit && !hasExplicitAccountDebit) {
+                type = "credit";
+            } else if (hasStrongCredit && (lower.contains("credited to your") || lower.contains("deposited to your")
+                || lower.contains("deposited in your") || lower.contains("received from")
+                || lower.contains("money received") || lower.contains("you received")
+                || lower.contains("payment received") || lower.contains("upi/cr/"))) {
                 type = "credit";
             } else if (hasStrongDebit && !hasStrongCredit) {
                 type = "debit";
             } else if (isCredit && !isDebit) {
                 type = "credit";
-            } else if (lower.startsWith("received") || lower.startsWith("credited") || lower.startsWith("deposited") || lower.contains("money received")) {
+            } else if (lower.startsWith("received") || lower.startsWith("credited") || lower.startsWith("deposited")
+                || lower.contains("money received") || lower.contains("payment received") || lower.contains("credited to")) {
                 type = "credit";
             }
 
