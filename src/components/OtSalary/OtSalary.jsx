@@ -1359,6 +1359,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [expensesMap]);
   const [selectedDate, setSelectedDate] = useState(getTodayIsoDate);
   const [selectedMonth, setSelectedMonth] = useState(() => getTodayIsoDate().slice(0, 7));
+  const todayIso = getTodayIsoDate();
   const [viewFilter, setViewFilter] = useState('all'); // 'all' | 'saved' | 'ot_only'
   const [saveNotice, setSaveNotice] = useState('');
   const [diskPath, setDiskPath] = useState('');
@@ -2158,9 +2159,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.9';
+      return localStorage.getItem('pattan.ota.version') || '8.2.10';
     } catch (_) {
-      return '8.2.9';
+      return '8.2.10';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2360,7 +2361,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.9').trim();
+      const curVer = String(liveOtaVersion || '8.2.10').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -3782,7 +3783,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const handleRecordCreditCyclePayment = useCallback((kind = 'salary') => {
     const isOt = kind === 'ot';
-    const rawDate = String(isOt ? otCreditDateInput : salaryCreditDateInput).trim() || todayIso;
+    const rawDate = String(isOt ? otCreditDateInput : salaryCreditDateInput).trim() || selectedDate || getTodayIsoDate();
     const defaultAmt = isOt
       ? Math.round((Number(monthSummary.totalOtPay) || 0) + (Number(monthSummary.totalExtraAllowance) || 0))
       : Math.round(Number(rates.salary) || 0);
@@ -3876,7 +3877,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [
     otCreditDateInput,
     salaryCreditDateInput,
-    todayIso,
+    selectedDate,
     monthSummary.totalOtPay,
     monthSummary.totalExtraAllowance,
     rates.salary,
