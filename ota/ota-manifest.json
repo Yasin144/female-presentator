@@ -1,8 +1,8 @@
 {
-  "version": "8.2.13",
-  "buildId": "ota_8_2_13_live_ot_seconds_minutes_money_screen",
-  "releasedAt": "2026-10-21T19:42:00+05:30",
+  "version": "8.2.14",
+  "buildId": "ota_8_2_14_signin_0823_exact_duty_end_live_ot",
+  "releasedAt": "2026-10-21T19:53:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.13: Live OT Running Screen (Second-by-Second OT Minutes & Money Ticker) — Automatically opens a full-screen Live OT Stopwatch & Money Counter ('Your time has completed') from the exact second normal shift time completes, ticking live OT Hours:Minutes:Seconds, total OT minutes, and live OT Money Earned (+₹XX.XX) every second, plus a persistent top Live OT card."
+  "notes": "v8.2.14: Exact Sign-In Based OT Calculation (08:23 AM + 8h 30m = 04:53 PM Duty End) — Calculates exact Duty End Time and Live OT Minutes/Seconds/Money directly from your actual Sign-In Time (e.g. 08:23 AM -> 04:53 PM), applies 08:23 AM for today, and adds an inline Sign-In Time editor inside the Live OT Running Screen."
 }

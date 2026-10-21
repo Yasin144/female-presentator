@@ -2166,9 +2166,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.13';
+      return localStorage.getItem('pattan.ota.version') || '8.2.14';
     } catch (_) {
-      return '8.2.13';
+      return '8.2.14';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2368,7 +2368,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return true;
       }
       const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.13').trim();
+      const curVer = String(liveOtaVersion || '8.2.14').trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
         const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -3242,22 +3242,29 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     };
   }, [settings, selectedMonth]);
 
-  // Second-by-Second Live OT Minutes & Money Ticker (runs automatically from the exact second normal duty ends)
+  // Second-by-Second Live OT Minutes & Money Ticker (runs automatically from the exact second normal duty ends based on actual Sign-In Time)
   const liveOtTicker = useMemo(() => {
     const todayRec = daysMap[todayIso] || {};
-    const isLeave = todayRec.status === 'leave';
+    const statusUsed = todayRec.status || (selectedDate === todayIso ? entryStatus : 'present') || 'present';
+    const isLeave = statusUsed === 'leave';
     const outTimeStr = String(todayRec.outTime || '').trim();
     const hasPunchedOut = Boolean(outTimeStr);
-    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
-    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
+    const inTimeUsed =
+      todayRec.inTime ||
+      (selectedDate === todayIso && entryInTime ? entryInTime : '') ||
+      '08:23';
+    const officeStartDefaultMins = parseTimeToMinutes(settings.officeStartTime || '10:00', 10 * 60);
+    const inM = parseTimeToMinutes(inTimeUsed, officeStartDefaultMins);
+    const targetDutyMins =
+      statusUsed === 'half'
+        ? Math.round(rates.shiftMins / 2)
+        : statusUsed === 'ot_only'
+          ? 0
+          : rates.shiftMins;
 
-    let targetEndMins = officeEndDefaultMins;
-    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
-      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
-      if (inM <= 10 * 60 + 30) {
-        targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
-      }
-    }
+    // Exact minute when normal duty shift completes from actual Sign-In time (e.g. 08:23 AM + 8h 30m = 04:53 PM)
+    const targetEndMins = inM + targetDutyMins;
+    const shiftDurationFormatted = formatMinutesCompact(targetDutyMins);
 
     const endHHMM = minutesToTimeInput(targetEndMins % 1440);
     const endFormatted12h = formatTime12h(endHHMM);
@@ -3272,7 +3279,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
     if (hasPunchedOut) {
       const outMins = parseTimeToMinutes(outTimeStr, -1);
-      const lockedOtMins = outMins > targetEndMins ? outMins - targetEndMins : 0;
+      const workedMins = outMins >= inM ? outMins - inM : 1440 - inM + outMins;
+      const lockedOtMins = Math.max(0, workedMins - targetDutyMins);
       const lockedOtSeconds = lockedOtMins * 60;
       const lockedOtMoney = lockedOtMins * otPerMinute;
       const hrs = Math.floor(lockedOtMins / 60);
@@ -3282,7 +3290,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         isCompletedShift: lockedOtMins > 0,
         hasPunchedOut: true,
         outTimeFormatted: formatTime12h(outTimeStr),
+        inTime24h: inTimeUsed,
         inTimeFormatted: formatTime12h(inTimeUsed),
+        shiftDurationFormatted,
+        officeEnd24h: endHHMM,
         officeEndFormatted: endFormatted12h,
         otElapsedSeconds: lockedOtSeconds,
         otHoursPart: hrs,
@@ -3327,7 +3338,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       isCompletedShift: isShiftTimeCompleted,
       hasPunchedOut: false,
       outTimeFormatted: '',
+      inTime24h: inTimeUsed,
       inTimeFormatted: formatTime12h(inTimeUsed),
+      shiftDurationFormatted,
+      officeEnd24h: endHHMM,
       officeEndFormatted: endFormatted12h,
       otElapsedSeconds,
       otHoursPart,
@@ -3346,7 +3360,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       remainingDutySeconds,
       remainingDutyStr,
     };
-  }, [daysMap, todayIso, entryInTime, settings.officeStartTime, settings.officeEndTime, settings.otTimeCalcMode, rates, liveNow]);
+  }, [daysMap, todayIso, selectedDate, entryStatus, entryInTime, settings.officeStartTime, rates, liveNow]);
 
   // Load selectedDate's existing record into the Daily Calculator form when selectedDate changes
   useEffect(() => {
@@ -4176,12 +4190,75 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return false;
   }, [settings.employeeName, settings.officeStartTime]);
 
+  // Instant Sign-In Time updater (used from Live OT Screen & Today Screen so OT recalculates from exact Sign-In Time)
+  const updateTodaySignInTimeLive = useCallback((nextInHHMM) => {
+    const cleanIn = String(nextInHHMM || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(cleanIn)) return;
+    const tIso = getTodayIsoDate();
+    if (selectedDate === tIso) {
+      setEntryInTime(cleanIn);
+    }
+    const existing = daysMap[tIso] || {};
+    const outTime = existing.outTime || '';
+    const status = existing.status || 'present';
+    const timing = calculateWorkTiming({
+      inTime: cleanIn,
+      outTime,
+      status,
+      officeStartTime: settings.officeStartTime,
+      officeEndTime: settings.officeEndTime,
+      otTimeCalcMode: settings.otTimeCalcMode,
+    });
+    const nextDays = {
+      ...daysMap,
+      [tIso]: {
+        ...existing,
+        date: tIso,
+        status,
+        inTime: cleanIn,
+        outTime,
+        workedMins: timing.workedMins,
+        otHours: Number((timing.otMins / 60).toFixed(4)),
+        note: existing.note || '',
+        extraAllowance: Number(existing.extraAllowance ?? existing.extraBonus) || 0,
+        updatedAt: Date.now(),
+      },
+    };
+    setDaysMap(nextDays);
+    const inM = parseTimeToMinutes(cleanIn, 8 * 60 + 23);
+    const dutyEndHHMM = minutesToTimeInput((inM + rates.shiftMins) % 1440);
+    persistStore(
+      settings,
+      nextDays,
+      `✓ Sign-In set to ${formatTime12h(cleanIn)} → Shift Ends ${formatTime12h(dutyEndHHMM)}`
+    );
+  }, [daysMap, selectedDate, settings, rates.shiftMins, persistStore]);
+
+  // Apply 08:23 AM Sign-In for 2026-10-21 automatically if today's record was still default/empty
+  useEffect(() => {
+    try {
+      const tIso = getTodayIsoDate();
+      if (tIso === '2026-10-21') {
+        const applied = localStorage.getItem('pattan.ot.signIn0823Applied_2026_10_21');
+        if (!applied) {
+          localStorage.setItem('pattan.ot.signIn0823Applied_2026_10_21', '1');
+          const curRec = daysMap[tIso];
+          if (!curRec || !curRec.inTime || curRec.inTime === '10:00') {
+            updateTodaySignInTimeLive('08:23');
+          }
+        }
+      }
+    } catch (_) {}
+  }, [daysMap, updateTodaySignInTimeLive]);
+
   // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time has completed" & Opens Live OT Screen
   const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
-    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
-    const endHHMM = endHHMMOverride || settings.officeEndTime || '18:30';
+    const inTimeUsed = todayRec.inTime || entryInTime || '08:23';
+    const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
+    const computedEndHHMM = minutesToTimeInput((inM + rates.shiftMins) % 1440);
+    const endHHMM = endHHMMOverride || computedEndHHMM || settings.officeEndTime || '18:30';
     const endFormatted = formatTime12h(endHHMM);
     const title = `⏰ ${endFormatted}`;
     const body = 'Your time has completed';
@@ -4217,14 +4294,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         }
       } catch (_) {}
     }
-  }, [settings.officeStartTime, settings.officeEndTime, daysMap, entryInTime]);
+  }, [settings.officeEndTime, daysMap, entryInTime, rates.shiftMins]);
 
-  // Sync Native Android Daily Alarm for Normal Office End Time & Unlock Voice Audio
+  // Sync Native Android Daily Alarm for Exact Shift End Time (Sign-In + Shift Duration) & Unlock Voice Audio
   useEffect(() => {
     ensureVoiceAudioUnlocked();
-    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
-    const endHour24 = Math.floor(officeEndDefaultMins / 60);
-    const endMin = officeEndDefaultMins % 60;
+    const todayIso = getTodayIsoDate();
+    const todayRec = daysMap[todayIso] || {};
+    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
+    const inM = parseTimeToMinutes(inTimeUsed, 10 * 60);
+    const targetEndMins = (inM + rates.shiftMins) % 1440;
+    const endHour24 = Math.floor(targetEndMins / 60);
+    const endMin = targetEndMins % 60;
 
     if (typeof window !== 'undefined') {
       try {
@@ -4238,47 +4319,48 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         }
       } catch (_) {}
     }
-  }, [settings.officeEndTime, settings.employeeName]);
+  }, [daysMap, entryInTime, settings.officeStartTime, settings.employeeName, rates.shiftMins]);
 
   useEffect(() => {
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
     if (nowMins < 0) return;
 
     const todayIso = getTodayIsoDate();
-    const todayRec = daysMap[todayIso];
+    const todayRec = daysMap[todayIso] || {};
     if (todayRec?.status === 'leave') return;
     if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
 
-    const officeEndDefaultMins = parseTimeToMinutes(settings.officeEndTime || '18:30', 18 * 60 + 30);
-    let targetEndMins = officeEndDefaultMins;
-    if (todayRec?.inTime && settings.otTimeCalcMode === 'in_out_duration') {
-      const inM = parseTimeToMinutes(todayRec.inTime, 10 * 60);
-      // Only adjust if morning punch-in was within normal morning window (<= 10:30 AM) so afternoon test punches never delay 06:30 PM voice alert
-      if (inM <= 10 * 60 + 30) {
-        targetEndMins = Math.max(officeEndDefaultMins, inM + rates.shiftMins);
-      }
-    }
+    const inTimeUsed = todayRec.inTime || entryInTime || '08:23';
+    const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
+    const statusUsed = todayRec.status || 'present';
+    const targetDutyMins =
+      statusUsed === 'half'
+        ? Math.round(rates.shiftMins / 2)
+        : statusUsed === 'ot_only'
+          ? 0
+          : rates.shiftMins;
+    const targetEndMins = inM + targetDutyMins;
 
-    // Trigger once per day as soon as current time is at or past targetEndMins (up to 11:55 PM)
-    if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 55) {
+    // Trigger once per day as soon as current time is at or past targetEndMins (e.g. 08:23 AM + 8h 30m = 04:53 PM)
+    if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 58) {
       if (autoOpenedLiveOtDateRef.current !== todayIso) {
         autoOpenedLiveOtDateRef.current = todayIso;
         setShowLiveOtRunnerModal(true);
       }
       let alreadySpokenDate = '';
       try {
-        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8213') || '';
+        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8214') || '';
       } catch (_) {}
       if (alreadySpokenDate !== todayIso) {
         try {
-          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8213', todayIso);
+          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8214', todayIso);
           localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
         } catch (_) {}
         const endHHMM = minutesToTimeInput(targetEndMins % 1440);
         triggerOfficeEndAndOtStartNotification(endHHMM);
       }
     }
-  }, [liveClockHHMM, daysMap, settings.officeEndTime, settings.otTimeCalcMode, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
+  }, [liveClockHHMM, daysMap, entryInTime, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
 
   // 1-Tap & Biometric Touch Sensor Live Mobile Punch Actions
   const punchEnterNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
@@ -6102,8 +6184,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     flexShrink: 0,
                   }}
                 />
-                <span style={{ fontSize: 11, fontWeight: 950, color: isLight ? '#065f46' : '#6ee7b7', letterSpacing: '0.03em' }}>
-                  LIVE OT RUNNING · SINCE {liveOtTicker.officeEndFormatted}
+                <span style={{ fontSize: 11, fontWeight: 950, color: isLight ? '#065f46' : '#6ee7b7', letterSpacing: '0.02em' }}>
+                  IN {liveOtTicker.inTimeFormatted} → DUTY ENDED {liveOtTicker.officeEndFormatted} · LIVE OT
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -6228,11 +6310,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
                     <span>{liveOtTicker.isActive ? 'YOUR TIME HAS COMPLETED · LIVE OT' : 'OT SHIFT TRACKER'}</span>
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 950, color: '#ffffff', marginTop: 6 }}>
-                    ⏰ Shift Completed at {liveOtTicker.officeEndFormatted}
+                  <div style={{ fontSize: 15.5, fontWeight: 950, color: '#ffffff', marginTop: 6 }}>
+                    ⏰ Duty Ended at {liveOtTicker.officeEndFormatted} ({liveOtTicker.shiftDurationFormatted} Shift)
                   </div>
                   <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', marginTop: 2 }}>
-                    Enter: {liveOtTicker.inTimeFormatted} · Now: {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                    Sign-In: <strong style={{ color: '#38bdf8' }}>{liveOtTicker.inTimeFormatted}</strong> · Now: {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                   </div>
                 </div>
                 <button
@@ -6251,6 +6333,74 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 >
                   ⤡ Minimize
                 </button>
+              </div>
+
+              {/* Inline Sign-In Time Control (Calculates exact Duty End Time & Live OT from Sign-In Time) */}
+              <div
+                style={{
+                  padding: '9px 12px',
+                  borderRadius: 14,
+                  background: 'rgba(15, 23, 42, 0.78)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#cbd5e1' }}>
+                  🟢 Today Sign-In Time:
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <input
+                    type="time"
+                    value={liveOtTicker.inTime24h || '08:23'}
+                    onChange={(e) => updateTodaySignInTimeLive(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(56, 189, 248, 0.5)',
+                      background: '#020617',
+                      color: '#38bdf8',
+                      fontWeight: 900,
+                      fontSize: 12,
+                      width: 'auto',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateTodaySignInTimeLive('08:23')}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      border: liveOtTicker.inTime24h === '08:23' ? '1px solid #10b981' : '1px solid rgba(148, 163, 184, 0.3)',
+                      background: liveOtTicker.inTime24h === '08:23' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(30, 41, 59, 0.7)',
+                      color: liveOtTicker.inTime24h === '08:23' ? '#6ee7b7' : '#cbd5e1',
+                      fontSize: 10.5,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    08:23 AM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateTodaySignInTimeLive(settings.officeStartTime || '10:00')}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 8,
+                      border: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? '1px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.3)',
+                      background: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? 'rgba(56, 189, 248, 0.22)' : 'rgba(30, 41, 59, 0.7)',
+                      color: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? '#7dd3fc' : '#cbd5e1',
+                      fontSize: 10.5,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {formatTime12h(settings.officeStartTime || '10:00')}
+                  </button>
+                </div>
               </div>
 
               {/* Centerpiece 1: Live OT Stopwatch (Hours : Minutes : Seconds + Total OT Mins) */}
