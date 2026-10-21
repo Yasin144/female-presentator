@@ -2254,6 +2254,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const lastNotifiedOtaBuildRef = useRef('');
   const [showGlobalSuggestionModal, setShowGlobalSuggestionModal] = useState(false);
   const [globalSuggestionInput, setGlobalSuggestionInput] = useState('');
+  const [globalSuggestionScreenshotDataUrl, setGlobalSuggestionScreenshotDataUrl] = useState('');
+  const [globalSuggestionScreenshotName, setGlobalSuggestionScreenshotName] = useState('');
+  const globalSuggestionScreenshotInputRef = useRef(null);
   const [globalSuggestionSending, setGlobalSuggestionSending] = useState(false);
   const [liveOtaVersion, setLiveOtaVersion] = useState(() => {
     try {
@@ -2261,29 +2264,85 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.1.3';
+      return localStorage.getItem('pattan.ota.version') || '8.1.4';
     } catch (_) {
-      return '8.1.3';
+      return '8.1.4';
     }
   });
+
+  const handleSelectGlobalSuggestionScreenshot = useCallback((ev) => {
+    const file = ev?.target?.files?.[0];
+    if (!file) return;
+    const fileName = String(file.name || 'screenshot.jpg');
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || '');
+      if (!rawDataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 960;
+          let w = img.width || 600;
+          let h = img.height || 800;
+          if (w > maxDim || h > maxDim) {
+            if (w >= h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', 0.72);
+            setGlobalSuggestionScreenshotDataUrl(compressed);
+            setGlobalSuggestionScreenshotName(fileName);
+            return;
+          }
+        } catch (_) {}
+        setGlobalSuggestionScreenshotDataUrl(rawDataUrl);
+        setGlobalSuggestionScreenshotName(fileName);
+      };
+      img.onerror = () => {
+        setGlobalSuggestionScreenshotDataUrl(rawDataUrl);
+        setGlobalSuggestionScreenshotName(fileName);
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+    if (ev.target) ev.target.value = '';
+  }, []);
 
   const submitGlobalFeatureSuggestion = useCallback(
     async (e) => {
       if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      const text = String(globalSuggestionInput || '').trim();
-      if (!text) {
-        setSaveNotice('⚠️ Please write your suggestion or feature request first.');
+      const rawText = String(globalSuggestionInput || '').trim();
+      const attachedDataUrl = String(globalSuggestionScreenshotDataUrl || '');
+      const attachedName = String(globalSuggestionScreenshotName || '');
+      if (!rawText && !attachedDataUrl) {
+        setSaveNotice('⚠️ Please write your suggestion or attach a screenshot first.');
         return;
       }
+      const text = rawText || `📸 Screenshot attached (${attachedName || 'UI detail'})`;
       setGlobalSuggestionSending(true);
       const nowMs = Date.now();
+      const sugId = `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`;
       const payload = {
-        id: `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+        id: sugId,
         text,
         accountEmail: activeAccountEmailRef.current || OWNER_MASTER_EMAIL,
         version: liveOtaVersion,
         createdAt: new Date(nowMs).toISOString(),
         timestampMs: nowMs,
+        hasScreenshot: Boolean(attachedDataUrl),
+        screenshotName: attachedName,
+        screenshotDataUrl: attachedDataUrl,
+        screenshotUrl: '',
         deliveredOnline: false,
         processedByAi: false,
         status: 'sending',
@@ -2291,8 +2350,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+      const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
       let deliveredOnline = false;
+      let uploadedScreenshotUrl = '';
+      if (attachedDataUrl) {
+        try {
+          const blobRes = await fetch(attachedDataUrl);
+          const blob = await blobRes.blob();
+          const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
+            method: 'PUT',
+            headers: {
+              Filename: `${sugId}.jpg`,
+              Title: `Screenshot for ${sugId}`,
+            },
+            body: blob,
+          });
+          if (upRes && upRes.ok) {
+            const upJson = await upRes.json();
+            uploadedScreenshotUrl = String(upJson?.attachment?.url || '');
+          }
+        } catch (_) {}
+      }
       try {
+        const relayPayload = {
+          ...payload,
+          screenshotUrl: uploadedScreenshotUrl,
+        };
+        delete relayPayload.screenshotDataUrl;
         const res = await fetch(`${relayHost}/${relayTopic}`, {
           method: 'POST',
           headers: {
@@ -2300,25 +2384,28 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             Priority: 'high',
             Tags: 'bulb,rocket',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(relayPayload),
         });
         if (res && res.ok) deliveredOnline = true;
       } catch (_) {}
 
       const finalPayload = {
         ...payload,
+        screenshotUrl: uploadedScreenshotUrl,
         deliveredOnline,
         status: deliveredOnline ? 'ai_working' : 'queued_offline',
       };
       try {
         const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
         const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
-        const nextArr = [finalPayload, ...(Array.isArray(existingArr) ? existingArr : [])].slice(0, 30);
+        const nextArr = [finalPayload, ...(Array.isArray(existingArr) ? existingArr : [])].slice(0, 20);
         localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
       } catch (_) {}
 
       setGlobalSuggestionSending(false);
       setGlobalSuggestionInput('');
+      setGlobalSuggestionScreenshotDataUrl('');
+      setGlobalSuggestionScreenshotName('');
       setShowGlobalSuggestionModal(false);
       setSaveNotice(
         deliveredOnline
@@ -2326,7 +2413,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
       );
     },
-    [globalSuggestionInput, liveOtaVersion]
+    [globalSuggestionInput, globalSuggestionScreenshotDataUrl, globalSuggestionScreenshotName, liveOtaVersion]
   );
 
   // Show visual notification + subtle chime when a new OTA update becomes ready (NEVER speaks "Your time is completed" and NEVER speaks on app open!)
@@ -4903,6 +4990,103 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   outline: 'none',
                 }}
               />
+
+              {/* Screenshot Attachment Picker & Preview */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  ref={globalSuggestionScreenshotInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleSelectGlobalSuggestionScreenshot}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => globalSuggestionScreenshotInputRef.current?.click()}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: globalSuggestionScreenshotDataUrl
+                      ? '1.5px solid #10b981'
+                      : `1.5px dashed ${ui.border}`,
+                    background: globalSuggestionScreenshotDataUrl
+                      ? 'rgba(16, 185, 129, 0.14)'
+                      : ui.cardSubBg,
+                    color: globalSuggestionScreenshotDataUrl ? '#10b981' : ui.textPrimary,
+                    fontWeight: 800,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>📷</span>
+                  <span>
+                    {globalSuggestionScreenshotDataUrl
+                      ? `Screenshot Attached (${globalSuggestionScreenshotName || 'Ready'}) ✓`
+                      : 'Add Screenshot for Detailed Info'}
+                  </span>
+                </button>
+
+                {globalSuggestionScreenshotDataUrl && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '8px 10px',
+                    borderRadius: 12,
+                    background: ui.cardSubBg,
+                    border: '1px solid rgba(16, 185, 129, 0.45)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <img
+                        src={globalSuggestionScreenshotDataUrl}
+                        alt="Attached screenshot preview"
+                        style={{
+                          width: 48,
+                          height: 48,
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                          border: `1px solid ${ui.border}`,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: ui.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          📸 {globalSuggestionScreenshotName || 'Screenshot attached'}
+                        </div>
+                        <div style={{ fontSize: 10.5, fontWeight: 600, color: ui.textSecondary }}>
+                          Will be sent with your suggestion to fix exact UI details
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGlobalSuggestionScreenshotDataUrl('');
+                        setGlobalSuggestionScreenshotName('');
+                      }}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(244, 63, 94, 0.4)',
+                        background: 'rgba(244, 63, 94, 0.12)',
+                        color: '#f43f5e',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
                   type="button"

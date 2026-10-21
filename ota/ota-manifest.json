@@ -1,8 +1,8 @@
 {
-  "version": "8.1.3",
+  "version": "8.1.4",
   "cssFile": "app-bundle.css",
-  "buildId": "ota_8_1_3_1792558900",
-  "notes": "v8.1.3: Replaced Salary Left (which cut spent amount from salary) with Remaining Bal (Real Bank Balance) in the Expenses 2x2 Grid and ensured Salary is never reduced by expenses.",
+  "buildId": "ota_8_1_4_1792561000",
+  "notes": "v8.1.4: Added Screenshot Attachment support (with live preview, compression, and offline queue sync) in Suggestion Boxes for detailed bug/feature info, and removed Last Day Spent from the Received · In tile.",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-21T05:00:00Z"
+  "updatedAt": "2026-10-21T05:15:00Z"
 }

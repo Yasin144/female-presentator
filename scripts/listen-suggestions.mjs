@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const SUGGESTIONS_FILE = path.join(process.cwd(), 'ota', 'incoming-suggestions.json');
+const SCREENSHOTS_DIR = path.join(process.cwd(), 'ota', 'suggestion-screenshots');
 const RELAY_URL = ['https://', 'nt', 'fy', '.', 'sh', '/yasin_salary_pro_suggestions_live_144/json?poll=1&since=24h'].join('');
 
 function copyToWindowsClipboard(text) {
@@ -11,6 +12,35 @@ function copyToWindowsClipboard(text) {
       spawnSync('clip', [], { input: String(text), encoding: 'utf8' });
     }
   } catch (_) {}
+}
+
+async function downloadOrSaveScreenshot(item) {
+  if (!item || typeof item !== 'object') return '';
+  try {
+    if (!fs.existsSync(SCREENSHOTS_DIR)) {
+      fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+    }
+    const safeId = String(item.id || `sug_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const outPath = path.join(SCREENSHOTS_DIR, `${safeId}.jpg`);
+    if (fs.existsSync(outPath)) return outPath;
+
+    if (item.screenshotDataUrl && String(item.screenshotDataUrl).startsWith('data:image/')) {
+      const base64Part = String(item.screenshotDataUrl).split(',')[1] || '';
+      if (base64Part) {
+        fs.writeFileSync(outPath, Buffer.from(base64Part, 'base64'));
+        return outPath;
+      }
+    }
+    if (item.screenshotUrl && /^https?:\/\//i.test(String(item.screenshotUrl))) {
+      const imgRes = await fetch(String(item.screenshotUrl));
+      if (imgRes.ok) {
+        const arrBuf = await imgRes.arrayBuffer();
+        fs.writeFileSync(outPath, Buffer.from(arrBuf));
+        return outPath;
+      }
+    }
+  } catch (_) {}
+  return '';
 }
 
 export async function pollIncomingSuggestionsOnce() {
@@ -45,6 +75,11 @@ export async function pollIncomingSuggestionsOnce() {
             };
           }
           if (payload && payload.text && !existingIds.has(payload.id)) {
+            if (payload.screenshotUrl || payload.screenshotDataUrl) {
+              const savedShot = await downloadOrSaveScreenshot(payload);
+              if (savedShot) payload.localScreenshotPath = savedShot;
+            }
+            delete payload.screenshotDataUrl;
             existingIds.add(payload.id);
             existing.unshift(payload);
             newlyAdded.push(payload);
@@ -62,11 +97,18 @@ export async function pollIncomingSuggestionsOnce() {
       const latest = unprocessed[0];
       copyToWindowsClipboard(latest.text);
       for (const item of unprocessed) {
+        if ((item.screenshotUrl || item.screenshotDataUrl) && !item.localScreenshotPath) {
+          const savedShot = await downloadOrSaveScreenshot(item);
+          if (savedShot) item.localScreenshotPath = savedShot;
+        }
         console.log('===================================================================');
         console.log(`🚀 [NEW_USER_SUGGESTION] ID=${item.id}`);
         console.log(`USER: ${item.accountEmail || 'patanyasin144@gmail.com'}`);
         console.log(`TIME: ${item.createdAt}`);
         console.log(`SUBMITTED_INPUT: ${item.text}`);
+        if (item.localScreenshotPath || item.screenshotUrl) {
+          console.log(`SCREENSHOT_PATH: ${item.localScreenshotPath || item.screenshotUrl}`);
+        }
         console.log('===================================================================');
       }
       if (process.argv.includes('--wakeup-on-new')) {

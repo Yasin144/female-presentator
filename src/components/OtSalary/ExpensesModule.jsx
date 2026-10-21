@@ -486,6 +486,9 @@ export default function ExpensesModule({
 
   // In-App Feature Suggestion / Request Box State (Works Online & Offline, shows Live Loading Indicator while AI works, and shows "✅ Update Completed" when done)
   const [suggestionInputText, setSuggestionInputText] = useState('');
+  const [suggestionScreenshotDataUrl, setSuggestionScreenshotDataUrl] = useState('');
+  const [suggestionScreenshotName, setSuggestionScreenshotName] = useState('');
+  const suggestionScreenshotInputRef = useRef(null);
   const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
   const [isNetworkOnline, setIsNetworkOnline] = useState(() =>
@@ -503,6 +506,77 @@ export default function ExpensesModule({
     } catch (_) {}
     return [];
   });
+
+  const handleSelectSuggestionScreenshot = useCallback((ev) => {
+    const file = ev?.target?.files?.[0];
+    if (!file) return;
+    const fileName = String(file.name || 'screenshot.jpg');
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || '');
+      if (!rawDataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 960;
+          let w = img.width || 600;
+          let h = img.height || 800;
+          if (w > maxDim || h > maxDim) {
+            if (w >= h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', 0.72);
+            setSuggestionScreenshotDataUrl(compressed);
+            setSuggestionScreenshotName(fileName);
+            return;
+          }
+        } catch (_) {}
+        setSuggestionScreenshotDataUrl(rawDataUrl);
+        setSuggestionScreenshotName(fileName);
+      };
+      img.onerror = () => {
+        setSuggestionScreenshotDataUrl(rawDataUrl);
+        setSuggestionScreenshotName(fileName);
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+    if (ev.target) ev.target.value = '';
+  }, []);
+
+  const uploadScreenshotDataUrlToRelay = useCallback(async (dataUrl, sugId) => {
+    if (!dataUrl || typeof dataUrl !== 'string') return '';
+    try {
+      const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+      const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
+      const blobRes = await fetch(dataUrl);
+      const blob = await blobRes.blob();
+      const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
+        method: 'PUT',
+        headers: {
+          Filename: `${sugId || 'screenshot'}.jpg`,
+          Title: `Screenshot for ${sugId || 'suggestion'}`,
+        },
+        body: blob,
+      });
+      if (upRes && upRes.ok) {
+        const upJson = await upRes.json();
+        return String(upJson?.attachment?.url || '');
+      }
+    } catch (_) {}
+    return '';
+  }, []);
 
   const isSuggestionCompletedHelper = useCallback((item) => {
     if (!item || typeof item !== 'object') return false;
@@ -541,6 +615,16 @@ export default function ExpensesModule({
         const item = nextList[i];
         if (item && item.deliveredOnline === false && !isSuggestionCompletedHelper(item)) {
           try {
+            let uploadedScreenshotUrl = item.screenshotUrl || '';
+            if (!uploadedScreenshotUrl && item.screenshotDataUrl) {
+              uploadedScreenshotUrl = await uploadScreenshotDataUrlToRelay(item.screenshotDataUrl, item.id);
+            }
+            const relayBodyObj = {
+              ...item,
+              screenshotUrl: uploadedScreenshotUrl,
+              hasScreenshot: Boolean(uploadedScreenshotUrl || item.screenshotDataUrl),
+            };
+            delete relayBodyObj.screenshotDataUrl;
             const res = await fetch(`${relayHost}/${relayTopic}`, {
               method: 'POST',
               headers: {
@@ -548,11 +632,12 @@ export default function ExpensesModule({
                 Priority: 'high',
                 Tags: 'bulb,rocket',
               },
-              body: JSON.stringify(item),
+              body: JSON.stringify(relayBodyObj),
             });
             if (res && res.ok) {
               nextList[i] = {
                 ...item,
+                screenshotUrl: uploadedScreenshotUrl || item.screenshotUrl || '',
                 deliveredOnline: true,
                 status: 'ai_working',
               };
@@ -629,38 +714,48 @@ export default function ExpensesModule({
   const handleSubmitFeatureSuggestion = useCallback(
     async (e, customText = null) => {
       if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      const textToSend = String(customText !== null ? customText : suggestionInputText || '').trim();
-      if (!textToSend) {
-        setScanStatus('⚠️ Please write your suggestion or feature request before clicking Submit.');
+      const rawText = String(customText !== null ? customText : suggestionInputText || '').trim();
+      const attachedDataUrl = String(suggestionScreenshotDataUrl || '');
+      const attachedName = String(suggestionScreenshotName || '');
+      if (!rawText && !attachedDataUrl) {
+        setScanStatus('⚠️ Please write your suggestion or attach a screenshot before clicking Submit.');
         return;
       }
+      const textToSend = rawText || `📸 Screenshot attached (${attachedName || 'UI detail'})`;
       setSuggestionSubmitting(true);
       const nowMs = Date.now();
       let currentBuildId = '';
-      let currentVer = '7.8.9';
+      let currentVer = '8.1.4';
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           currentBuildId = window.localStorage.getItem('pattan.ota.buildId') || '';
-          currentVer = window.localStorage.getItem('pattan.ota.version') || '7.8.9';
+          currentVer = window.localStorage.getItem('pattan.ota.version') || '8.1.4';
         }
       } catch (_) {}
 
+      const newId = `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`;
       const newEntry = {
-        id: `sug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+        id: newId,
         text: textToSend,
         accountEmail: String(activeAccountEmail || 'patanyasin144@gmail.com').trim(),
         createdAt: new Date(nowMs).toISOString(),
         timestampMs: nowMs,
         submittedBuildId: currentBuildId,
         submittedVersion: currentVer,
+        hasScreenshot: Boolean(attachedDataUrl),
+        screenshotName: attachedName,
+        screenshotDataUrl: attachedDataUrl,
+        screenshotUrl: '',
         deliveredOnline: false,
         processedByAi: false,
         status: 'sending',
       };
 
-      const initialList = [newEntry, ...submittedSuggestionsList].slice(0, 30);
+      const initialList = [newEntry, ...submittedSuggestionsList].slice(0, 20);
       setSubmittedSuggestionsList(initialList);
       setSuggestionInputText('');
+      setSuggestionScreenshotDataUrl('');
+      setSuggestionScreenshotName('');
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(initialList));
@@ -671,7 +766,16 @@ export default function ExpensesModule({
       const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
       let deliveredOnline = false;
+      let uploadedScreenshotUrl = '';
+      if (attachedDataUrl) {
+        uploadedScreenshotUrl = await uploadScreenshotDataUrlToRelay(attachedDataUrl, newId);
+      }
       try {
+        const relayPayload = {
+          ...newEntry,
+          screenshotUrl: uploadedScreenshotUrl,
+        };
+        delete relayPayload.screenshotDataUrl;
         const res = await fetch(`${relayHost}/${relayTopic}`, {
           method: 'POST',
           headers: {
@@ -679,7 +783,7 @@ export default function ExpensesModule({
             Priority: 'high',
             Tags: 'bulb,rocket',
           },
-          body: JSON.stringify(newEntry),
+          body: JSON.stringify(relayPayload),
         });
         if (res && res.ok) deliveredOnline = true;
       } catch (_) {}
@@ -688,17 +792,18 @@ export default function ExpensesModule({
         const localRes = await fetch('/api/suggestions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newEntry),
+          body: JSON.stringify({ ...newEntry, screenshotUrl: uploadedScreenshotUrl }),
         });
         if (localRes && localRes.ok) deliveredOnline = true;
       } catch (_) {}
 
       const finalizedEntry = {
         ...newEntry,
+        screenshotUrl: uploadedScreenshotUrl,
         deliveredOnline,
         status: deliveredOnline ? 'ai_working' : 'queued_offline',
       };
-      const updatedList = [finalizedEntry, ...submittedSuggestionsList].slice(0, 30);
+      const updatedList = [finalizedEntry, ...submittedSuggestionsList].slice(0, 20);
       setSubmittedSuggestionsList(updatedList);
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -713,7 +818,7 @@ export default function ExpensesModule({
           : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
       );
     },
-    [suggestionInputText, activeAccountEmail, submittedSuggestionsList]
+    [suggestionInputText, suggestionScreenshotDataUrl, suggestionScreenshotName, uploadScreenshotDataUrlToRelay, activeAccountEmail, submittedSuggestionsList]
   );
 
   const persistBankBalance = useCallback(
@@ -3322,7 +3427,7 @@ export default function ExpensesModule({
                   +₹{formatINR(periodSummary.received)}
                 </div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
-                  Last Day Spent: ₹{formatINRShort(analytics.yesterdaySpent || 0)}
+                  {periodSummary.label}
                 </div>
               </div>
 
@@ -3467,7 +3572,7 @@ export default function ExpensesModule({
               onChange={(e) => setSuggestionInputText(e.target.value)}
               placeholder="Write what you want changed or added..."
               style={{
-                flex: '1 1 200px',
+                flex: '1 1 180px',
                 padding: '9px 12px',
                 borderRadius: 10,
                 border: `1px solid ${palette.borderStrong}`,
@@ -3478,6 +3583,39 @@ export default function ExpensesModule({
                 outline: 'none',
               }}
             />
+            <input
+              ref={suggestionScreenshotInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleSelectSuggestionScreenshot}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => suggestionScreenshotInputRef.current?.click()}
+              style={{
+                padding: '9px 12px',
+                borderRadius: 10,
+                border: suggestionScreenshotDataUrl
+                  ? '1.5px solid #10b981'
+                  : `1px solid ${palette.border}`,
+                background: suggestionScreenshotDataUrl
+                  ? 'rgba(16, 185, 129, 0.14)'
+                  : palette.surfaceAlt,
+                color: suggestionScreenshotDataUrl ? '#10b981' : palette.textSub,
+                fontWeight: 800,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                whiteSpace: 'nowrap',
+              }}
+              title="Attach a screenshot for detailed info"
+            >
+              <span>📷</span>
+              <span>{suggestionScreenshotDataUrl ? 'Screenshot Added ✓' : 'Add Screenshot'}</span>
+            </button>
             <button
               type="submit"
               disabled={suggestionSubmitting}
@@ -3497,6 +3635,62 @@ export default function ExpensesModule({
             </button>
           </div>
 
+          {suggestionScreenshotDataUrl && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              padding: '8px 10px',
+              borderRadius: 10,
+              background: palette.surfaceAlt,
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <img
+                  src={suggestionScreenshotDataUrl}
+                  alt="Attached screenshot preview"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    objectFit: 'cover',
+                    borderRadius: 8,
+                    border: `1px solid ${palette.border}`,
+                    flexShrink: 0,
+                  }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    📸 {suggestionScreenshotName || 'Screenshot attached'}
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
+                    Will be sent to AI with your message for exact visual fix
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuggestionScreenshotDataUrl('');
+                  setSuggestionScreenshotName('');
+                }}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 8,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.debit,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                ✕ Remove
+              </button>
+            </div>
+          )}
+
           {submittedSuggestionsList.slice(0, 2).map((item) => {
             const isDone = isSuggestionCompletedHelper(item);
             return (
@@ -3515,9 +3709,25 @@ export default function ExpensesModule({
                   color: palette.text,
                 }}
               >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                  {item.text}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                  {(item.screenshotDataUrl || item.screenshotUrl) && (
+                    <img
+                      src={item.screenshotDataUrl || item.screenshotUrl}
+                      alt="Screenshot"
+                      style={{
+                        width: 24,
+                        height: 24,
+                        objectFit: 'cover',
+                        borderRadius: 5,
+                        border: `1px solid ${palette.border}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {item.text}
+                  </span>
+                </div>
                 <span style={{
                   padding: '2px 8px',
                   borderRadius: 999,
