@@ -1110,6 +1110,35 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes('availableOtaUpdate'), true);
       assert.equal(otSalarySrc.includes('New Update Available'), true);
     });
+
+    it('declares showProfileModal before goBackStep (no TDZ crash), shows Build Version at the end of the app, and includes AI Submit Help on the Launch-Failed screen (v8.2.5)', () => {
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      const androidLauncherSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/AndroidLauncher.jsx'),
+        'utf8'
+      );
+
+      // 1. Verify showProfileModal state declaration appears strictly BEFORE goBackStep (prevents TDZ ReferenceError on launch)
+      const declIdx = otSalarySrc.indexOf('const [showProfileModal, setShowProfileModal] = useState(false);');
+      const goBackIdx = otSalarySrc.indexOf('const goBackStep = useCallback(');
+      assert.equal(declIdx > 0, true);
+      assert.equal(goBackIdx > declIdx, true);
+
+      // 2. Verify End-of-App Build Version Footer & AI Submit Help button at the end of OtSalary.jsx
+      assert.equal(otSalarySrc.includes('END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER'), true);
+      assert.equal(otSalarySrc.includes('Build Version: v{liveOtaVersion}'), true);
+      assert.equal(otSalarySrc.includes('🆘 AI Submit / Reach Out Help'), true);
+
+      // 3. Verify Launch-Failed / Crash Recovery Screen in AndroidLauncher.jsx shows Build Version and AI Submit to Reach Out Help
+      assert.equal(androidLauncherSrc.includes('getActiveBuildMetadata'), true);
+      assert.equal(androidLauncherSrc.includes('submitCrashToAiHelp'), true);
+      assert.equal(androidLauncherSrc.includes('🆘 AI Submit — Reach Out for Instant Fix'), true);
+      assert.equal(androidLauncherSrc.includes('🚀 Submit to AI Help Now'), true);
+      assert.equal(androidLauncherSrc.includes('Build Version: v{version}'), true);
+    });
   });
 });
 

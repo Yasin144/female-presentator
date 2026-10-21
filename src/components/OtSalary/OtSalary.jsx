@@ -1600,6 +1600,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
 
+  // My Profile & Change Name state (declared above goBackStep to prevent TDZ ReferenceError)
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [customProfileName, setCustomProfileName] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_custom_profile_name_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileRoleText, setProfileRoleText] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_custom_profile_role_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileAvatarDataUrl, setProfileAvatarDataUrl] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_profile_avatar_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [profileNameInput, setProfileNameInput] = useState('');
+  const [profileRoleInput, setProfileRoleInput] = useState('');
+  const profilePhotoInputRef = useRef(null);
+
   // Biometric Lock Gate for Expense Memory (requires permission every time user shifts to Expenses)
   const [expensesBiometricUnlocked, setExpensesBiometricUnlocked] = useState(false);
   const [expensesUnlockBusy, setExpensesUnlockBusy] = useState(false);
@@ -2303,37 +2330,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.4';
+      return localStorage.getItem('pattan.ota.version') || '8.2.5';
     } catch (_) {
-      return '8.2.4';
+      return '8.2.5';
     }
   });
-
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [customProfileName, setCustomProfileName] = useState(() => {
+  const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
     try {
-      return localStorage.getItem('yasin_custom_profile_name_v1') || '';
+      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
+        const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
+        if (st.buildId) return st.buildId;
+      }
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_5_end_build_version_and_crash_ai_help';
     } catch (_) {
-      return '';
+      return 'ota_8_2_5_end_build_version_and_crash_ai_help';
     }
   });
-  const [profileRoleText, setProfileRoleText] = useState(() => {
-    try {
-      return localStorage.getItem('yasin_custom_profile_role_v1') || '';
-    } catch (_) {
-      return '';
-    }
-  });
-  const [profileAvatarDataUrl, setProfileAvatarDataUrl] = useState(() => {
-    try {
-      return localStorage.getItem('yasin_profile_avatar_v1') || '';
-    } catch (_) {
-      return '';
-    }
-  });
-  const [profileNameInput, setProfileNameInput] = useState('');
-  const [profileRoleInput, setProfileRoleInput] = useState('');
-  const profilePhotoInputRef = useRef(null);
 
   const displayProfileName = useMemo(() => {
     const cleanCustom = String(customProfileName || '').trim();
@@ -2947,6 +2959,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           localStorage.setItem('pattan.ota.version', String(manifest.version || '7.8.5'));
         } catch (_) {}
         setLiveOtaVersion(String(manifest.version || '7.8.5'));
+        setLiveOtaBuildId(String(manifest.buildId || ''));
         setAvailableOtaUpdate(null);
 
         if (hasNewBuild || isManualTap) {
@@ -9361,6 +9374,118 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
+        {/* END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER */}
+        <div
+          className="ot-no-print stitch-screen-card"
+          style={{
+            marginTop: 14,
+            marginBottom: 8,
+            padding: '12px 14px',
+            borderRadius: 16,
+            background: isLight
+              ? 'rgba(241, 245, 249, 0.92)'
+              : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(17, 24, 39, 0.92) 100%)',
+            border: `1px solid ${ui.border}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: 999,
+                background: '#10b981',
+                boxShadow: '0 0 8px #10b981',
+                flexShrink: 0,
+              }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 900,
+                  color: ui.textPrimary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span>Build Version: v{liveOtaVersion}</span>
+                <span
+                  style={{
+                    padding: '1px 7px',
+                    borderRadius: 999,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    background: 'rgba(16, 185, 129, 0.16)',
+                    border: '1px solid rgba(16, 185, 129, 0.45)',
+                    color: '#10b981',
+                  }}
+                >
+                  LIVE OTA
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: ui.textSecondary,
+                  fontWeight: 600,
+                  marginTop: 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 220,
+                }}
+                title={liveOtaBuildId}
+              >
+                ID: {liveOtaBuildId || `ota_${String(liveOtaVersion).replace(/\./g, '_')}`}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => checkAndApplyLiveOtaUpdate(true)}
+              disabled={otaBusy}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 10,
+                border: `1px solid ${ui.border}`,
+                background: ui.cardSubBg,
+                color: ui.textPrimary,
+                fontWeight: 800,
+                fontSize: 11,
+                cursor: otaBusy ? 'wait' : 'pointer',
+              }}
+            >
+              {otaBusy ? '⏳ Checking...' : '🔄 Check Update'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowGlobalSuggestionModal(true)}
+              style={{
+                padding: '6px 11px',
+                borderRadius: 10,
+                border: '1px solid rgba(99, 102, 241, 0.5)',
+                background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 11,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.28)',
+              }}
+            >
+              🆘 AI Submit / Reach Out Help
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* V8.2 GOOGLE STITCH FLOATING FROSTED GLASS BOTTOM NAVIGATION DOCK */}

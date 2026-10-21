@@ -8,10 +8,42 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
   window.workspaceSection = 'today';
 }
 
+function getActiveBuildMetadata() {
+  let version = '8.2.5';
+  let buildId = 'ota_8_2_5_end_build_version_and_crash_ai_help';
+  try {
+    if (
+      typeof window !== 'undefined' &&
+      window.PattanBiometric &&
+      typeof window.PattanBiometric.getLiveOtaStatusJson === 'function'
+    ) {
+      const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
+      if (st.version) version = String(st.version);
+      if (st.buildId) buildId = String(st.buildId);
+    }
+    const lsVer = localStorage.getItem('pattan.ota.version');
+    const lsBid = localStorage.getItem('pattan.ota.buildId');
+    if (lsVer) version = lsVer;
+    if (lsBid) buildId = lsBid;
+  } catch (_) {}
+  return { version, buildId };
+}
+
 class MobileOtErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, healStatus: '' };
+    this.state = {
+      hasError: false,
+      error: null,
+      healStatus: '',
+      aiHelpMessage: '',
+      aiHelpScreenshotDataUrl: '',
+      aiHelpScreenshotName: '',
+      aiHelpSending: false,
+      aiHelpSubmitted: false,
+      aiHelpStatusText: '',
+    };
+    this.hotfixPollTimer = null;
   }
   static getDerivedStateFromError(error) {
     if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefined') {
@@ -24,92 +56,285 @@ class MobileOtErrorBoundary extends React.Component {
     if (typeof window !== 'undefined') {
       window.workspaceSection = 'today';
     }
-    this.tryAutoHealFromRemoteOta();
+    this.tryAutoHealFromRemoteOta(false);
+    this.startLiveHotfixPolling();
   }
-  async tryAutoHealFromRemoteOta() {
+  componentWillUnmount() {
+    if (this.hotfixPollTimer) {
+      clearInterval(this.hotfixPollTimer);
+      this.hotfixPollTimer = null;
+    }
+  }
+  startLiveHotfixPolling() {
+    if (this.hotfixPollTimer) return;
+    this.hotfixPollTimer = setInterval(() => {
+      if (this.state.hasError) {
+        this.tryAutoHealFromRemoteOta(false, true);
+      }
+    }, 5000);
+  }
+  async tryAutoHealFromRemoteOta(forceInstall = false, isSilentPoll = false) {
     try {
-      this.setState({ healStatus: 'Downloading live hotfix from GitHub...' });
+      if (!isSilentPoll) {
+        this.setState({ healStatus: 'Checking GitHub for live OTA hotfix...' });
+      }
+      const { version: currentVer, buildId: currentBuildId } = getActiveBuildMetadata();
       const ts = Date.now();
-      const base = 'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota';
-      const mRes = await fetch(`${base}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
-      if (mRes.ok) {
-        const manifest = await mRes.json();
+      const bases = [
+        'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota',
+        'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota',
+      ];
+      let manifest = null;
+      let activeBase = bases[0];
+      for (const b of bases) {
+        try {
+          const mRes = await fetch(`${b}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          if (mRes.ok) {
+            manifest = await mRes.json();
+            activeBase = b;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (manifest) {
+        const remoteVer = String(manifest.version || '8.2.5');
+        const remoteBuildId = String(manifest.buildId || '');
+        const isNewerOrDifferent =
+          forceInstall ||
+          (remoteBuildId && remoteBuildId !== currentBuildId) ||
+          (remoteVer && remoteVer !== currentVer);
+
+        if (!isNewerOrDifferent) {
+          if (!isSilentPoll) {
+            this.setState({
+              healStatus: `Current build v${currentVer} had a launch error. Submit to AI Help below or tap Force Reinstall OTA.`,
+            });
+          }
+          return;
+        }
+
+        this.setState({ healStatus: `Downloading hotfix v${remoteVer} from GitHub...` });
         const [jsRes, cssRes] = await Promise.all([
-          fetch(`${base}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
-          fetch(`${base}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
+          fetch(`${activeBase}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
+          fetch(`${activeBase}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
         ]);
         if (jsRes.ok) {
           const jsText = await jsRes.text();
           const cssText = cssRes.ok ? await cssRes.text() : '';
-          if (jsText && jsText.length > 1000 && window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
-            window.PattanBiometric.saveLiveOtaBundle(
-              String(manifest.version || '8.1.1'),
-              String(manifest.buildId || ''),
-              jsText,
-              cssText
-            );
-            localStorage.setItem('pattan.ota.version', String(manifest.version || '8.1.1'));
-            localStorage.setItem('pattan.ota.buildId', String(manifest.buildId || ''));
-            this.setState({ healStatus: `Installed hotfix v${manifest.version}! Reloading...` });
+          if (jsText && jsText.length > 1000) {
+            if (window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
+              window.PattanBiometric.saveLiveOtaBundle(remoteVer, remoteBuildId, jsText, cssText);
+            }
+            try {
+              localStorage.setItem('pattan.ota.version', remoteVer);
+              localStorage.setItem('pattan.ota.buildId', remoteBuildId);
+            } catch (_) {}
+            this.setState({ healStatus: `✅ Installed hotfix v${remoteVer}! Reloading app...` });
             setTimeout(() => window.location.reload(), 250);
             return;
           }
         }
       }
     } catch (_) {}
-    this.setState({ healStatus: '' });
+    if (!isSilentPoll) {
+      this.setState({ healStatus: '' });
+    }
   }
+  handleSelectCrashScreenshot = (ev) => {
+    const file = ev?.target?.files?.[0];
+    if (!file) return;
+    const fileName = String(file.name || 'crash-screenshot.jpg');
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || '');
+      if (rawDataUrl) {
+        this.setState({
+          aiHelpScreenshotDataUrl: rawDataUrl,
+          aiHelpScreenshotName: fileName,
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+  submitCrashToAiHelp = async (ev) => {
+    if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+    if (this.state.aiHelpSending) return;
+    const { version, buildId } = getActiveBuildMetadata();
+    const errText = String(this.state.error?.message || this.state.error || 'App Launch Failed');
+    const stackText = String(this.state.error?.stack || '').slice(0, 500);
+    const userNote = String(this.state.aiHelpMessage || '').trim();
+    const combinedText = userNote
+      ? `[CRASH REPORT v${version} (${buildId})] User Note: ${userNote} | Error: ${errText} | Stack: ${stackText}`
+      : `[CRASH REPORT v${version} (${buildId})] Build/App Launch Failed: ${errText} | Stack: ${stackText}`;
+
+    this.setState({
+      aiHelpSending: true,
+      aiHelpStatusText: '📡 Sending crash report & build details to AI Help...',
+    });
+
+    const nowMs = Date.now();
+    const sugId = `crash_${nowMs}_${Math.random().toString(36).slice(2, 6)}`;
+    const payload = {
+      id: sugId,
+      text: combinedText,
+      accountEmail: 'patanyasin144@gmail.com',
+      version,
+      buildId,
+      isCrashReport: true,
+      errorMessage: errText,
+      createdAt: new Date(nowMs).toISOString(),
+      timestampMs: nowMs,
+      hasScreenshot: Boolean(this.state.aiHelpScreenshotDataUrl),
+      screenshotName: this.state.aiHelpScreenshotName || '',
+      screenshotUrl: '',
+      deliveredOnline: false,
+      processedByAi: false,
+      status: 'sending',
+    };
+
+    const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+    const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+    const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
+    let deliveredOnline = false;
+    let uploadedScreenshotUrl = '';
+
+    if (this.state.aiHelpScreenshotDataUrl) {
+      try {
+        const blobRes = await fetch(this.state.aiHelpScreenshotDataUrl);
+        const blob = await blobRes.blob();
+        const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
+          method: 'PUT',
+          headers: {
+            Filename: `${sugId}.jpg`,
+            Title: `Crash Screenshot for ${sugId}`,
+          },
+          body: blob,
+        });
+        if (upRes && upRes.ok) {
+          const upJson = await upRes.json();
+          uploadedScreenshotUrl = String(upJson?.attachment?.url || '');
+        }
+      } catch (_) {}
+    }
+
+    try {
+      const relayPayload = {
+        ...payload,
+        screenshotUrl: uploadedScreenshotUrl,
+      };
+      const res = await fetch(`${relayHost}/${relayTopic}`, {
+        method: 'POST',
+        headers: {
+          Title: `URGENT CRASH REPORT v${version} (patanyasin144@gmail.com)`,
+          Priority: 'urgent',
+          Tags: 'rotating_light,sos',
+        },
+        body: JSON.stringify(relayPayload),
+      });
+      if (res && res.ok) deliveredOnline = true;
+    } catch (_) {}
+
+    try {
+      const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+      const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
+      const nextArr = [
+        { ...payload, screenshotUrl: uploadedScreenshotUrl, deliveredOnline, status: deliveredOnline ? 'ai_working' : 'queued_offline' },
+        ...(Array.isArray(existingArr) ? existingArr : []),
+      ].slice(0, 20);
+      localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
+    } catch (_) {}
+
+    this.setState({
+      aiHelpSending: false,
+      aiHelpSubmitted: true,
+      aiHelpMessage: '',
+      aiHelpStatusText: deliveredOnline
+        ? '✅ Sent to AI Help! AI is fixing this build now — your phone will auto-install the fix as soon as it is ready.'
+        : '📡 Saved Crash Report! Will auto-send & install OTA fix as soon as internet connects.',
+    });
+    this.startLiveHotfixPolling();
+  };
   render() {
     if (this.state.hasError) {
+      const { version, buildId } = getActiveBuildMetadata();
+      const errMsg = String(this.state.error?.message || this.state.error || 'Unexpected launch error');
       return (
         <div style={{
           minHeight: '100vh',
           background: '#070b16',
           color: '#f8fafc',
-          padding: 24,
+          padding: 18,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          textAlign: 'center',
+          boxSizing: 'border-box',
         }}>
           <div style={{
+            width: '100%',
             maxWidth: 460,
-            padding: 24,
-            borderRadius: 18,
+            padding: 20,
+            borderRadius: 20,
             background: '#0f172a',
-            border: '1px solid rgba(248, 113, 113, 0.45)',
+            border: '1.5px solid rgba(248, 113, 113, 0.5)',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.7)',
+            textAlign: 'left',
           }}>
-            <h2 style={{ margin: '0 0 8px', color: '#fca5a5', fontSize: 18 }}>
-              ⚠️ OT &amp; Salary Mobile App Recovery
-            </h2>
-            <p style={{ margin: '0 0 14px', fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>
-              {String(this.state.error?.message || this.state.error || 'Unexpected error')}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, color: '#fca5a5', fontSize: 17, fontWeight: 900 }}>
+                ⚠️ App Launch Failed — Recovery &amp; AI Help
+              </h2>
+              <span style={{
+                padding: '3px 9px',
+                borderRadius: 999,
+                background: 'rgba(56, 189, 248, 0.16)',
+                border: '1px solid rgba(56, 189, 248, 0.45)',
+                color: '#38bdf8',
+                fontSize: 11,
+                fontWeight: 900,
+              }}>
+                Build v{version}
+              </span>
+            </div>
+
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: 'rgba(244, 63, 94, 0.12)',
+              border: '1px solid rgba(244, 63, 94, 0.35)',
+              color: '#fecdd3',
+              fontSize: 12,
+              lineHeight: 1.45,
+              marginBottom: 12,
+              wordBreak: 'break-word',
+            }}>
+              <strong>Error Details:</strong> {errMsg}
+            </div>
+
             {this.state.healStatus && (
-              <p style={{ margin: '0 0 12px', fontSize: 12, color: '#34d399', fontWeight: 700 }}>
+              <p style={{ margin: '0 0 12px', fontSize: 12, color: '#34d399', fontWeight: 800 }}>
                 {this.state.healStatus}
               </p>
             )}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+
+            {/* Quick Recovery Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
               <button
                 type="button"
-                onClick={() => {
-                  if (typeof window !== 'undefined') window.workspaceSection = 'today';
-                  this.setState({ hasError: false, error: null });
-                }}
+                onClick={() => this.tryAutoHealFromRemoteOta(true, false)}
                 style={{
-                  padding: '10px 16px',
-                  borderRadius: 10,
+                  padding: '10px 12px',
+                  borderRadius: 11,
                   border: '1px solid #34d399',
-                  background: '#059669',
+                  background: 'linear-gradient(135deg, #059669, #10b981)',
                   color: '#fff',
-                  fontWeight: 800,
+                  fontWeight: 900,
+                  fontSize: 12,
                   cursor: 'pointer',
                 }}
               >
-                🔄 Retry OT App
+                ⚡ Install Latest OTA Fix
               </button>
               <button
                 type="button"
@@ -123,17 +348,128 @@ class MobileOtErrorBoundary extends React.Component {
                   window.location.reload();
                 }}
                 style={{
-                  padding: '10px 16px',
-                  borderRadius: 10,
+                  padding: '10px 12px',
+                  borderRadius: 11,
                   border: '1px solid rgba(56, 189, 248, 0.5)',
                   background: '#0284c7',
                   color: '#fff',
-                  fontWeight: 800,
+                  fontWeight: 900,
+                  fontSize: 12,
                   cursor: 'pointer',
                 }}
               >
-                🔁 Reload &amp; Fix App
+                🔁 Reset to Safe Build
               </button>
+            </div>
+
+            {/* 🆘 AI SUBMIT TO REACH OUT HELP SECTION ON LAUNCH FAILED SCREEN */}
+            <form
+              onSubmit={this.submitCrashToAiHelp}
+              style={{
+                padding: 14,
+                borderRadius: 15,
+                background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.16), rgba(14, 165, 233, 0.14))',
+                border: '1.5px solid rgba(99, 102, 241, 0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 9,
+              }}
+            >
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: '#e0e7ff' }}>
+                🆘 AI Submit — Reach Out for Instant Fix
+              </div>
+              <div style={{ fontSize: 11.5, color: '#cbd5e1', lineHeight: 1.4 }}>
+                Send this launch error (Build v{version}) directly to your AI assistant so it can fix the bug and push an automatic OTA update to your phone:
+              </div>
+              <textarea
+                rows={2}
+                value={this.state.aiHelpMessage}
+                onChange={(e) => this.setState({ aiHelpMessage: e.target.value })}
+                placeholder="Optional note (e.g. 'App crashed on launch after update — please fix')"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '9px 11px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: '#070b16',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{
+                  padding: '8px 11px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  color: '#e2e8f0',
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}>
+                  📷 {this.state.aiHelpScreenshotName ? 'Screenshot Added ✓' : 'Attach Screenshot'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={this.handleSelectCrashScreenshot}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={this.state.aiHelpSending}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #4f46e5, #0284c7)',
+                    color: '#fff',
+                    fontWeight: 900,
+                    fontSize: 12.5,
+                    cursor: this.state.aiHelpSending ? 'wait' : 'pointer',
+                    boxShadow: '0 8px 20px rgba(79, 70, 229, 0.4)',
+                  }}
+                >
+                  {this.state.aiHelpSending ? '⏳ Sending to AI...' : '🚀 Submit to AI Help Now'}
+                </button>
+              </div>
+              {this.state.aiHelpStatusText && (
+                <div style={{
+                  marginTop: 4,
+                  padding: '8px 10px',
+                  borderRadius: 9,
+                  background: 'rgba(16, 185, 129, 0.16)',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  color: '#6ee7b7',
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  lineHeight: 1.4,
+                }}>
+                  {this.state.aiHelpStatusText}
+                </div>
+              )}
+            </form>
+
+            {/* End of Recovery Screen Build Version Footer */}
+            <div style={{
+              marginTop: 14,
+              paddingTop: 10,
+              borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: 11,
+              color: '#94a3b8',
+              fontWeight: 700,
+              flexWrap: 'wrap',
+              gap: 6,
+            }}>
+              <span>Build Version: v{version}</span>
+              <span>ID: {buildId}</span>
             </div>
           </div>
         </div>
