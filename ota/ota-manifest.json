@@ -1,8 +1,8 @@
 {
-  "version": "8.1.4",
-  "cssFile": "app-bundle.css",
-  "buildId": "ota_8_1_4_1792561000",
-  "notes": "v8.1.4: Added Screenshot Attachment support (with live preview, compression, and offline queue sync) in Suggestion Boxes for detailed bug/feature info, and removed Last Day Spent from the Received · In tile.",
+  "version": "8.2.0",
+  "buildId": "ota_8_2_0_1792566000",
+  "releasedAt": "2026-10-21T12:22:00+05:30",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-21T05:15:00Z"
+  "cssFile": "app-bundle.css",
+  "notes": "v8.2.0: Google Stitch Signature Edition (Project 13519284942366029207) — Connected to https://stitch.googleapis.com/mcp with in-app ✨ Stitch UI Studio, 4 Signature Glassmorphic Bento Themes (Obsidian Aurora, Emerald Neo-Vault, Royal Amethyst, Alabaster Daylight), Virtual Metallic Main Account Balance Card, and Glowing Bento Summary Tiles."
 }

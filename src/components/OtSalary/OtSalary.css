@@ -1,11 +1,14 @@
 /* ============================================================================
-   OT & SALARY PRO · FLUTTER MATERIAL 3 (M3) NATIVE MOBILE ENGINE (v7.7)
+   OT & SALARY PRO · GOOGLE STITCH SIGNATURE DESIGN SYSTEM (v8.2.0)
+   Connected Project: https://stitch.withgoogle.com/projects/13519284942366029207
    ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap');
 
 @keyframes flutterPageEnter {
   0% {
     opacity: 0;
-    transform: translateY(8px) scale(0.992);
+    transform: translateY(10px) scale(0.99);
   }
   100% {
     opacity: 1;
@@ -24,13 +27,22 @@
 
 @keyframes otLivePulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.72);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
   }
   100% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes stitchAuroraFloat {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }
 
@@ -41,7 +53,8 @@
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   position: relative;
-  font-family: 'Roboto', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 .ot-pro-shell input,
@@ -59,65 +72,91 @@
 .ot-pro-shell select:focus {
   outline: none;
   border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.24) !important;
 }
 
-/* Flutter M3 InkWell / Spring Button Physics */
+/* Google Stitch Spring Button Physics */
 .ot-pro-shell button {
   font-family: inherit;
   position: relative;
   overflow: hidden;
-  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
-              box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1),
-              background-color 0.2s cubic-bezier(0.2, 0, 0, 1),
-              border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 0.2s ease,
+              border-color 0.2s ease,
               filter 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
 .ot-pro-shell button:active:not(:disabled) {
-  transform: scale(0.968);
-  filter: brightness(1.06);
+  transform: scale(0.965);
+  filter: brightness(1.08);
 }
 
-/* Flutter Material 3 Elevated Surface Card */
+/* Stitch Glassmorphic Bento Surface Card */
 .ot-hero-vault-card,
-.flutter-m3-card {
+.flutter-m3-card,
+.stitch-bento-card {
   position: relative;
   overflow: hidden;
-  animation: flutterPageEnter 0.28s cubic-bezier(0.2, 0, 0, 1);
-  box-shadow: 0 10px 28px -6px rgba(2, 6, 23, 0.55),
-              inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1),
-              box-shadow 0.22s cubic-bezier(0.2, 0, 0, 1);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: flutterPageEnter 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 14px 34px -8px rgba(2, 6, 23, 0.55),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.22s ease;
 }
 
-/* Flutter Material 3 Action Chip / Quick Button */
+/* Stitch Virtual Metallic Bank Card Effect */
+.stitch-bank-hero-card {
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 18px 40px -10px rgba(16, 185, 129, 0.22),
+              0 10px 28px -8px rgba(37, 99, 235, 0.25),
+              inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.stitch-bank-hero-card::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -15%;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.22) 0%, rgba(59, 130, 246, 0.08) 55%, transparent 75%);
+  pointer-events: none;
+}
+
+/* Stitch Action Chip / Quick Button */
 .flutter-m3-action-chip {
   position: relative;
   border-radius: 16px;
-  background: rgba(30, 41, 59, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 4px 12px rgba(2, 6, 23, 0.28);
-  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-              background-color 0.18s cubic-bezier(0.2, 0, 0, 1),
-              border-color 0.18s cubic-bezier(0.2, 0, 0, 1);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 16px -4px rgba(2, 6, 23, 0.32),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 0.18s ease,
+              border-color 0.18s ease;
 }
 
 .flutter-m3-action-chip:active {
   transform: scale(0.95);
-  background: rgba(99, 102, 241, 0.18);
-  border-color: rgba(99, 102, 241, 0.45);
 }
 
-/* Flutter Material 3 ListTile Transaction Card */
+/* Stitch ListTile Transaction Card */
 .flutter-m3-list-tile {
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.32);
-  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
-              border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
-              background-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 6px 18px -4px rgba(2, 6, 23, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.2s ease,
+              background-color 0.2s ease;
 }
 
 .flutter-m3-list-tile:active {
@@ -129,8 +168,8 @@
 .ot-biometric-pad-out {
   position: relative;
   overflow: hidden;
-  box-shadow: 0 10px 24px -6px rgba(2, 6, 23, 0.55),
-              inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  box-shadow: 0 12px 28px -6px rgba(2, 6, 23, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
 }
 
 .ot-biometric-pad-in::after,
@@ -141,7 +180,7 @@
   left: 0;
   width: 48%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
   animation: flutterSoftShimmer 5.5s ease-in-out infinite;
   pointer-events: none;
 }

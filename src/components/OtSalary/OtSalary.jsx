@@ -1620,20 +1620,122 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const [themeMode, setThemeMode] = useState(() => {
     try {
-      const saved = localStorage.getItem('pattan.ot.themeMode.v8');
+      const saved = localStorage.getItem('pattan.ot.themeMode.v8.2');
       if (saved === 'dark' || saved === 'light') return saved;
-      return 'light';
+      return 'dark';
     } catch (_) {
-      return 'light';
+      return 'dark';
     }
   });
+  const [stitchPreset, setStitchPreset] = useState(() => {
+    try {
+      const saved = localStorage.getItem('yasin_stitch_design_preset_v1');
+      if (
+        saved === 'stitch-aurora' ||
+        saved === 'stitch-cyber-emerald' ||
+        saved === 'stitch-royal-amethyst' ||
+        saved === 'stitch-alabaster-pro'
+      ) {
+        return saved;
+      }
+      return 'stitch-aurora';
+    } catch (_) {
+      return 'stitch-aurora';
+    }
+  });
+  const [showStitchStudioModal, setShowStitchStudioModal] = useState(false);
+  const [stitchApiKeyInput, setStitchApiKeyInput] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_stitch_api_key_v1') || '';
+    } catch (_) {
+      return '';
+    }
+  });
+  const [stitchSyncBusy, setStitchSyncBusy] = useState(false);
+  const [stitchSyncNotice, setStitchSyncNotice] = useState('');
+  const [stitchRemoteScreens, setStitchRemoteScreens] = useState([]);
+
+  const selectStitchPreset = useCallback((presetId) => {
+    setStitchPreset(presetId);
+    try {
+      localStorage.setItem('yasin_stitch_design_preset_v1', presetId);
+    } catch (_) {}
+    const nextMode = presetId === 'stitch-alabaster-pro' ? 'light' : 'dark';
+    setThemeMode(nextMode);
+    try {
+      localStorage.setItem('pattan.ot.themeMode.v8.2', nextMode);
+    } catch (_) {}
+  }, []);
+
+  const syncGoogleStitchProject = useCallback(async () => {
+    const cleanKey = String(stitchApiKeyInput || '').trim();
+    try {
+      if (cleanKey) {
+        localStorage.setItem('yasin_stitch_api_key_v1', cleanKey);
+      }
+    } catch (_) {}
+    if (!cleanKey) {
+      setStitchSyncNotice(
+        '✨ Project 13519284942366029207 Design System active! Paste your Google Stitch API Key above to pull live screens via MCP.'
+      );
+      return;
+    }
+    setStitchSyncBusy(true);
+    setStitchSyncNotice('⏳ Connecting to https://stitch.googleapis.com/mcp (Project 13519284942366029207)...');
+    try {
+      const res = await fetch('https://stitch.googleapis.com/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Goog-Api-Key': cleanKey,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/call',
+          params: {
+            name: 'list_screens',
+            arguments: { projectId: '13519284942366029207' },
+          },
+        }),
+      });
+      const json = await res.json();
+      if (json?.error) {
+        setStitchSyncNotice(`⚠️ Stitch MCP response: ${json.error.message || 'Check API Key'}`);
+      } else {
+        const textContent = json?.result?.content?.[0]?.text || '';
+        let parsedScreens = [];
+        try {
+          const parsed = JSON.parse(textContent);
+          parsedScreens = Array.isArray(parsed?.screens) ? parsed.screens : [];
+        } catch (_) {}
+        setStitchRemoteScreens(parsedScreens);
+        setStitchSyncNotice(
+          `✅ Connected to Google Stitch Project 13519284942366029207 (${parsedScreens.length || 'Live'} screens synced)`
+        );
+      }
+    } catch (err) {
+      setStitchSyncNotice(`⚠️ Could not reach Stitch MCP: ${err?.message || 'Network/CORS'}`);
+    } finally {
+      setStitchSyncBusy(false);
+    }
+  }, [stitchApiKeyInput]);
+
   const toggleThemeMode = useCallback(() => {
     setThemeMode((prev) => {
       const next = prev === 'light' ? 'dark' : 'light';
-      try { localStorage.setItem('pattan.ot.themeMode.v8', next); } catch (_) {}
+      try { localStorage.setItem('pattan.ot.themeMode.v8.2', next); } catch (_) {}
+      if (next === 'light') {
+        setStitchPreset('stitch-alabaster-pro');
+        try { localStorage.setItem('yasin_stitch_design_preset_v1', 'stitch-alabaster-pro'); } catch (_) {}
+      } else if (stitchPreset === 'stitch-alabaster-pro') {
+        setStitchPreset('stitch-aurora');
+        try { localStorage.setItem('yasin_stitch_design_preset_v1', 'stitch-aurora'); } catch (_) {}
+      }
       return next;
     });
-  }, []);
+  }, [stitchPreset]);
 
   // Form state for the currently selected date in the Daily Calculator card (Exit Time is empty by default!)
   const [entryStatus, setEntryStatus] = useState('present'); // 'present' | 'half' | 'holiday_paid' | 'ot_only' | 'leave'
@@ -1789,6 +1891,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
+    if (showStitchStudioModal) {
+      setShowStitchStudioModal(false);
+      return 'handled';
+    }
     if (showChangeMobileModal) {
       setShowChangeMobileModal(false);
       return 'handled';
@@ -1835,7 +1941,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showStitchStudioModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2264,9 +2370,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.1.4';
+      return localStorage.getItem('pattan.ota.version') || '8.2.0';
     } catch (_) {
-      return '8.1.4';
+      return '8.2.0';
     }
   });
 
@@ -4326,22 +4432,56 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const showMonthSection = mobileTab === 'month';
   const showSummarySection = mobileTab === 'summary';
 
-  const isLight = themeMode === 'light';
+  const isLight = themeMode === 'light' || stitchPreset === 'stitch-alabaster-pro';
+  const isEmeraldPreset = !isLight && stitchPreset === 'stitch-cyber-emerald';
+  const isAmethystPreset = !isLight && stitchPreset === 'stitch-royal-amethyst';
   const ui = {
     pageBg: isLight
-      ? '#f3f5f9'
-      : '#090d16',
+      ? '#f4f7fb'
+      : isEmeraldPreset
+        ? '#040d0a'
+        : isAmethystPreset
+          ? '#0b0716'
+          : '#060a14',
+    pageMesh: isLight
+      ? 'radial-gradient(circle at 12% 6%, rgba(99, 102, 241, 0.08) 0%, transparent 45%), radial-gradient(circle at 88% 12%, rgba(16, 185, 129, 0.07) 0%, transparent 45%), #f4f7fb'
+      : isEmeraldPreset
+        ? 'radial-gradient(circle at 14% 8%, rgba(16, 185, 129, 0.16) 0%, transparent 45%), radial-gradient(circle at 88% 16%, rgba(6, 182, 212, 0.13) 0%, transparent 48%), #040d0a'
+        : isAmethystPreset
+          ? 'radial-gradient(circle at 14% 8%, rgba(168, 85, 247, 0.18) 0%, transparent 45%), radial-gradient(circle at 88% 16%, rgba(236, 72, 153, 0.14) 0%, transparent 48%), #0b0716'
+          : 'radial-gradient(circle at 14% 8%, rgba(99, 102, 241, 0.18) 0%, transparent 46%), radial-gradient(circle at 88% 14%, rgba(14, 165, 233, 0.14) 0%, transparent 48%), radial-gradient(circle at 50% 92%, rgba(16, 185, 129, 0.10) 0%, transparent 55%), #060a14',
     cardBg: isLight
-      ? '#ffffff'
-      : '#111827',
-    cardSubBg: isLight ? '#f8fafc' : '#1e293b',
-    border: isLight ? '#e2e8f0' : 'rgba(148, 163, 184, 0.14)',
+      ? 'rgba(255, 255, 255, 0.94)'
+      : isEmeraldPreset
+        ? 'rgba(7, 24, 19, 0.84)'
+        : isAmethystPreset
+          ? 'rgba(20, 12, 38, 0.84)'
+          : 'rgba(13, 20, 36, 0.84)',
+    cardSubBg: isLight
+      ? '#f8fafc'
+      : isEmeraldPreset
+        ? 'rgba(13, 38, 30, 0.82)'
+        : isAmethystPreset
+          ? 'rgba(32, 19, 58, 0.82)'
+          : 'rgba(22, 32, 54, 0.82)',
+    border: isLight
+      ? 'rgba(203, 213, 225, 0.85)'
+      : isEmeraldPreset
+        ? 'rgba(52, 211, 153, 0.22)'
+        : isAmethystPreset
+          ? 'rgba(192, 132, 252, 0.22)'
+          : 'rgba(148, 163, 184, 0.18)',
     textPrimary: isLight ? '#0f172a' : '#f8fafc',
     textSecondary: isLight ? '#475569' : '#94a3b8',
     textMuted: isLight ? '#64748b' : '#64748b',
+    accentGrad: isEmeraldPreset
+      ? 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)'
+      : isAmethystPreset
+        ? 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)'
+        : 'linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%)',
     shadow: isLight
-      ? '0 2px 10px rgba(15, 23, 42, 0.04)'
-      : '0 8px 24px rgba(0, 0, 0, 0.45)',
+      ? '0 8px 24px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9)'
+      : '0 14px 34px rgba(2, 6, 23, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.07)',
   };
 
   const formattedMonthLabel = (() => {
@@ -4387,12 +4527,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       onTouchEnd={handleTouchEnd}
       style={{
         minHeight: '100%',
-        background: ui.pageBg,
+        background: ui.pageMesh || ui.pageBg,
         color: ui.textPrimary,
-        padding: mobileMode ? '10px 12px 104px' : '20px 24px 104px',
-        fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        padding: mobileMode ? '10px 12px 108px' : '20px 24px 108px',
+        fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         boxSizing: 'border-box',
-        transition: 'background 0.2s ease, color 0.2s ease',
+        transition: 'background 0.25s ease, color 0.2s ease',
         overflowAnchor: 'none',
       }}
     >
@@ -4707,6 +4847,32 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               >
                 <span>📱</span>
                 <span>Sync</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowStitchStudioModal(true)}
+                title="Google Stitch Project 13519284942366029207 UI Studio & Design System"
+                style={{
+                  height: 32,
+                  padding: '0 11px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(139, 92, 246, 0.48)',
+                  background: isLight
+                    ? 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)'
+                    : 'linear-gradient(135deg, rgba(79, 70, 229, 0.26) 0%, rgba(14, 165, 233, 0.22) 100%)',
+                  color: isLight ? '#4f46e5' : '#c4b5fd',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  boxShadow: isLight ? 'none' : '0 4px 12px rgba(99, 102, 241, 0.22)',
+                }}
+              >
+                <span>✨</span>
+                <span>Stitch UI</span>
               </button>
 
               <button
@@ -5684,6 +5850,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   onToggleSalaryVisibility={toggleSalaryVisibilityWithBiometric}
                   mobileMode={mobileMode}
                   themeMode={themeMode}
+                  stitchPreset={stitchPreset}
+                  onOpenStitchModal={() => setShowStitchStudioModal(true)}
                   activeAccountEmail={activeAccountEmail}
                   isOwnerAccount={isOwnerAccount}
                   isEmailLinked={isEmailLinked}
@@ -5994,24 +6162,39 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
             </div>
 
-            {/* SECTION 2: 2x2 MODERN BENTO SUMMARY GRID (Salary · OT · Today · Expenses) */}
+            {/* SECTION 2: 2x2 GOOGLE STITCH BENTO SUMMARY GRID (Salary · OT · Today · Expenses) */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               gap: 10,
             }}>
               {/* Bento Tile 1: Net Salary */}
-              <div style={{
-                padding: '14px',
-                borderRadius: 20,
-                background: ui.cardBg,
-                border: `1px solid ${ui.border}`,
-                boxShadow: ui.shadow,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                gap: 8,
-              }}>
+              <div
+                className="stitch-bento-card"
+                style={{
+                  position: 'relative',
+                  overflow: 'hidden',
+                  padding: '15px 14px',
+                  borderRadius: 22,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                  boxShadow: ui.shadow,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: 'linear-gradient(90deg, #4f46e5, #0ea5e9)',
+                  }}
+                />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
                     Net Salary
@@ -6023,24 +6206,39 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
                   <span>Base {formatSalaryMask(rates.salary)}</span>
-                  <span style={{ color: '#2563eb', fontWeight: 700 }}>
+                  <span style={{ color: isLight ? '#2563eb' : '#38bdf8', fontWeight: 700 }}>
                     Credit {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
                   </span>
                 </div>
               </div>
 
               {/* Bento Tile 2: Overtime Earned */}
-              <div style={{
-                padding: '14px',
-                borderRadius: 20,
-                background: ui.cardBg,
-                border: `1px solid ${ui.border}`,
-                boxShadow: ui.shadow,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                gap: 8,
-              }}>
+              <div
+                className="stitch-bento-card"
+                style={{
+                  position: 'relative',
+                  overflow: 'hidden',
+                  padding: '15px 14px',
+                  borderRadius: 22,
+                  background: ui.cardBg,
+                  border: `1px solid ${ui.border}`,
+                  boxShadow: ui.shadow,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: 'linear-gradient(90deg, #10b981, #34d399)',
+                  }}
+                />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
                     Overtime ({formatMinutesCompact(monthSummary.totalOtMins)})
@@ -6049,19 +6247,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     padding: '2px 7px',
                     borderRadius: 999,
                     background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.16)',
-                    color: '#059669',
+                    color: '#10b981',
                     fontSize: 10,
                     fontWeight: 800,
                   }}>
                     OT
                   </span>
                 </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: '#059669', letterSpacing: '-0.02em' }}>
+                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: isLight ? '#059669' : '#34d399', letterSpacing: '-0.02em' }}>
                   {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
                   <span>{monthSummary.savedDaysCount}/{monthRows.length} Days</span>
-                  <span style={{ color: '#d97706', fontWeight: 700 }}>
+                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>
                     Credit {creditCycles.otStartDay}–{creditCycles.otEndDay}
                   </span>
                 </div>
@@ -6069,10 +6267,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               {/* Bento Tile 3: Today's Shift & Pay */}
               <div
+                className="stitch-bento-card"
                 onClick={() => setShowManualEditor(true)}
                 style={{
-                  padding: '14px',
-                  borderRadius: 20,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  padding: '15px 14px',
+                  borderRadius: 22,
                   background: ui.cardBg,
                   border: `1px solid ${ui.border}`,
                   boxShadow: ui.shadow,
@@ -6083,12 +6284,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   cursor: 'pointer',
                 }}
               >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
+                  }}
+                />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
                     Today&apos;s Pay
                   </span>
                   {false && <span>Today&apos;s Shift &amp; Pay Breakdown</span>}
-                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#2563eb' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: isLight ? '#2563eb' : '#a78bfa' }}>
                     {formatMinutesCompact(activeDayPreview.workedMins)}
                   </span>
                 </div>
@@ -6102,10 +6313,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               {/* Bento Tile 4: Expense Memory Shortcut */}
               <div
+                className="stitch-bento-card"
                 onClick={() => navigateTab('expenses')}
                 style={{
-                  padding: '14px',
-                  borderRadius: 20,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  padding: '15px 14px',
+                  borderRadius: 22,
                   background: ui.cardBg,
                   border: `1px solid ${ui.border}`,
                   boxShadow: ui.shadow,
@@ -6116,15 +6330,25 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   cursor: 'pointer',
                 }}
               >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: 'linear-gradient(90deg, #f43f5e, #fb7185)',
+                  }}
+                />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
                     Expenses Today
                   </span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#2563eb' }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#2563eb' : '#38bdf8' }}>
                     Open Expenses →
                   </span>
                 </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 20, fontWeight: 900, color: '#e11d48' }}>
+                <div className="ot-tabular-nums" style={{ fontSize: 20, fontWeight: 900, color: isLight ? '#e11d48' : '#fb7185' }}>
                   ₹{formatINR(expenseQuickStats.todaySpent)}
                 </div>
                 <div style={{ fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
@@ -8549,7 +8773,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       </div>
 
-      {/* V8.0 FLOATING PILL BOTTOM NAVIGATION DOCK (Today | Expenses | Month | Slip | Rules) */}
+      {/* V8.2 GOOGLE STITCH FLOATING FROSTED GLASS BOTTOM NAVIGATION DOCK */}
       <div
         className="ot-no-print"
         style={{
@@ -8568,14 +8792,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           maxWidth: 460,
           pointerEvents: 'auto',
           padding: '6px',
-          borderRadius: 22,
-          background: isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(17, 24, 39, 0.96)',
-          backdropFilter: 'blur(16px)',
-          border: isLight ? '1px solid #e2e8f0' : '1px solid rgba(148, 163, 184, 0.2)',
-          boxShadow: isLight ? '0 10px 30px rgba(15, 23, 42, 0.1)' : '0 14px 36px rgba(0, 0, 0, 0.6)',
+          borderRadius: 24,
+          background: isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(11, 17, 30, 0.88)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: `1px solid ${ui.border}`,
+          boxShadow: isLight ? '0 12px 32px rgba(15, 23, 42, 0.12)' : '0 18px 42px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: 4,
+          gap: 5,
         }}>
           {[
             { id: 'today', icon: '🕒', label: 'Today', title: 'Today Punch' },
@@ -8593,11 +8818,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 onClick={() => navigateTab(nav.id)}
                 style={{
                   position: 'relative',
-                  padding: '7px 2px',
-                  borderRadius: 16,
+                  padding: '8px 2px',
+                  borderRadius: 18,
                   border: 'none',
                   background: active
-                    ? '#2563eb'
+                    ? ui.accentGrad
                     : 'transparent',
                   color: active ? '#ffffff' : (isLight ? '#64748b' : '#94a3b8'),
                   fontWeight: active ? 800 : 600,
@@ -8608,7 +8833,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 2,
-                  transition: 'all 0.18s ease',
+                  boxShadow: active ? '0 6px 16px rgba(37, 99, 235, 0.35)' : 'none',
+                  transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
                 }}
               >
                 <span style={{ fontSize: 15, lineHeight: 1 }}>
@@ -8621,6 +8847,274 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           })}
         </div>
       </div>
+
+      {/* Google Stitch Project 13519284942366029207 Studio & Design System Modal */}
+      {showStitchStudioModal && (
+        <div
+          onClick={() => setShowStitchStudioModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1350,
+            background: 'rgba(2, 6, 23, 0.84)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 14,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              borderRadius: 24,
+              background: '#0b1120',
+              border: '1px solid rgba(139, 92, 246, 0.45)',
+              boxShadow: '0 24px 60px rgba(0, 0, 0, 0.78), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+              padding: 18,
+              color: '#f8fafc',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{
+                    padding: '3px 9px',
+                    borderRadius: 999,
+                    background: 'linear-gradient(135deg, #4f46e5, #0ea5e9)',
+                    color: '#ffffff',
+                    fontSize: 10,
+                    fontWeight: 900,
+                    letterSpacing: '0.06em',
+                  }}>
+                    GOOGLE STITCH STUDIO
+                  </span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#94a3b8' }}>
+                    ID: 13519284942366029207
+                  </span>
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: '#ffffff', marginTop: 6 }}>
+                  ✨ Stitch Signature Layout &amp; UI Engine
+                </div>
+                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>
+                  Connected to your Google Stitch project for live glassmorphic Bento layouts, virtual metallic bank cards &amp; theme presets.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStitchStudioModal(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
+                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  color: '#cbd5e1',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 4 Google Stitch Signature Design Presets */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                🎨 Choose Google Stitch Design System Preset
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {[
+                  {
+                    id: 'stitch-aurora',
+                    title: 'Obsidian Aurora',
+                    subtitle: 'Indigo · Cyan · Emerald Glass',
+                    swatch: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 55%, #10b981 100%)',
+                  },
+                  {
+                    id: 'stitch-cyber-emerald',
+                    title: 'Emerald Neo-Vault',
+                    subtitle: 'Deep Mint · Teal Metallic',
+                    swatch: 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)',
+                  },
+                  {
+                    id: 'stitch-royal-amethyst',
+                    title: 'Royal Amethyst',
+                    subtitle: 'Violet · Fuchsia Luxe Glass',
+                    swatch: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)',
+                  },
+                  {
+                    id: 'stitch-alabaster-pro',
+                    title: 'Alabaster Daylight',
+                    subtitle: 'Crisp White · Sapphire Studio',
+                    swatch: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 55%, #10b981 100%)',
+                  },
+                ].map((preset) => {
+                  const active = stitchPreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        selectStitchPreset(preset.id);
+                        setSaveNotice(`✨ Applied Stitch "${preset.title}" UI Layout!`);
+                        setTimeout(() => setSaveNotice(''), 2200);
+                      }}
+                      style={{
+                        padding: '11px 12px',
+                        borderRadius: 16,
+                        border: active
+                          ? '2px solid #38bdf8'
+                          : '1px solid rgba(148, 163, 184, 0.22)',
+                        background: active
+                          ? 'rgba(56, 189, 248, 0.14)'
+                          : 'rgba(15, 23, 42, 0.85)',
+                        color: '#f8fafc',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{
+                          width: 24,
+                          height: 14,
+                          borderRadius: 999,
+                          background: preset.swatch,
+                          display: 'inline-block',
+                        }} />
+                        {active && (
+                          <span style={{ fontSize: 10, fontWeight: 900, color: '#38bdf8' }}>
+                            ● ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: '#ffffff' }}>
+                        {preset.title}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                        {preset.subtitle}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Direct Project Link + Live Stitch MCP Sync */}
+            <div style={{
+              padding: 12,
+              borderRadius: 16,
+              background: 'rgba(15, 23, 42, 0.9)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0' }}>
+                    🔗 Google Stitch Project #13519284942366029207
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
+                    Endpoint: https://stitch.googleapis.com/mcp
+                  </div>
+                </div>
+                <a
+                  href="https://stitch.withgoogle.com/projects/13519284942366029207?pli=1"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #4f46e5, #2563eb)',
+                    color: '#ffffff',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Open Stitch Project ↗
+                </a>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  value={stitchApiKeyInput}
+                  onChange={(e) => setStitchApiKeyInput(e.target.value)}
+                  placeholder="Optional: Paste Google Stitch API Key (X-Goog-Api-Key)"
+                  style={{
+                    flex: 1,
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(148, 163, 184, 0.28)',
+                    background: '#060a14',
+                    color: '#f8fafc',
+                    fontSize: 11.5,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={syncGoogleStitchProject}
+                  disabled={stitchSyncBusy}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(56, 189, 248, 0.45)',
+                    background: 'rgba(14, 165, 233, 0.2)',
+                    color: '#7dd3fc',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stitchSyncBusy ? 'Syncing...' : '⚡ Sync MCP'}
+                </button>
+              </div>
+
+              {stitchSyncNotice && (
+                <div style={{ fontSize: 11, color: '#a5f3fc', fontWeight: 700, lineHeight: 1.4 }}>
+                  {stitchSyncNotice}
+                </div>
+              )}
+
+              {stitchRemoteScreens.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: '#cbd5e1' }}>
+                    Synced Screens ({stitchRemoteScreens.length}):
+                  </div>
+                  {stitchRemoteScreens.slice(0, 5).map((scr, idx) => (
+                    <div
+                      key={scr?.name || idx}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: 8,
+                        background: 'rgba(255,255,255,0.04)',
+                        fontSize: 11,
+                        color: '#e2e8f0',
+                      }}
+                    >
+                      • {scr?.title || scr?.displayName || scr?.name || `Screen ${idx + 1}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile App, QR Code, Offline Download & PC Sync Modal */}
       {showMobileAppModal && (
