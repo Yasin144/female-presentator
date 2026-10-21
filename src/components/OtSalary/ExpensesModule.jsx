@@ -560,21 +560,34 @@ export default function ExpensesModule({
   const uploadScreenshotDataUrlToRelay = useCallback(async (dataUrl, sugId) => {
     if (!dataUrl || typeof dataUrl !== 'string') return '';
     try {
-      const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+      const relayHosts = [
+        ['https://', 'nt', 'fy', '.envs.net'].join(''),
+        ['https://', 'nt', 'fy', '.adminforge.de'].join(''),
+        ['https://', 'nt', 'fy', '.mzte.de'].join(''),
+        ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+      ];
       const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
       const blobRes = await fetch(dataUrl);
       const blob = await blobRes.blob();
-      const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
-        method: 'PUT',
-        headers: {
-          Filename: `${sugId || 'screenshot'}.jpg`,
-          Title: `Screenshot for ${sugId || 'suggestion'}`,
-        },
-        body: blob,
-      });
-      if (upRes && upRes.ok) {
-        const upJson = await upRes.json();
-        return String(upJson?.attachment?.url || '');
+      const uploadResults = await Promise.allSettled(
+        relayHosts.map(async (host) => {
+          const upRes = await fetch(`${host}/${mediaTopic}`, {
+            method: 'PUT',
+            headers: {
+              Filename: `${sugId || 'screenshot'}.jpg`,
+              Title: `Screenshot for ${sugId || 'suggestion'}`,
+            },
+            body: blob,
+          });
+          if (upRes && upRes.ok) {
+            const upJson = await upRes.json();
+            return String(upJson?.attachment?.url || '');
+          }
+          return '';
+        })
+      );
+      for (const r of uploadResults) {
+        if (r.status === 'fulfilled' && r.value) return r.value;
       }
     } catch (_) {}
     return '';
@@ -589,11 +602,22 @@ export default function ExpensesModule({
     ) {
       return true;
     }
+    const t = String(item.text || '').trim();
+    if (
+      /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        t
+      )
+    ) {
+      return true;
+    }
+    if (item.deliveredOnline === false || (Number(item.timestampMs || 0) > 1792569700000 && !item.syncedMultiRelayV2)) {
+      return false;
+    }
     try {
       const itemVer = String(item.version || item.submittedVersion || '').trim();
       const curVer = String(
         (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
-          '8.2.4'
+          '8.2.6'
       ).trim();
       if (itemVer && curVer && itemVer !== curVer) {
         const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
@@ -604,21 +628,18 @@ export default function ExpensesModule({
         }
       }
     } catch (_) {}
-    const t = String(item.text || '').trim();
-    if (
-      /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
-        t
-      )
-    ) {
-      return true;
-    }
     return false;
   }, []);
 
   // Background Offline-to-Online Auto-Retry & Live "Update Completed" Status Poller (every 8s + window 'online' event)
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+    const relayHosts = [
+      ['https://', 'nt', 'fy', '.envs.net'].join(''),
+      ['https://', 'nt', 'fy', '.adminforge.de'].join(''),
+      ['https://', 'nt', 'fy', '.mzte.de'].join(''),
+      ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+    ];
     const relayTopic = 'yasin_salary_pro_suggestions_live_144';
 
     const syncSuggestionsAndStatus = async () => {
@@ -639,10 +660,14 @@ export default function ExpensesModule({
       let listChanged = false;
       const nextList = [...currentList];
 
-      // 1. Retry any suggestion that was submitted while Offline
+      // 1. Retry any suggestion that was submitted while Offline or not yet synced to multi-relay
       for (let i = 0; i < nextList.length; i++) {
         const item = nextList[i];
-        if (item && item.deliveredOnline === false && !isSuggestionCompletedHelper(item)) {
+        const needsSync =
+          item &&
+          (item.deliveredOnline === false ||
+            (Number(item.timestampMs || 0) > 1792569700000 && !item.syncedMultiRelayV2));
+        if (needsSync && !isSuggestionCompletedHelper(item)) {
           try {
             let uploadedScreenshotUrl = item.screenshotUrl || '';
             if (!uploadedScreenshotUrl && item.screenshotDataUrl) {
@@ -651,23 +676,31 @@ export default function ExpensesModule({
             const relayBodyObj = {
               ...item,
               screenshotUrl: uploadedScreenshotUrl,
+              syncedMultiRelayV2: true,
               hasScreenshot: Boolean(uploadedScreenshotUrl || item.screenshotDataUrl),
             };
             delete relayBodyObj.screenshotDataUrl;
-            const res = await fetch(`${relayHost}/${relayTopic}`, {
-              method: 'POST',
-              headers: {
-                Title: `Queued Feature Request from ${item.accountEmail || 'patanyasin144@gmail.com'}`,
-                Priority: 'high',
-                Tags: 'bulb,rocket',
-              },
-              body: JSON.stringify(relayBodyObj),
-            });
-            if (res && res.ok) {
+            const bodyStr = JSON.stringify(relayBodyObj);
+            const postResults = await Promise.allSettled(
+              relayHosts.map(async (host) => {
+                const res = await fetch(`${host}/${relayTopic}`, {
+                  method: 'POST',
+                  headers: {
+                    Title: `Queued Feature Request from ${item.accountEmail || 'patanyasin144@gmail.com'}`,
+                    Priority: 'high',
+                    Tags: 'bulb,rocket',
+                  },
+                  body: bodyStr,
+                });
+                return Boolean(res && res.ok);
+              })
+            );
+            if (postResults.some((r) => r.status === 'fulfilled' && r.value === true)) {
               nextList[i] = {
                 ...item,
                 screenshotUrl: uploadedScreenshotUrl || item.screenshotUrl || '',
                 deliveredOnline: true,
+                syncedMultiRelayV2: true,
                 status: 'ai_working',
               };
               listChanged = true;
@@ -805,8 +838,13 @@ export default function ExpensesModule({
         }
       } catch (_) {}
 
-      // Deliver live to AI Developer Queue over Cloud Relay + Local Dev Endpoint (or queue offline if no internet)
-      const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+      // Deliver live to AI Developer Queue over Multi-Relay Cloud Pool + Local Dev Endpoint
+      const relayHosts = [
+        ['https://', 'nt', 'fy', '.envs.net'].join(''),
+        ['https://', 'nt', 'fy', '.adminforge.de'].join(''),
+        ['https://', 'nt', 'fy', '.mzte.de'].join(''),
+        ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+      ];
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
       let deliveredOnline = false;
       let uploadedScreenshotUrl = '';
@@ -817,18 +855,27 @@ export default function ExpensesModule({
         const relayPayload = {
           ...newEntry,
           screenshotUrl: uploadedScreenshotUrl,
+          syncedMultiRelayV2: true,
         };
         delete relayPayload.screenshotDataUrl;
-        const res = await fetch(`${relayHost}/${relayTopic}`, {
-          method: 'POST',
-          headers: {
-            Title: `New Feature Request from ${newEntry.accountEmail}`,
-            Priority: 'high',
-            Tags: 'bulb,rocket',
-          },
-          body: JSON.stringify(relayPayload),
-        });
-        if (res && res.ok) deliveredOnline = true;
+        const bodyStr = JSON.stringify(relayPayload);
+        const postResults = await Promise.allSettled(
+          relayHosts.map(async (host) => {
+            const res = await fetch(`${host}/${relayTopic}`, {
+              method: 'POST',
+              headers: {
+                Title: `New Feature Request from ${newEntry.accountEmail}`,
+                Priority: 'high',
+                Tags: 'bulb,rocket',
+              },
+              body: bodyStr,
+            });
+            return Boolean(res && res.ok);
+          })
+        );
+        if (postResults.some((r) => r.status === 'fulfilled' && r.value === true)) {
+          deliveredOnline = true;
+        }
       } catch (_) {}
 
       try {
@@ -844,6 +891,7 @@ export default function ExpensesModule({
         ...newEntry,
         screenshotUrl: uploadedScreenshotUrl,
         deliveredOnline,
+        syncedMultiRelayV2: deliveredOnline,
         status: deliveredOnline ? 'ai_working' : 'queued_offline',
       };
       const updatedList = [finalizedEntry, ...submittedSuggestionsList].slice(0, 20);

@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.5';
-  let buildId = 'ota_8_2_5_end_build_version_and_crash_ai_help';
+  let version = '8.2.6';
+  let buildId = 'ota_8_2_6_multi_relay_instant_ai_sync';
   try {
     if (
       typeof window !== 'undefined' &&
@@ -192,7 +192,12 @@ class MobileOtErrorBoundary extends React.Component {
       status: 'sending',
     };
 
-    const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
+    const relayHosts = [
+      ['https://', 'nt', 'fy', '.envs.net'].join(''),
+      ['https://', 'nt', 'fy', '.adminforge.de'].join(''),
+      ['https://', 'nt', 'fy', '.mzte.de'].join(''),
+      ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+    ];
     const relayTopic = 'yasin_salary_pro_suggestions_live_144';
     const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
     let deliveredOnline = false;
@@ -202,17 +207,28 @@ class MobileOtErrorBoundary extends React.Component {
       try {
         const blobRes = await fetch(this.state.aiHelpScreenshotDataUrl);
         const blob = await blobRes.blob();
-        const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
-          method: 'PUT',
-          headers: {
-            Filename: `${sugId}.jpg`,
-            Title: `Crash Screenshot for ${sugId}`,
-          },
-          body: blob,
-        });
-        if (upRes && upRes.ok) {
-          const upJson = await upRes.json();
-          uploadedScreenshotUrl = String(upJson?.attachment?.url || '');
+        const uploadResults = await Promise.allSettled(
+          relayHosts.map(async (host) => {
+            const upRes = await fetch(`${host}/${mediaTopic}`, {
+              method: 'PUT',
+              headers: {
+                Filename: `${sugId}.jpg`,
+                Title: `Crash Screenshot for ${sugId}`,
+              },
+              body: blob,
+            });
+            if (upRes && upRes.ok) {
+              const upJson = await upRes.json();
+              return String(upJson?.attachment?.url || '');
+            }
+            return '';
+          })
+        );
+        for (const r of uploadResults) {
+          if (r.status === 'fulfilled' && r.value) {
+            uploadedScreenshotUrl = r.value;
+            break;
+          }
         }
       } catch (_) {}
     }
@@ -221,24 +237,33 @@ class MobileOtErrorBoundary extends React.Component {
       const relayPayload = {
         ...payload,
         screenshotUrl: uploadedScreenshotUrl,
+        syncedMultiRelayV2: true,
       };
-      const res = await fetch(`${relayHost}/${relayTopic}`, {
-        method: 'POST',
-        headers: {
-          Title: `URGENT CRASH REPORT v${version} (patanyasin144@gmail.com)`,
-          Priority: 'urgent',
-          Tags: 'rotating_light,sos',
-        },
-        body: JSON.stringify(relayPayload),
-      });
-      if (res && res.ok) deliveredOnline = true;
+      const bodyStr = JSON.stringify(relayPayload);
+      const postResults = await Promise.allSettled(
+        relayHosts.map(async (host) => {
+          const res = await fetch(`${host}/${relayTopic}`, {
+            method: 'POST',
+            headers: {
+              Title: `URGENT CRASH REPORT v${version} (patanyasin144@gmail.com)`,
+              Priority: 'urgent',
+              Tags: 'rotating_light,sos',
+            },
+            body: bodyStr,
+          });
+          return Boolean(res && res.ok);
+        })
+      );
+      if (postResults.some((r) => r.status === 'fulfilled' && r.value === true)) {
+        deliveredOnline = true;
+      }
     } catch (_) {}
 
     try {
       const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
       const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
       const nextArr = [
-        { ...payload, screenshotUrl: uploadedScreenshotUrl, deliveredOnline, status: deliveredOnline ? 'ai_working' : 'queued_offline' },
+        { ...payload, screenshotUrl: uploadedScreenshotUrl, deliveredOnline, syncedMultiRelayV2: deliveredOnline, status: deliveredOnline ? 'ai_working' : 'queued_offline' },
         ...(Array.isArray(existingArr) ? existingArr : []),
       ].slice(0, 20);
       localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));

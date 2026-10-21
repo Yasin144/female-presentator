@@ -2330,9 +2330,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.5';
+      return localStorage.getItem('pattan.ota.version') || '8.2.6';
     } catch (_) {
-      return '8.2.5';
+      return '8.2.6';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2341,9 +2341,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_5_end_build_version_and_crash_ai_help';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_6_multi_relay_instant_ai_sync';
     } catch (_) {
-      return 'ota_8_2_5_end_build_version_and_crash_ai_help';
+      return 'ota_8_2_6_multi_relay_instant_ai_sync';
     }
   });
 
@@ -2437,6 +2437,75 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     return [];
   });
 
+  const transmitSuggestionToMultiRelay = useCallback(async (item) => {
+    if (!item || typeof item !== 'object') return { deliveredOnline: false, uploadedScreenshotUrl: '' };
+    const relayHosts = [
+      ['https://', 'nt', 'fy', '.envs.net'].join(''),
+      ['https://', 'nt', 'fy', '.adminforge.de'].join(''),
+      ['https://', 'nt', 'fy', '.mzte.de'].join(''),
+      ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+    ];
+    const relayTopic = 'yasin_salary_pro_suggestions_live_144';
+    const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
+    let uploadedScreenshotUrl = String(item.screenshotUrl || '');
+    const attachedDataUrl = String(item.screenshotDataUrl || '');
+
+    if (attachedDataUrl && !uploadedScreenshotUrl) {
+      try {
+        const blobRes = await fetch(attachedDataUrl);
+        const blob = await blobRes.blob();
+        const uploadResults = await Promise.allSettled(
+          relayHosts.map(async (host) => {
+            const upRes = await fetch(`${host}/${mediaTopic}`, {
+              method: 'PUT',
+              headers: {
+                Filename: `${item.id || 'sug'}.jpg`,
+                Title: `Screenshot for ${item.id || 'sug'}`,
+              },
+              body: blob,
+            });
+            if (upRes && upRes.ok) {
+              const upJson = await upRes.json();
+              return String(upJson?.attachment?.url || '');
+            }
+            return '';
+          })
+        );
+        for (const r of uploadResults) {
+          if (r.status === 'fulfilled' && r.value) {
+            uploadedScreenshotUrl = r.value;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    const relayPayload = {
+      ...item,
+      screenshotUrl: uploadedScreenshotUrl,
+      syncedMultiRelayV2: true,
+    };
+    delete relayPayload.screenshotDataUrl;
+    const bodyStr = JSON.stringify(relayPayload);
+
+    const postResults = await Promise.allSettled(
+      relayHosts.map(async (host) => {
+        const res = await fetch(`${host}/${relayTopic}`, {
+          method: 'POST',
+          headers: {
+            Title: `Feature Request (${item.accountEmail || 'patanyasin144@gmail.com'})`,
+            Priority: 'high',
+            Tags: 'bulb,rocket',
+          },
+          body: bodyStr,
+        });
+        return Boolean(res && res.ok);
+      })
+    );
+    const deliveredOnline = postResults.some((r) => r.status === 'fulfilled' && r.value === true);
+    return { deliveredOnline, uploadedScreenshotUrl };
+  }, []);
+
   const isGlobalSuggestionCompleted = useCallback(
     (item) => {
       if (!item || typeof item !== 'object') return true;
@@ -2447,19 +2516,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       ) {
         return true;
       }
-      if (availableOtaUpdate && availableOtaUpdate.version) {
-        return true;
-      }
-      const itemVer = String(item.version || item.submittedVersion || '').trim();
-      const curVer = String(liveOtaVersion || '8.2.4').trim();
-      if (itemVer && curVer && itemVer !== curVer) {
-        const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
-        const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
-        for (let i = 0; i < 3; i++) {
-          if ((p2[i] || 0) > (p1[i] || 0)) return true;
-          if ((p2[i] || 0) < (p1[i] || 0)) break;
-        }
-      }
       const t = String(item.text || '').trim();
       if (
         /don'?t need this section|set a profile to change name|change name|loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
@@ -2467,6 +2523,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         )
       ) {
         return true;
+      }
+      // Never auto-complete an undelivered prompt before it reaches the multi-relay
+      if (item.deliveredOnline === false || (Number(item.timestampMs || 0) > 1792569700000 && !item.syncedMultiRelayV2)) {
+        return false;
+      }
+      if (availableOtaUpdate && availableOtaUpdate.version) {
+        return true;
+      }
+      const itemVer = String(item.version || item.submittedVersion || '').trim();
+      const curVer = String(liveOtaVersion || '8.2.6').trim();
+      if (itemVer && curVer && itemVer !== curVer) {
+        const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
+        const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
+        for (let i = 0; i < 3; i++) {
+          if ((p2[i] || 0) > (p1[i] || 0)) return true;
+          if ((p2[i] || 0) < (p1[i] || 0)) break;
+        }
       }
       return false;
     },
@@ -2514,7 +2587,40 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           if (Array.isArray(parsed)) currentArr = parsed;
         }
       } catch (_) {}
-      const hasPending = currentArr.some((x) => x && !isGlobalSuggestionCompleted(x));
+      if (currentArr.length === 0) return;
+
+      // 1. Auto-flush any unsent or stuck prompt in localStorage to the fast multi-relay pool
+      let flushedAny = false;
+      const workingArr = [...currentArr];
+      for (let i = 0; i < workingArr.length; i++) {
+        const item = workingArr[i];
+        if (!item || item.processedByAi === true || item.dismissedByUser === true) continue;
+        const needsRelayFlush =
+          item.deliveredOnline === false ||
+          (Number(item.timestampMs || 0) > 1792569700000 && !item.syncedMultiRelayV2);
+        if (needsRelayFlush && !isGlobalSuggestionCompleted(item)) {
+          const { deliveredOnline, uploadedScreenshotUrl } = await transmitSuggestionToMultiRelay(item);
+          if (deliveredOnline) {
+            workingArr[i] = {
+              ...item,
+              screenshotUrl: uploadedScreenshotUrl || item.screenshotUrl || '',
+              deliveredOnline: true,
+              syncedMultiRelayV2: true,
+              status: 'ai_working',
+            };
+            flushedAny = true;
+          }
+        }
+      }
+      if (flushedAny) {
+        setGlobalSuggestionsList(workingArr);
+        try {
+          localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(workingArr));
+          window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
+        } catch (_) {}
+      }
+
+      const hasPending = workingArr.some((x) => x && !isGlobalSuggestionCompleted(x));
       if (!hasPending) return;
       try {
         const res = await fetch(
@@ -2525,7 +2631,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           const remoteArr = await res.json();
           if (Array.isArray(remoteArr)) {
             let changed = false;
-            const nextArr = currentArr.map((localItem) => {
+            const nextArr = workingArr.map((localItem) => {
               if (!localItem || isGlobalSuggestionCompleted(localItem)) return localItem;
               const matched = remoteArr.find(
                 (r) =>
@@ -2538,6 +2644,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 return {
                   ...localItem,
                   deliveredOnline: true,
+                  syncedMultiRelayV2: true,
                   processedByAi: true,
                   status: matched.status || 'completed',
                 };
@@ -2556,13 +2663,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
     };
 
-    const timer = setInterval(pollRemoteSuggestionStatus, 5000);
+    pollRemoteSuggestionStatus();
+    const timer = setInterval(pollRemoteSuggestionStatus, 4000);
     return () => {
       clearInterval(timer);
       window.removeEventListener('yasin-suggestions-updated', reloadFromStorage);
       window.removeEventListener('storage', reloadFromStorage);
     };
-  }, [isGlobalSuggestionCompleted]);
+  }, [isGlobalSuggestionCompleted, transmitSuggestionToMultiRelay]);
 
   const handleSelectGlobalSuggestionScreenshot = useCallback((ev) => {
     const file = ev?.target?.files?.[0];
@@ -2657,51 +2765,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       setGlobalSuggestionScreenshotName('');
       setShowGlobalSuggestionModal(false);
 
-      const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
-      const relayTopic = 'yasin_salary_pro_suggestions_live_144';
-      const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
-      let deliveredOnline = false;
-      let uploadedScreenshotUrl = '';
-      if (attachedDataUrl) {
-        try {
-          const blobRes = await fetch(attachedDataUrl);
-          const blob = await blobRes.blob();
-          const upRes = await fetch(`${relayHost}/${mediaTopic}`, {
-            method: 'PUT',
-            headers: {
-              Filename: `${sugId}.jpg`,
-              Title: `Screenshot for ${sugId}`,
-            },
-            body: blob,
-          });
-          if (upRes && upRes.ok) {
-            const upJson = await upRes.json();
-            uploadedScreenshotUrl = String(upJson?.attachment?.url || '');
-          }
-        } catch (_) {}
-      }
-      try {
-        const relayPayload = {
-          ...payload,
-          screenshotUrl: uploadedScreenshotUrl,
-        };
-        delete relayPayload.screenshotDataUrl;
-        const res = await fetch(`${relayHost}/${relayTopic}`, {
-          method: 'POST',
-          headers: {
-            Title: `Feature Request (${payload.accountEmail})`,
-            Priority: 'high',
-            Tags: 'bulb,rocket',
-          },
-          body: JSON.stringify(relayPayload),
-        });
-        if (res && res.ok) deliveredOnline = true;
-      } catch (_) {}
+      const { deliveredOnline, uploadedScreenshotUrl } = await transmitSuggestionToMultiRelay(payload);
 
       const finalPayload = {
         ...payload,
         screenshotUrl: uploadedScreenshotUrl,
         deliveredOnline,
+        syncedMultiRelayV2: deliveredOnline,
         status: deliveredOnline ? 'ai_working' : 'queued_offline',
       };
       try {
@@ -2720,7 +2790,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
       );
     },
-    [globalSuggestionInput, globalSuggestionScreenshotDataUrl, globalSuggestionScreenshotName, liveOtaVersion]
+    [globalSuggestionInput, globalSuggestionScreenshotDataUrl, globalSuggestionScreenshotName, liveOtaVersion, transmitSuggestionToMultiRelay]
   );
 
   // Show visual notification + subtle chime when a new OTA update becomes ready (NEVER speaks "Your time is completed" and NEVER speaks on app open!)

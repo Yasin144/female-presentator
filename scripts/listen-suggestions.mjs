@@ -4,7 +4,13 @@ import { spawnSync } from 'node:child_process';
 
 const SUGGESTIONS_FILE = path.join(process.cwd(), 'ota', 'incoming-suggestions.json');
 const SCREENSHOTS_DIR = path.join(process.cwd(), 'ota', 'suggestion-screenshots');
-const RELAY_URL = ['https://', 'nt', 'fy', '.', 'sh', '/yasin_salary_pro_suggestions_live_144/json?poll=1&since=24h'].join('');
+const RELAY_HOSTS = [
+  ['https://', 'ntfy', '.', 'envs', '.', 'net'].join(''),
+  ['https://', 'ntfy', '.', 'adminforge', '.', 'de'].join(''),
+  ['https://', 'ntfy', '.', 'mzte', '.', 'de'].join(''),
+  ['https://', 'nt', 'fy', '.', 'sh'].join(''),
+];
+const TOPIC_PATH = '/yasin_salary_pro_suggestions_live_144/json?poll=1&since=24h';
 
 function copyToWindowsClipboard(text) {
   try {
@@ -45,10 +51,22 @@ async function downloadOrSaveScreenshot(item) {
 
 export async function pollIncomingSuggestionsOnce() {
   try {
-    const res = await fetch(RELAY_URL, { headers: { Accept: 'application/x-ndjson' } });
-    if (!res.ok) return [];
-    const text = await res.text();
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const fetchResults = await Promise.allSettled(
+      RELAY_HOSTS.map(async (host) => {
+        const res = await fetch(`${host}${TOPIC_PATH}`, {
+          headers: { Accept: 'application/x-ndjson' },
+          signal: AbortSignal.timeout(3500),
+        });
+        if (!res.ok) return '';
+        return await res.text();
+      })
+    );
+    const combinedText = fetchResults
+      .map((r) => (r.status === 'fulfilled' ? r.value : ''))
+      .filter(Boolean)
+      .join('\n');
+    if (!combinedText.trim()) return [];
+    const lines = combinedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     let existing = [];
     if (fs.existsSync(SUGGESTIONS_FILE)) {
       try {

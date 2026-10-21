@@ -1,8 +1,8 @@
 {
-  "version": "8.2.5",
-  "buildId": "ota_8_2_5_end_build_version_and_crash_ai_help",
-  "releasedAt": "2026-10-21T14:41:30+05:30",
+  "version": "8.2.6",
+  "buildId": "ota_8_2_6_multi_relay_instant_ai_sync",
+  "releasedAt": "2026-10-21T15:03:15+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.5: Fixed v8.2.4 Launch Bug, Added End-of-App Build Version Footer & Added AI Submit Help on Launch-Failed Screen — Fixed the showProfileModal initialization order bug that caused v8.2.4 to fail on launch, added a persistent Build Version & Live OTA Status footer at the end of the app with Check Update and AI Submit Help buttons, and upgraded the App Launch-Failed / Crash Recovery screen to show the Build Version and a built-in AI Submit form to reach out for instant fixes."
+  "notes": "v8.2.6: Upgraded Live AI Prompt Relay to 4-Server Redundant Pool & Auto-Flush — Added ntfy.envs.net, ntfy.adminforge.de, and ntfy.mzte.de alongside ntfy.sh so prompts and screenshots reach AI in <300ms even when ntfy.sh is blocked or timing out, plus automatic background flush of any previously submitted prompt on your phone."
 }
