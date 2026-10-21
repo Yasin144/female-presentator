@@ -2235,7 +2235,7 @@ export default function ExpensesModule({
     setNlResponse(answerNaturalLanguageFinanceQuery(q, effectiveExpensesSource, selectedMonth, todayIso));
   };
 
-  const remainingSalary = Math.max(0, effectiveMonthlySalary - analytics.netSpending + analytics.totalIncome);
+  const remainingSalary = Number(analytics.realAccountBalance || 0);
 
   const handleConfirmReviewItem = (txId) => {
     const baseMap = getMaterializedBaseMap();
@@ -2884,6 +2884,7 @@ export default function ExpensesModule({
               <div>
                 <span>🏦 Real Bank Account Balance</span>
                 <button type="button" onClick={() => openCheckBalanceModal(null)}>🏦 Check Balance</button>
+                <button type="button" onClick={() => onToggleSalaryVisibility && onToggleSalaryVisibility()}>{salaryVisible ? 'Hide' : 'Show'}</button>
                 <span>Filter &amp; Sync by Date · Month · Year</span>
                 <span>By Day / By Date Ledger</span>
                 <span>Recent Payments (Permanent Ledger)</span>
@@ -3360,7 +3361,7 @@ export default function ExpensesModule({
                 </div>
               </div>
 
-              {/* Tile 4: Salary Left After Expenses */}
+              {/* Tile 4: Remaining Bal (Real Bank Balance — Never cuts spent amount from Salary!) */}
               <div style={{
                 padding: '14px',
                 borderRadius: 18,
@@ -3374,35 +3375,33 @@ export default function ExpensesModule({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Salary Left
+                    Remaining Bal
                   </span>
-                  {typeof onToggleSalaryVisibility === 'function' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleSalaryVisibility();
-                      }}
-                      style={{
-                        padding: '2px 7px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.text,
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {salaryVisible ? '🙈' : '👁️'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => openCheckBalanceModal(effectiveBankBalanceInfo)}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surfaceAlt,
+                      color: palette.activeBlue,
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✏️ Set
+                  </button>
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: palette.credit, letterSpacing: '-0.02em' }}>
-                  {salaryVisible ? `₹${formatINRShort(remainingSalary)}` : '₹••••••'}
+                  ₹{formatINR(analytics.realAccountBalance || 0)}
                 </div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
-                  After month expenses
+                  {analytics.latestBankName || effectiveBankBalanceInfo?.bankName || 'Primary Bank A/c'}
+                  {(analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask)
+                    ? ` · ${analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask}`
+                    : ''}
                 </div>
               </div>
             </div>

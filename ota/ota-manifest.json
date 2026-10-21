@@ -1,8 +1,8 @@
 {
-  "version": "8.1.2",
+  "version": "8.1.3",
   "cssFile": "app-bundle.css",
-  "buildId": "ota_8_1_2_1792555000",
-  "notes": "v8.1.2: Restored Main Account Balance Bento Card on Expenses Tab + Strictly Blocked All WhatsApp Messages from Syncing Money (Only Real Bank & UPI Transactions Synced).",
+  "buildId": "ota_8_1_3_1792558900",
+  "notes": "v8.1.3: Replaced Salary Left (which cut spent amount from salary) with Remaining Bal (Real Bank Balance) in the Expenses 2x2 Grid and ensured Salary is never reduced by expenses.",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-21T04:45:00Z"
+  "updatedAt": "2026-10-21T05:00:00Z"
 }

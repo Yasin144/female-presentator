@@ -2261,9 +2261,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.1.2';
+      return localStorage.getItem('pattan.ota.version') || '8.1.3';
     } catch (_) {
-      return '8.1.2';
+      return '8.1.3';
     }
   });
 
@@ -7118,7 +7118,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
 
-              {/* Blue Highlight Card: After Expenses (This Month) */}
+              {/* Blue Highlight Card: Month Expenses Tracked Separately (Never cuts spent amount from Salary!) */}
               <div style={{
                 marginTop: 10,
                 padding: '14px 16px',
@@ -7132,15 +7132,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               }}>
                 <div>
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>After Expenses (This Month)</span>
+                    <span>Full Salary (Not Cut by Expenses)</span>
                     {renderSalaryEyeButton(true)}
                   </div>
                   <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
-                    Spent: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.count} txns)
+                    Tracked Month Spend: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.count} txns)
                   </div>
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 950, color: isLight ? '#1d4ed8' : '#93c5fd' }}>
-                  {formatSalaryMask(Math.max(0, monthSummary.fullMonthNetPayable - expenseQuickStats.spent))}
+                  {formatSalaryMask(monthSummary.fullMonthNetPayable)}
                 </div>
               </div>
 
