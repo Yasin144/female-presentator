@@ -1,8 +1,8 @@
 {
-  "version": "8.1.1",
+  "version": "8.1.2",
   "cssFile": "app-bundle.css",
-  "buildId": "ota_8_1_1_1792519200",
-  "notes": "v8.1.1: Fixed workspaceSection ReferenceError in 2-Row Workspace Header + Matching 2x2 Bento Expenses Module + Auto-Healing Error Recovery.",
+  "buildId": "ota_8_1_2_1792555000",
+  "notes": "v8.1.2: Restored Main Account Balance Bento Card on Expenses Tab + Strictly Blocked All WhatsApp Messages from Syncing Money (Only Real Bank & UPI Transactions Synced).",
   "jsFile": "app-bundle.js",
-  "updatedAt": "2026-10-20T12:25:00Z"
+  "updatedAt": "2026-10-21T04:45:00Z"
 }

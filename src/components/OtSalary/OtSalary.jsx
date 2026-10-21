@@ -444,6 +444,25 @@ function isFakeSeededTransaction(id, tx) {
   const src = String(tx.source || '').trim().toLowerCase();
   if (src === 'demo-preview') return true;
   if (FAKE_SEED_REF_IDS.has(ref)) return true;
+  const combined = [
+    tx.app,
+    tx.source,
+    tx.senderOrPkg,
+    tx.merchant,
+    tx.originalMerchant,
+    tx.note,
+    tx.originalRemark,
+    tx.paymentRemark,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (
+    /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+      combined
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -2242,9 +2261,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.1.1';
+      return localStorage.getItem('pattan.ota.version') || '8.1.2';
     } catch (_) {
-      return '8.1.1';
+      return '8.1.2';
     }
   });
 

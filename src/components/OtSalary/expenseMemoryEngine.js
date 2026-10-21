@@ -185,6 +185,36 @@ export function migrateAndNormalizeExpenseRecord(tx) {
   };
 }
 
+export function isWhatsAppOrNonRealTransaction(txOrText) {
+  if (!txOrText) return false;
+  if (typeof txOrText === 'string') {
+    return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+      txOrText
+    );
+  }
+  if (typeof txOrText === 'object') {
+    const combined = [
+      txOrText.app,
+      txOrText.source,
+      txOrText.senderOrPkg,
+      txOrText.title,
+      txOrText.body,
+      txOrText.rawText,
+      txOrText.merchant,
+      txOrText.originalMerchant,
+      txOrText.note,
+      txOrText.originalRemark,
+      txOrText.paymentRemark,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+      combined
+    );
+  }
+  return false;
+}
+
 /**
  * Parses a Bank SMS, UPI notification, or shared receipt text into an Expense Memory record.
  * Never fabricates missing payment remarks; masks sensitive account digits; extracts real Avl Bal.
@@ -192,6 +222,9 @@ export function migrateAndNormalizeExpenseRecord(tx) {
 export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), sourceType = 'mobile-sms-parsed') {
   const text = String(rawText || '').trim();
   if (text.length < 6) return null;
+  if (isWhatsAppOrNonRealTransaction(text) || isWhatsAppOrNonRealTransaction(sourceType)) {
+    return null;
+  }
   const lower = text.toLowerCase();
 
   // Ignore pure OTP / PIN / verification messages
@@ -300,7 +333,6 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   else if (/(com\.dreamplug|dreamplug)/i.test(lower)) app = 'CRED';
   else if (/(navi\b|naviapp)/i.test(lower)) app = 'Navi UPI';
   else if (/(amazon pay|amazon\.mshop)/i.test(lower)) app = 'Amazon Pay';
-  else if (/(whatsapp)/i.test(lower)) app = 'WhatsApp Pay';
   else if (/(mobikwik)/i.test(lower)) app = 'MobiKwik';
   else if (/(freecharge)/i.test(lower)) app = 'Freecharge';
   else if (/(slice|indwin)/i.test(lower)) app = 'slice UPI';
@@ -320,7 +352,7 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
   let paymentMethod = 'Bank Account';
   if (/(credit card|debit card|card ending|pos\s)/i.test(lower)) paymentMethod = 'Card';
   else if (/(atm|cash withdrawal)/i.test(lower)) paymentMethod = 'Cash';
-  else if (/(GPay|PhonePe|Paytm|BHIM UPI|Super\.money|CRED|Navi UPI|Amazon Pay|WhatsApp Pay|MobiKwik|Freecharge|slice UPI|FamPay|Jupiter|Fi Money|UPI)/i.test(app) || /(upi|vpa)/i.test(lower)) paymentMethod = 'UPI';
+  else if (/(GPay|PhonePe|Paytm|BHIM UPI|Super\.money|CRED|Navi UPI|Amazon Pay|MobiKwik|Freecharge|slice UPI|FamPay|Jupiter|Fi Money|UPI)/i.test(app) || /(upi|vpa)/i.test(lower)) paymentMethod = 'UPI';
 
   // 6. Merchant / Recipient / Depositor
   let merchant = '';
@@ -441,10 +473,13 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
 
 export function parseFinancialSmsOrNotification(input, fallbackTimestampMs = Date.now(), sourceType = 'android-notif') {
   if (input && typeof input === 'object') {
+    if (isWhatsAppOrNonRealTransaction(input)) return null;
     const combinedText = [input.senderOrPkg || '', input.title || '', input.body || '', input.rawText || ''].filter(Boolean).join(' · ');
+    if (isWhatsAppOrNonRealTransaction(combinedText)) return null;
     const ts = Number(input.timestampMs || fallbackTimestampMs || Date.now());
     return parseSmsOrUpiTextJs(combinedText, ts, input.sourceType || sourceType);
   }
+  if (isWhatsAppOrNonRealTransaction(input)) return null;
   return parseSmsOrUpiTextJs(input, fallbackTimestampMs, sourceType);
 }
 
@@ -459,6 +494,7 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
   const nextMap = {};
   for (const [k, v] of Object.entries(existingMap || {})) {
     if (!v || typeof v !== 'object') continue;
+    if (isWhatsAppOrNonRealTransaction(v)) continue;
     nextMap[k] = v._deleted ? v : migrateAndNormalizeExpenseRecord(v);
   }
 
@@ -469,8 +505,9 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
   const nowIso = new Date(nowMs).toISOString();
 
   for (const rawIn of incomingList || []) {
+    if (isWhatsAppOrNonRealTransaction(rawIn)) continue;
     const incoming = migrateAndNormalizeExpenseRecord(rawIn);
-    if (!incoming || !(incoming.amount > 0)) continue;
+    if (!incoming || !(incoming.amount > 0) || isWhatsAppOrNonRealTransaction(incoming)) continue;
 
     // 1. Direct ID match
     const byId = nextMap[incoming.id];
@@ -725,7 +762,7 @@ export function suggestNotesAndCategoryForMerchant(arg1, arg2 = []) {
 export function computeExpenseAnalytics(allTransactions = [], optionsOrMonth = {}, maybeTodayIso = undefined) {
   const txArray = toTransactionArray(allTransactions);
   const activeAll = txArray
-    .filter((tx) => tx && typeof tx === 'object' && !tx._deleted && Number(tx.amount) > 0)
+    .filter((tx) => tx && typeof tx === 'object' && !tx._deleted && Number(tx.amount) > 0 && !isWhatsAppOrNonRealTransaction(tx))
     .map(migrateAndNormalizeExpenseRecord)
     .sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
 

@@ -35,6 +35,28 @@ const formatINRShort = (num) => {
   return n.toLocaleString('en-IN');
 };
 
+const isWhatsAppOrNonRealTx = (tx) => {
+  if (!tx || typeof tx !== 'object') return true;
+  const combined = [
+    tx.app,
+    tx.source,
+    tx.senderOrPkg,
+    tx.title,
+    tx.body,
+    tx.rawText,
+    tx.merchant,
+    tx.originalMerchant,
+    tx.note,
+    tx.originalRemark,
+    tx.paymentRemark,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+    combined
+  );
+};
+
 const formatTime12h = (hhmm) => {
   if (!hhmm || typeof hhmm !== 'string' || !hhmm.includes(':')) return '12:00 PM';
   const [hStr, mStr] = hhmm.split(':');
@@ -375,7 +397,10 @@ export default function ExpensesModule({
       if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
-        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+        const isWhatsAppOrAutoCalc =
+          /\b(whatsapp|com\.whatsapp)\b/i.test(String(parsed?.bankName || '')) ||
+          String(parsed?.source || '') === 'live-auto-calc';
+        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance) && !isWhatsAppOrAutoCalc) {
           const cleanBank = cleanNoCredBankName(parsed.bankName, 'Linked Bank Account');
           const cleanMask = normalizeMaskLast4(parsed.accountMask);
           const key = buildBankAccountKey(cleanBank, cleanMask);
@@ -443,7 +468,8 @@ export default function ExpensesModule({
       if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getBankBalanceJson === 'function') {
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
-        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+        const isWhatsAppBal = /\b(whatsapp|com\.whatsapp)\b/i.test(String(parsed?.bankName || ''));
+        if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance) && !isWhatsAppBal) {
           return {
             ...parsed,
             bankName: cleanNoCredBankName(parsed.bankName, 'Linked Bank Account'),
@@ -758,6 +784,19 @@ export default function ExpensesModule({
         const raw = window.PattanBiometric.getBankBalanceJson();
         const parsed = JSON.parse(raw || '{}');
         if (parsed && typeof parsed.balance === 'number' && Number.isFinite(parsed.balance)) {
+          const isWhatsAppOrAutoCalc =
+            /\b(whatsapp|com\.whatsapp)\b/i.test(String(parsed.bankName || '')) ||
+            String(parsed.source || '') === 'live-auto-calc';
+          if (isWhatsAppOrAutoCalc) {
+            // Do not let native live-auto-calc (which could be triggered by a WhatsApp message in older APK) overwrite saved anchor balance
+            try {
+              const savedLocal = window.localStorage ? window.localStorage.getItem('yasin_ot_bank_balance_v1') : '';
+              if (savedLocal && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
+                window.PattanBiometric.saveBankBalanceJson(savedLocal);
+              }
+            } catch (_) {}
+            return;
+          }
           const cleanMask = normalizeMaskLast4(parsed.accountMask);
           const cleanBank = cleanNoCredBankName(parsed.bankName, 'Linked Bank Account');
           const accKey = buildBankAccountKey(cleanBank, cleanMask);
@@ -772,6 +811,19 @@ export default function ExpensesModule({
           if (/\b(cred|dreamplug)\b/i.test(String(parsed.bankName || '')) && typeof window.PattanBiometric.saveBankBalanceJson === 'function') {
             window.PattanBiometric.saveBankBalanceJson(JSON.stringify(normalized));
           }
+          setBankBalanceInfo((prevBal) => {
+            const prevTs = Number(prevBal?.updatedAtMs || 0);
+            const nextTs = Number(normalized.updatedAtMs || 0);
+            if (!prevBal || nextTs >= prevTs) {
+              try {
+                if (window.localStorage) {
+                  window.localStorage.setItem('yasin_ot_bank_balance_v1', JSON.stringify(normalized));
+                }
+              } catch (_) {}
+              return normalized;
+            }
+            return prevBal;
+          });
           // Update ONLY this specific account in bankAccountsMap so another account's SMS never overwrites your other accounts!
           setBankAccountsMap((prev) => {
             const existing = prev?.[accKey];
@@ -874,10 +926,23 @@ export default function ExpensesModule({
   const mergeDetectedTransactions = useCallback(
     (incomingList, sourceLabel = 'mobile-auto') => {
       if (!Array.isArray(incomingList) || incomingList.length === 0) return 0;
+      const realIncoming = incomingList
+        .filter((item) => item && typeof item === 'object' && !isWhatsAppOrNonRealTx(item))
+        .map((item) => {
+          // Strip synthetic Java live-auto-calc accountBalance on non-SMS app notifications so Main Account Balance math stays 100% accurate
+          if (
+            String(item.source || '') === 'mobile-notification' &&
+            !/\b(bank|sbi|hdfc|icici|axis|kotak|canara|union|baroda|bob|pnb|idfc|indusind|federal|yes)\b/i.test(String(item.app || ''))
+          ) {
+            return { ...item, accountBalance: null };
+          }
+          return item;
+        });
+      if (realIncoming.length === 0) return 0;
       const latestMap = expensesMapRef.current || expensesMap || {};
       const { nextMap, addedCount, updatedCount } = reconcileAndMergeTransactions(
         latestMap,
-        incomingList,
+        realIncoming,
         sourceLabel
       );
       const totalChanges = addedCount + updatedCount;
@@ -907,7 +972,8 @@ export default function ExpensesModule({
         setSmsGranted((prev) => (prev === detail.smsGranted ? prev : detail.smsGranted));
       }
       syncSavedBankBalanceFromNative();
-      const txList = Array.isArray(detail.transactions) ? detail.transactions : [];
+      const rawTxList = Array.isArray(detail.transactions) ? detail.transactions : [];
+      const txList = rawTxList.filter((item) => item && typeof item === 'object' && !isWhatsAppOrNonRealTx(item));
       if (txList.length > 0) {
         const added = mergeDetectedTransactions(txList, 'android-notif');
         if (added > 0) {
@@ -929,14 +995,19 @@ export default function ExpensesModule({
       try {
         if (window.PattanBiometric && typeof window.PattanBiometric.getSavedMobileTransactionsJson === 'function') {
           const savedRaw = window.PattanBiometric.getSavedMobileTransactionsJson() || '[]';
-          const savedArr = JSON.parse(savedRaw);
-          if (Array.isArray(savedArr) && savedArr.length > 0) {
+          const rawArr = JSON.parse(savedRaw);
+          const savedArr = Array.isArray(rawArr)
+            ? rawArr.filter((item) => item && typeof item === 'object' && !isWhatsAppOrNonRealTx(item))
+            : [];
+          if (savedArr.length > 0) {
             const curMap = expensesMapRef.current || {};
             const hasUnmerged = savedArr.some((item) => item && item.id && !curMap[item.id]);
             if (savedRaw !== lastSavedNativeRawRef.current || hasUnmerged) {
               lastSavedNativeRawRef.current = savedRaw;
               mergeDetectedTransactions(savedArr, 'android-saved-notif');
             }
+          } else {
+            lastSavedNativeRawRef.current = savedRaw;
           }
         }
       } catch (_) {}
@@ -953,7 +1024,8 @@ export default function ExpensesModule({
               x.id &&
               !x._deleted &&
               !curMap[x.id] &&
-              !blockedRefSet.has(String(x.refId || '').trim())
+              !blockedRefSet.has(String(x.refId || '').trim()) &&
+              !isWhatsAppOrNonRealTx(x)
           );
           if (missingEnc.length > 0) {
             mergeDetectedTransactions(missingEnc, 'encrypted-vault-sync');
@@ -1209,11 +1281,18 @@ export default function ExpensesModule({
           keyStr.endsWith('_ot_payout') ||
           (keyStr.startsWith('tx_yasin_master_') && fakeRefIds.has(refStr)) ||
           srcStr === 'demo-preview' ||
-          fakeRefIds.has(refStr);
+          fakeRefIds.has(refStr) ||
+          isWhatsAppOrNonRealTx(v);
         if (!v || typeof v !== 'object' || v._deleted || deletedSet.has(keyStr) || v._demoPreview || v.isDemoPreview || isFakeSeed) {
           continue;
         }
         const cleanTx = { ...v };
+        if (
+          String(cleanTx.source || '') === 'mobile-notification' &&
+          !/\b(bank|sbi|hdfc|icici|axis|kotak|canara|union|baroda|bob|pnb|idfc|indusind|federal|yes)\b/i.test(String(cleanTx.app || ''))
+        ) {
+          cleanTx.accountBalance = null;
+        }
         if (cleanTx.app && /\b(cred|dreamplug)\b/i.test(String(cleanTx.app))) {
           cleanTx.app = cleanTx.accountMask ? 'Bank Account' : 'UPI';
         }
@@ -1236,9 +1315,13 @@ export default function ExpensesModule({
   }, [expensesMap]);
 
   const effectiveBankBalanceInfo = useMemo(() => {
-    if (!hasLinkedEmail || !isOwnerAccount) return null;
     const savedList = Object.values(bankAccountsMap || {}).filter(
-      (a) => a && typeof a === 'object' && Number.isFinite(Number(a.balance)) && !/^acc_cred$/i.test(String(a.accountKey || ''))
+      (a) =>
+        a &&
+        typeof a === 'object' &&
+        Number.isFinite(Number(a.balance)) &&
+        !/^acc_cred$/i.test(String(a.accountKey || '')) &&
+        !/\b(whatsapp|com\.whatsapp)\b/i.test(String(a.bankName || ''))
     );
     if (selectedBankAccountKey && selectedBankAccountKey !== 'all' && bankAccountsMap?.[selectedBankAccountKey]) {
       const sel = bankAccountsMap[selectedBankAccountKey];
@@ -1247,32 +1330,23 @@ export default function ExpensesModule({
         bankName: cleanNoCredBankName(sel.bankName, 'Primary Bank A/c'),
       };
     }
-    if (savedList.length === 1) {
+    const candidates = [
+      ...savedList,
+      ...(bankBalanceInfo &&
+      Number.isFinite(Number(bankBalanceInfo.balance)) &&
+      !/\b(whatsapp|com\.whatsapp)\b/i.test(String(bankBalanceInfo.bankName || ''))
+        ? [bankBalanceInfo]
+        : []),
+    ].sort((a, b) => (Number(b.updatedAtMs) || 0) - (Number(a.updatedAtMs) || 0));
+    if (candidates.length > 0) {
+      const primary = candidates[0];
       return {
-        ...savedList[0],
-        bankName: cleanNoCredBankName(savedList[0].bankName, 'Primary Bank A/c'),
-      };
-    }
-    if (savedList.length > 1) {
-      const totalBal = savedList.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
-      const latestMs = Math.max(...savedList.map((a) => Number(a.updatedAtMs) || 0));
-      return {
-        accountKey: 'all',
-        balance: Number(totalBal.toFixed(2)),
-        bankName: `All ${savedList.length} Bank Accounts`,
-        accountMask: '',
-        source: 'multi-account-combined',
-        updatedAtMs: latestMs || Date.now(),
-      };
-    }
-    if (bankBalanceInfo) {
-      return {
-        ...bankBalanceInfo,
-        bankName: cleanNoCredBankName(bankBalanceInfo.bankName, 'Primary Bank A/c'),
+        ...primary,
+        bankName: cleanNoCredBankName(primary.bankName, 'Primary Bank A/c'),
       };
     }
     return null;
-  }, [hasLinkedEmail, isOwnerAccount, bankAccountsMap, selectedBankAccountKey, bankBalanceInfo]);
+  }, [bankAccountsMap, selectedBankAccountKey, bankBalanceInfo]);
 
   const analytics = useMemo(
     () =>
@@ -2707,6 +2781,90 @@ export default function ExpensesModule({
          ═══════════════════════════════════════════════════════════════════════ */}
       {(subTab === 'overview' || subTab === 'transactions') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* PROMINENT MAIN ACCOUNT BALANCE BENTO CARD */}
+          <div
+            className="flutter-m3-card"
+            style={{
+              padding: mobileMode ? '14px 16px' : '16px 20px',
+              borderRadius: 20,
+              background: isLight
+                ? 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)'
+                : 'linear-gradient(135deg, rgba(30, 58, 138, 0.35) 0%, rgba(6, 78, 59, 0.35) 100%)',
+              border: isLight ? '1.5px solid #bfdbfe' : '1.5px solid rgba(59, 130, 246, 0.4)',
+              color: palette.text,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+              boxShadow: isLight ? '0 4px 14px rgba(37, 99, 235, 0.08)' : '0 8px 24px rgba(0, 0, 0, 0.35)',
+            }}
+          >
+            <div style={{ minWidth: 0, flex: '1 1 200px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{
+                  fontSize: 11.5,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: isLight ? '#1d4ed8' : '#93c5fd',
+                }}>
+                  🏦 Main Account Balance
+                </span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.6)',
+                  border: `1px solid ${palette.border}`,
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  color: palette.textSub,
+                }}>
+                  {analytics.latestBankName || effectiveBankBalanceInfo?.bankName || 'Primary Bank A/c'}
+                  {(analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask)
+                    ? ` · ${analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask}`
+                    : ''}
+                </span>
+              </div>
+              <div style={{
+                fontSize: mobileMode ? 24 : 26,
+                fontWeight: 900,
+                color: isLight ? '#0f172a' : '#f8fafc',
+                letterSpacing: '-0.02em',
+                marginTop: 4,
+                lineHeight: 1.15,
+              }}>
+                ₹{formatINR(analytics.realAccountBalance || 0)}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted, marginTop: 3 }}>
+                Synced only from real Bank &amp; UPI transactions (WhatsApp ignored)
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => openCheckBalanceModal(effectiveBankBalanceInfo)}
+              style={{
+                padding: '9px 14px',
+                borderRadius: 12,
+                border: isLight ? '1px solid #93c5fd' : '1px solid rgba(96, 165, 250, 0.45)',
+                background: isLight ? '#2563eb' : '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)',
+              }}
+            >
+              <span>🏦</span>
+              <span>Check / Set Balance</span>
+            </button>
+          </div>
+
           <div
             className="flutter-m3-card"
             style={{

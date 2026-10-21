@@ -54,8 +54,6 @@ public final class MobileTransactionParser {
         "com.naviapp",
         "in.amazon.mShop.android.shopping",
         "in.amazon.mshop.android.shopping",
-        "com.whatsapp",
-        "com.whatsapp.w4b",
         "com.mobikwik_new",
         "com.freecharge.android",
         "indwin.c3.shareapp",
@@ -210,7 +208,7 @@ public final class MobileTransactionParser {
     public static boolean looksLikeFinancialNotification(String packageName, String title, String body) {
         if (packageName == null) return false;
         String lowerPkg = packageName.trim().toLowerCase(Locale.ROOT);
-        if (lowerPkg.contains("instagram") || lowerPkg.contains("facebook") || lowerPkg.contains("snapchat")
+        if (lowerPkg.contains("whatsapp") || lowerPkg.contains("instagram") || lowerPkg.contains("facebook") || lowerPkg.contains("snapchat")
             || lowerPkg.contains("youtube") || lowerPkg.contains("game") || lowerPkg.contains("spotify")
             || lowerPkg.contains("netflix")) {
             return false;
@@ -233,6 +231,9 @@ public final class MobileTransactionParser {
         String sourceType
     ) {
         try {
+            if (senderOrPkg != null && senderOrPkg.toLowerCase(Locale.ROOT).contains("whatsapp")) {
+                return null;
+            }
             // When called from notification listener, enforce package allow-list
             if ("mobile-notification".equalsIgnoreCase(sourceType) && !isAllowedPaymentPackage(senderOrPkg)) {
                 return null;
@@ -242,6 +243,11 @@ public final class MobileTransactionParser {
             if (fullText.length() < 6) return null;
 
             String lower = fullText.toLowerCase(Locale.ROOT);
+            if (lower.contains("whatsapp") || lower.contains("daily ot") || lower.contains("today's shift")
+                || lower.contains("worked time") || lower.contains("today's payment details")
+                || lower.contains("attendance statement") || lower.contains("your time is completed")) {
+                return null;
+            }
 
             // Never parse or store OTPs, PIN prompts, or password messages
             boolean hasOtpWord = lower.contains("otp")

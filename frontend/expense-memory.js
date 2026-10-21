@@ -33,8 +33,6 @@ export const ALLOWED_PAYMENT_PACKAGES = Object.freeze([
   { pkg: 'com.dreamplug.androidapp', label: 'CRED', appLabel: 'CRED' },
   { pkg: 'com.naviapp', label: 'Navi UPI', appLabel: 'Navi UPI' },
   { pkg: 'in.amazon.mShop.android.shopping', label: 'Amazon Pay', appLabel: 'Amazon Pay' },
-  { pkg: 'com.whatsapp', label: 'WhatsApp Pay', appLabel: 'WhatsApp Pay' },
-  { pkg: 'com.whatsapp.w4b', label: 'WhatsApp Business Pay', appLabel: 'WhatsApp Pay' },
   { pkg: 'com.mobikwik_new', label: 'MobiKwik', appLabel: 'MobiKwik' },
   { pkg: 'com.freecharge.android', label: 'Freecharge', appLabel: 'Freecharge' },
   { pkg: 'indwin.c3.shareapp', label: 'slice UPI', appLabel: 'slice UPI' },
@@ -330,6 +328,25 @@ const FAKE_SEED_REF_IDS = new Set([
   '629400112211',
 ]);
 
+function isWhatsAppOrNonRealRecord(tx) {
+  if (!tx || typeof tx !== 'object') return true;
+  const combined = [
+    tx.app,
+    tx.source,
+    tx.senderOrPkg,
+    tx.merchant,
+    tx.originalMerchant,
+    tx.note,
+    tx.originalRemark,
+    tx.paymentRemark,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return /\b(whatsapp|com\.whatsapp|com\.whatsapp\.w4b)\b|(?:daily ot|today's shift|enter \(in\)|exit \(out\)|worked time|today's payment details|attendance statement|your time is completed)/i.test(
+    combined
+  );
+}
+
 function getDeletedExpenseIdsSet() {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -371,7 +388,8 @@ export function loadEncryptedExpenseStore() {
               keyStr.endsWith('_salary') ||
               keyStr.endsWith('_ot_payout') ||
               (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
-              FAKE_SEED_REF_IDS.has(refStr)
+              FAKE_SEED_REF_IDS.has(refStr) ||
+              isWhatsAppOrNonRealRecord(tx)
             ) {
               continue;
             }
@@ -432,7 +450,8 @@ export function saveEncryptedExpenseStore(expensesMap = {}) {
       keyStr.endsWith('_salary') ||
       keyStr.endsWith('_ot_payout') ||
       (keyStr.startsWith('tx_yasin_master_') && FAKE_SEED_REF_IDS.has(refStr)) ||
-      FAKE_SEED_REF_IDS.has(refStr)
+      FAKE_SEED_REF_IDS.has(refStr) ||
+      isWhatsAppOrNonRealRecord(tx)
     ) {
       continue;
     }
