@@ -1,5 +1,33 @@
 [
   {
+    "id": "sug_1792567922635_9ii2",
+    "text": "And remove the Google stitch project form app only keep ui",
+    "accountEmail": "patanyasin144@gmail.com",
+    "version": "8.2.1",
+    "createdAt": "2026-10-21T07:32:02.635Z",
+    "timestampMs": 1792567922635,
+    "hasScreenshot": false,
+    "screenshotName": "",
+    "screenshotUrl": "",
+    "deliveredOnline": true,
+    "processedByAi": true,
+    "status": "completed_in_v8.2.3"
+  },
+  {
+    "id": "sug_1792567871605_lbd2",
+    "text": "And show the loading indicator on the mobile until the feature processing",
+    "accountEmail": "patanyasin144@gmail.com",
+    "version": "8.2.1",
+    "createdAt": "2026-10-21T07:31:11.605Z",
+    "timestampMs": 1792567871605,
+    "hasScreenshot": false,
+    "screenshotName": "",
+    "screenshotUrl": "",
+    "deliveredOnline": true,
+    "processedByAi": true,
+    "status": "completed_in_v8.2.3"
+  },
+  {
     "id": "sug_1792567818997_f9ev",
     "text": "Make them only icon",
     "accountEmail": "patanyasin144@gmail.com",

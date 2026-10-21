@@ -1643,18 +1643,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'stitch-aurora';
     }
   });
-  const [showStitchStudioModal, setShowStitchStudioModal] = useState(false);
-  const [stitchApiKeyInput, setStitchApiKeyInput] = useState(() => {
-    try {
-      return localStorage.getItem('yasin_stitch_api_key_v1') || '';
-    } catch (_) {
-      return '';
-    }
-  });
-  const [stitchSyncBusy, setStitchSyncBusy] = useState(false);
-  const [stitchSyncNotice, setStitchSyncNotice] = useState('');
-  const [stitchRemoteScreens, setStitchRemoteScreens] = useState([]);
-
   const selectStitchPreset = useCallback((presetId) => {
     setStitchPreset(presetId);
     try {
@@ -1666,61 +1654,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       localStorage.setItem('pattan.ot.themeMode.v8.2', nextMode);
     } catch (_) {}
   }, []);
-
-  const syncGoogleStitchProject = useCallback(async () => {
-    const cleanKey = String(stitchApiKeyInput || '').trim();
-    try {
-      if (cleanKey) {
-        localStorage.setItem('yasin_stitch_api_key_v1', cleanKey);
-      }
-    } catch (_) {}
-    if (!cleanKey) {
-      setStitchSyncNotice(
-        '✨ Project 13519284942366029207 Design System active! Paste your Google Stitch API Key above to pull live screens via MCP.'
-      );
-      return;
-    }
-    setStitchSyncBusy(true);
-    setStitchSyncNotice('⏳ Connecting to https://stitch.googleapis.com/mcp (Project 13519284942366029207)...');
-    try {
-      const res = await fetch('https://stitch.googleapis.com/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Goog-Api-Key': cleanKey,
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Date.now(),
-          method: 'tools/call',
-          params: {
-            name: 'list_screens',
-            arguments: { projectId: '13519284942366029207' },
-          },
-        }),
-      });
-      const json = await res.json();
-      if (json?.error) {
-        setStitchSyncNotice(`⚠️ Stitch MCP response: ${json.error.message || 'Check API Key'}`);
-      } else {
-        const textContent = json?.result?.content?.[0]?.text || '';
-        let parsedScreens = [];
-        try {
-          const parsed = JSON.parse(textContent);
-          parsedScreens = Array.isArray(parsed?.screens) ? parsed.screens : [];
-        } catch (_) {}
-        setStitchRemoteScreens(parsedScreens);
-        setStitchSyncNotice(
-          `✅ Connected to Google Stitch Project 13519284942366029207 (${parsedScreens.length || 'Live'} screens synced)`
-        );
-      }
-    } catch (err) {
-      setStitchSyncNotice(`⚠️ Could not reach Stitch MCP: ${err?.message || 'Network/CORS'}`);
-    } finally {
-      setStitchSyncBusy(false);
-    }
-  }, [stitchApiKeyInput]);
 
   const toggleThemeMode = useCallback(() => {
     setThemeMode((prev) => {
@@ -1891,10 +1824,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
-    if (showStitchStudioModal) {
-      setShowStitchStudioModal(false);
-      return 'handled';
-    }
     if (showChangeMobileModal) {
       setShowChangeMobileModal(false);
       return 'handled';
@@ -1941,7 +1870,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       return 'handled';
     }
     return '';
-  }, [showStitchStudioModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+  }, [showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -2370,11 +2299,149 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.2';
+      return localStorage.getItem('pattan.ota.version') || '8.2.3';
     } catch (_) {
-      return '8.2.2';
+      return '8.2.3';
     }
   });
+
+  const [globalSuggestionsList, setGlobalSuggestionsList] = useState(() => {
+    try {
+      const raw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const isGlobalSuggestionCompleted = useCallback(
+    (item) => {
+      if (!item || typeof item !== 'object') return true;
+      if (
+        item.processedByAi === true ||
+        item.dismissedByUser === true ||
+        String(item.status || '').startsWith('completed')
+      ) {
+        return true;
+      }
+      if (availableOtaUpdate && availableOtaUpdate.version) {
+        return true;
+      }
+      const itemVer = String(item.version || item.submittedVersion || '').trim();
+      const curVer = String(liveOtaVersion || '8.2.3').trim();
+      if (itemVer && curVer && itemVer !== curVer) {
+        const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
+        const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
+        for (let i = 0; i < 3; i++) {
+          if ((p2[i] || 0) > (p1[i] || 0)) return true;
+          if ((p2[i] || 0) < (p1[i] || 0)) break;
+        }
+      }
+      const t = String(item.text || '').trim();
+      if (
+        /loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+          t
+        )
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [availableOtaUpdate, liveOtaVersion]
+  );
+
+  const activePendingSuggestions = useMemo(
+    () => globalSuggestionsList.filter((item) => item && !isGlobalSuggestionCompleted(item)),
+    [globalSuggestionsList, isGlobalSuggestionCompleted]
+  );
+
+  const dismissProcessingSuggestion = useCallback((sugId) => {
+    setGlobalSuggestionsList((prev) => {
+      const next = prev.map((item) =>
+        item && item.id === sugId ? { ...item, dismissedByUser: true, processedByAi: true, status: 'completed' } : item
+      );
+      try {
+        localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(next));
+        window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
+      } catch (_) {}
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const reloadFromStorage = () => {
+      try {
+        const raw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) setGlobalSuggestionsList(parsed);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener('yasin-suggestions-updated', reloadFromStorage);
+    window.addEventListener('storage', reloadFromStorage);
+
+    const pollRemoteSuggestionStatus = async () => {
+      let currentArr = [];
+      try {
+        const raw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) currentArr = parsed;
+        }
+      } catch (_) {}
+      const hasPending = currentArr.some((x) => x && !isGlobalSuggestionCompleted(x));
+      if (!hasPending) return;
+      try {
+        const res = await fetch(
+          `https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota/incoming-suggestions.json?t=${Date.now()}`,
+          { cache: 'no-store' }
+        );
+        if (res && res.ok) {
+          const remoteArr = await res.json();
+          if (Array.isArray(remoteArr)) {
+            let changed = false;
+            const nextArr = currentArr.map((localItem) => {
+              if (!localItem || isGlobalSuggestionCompleted(localItem)) return localItem;
+              const matched = remoteArr.find(
+                (r) =>
+                  r &&
+                  (r.id === localItem.id ||
+                    String(r.text || '').trim().toLowerCase() === String(localItem.text || '').trim().toLowerCase())
+              );
+              if (matched && (matched.processedByAi === true || String(matched.status || '').startsWith('completed'))) {
+                changed = true;
+                return {
+                  ...localItem,
+                  deliveredOnline: true,
+                  processedByAi: true,
+                  status: matched.status || 'completed',
+                };
+              }
+              return localItem;
+            });
+            if (changed) {
+              setGlobalSuggestionsList(nextArr);
+              try {
+                localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
+                window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+    };
+
+    const timer = setInterval(pollRemoteSuggestionStatus, 5000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('yasin-suggestions-updated', reloadFromStorage);
+      window.removeEventListener('storage', reloadFromStorage);
+    };
+  }, [isGlobalSuggestionCompleted]);
 
   const handleSelectGlobalSuggestionScreenshot = useCallback((ev) => {
     const file = ev?.target?.files?.[0];
@@ -2454,6 +2521,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         status: 'sending',
       };
 
+      // Immediately show the live feature processing indicator on mobile
+      try {
+        const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
+        const initialArr = [payload, ...(Array.isArray(existingArr) ? existingArr.filter((x) => x && x.id !== sugId) : [])].slice(0, 20);
+        localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(initialArr));
+        setGlobalSuggestionsList(initialArr);
+        window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
+      } catch (_) {}
+
+      setGlobalSuggestionInput('');
+      setGlobalSuggestionScreenshotDataUrl('');
+      setGlobalSuggestionScreenshotName('');
+      setShowGlobalSuggestionModal(false);
+
       const relayHost = ['https://', 'nt', 'fy', '.', 'sh'].join('');
       const relayTopic = 'yasin_salary_pro_suggestions_live_144';
       const mediaTopic = 'yasin_salary_pro_suggestions_live_144_media';
@@ -2504,18 +2586,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       try {
         const existingRaw = localStorage.getItem('yasin_ot_feature_suggestions_v1');
         const existingArr = existingRaw ? JSON.parse(existingRaw) : [];
-        const nextArr = [finalPayload, ...(Array.isArray(existingArr) ? existingArr : [])].slice(0, 20);
+        const nextArr = [finalPayload, ...(Array.isArray(existingArr) ? existingArr.filter((x) => x && x.id !== sugId) : [])].slice(0, 20);
         localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextArr));
+        setGlobalSuggestionsList(nextArr);
+        window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
       } catch (_) {}
 
       setGlobalSuggestionSending(false);
-      setGlobalSuggestionInput('');
-      setGlobalSuggestionScreenshotDataUrl('');
-      setGlobalSuggestionScreenshotName('');
-      setShowGlobalSuggestionModal(false);
       setSaveNotice(
         deliveredOnline
-          ? '⏳ Sent to AI! Loading indicator active — will show "✅ Update Completed" when ready.'
+          ? '⏳ Processing your feature! Loading indicator active until update is ready.'
           : '📡 Saved Offline! Will auto-send to AI as soon as internet connects.'
       );
     },
@@ -4612,7 +4692,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               maxWidth: 280,
               lineHeight: 1.5,
             }}>
-              Google Stitch Signature UI · Attendance · Salary · Expense Ledger (v{liveOtaVersion})
+              Clean Attendance · Salary · Expense Ledger (v{liveOtaVersion})
             </div>
             <button
               type="button"
@@ -4638,7 +4718,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
       <div style={{ maxWidth: 500, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* V8.2 GOOGLE STITCH SPACIOUS WORKSPACE HEADER + 1-TAP PRESET BAR */}
+        {/* V8.2 SPACIOUS WORKSPACE HEADER + 1-TAP ICON THEME BAR */}
         <div
           className="ot-no-print stitch-screen-card"
           style={{
@@ -4792,7 +4872,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
           </div>
 
-          {/* Header Row 2: Dedicated Month Picker & Action Pills (Zero Title Overlap!) */}
+          {/* Header Row 2: Dedicated Month Picker & Icon-Only Action Buttons */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -4887,36 +4967,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               <button
                 type="button"
-                onClick={() => setShowStitchStudioModal(true)}
-                title="Google Stitch Project 13519284942366029207 UI Studio & Design System"
-                aria-label="Stitch UI Studio"
-                style={{
-                  width: 34,
-                  height: 34,
-                  padding: 0,
-                  borderRadius: 11,
-                  border: '1px solid rgba(139, 92, 246, 0.48)',
-                  background: isLight
-                    ? 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)'
-                    : 'linear-gradient(135deg, rgba(79, 70, 229, 0.26) 0%, rgba(14, 165, 233, 0.22) 100%)',
-                  color: isLight ? '#4f46e5' : '#c4b5fd',
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: isLight ? 'none' : '0 4px 12px rgba(99, 102, 241, 0.22)',
-                }}
-              >
-                <span>✨</span>
-                <span style={{ display: 'none' }}>Stitch UI</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setShowGlobalSuggestionModal(true)}
-                title="Drop a Suggestion or Request a New Feature"
+                title={
+                  globalSuggestionSending || activePendingSuggestions.length > 0
+                    ? 'Feature Processing in Progress — Tap to view or add suggestion'
+                    : 'Drop a Suggestion or Request a New Feature'
+                }
                 aria-label="Suggest a Feature"
                 style={{
                   width: 34,
@@ -4934,7 +4990,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   flexShrink: 0,
                 }}
               >
-                <span>💡</span>
+                {globalSuggestionSending || activePendingSuggestions.length > 0 ? (
+                  <span className="ot-feature-spinner-sm" />
+                ) : (
+                  <span>💡</span>
+                )}
                 <span style={{ display: 'none' }}>Suggest</span>
               </button>
 
@@ -4970,7 +5030,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             </div>
           </div>
 
-          {/* Header Row 3: 1-Tap Google Stitch Icon-Only Theme Preset Switcher */}
+          {/* Header Row 3: 1-Tap Icon-Only Theme Switcher */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
@@ -4979,10 +5039,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             borderTop: `1px dashed ${ui.border}`,
           }}>
             {[
-              { id: 'stitch-aurora', icon: '🌌', title: 'Obsidian Aurora', mode: 'dark' },
-              { id: 'stitch-cyber-emerald', icon: '💎', title: 'Emerald Neo-Vault', mode: 'dark' },
+              { id: 'stitch-aurora', icon: '🌌', title: 'Midnight Aurora', mode: 'dark' },
+              { id: 'stitch-cyber-emerald', icon: '💎', title: 'Emerald Vault', mode: 'dark' },
               { id: 'stitch-royal-amethyst', icon: '🔮', title: 'Royal Amethyst', mode: 'dark' },
-              { id: 'stitch-alabaster-pro', icon: '☀️', title: 'Alabaster Daylight', mode: 'light' },
+              { id: 'stitch-alabaster-pro', icon: '☀️', title: 'Daylight Mode', mode: 'light' },
             ].map((p) => {
               const active = stitchPreset === p.id;
               return (
@@ -5014,6 +5074,103 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             })}
           </div>
         </div>
+
+        {/* ⏳ LIVE FEATURE PROCESSING LOADING INDICATOR BANNER ON MOBILE (Visible until feature processing completes) */}
+        {(globalSuggestionSending || activePendingSuggestions.length > 0) && !availableOtaUpdate && (
+          <div
+            className="ot-no-print stitch-screen-card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 18,
+              background: isLight
+                ? 'linear-gradient(135deg, #fffbeb 0%, #eff6ff 100%)'
+                : 'linear-gradient(135deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%)',
+              border: isLight ? '1.5px solid #f59e0b' : '1.5px solid rgba(251, 191, 36, 0.55)',
+              boxShadow: '0 10px 26px rgba(245, 158, 11, 0.22)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 9,
+              color: ui.textPrimary,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                <span className="ot-feature-spinner" />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, color: isLight ? '#b45309' : '#fbbf24', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>
+                      {globalSuggestionSending
+                        ? '🚀 Sending Feature Request to AI...'
+                        : '⏳ Feature Processing in Progress...'}
+                    </span>
+                  </div>
+                  {activePendingSuggestions[0] && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        color: ui.textPrimary,
+                        marginTop: 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      &ldquo;{activePendingSuggestions[0].text}&rdquo;
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: ui.textSecondary, marginTop: 1 }}>
+                    AI is building your requested update · Live OTA will pop up automatically when ready
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {activePendingSuggestions[0] &&
+                  (activePendingSuggestions[0].screenshotDataUrl || activePendingSuggestions[0].screenshotUrl) && (
+                    <img
+                      src={activePendingSuggestions[0].screenshotDataUrl || activePendingSuggestions[0].screenshotUrl}
+                      alt="Attached screenshot"
+                      style={{
+                        width: 34,
+                        height: 34,
+                        objectFit: 'cover',
+                        borderRadius: 8,
+                        border: `1px solid ${ui.border}`,
+                      }}
+                    />
+                  )}
+                {activePendingSuggestions[0] && (
+                  <button
+                    type="button"
+                    onClick={() => dismissProcessingSuggestion(activePendingSuggestions[0].id)}
+                    title="Hide loading indicator"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 8,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textSecondary,
+                      fontSize: 12,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="ot-feature-progress-track">
+              <div className="ot-feature-progress-fill" />
+            </div>
+          </div>
+        )}
 
         {/* 🚀 PROACTIVE UPDATE AVAILABLE BANNER & MODAL — NEVER STAYS SILENT WHEN AN UPDATE IS READY */}
         {availableOtaUpdate && (
@@ -5339,6 +5496,76 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
                 )}
               </div>
+
+              {globalSuggestionsList.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {globalSuggestionsList.slice(0, 2).map((item) => {
+                    const isDone = isGlobalSuggestionCompleted(item);
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          background: ui.cardSubBg,
+                          border: `1px solid ${ui.border}`,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: ui.textPrimary,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                            {(item.screenshotDataUrl || item.screenshotUrl) && (
+                              <img
+                                src={item.screenshotDataUrl || item.screenshotUrl}
+                                alt="Screenshot"
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  objectFit: 'cover',
+                                  borderRadius: 5,
+                                  border: `1px solid ${ui.border}`,
+                                  flexShrink: 0,
+                                }}
+                              />
+                            )}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                              {item.text}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: 999,
+                              background: isDone ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                              color: isDone ? '#34d399' : '#93c5fd',
+                              fontWeight: 900,
+                              fontSize: 10,
+                              flexShrink: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                            }}
+                          >
+                            {!isDone && <span className="ot-feature-spinner-sm" />}
+                            <span>{isDone ? '✅ Update Completed' : '⏳ Processing Feature...'}</span>
+                          </span>
+                        </div>
+                        {!isDone && (
+                          <div className="ot-feature-progress-track">
+                            <div className="ot-feature-progress-fill" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
                   type="button"
@@ -7539,7 +7766,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 800, color: ui.textSecondary, letterSpacing: '0.03em' }}>
-                    GOOGLE STITCH VERIFIED PAYSLIP · {formattedMonthLabel.toUpperCase()}
+                    MONTHLY VERIFIED PAYSLIP · {formattedMonthLabel.toUpperCase()}
                   </div>
                   <div
                     className="ot-tabular-nums"
@@ -7789,48 +8016,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showRulesSection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* GOOGLE STITCH THEME & LAYOUT CARD (Visible directly in Rules Tab) */}
-            <div
-              className="stitch-screen-card stitch-bank-hero-card"
-              style={{
-                padding: '16px 18px',
-                borderRadius: 24,
-                background: ui.heroCardBg,
-                border: `1px solid ${ui.border}`,
-                boxShadow: ui.shadow,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 950, color: ui.textPrimary }}>
-                    ✨ Google Stitch Design System
-                  </div>
-                  <div style={{ fontSize: 11.5, color: ui.textSecondary, fontWeight: 600 }}>
-                    Project 13519284942366029207 · Active across all 12 screens
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowStitchStudioModal(true)}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: 10,
-                    border: `1px solid ${ui.accentColor}`,
-                    background: ui.accentGrad,
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: 11.5,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Open Studio →
-                </button>
-              </div>
-            </div>
-
             <div
               className="stitch-screen-card"
               style={{
@@ -9075,274 +9260,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           })}
         </div>
       </div>
-
-      {/* Google Stitch Project 13519284942366029207 Studio & Design System Modal */}
-      {showStitchStudioModal && (
-        <div
-          onClick={() => setShowStitchStudioModal(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 1350,
-            background: 'rgba(2, 6, 23, 0.84)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 14,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100%',
-              maxWidth: 480,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              borderRadius: 24,
-              background: '#0b1120',
-              border: '1px solid rgba(139, 92, 246, 0.45)',
-              boxShadow: '0 24px 60px rgba(0, 0, 0, 0.78), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
-              padding: 18,
-              color: '#f8fafc',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{
-                    padding: '3px 9px',
-                    borderRadius: 999,
-                    background: 'linear-gradient(135deg, #4f46e5, #0ea5e9)',
-                    color: '#ffffff',
-                    fontSize: 10,
-                    fontWeight: 900,
-                    letterSpacing: '0.06em',
-                  }}>
-                    GOOGLE STITCH STUDIO
-                  </span>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#94a3b8' }}>
-                    ID: 13519284942366029207
-                  </span>
-                </div>
-                <div style={{ fontSize: 17, fontWeight: 900, color: '#ffffff', marginTop: 6 }}>
-                  ✨ Stitch Signature Layout &amp; UI Engine
-                </div>
-                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>
-                  Connected to your Google Stitch project for live glassmorphic Bento layouts, virtual metallic bank cards &amp; theme presets.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowStitchStudioModal(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  border: '1px solid rgba(148, 163, 184, 0.25)',
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  color: '#cbd5e1',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* 4 Google Stitch Signature Design Presets */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                🎨 Choose Google Stitch Design System Preset
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {[
-                  {
-                    id: 'stitch-aurora',
-                    title: 'Obsidian Aurora',
-                    subtitle: 'Indigo · Cyan · Emerald Glass',
-                    swatch: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 55%, #10b981 100%)',
-                  },
-                  {
-                    id: 'stitch-cyber-emerald',
-                    title: 'Emerald Neo-Vault',
-                    subtitle: 'Deep Mint · Teal Metallic',
-                    swatch: 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)',
-                  },
-                  {
-                    id: 'stitch-royal-amethyst',
-                    title: 'Royal Amethyst',
-                    subtitle: 'Violet · Fuchsia Luxe Glass',
-                    swatch: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)',
-                  },
-                  {
-                    id: 'stitch-alabaster-pro',
-                    title: 'Alabaster Daylight',
-                    subtitle: 'Crisp White · Sapphire Studio',
-                    swatch: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 55%, #10b981 100%)',
-                  },
-                ].map((preset) => {
-                  const active = stitchPreset === preset.id;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => {
-                        selectStitchPreset(preset.id);
-                        setSaveNotice(`✨ Applied Stitch "${preset.title}" UI Layout!`);
-                        setTimeout(() => setSaveNotice(''), 2200);
-                      }}
-                      style={{
-                        padding: '11px 12px',
-                        borderRadius: 16,
-                        border: active
-                          ? '2px solid #38bdf8'
-                          : '1px solid rgba(148, 163, 184, 0.22)',
-                        background: active
-                          ? 'rgba(56, 189, 248, 0.14)'
-                          : 'rgba(15, 23, 42, 0.85)',
-                        color: '#f8fafc',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{
-                          width: 24,
-                          height: 14,
-                          borderRadius: 999,
-                          background: preset.swatch,
-                          display: 'inline-block',
-                        }} />
-                        {active && (
-                          <span style={{ fontSize: 10, fontWeight: 900, color: '#38bdf8' }}>
-                            ● ACTIVE
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12.5, fontWeight: 800, color: '#ffffff' }}>
-                        {preset.title}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
-                        {preset.subtitle}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Direct Project Link + Live Stitch MCP Sync */}
-            <div style={{
-              padding: 12,
-              borderRadius: 16,
-              background: 'rgba(15, 23, 42, 0.9)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0' }}>
-                    🔗 Google Stitch Project #13519284942366029207
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
-                    Endpoint: https://stitch.googleapis.com/mcp
-                  </div>
-                </div>
-                <a
-                  href="https://stitch.withgoogle.com/projects/13519284942366029207?pli=1"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 10,
-                    background: 'linear-gradient(135deg, #4f46e5, #2563eb)',
-                    color: '#ffffff',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    textDecoration: 'none',
-                  }}
-                >
-                  Open Stitch Project ↗
-                </a>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="password"
-                  value={stitchApiKeyInput}
-                  onChange={(e) => setStitchApiKeyInput(e.target.value)}
-                  placeholder="Optional: Paste Google Stitch API Key (X-Goog-Api-Key)"
-                  style={{
-                    flex: 1,
-                    padding: '8px 10px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(148, 163, 184, 0.28)',
-                    background: '#060a14',
-                    color: '#f8fafc',
-                    fontSize: 11.5,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={syncGoogleStitchProject}
-                  disabled={stitchSyncBusy}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(56, 189, 248, 0.45)',
-                    background: 'rgba(14, 165, 233, 0.2)',
-                    color: '#7dd3fc',
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {stitchSyncBusy ? 'Syncing...' : '⚡ Sync MCP'}
-                </button>
-              </div>
-
-              {stitchSyncNotice && (
-                <div style={{ fontSize: 11, color: '#a5f3fc', fontWeight: 700, lineHeight: 1.4 }}>
-                  {stitchSyncNotice}
-                </div>
-              )}
-
-              {stitchRemoteScreens.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, color: '#cbd5e1' }}>
-                    Synced Screens ({stitchRemoteScreens.length}):
-                  </div>
-                  {stitchRemoteScreens.slice(0, 5).map((scr, idx) => (
-                    <div
-                      key={scr?.name || idx}
-                      style={{
-                        padding: '6px 8px',
-                        borderRadius: 8,
-                        background: 'rgba(255,255,255,0.04)',
-                        fontSize: 11,
-                        color: '#e2e8f0',
-                      }}
-                    >
-                      • {scr?.title || scr?.displayName || scr?.name || `Screen ${idx + 1}`}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Mobile App, QR Code, Offline Download & PC Sync Modal */}
       {showMobileAppModal && (

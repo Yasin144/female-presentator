@@ -582,9 +582,36 @@ export default function ExpensesModule({
 
   const isSuggestionCompletedHelper = useCallback((item) => {
     if (!item || typeof item !== 'object') return false;
-    if (item.processedByAi === true || String(item.status || '').startsWith('completed')) return true;
+    if (
+      item.processedByAi === true ||
+      item.dismissedByUser === true ||
+      String(item.status || '').startsWith('completed')
+    ) {
+      return true;
+    }
+    try {
+      const itemVer = String(item.version || item.submittedVersion || '').trim();
+      const curVer = String(
+        (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('pattan.ota.version')) ||
+          '8.2.3'
+      ).trim();
+      if (itemVer && curVer && itemVer !== curVer) {
+        const p1 = itemVer.split('.').map((n) => parseInt(n, 10) || 0);
+        const p2 = curVer.split('.').map((n) => parseInt(n, 10) || 0);
+        for (let i = 0; i < 3; i++) {
+          if ((p2[i] || 0) > (p1[i] || 0)) return true;
+          if ((p2[i] || 0) < (p1[i] || 0)) break;
+        }
+      }
+    } catch (_) {}
     const t = String(item.text || '').trim();
-    if (/make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(t)) return true;
+    if (
+      /loading indicator on the mobile|feature processing|remove the google stitch project|only keep ui|make them only icon|bal not showing|never show cred|only speak when my time is done|don'?t show the all accounts|disable the row of account|don'?t like this layout|new layout understandable|change everything ui and layout|fuck it i don'?t like this ui|top hedder|disturbing other titles|expenses module to/i.test(
+        t
+      )
+    ) {
+      return true;
+    }
     return false;
   }, []);
 
@@ -693,23 +720,35 @@ export default function ExpensesModule({
         setSubmittedSuggestionsList(nextList);
         try {
           window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(nextList));
+          window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
         } catch (_) {}
       }
     };
 
     syncSuggestionsAndStatus();
-    const timer = setInterval(syncSuggestionsAndStatus, 8000);
+    const timer = setInterval(syncSuggestionsAndStatus, 6000);
     const handleOnline = () => {
       setIsNetworkOnline(true);
       syncSuggestionsAndStatus();
     };
     const handleOffline = () => setIsNetworkOnline(false);
+    const handleCustomSync = () => {
+      try {
+        const raw = window.localStorage.getItem('yasin_ot_feature_suggestions_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) setSubmittedSuggestionsList(parsed);
+        }
+      } catch (_) {}
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('yasin-suggestions-updated', handleCustomSync);
     return () => {
       clearInterval(timer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('yasin-suggestions-updated', handleCustomSync);
     };
   }, [isSuggestionCompletedHelper]);
 
@@ -727,11 +766,11 @@ export default function ExpensesModule({
       setSuggestionSubmitting(true);
       const nowMs = Date.now();
       let currentBuildId = '';
-      let currentVer = '8.1.4';
+      let currentVer = '8.2.3';
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           currentBuildId = window.localStorage.getItem('pattan.ota.buildId') || '';
-          currentVer = window.localStorage.getItem('pattan.ota.version') || '8.1.4';
+          currentVer = window.localStorage.getItem('pattan.ota.version') || '8.2.3';
         }
       } catch (_) {}
 
@@ -744,6 +783,7 @@ export default function ExpensesModule({
         timestampMs: nowMs,
         submittedBuildId: currentBuildId,
         submittedVersion: currentVer,
+        version: currentVer,
         hasScreenshot: Boolean(attachedDataUrl),
         screenshotName: attachedName,
         screenshotDataUrl: attachedDataUrl,
@@ -761,6 +801,7 @@ export default function ExpensesModule({
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(initialList));
+          window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
         }
       } catch (_) {}
 
@@ -810,6 +851,7 @@ export default function ExpensesModule({
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem('yasin_ot_feature_suggestions_v1', JSON.stringify(updatedList));
+          window.dispatchEvent(new CustomEvent('yasin-suggestions-updated'));
         }
       } catch (_) {}
 
@@ -3843,47 +3885,57 @@ export default function ExpensesModule({
                 key={item.id}
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 9px',
-                  borderRadius: 9,
+                  flexDirection: 'column',
+                  gap: 6,
+                  padding: '8px 10px',
+                  borderRadius: 10,
                   background: palette.surfaceAlt,
                   fontSize: 11,
                   fontWeight: 700,
                   color: palette.text,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-                  {(item.screenshotDataUrl || item.screenshotUrl) && (
-                    <img
-                      src={item.screenshotDataUrl || item.screenshotUrl}
-                      alt="Screenshot"
-                      style={{
-                        width: 24,
-                        height: 24,
-                        objectFit: 'cover',
-                        borderRadius: 5,
-                        border: `1px solid ${palette.border}`,
-                        flexShrink: 0,
-                      }}
-                    />
-                  )}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {item.text}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                    {(item.screenshotDataUrl || item.screenshotUrl) && (
+                      <img
+                        src={item.screenshotDataUrl || item.screenshotUrl}
+                        alt="Screenshot"
+                        style={{
+                          width: 24,
+                          height: 24,
+                          objectFit: 'cover',
+                          borderRadius: 5,
+                          border: `1px solid ${palette.border}`,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {item.text}
+                    </span>
+                  </div>
+                  <span style={{
+                    padding: '3px 8px',
+                    borderRadius: 999,
+                    background: isDone ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                    color: isDone ? '#34d399' : '#93c5fd',
+                    fontWeight: 900,
+                    fontSize: 10,
+                    flexShrink: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}>
+                    {!isDone && <span className="ot-feature-spinner-sm" />}
+                    <span>{isDone ? '✅ Update Completed' : '⏳ Processing Feature...'}</span>
                   </span>
                 </div>
-                <span style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: isDone ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-                  color: isDone ? '#34d399' : '#93c5fd',
-                  fontWeight: 900,
-                  fontSize: 10,
-                  flexShrink: 0,
-                }}>
-                  {isDone ? '✅ Update Completed' : '⏳ Working on Update...'}
-                </span>
+                {!isDone && (
+                  <div className="ot-feature-progress-track">
+                    <div className="ot-feature-progress-fill" />
+                  </div>
+                )}
               </div>
             );
           })}

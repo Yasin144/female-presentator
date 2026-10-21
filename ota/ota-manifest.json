@@ -1,8 +1,8 @@
 {
-  "version": "8.2.2",
-  "buildId": "ota_8_2_2_1792568000",
-  "releasedAt": "2026-10-21T13:04:00+05:30",
+  "version": "8.2.3",
+  "buildId": "ota_8_2_3_1792568900",
+  "releasedAt": "2026-10-21T13:18:30+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.2: Icon-Only Header Action & Stitch Theme Buttons — Converted the Workspace Header action buttons (🔒, 📱, ✨, 💡, 🔄) and the 4 Google Stitch Theme Preset buttons (🌌, 💎, 🔮, ☀️) into sleek, compact icon-only buttons with zero text truncation or wrapping."
+  "notes": "v8.2.3: Live Mobile Feature Processing Loading Indicator & Clean UI — Added an animated Feature Processing Loading Indicator Banner (spinning ring + indeterminate progress bar) on mobile until your requested feature update is ready, and removed the Google Stitch Project Studio connection while keeping 100% of the glassmorphic Bento UI and 4 icon-only themes."
 }
