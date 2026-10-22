@@ -1,8 +1,8 @@
 {
-  "version": "8.2.26",
-  "buildId": "ota_8_2_26_collapsible_sections_and_udhaar_pro_apk",
-  "releasedAt": "2026-10-23T00:20:00+05:30",
+  "version": "8.2.27",
+  "buildId": "ota_8_2_27_simple_clean_ui_and_separate_udhaar_ota",
+  "releasedAt": "2026-10-23T00:45:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.26: Tap any Section Header to Minimize (▸) / Maximize (▾) across Expenses & OT + Upgraded Udhaar Pro (Edit, Partial Pay, Given/Taken, Due Date, Payment Mode, By Person, Call, PNG Statement) + Standalone Friend Udhaar APK."
+  "notes": "v8.2.27: Super Simple & Clean Udhaar UI + Clutter-Free Expenses View (secondary sections minimized by default) + Separate Individual Udhaar OTA Server (/ota-udhaar/udhaar-ota-manifest.json) completely isolated from Salary & OT OTA."
 }

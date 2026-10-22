@@ -1,1732 +1,1246 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
-const LS_UDHAAR_KEY = 'pattan.expenses.udhaarTracker_v1';
-const LS_UDHAAR_COLLAPSED_KEY = 'pattan.udhaar.collapsedSections_v1';
+const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
+const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
+const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.1';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_1_clean_simple_ui';
+
+// Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
+const UDHAAR_OTA_BASES = [
+  'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar',
+  'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota-udhaar',
+];
 
 function getTodayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getYesterdayIso(todayIso) {
-  const d = new Date(`${todayIso}T12:00:00`);
-  d.setDate(d.getDate() - 1);
+function getCurrentTimeHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function getRelativeDateIso(daysAgo = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function formatINR(val) {
-  const num = Number(val) || 0;
-  return num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+function formatINR(num) {
+  const n = Number(num) || 0;
+  return n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-function formatTime12h(timeStr) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(timeStr || '').trim());
-  if (!m) return timeStr || '';
-  const hh24 = Number(m[1]);
-  const mm = m[2];
-  const period = hh24 >= 12 ? 'PM' : 'AM';
-  const hh12 = hh24 % 12 === 0 ? 12 : hh24 % 12;
-  return `${String(hh12).padStart(2, '0')}:${mm} ${period}`;
+function formatShortDate(iso) {
+  if (!iso) return '';
+  const parts = String(iso).split('-');
+  if (parts.length !== 3) return iso;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  return `${d} ${months[m] || parts[1]}`;
+}
+
+function formatTime12h(hhmm) {
+  if (!hhmm) return '';
+  const [hStr, mStr] = String(hhmm).split(':');
+  const h = parseInt(hStr, 10);
+  if (Number.isNaN(h)) return hhmm;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${mStr || '00'} ${ampm}`;
 }
 
 export default function UdhaarStandaloneApp({
   embedded = false,
-  isLight = false,
-  externalUdhaarMap = null,
-  onExternalPersist = null,
-  onToast = null,
-  externalDraftRequest = null,
+  isLight: propIsLight = false,
+  palette: propPalette = null,
+  externalDraft = null,
   onClearExternalDraft = null,
+  onShowToast = null,
 }) {
-  const todayIso = getTodayIso();
-  const yesterdayIso = useMemo(() => getYesterdayIso(todayIso), [todayIso]);
-  const backupFileInputRef = useRef(null);
+  const [themeLight, setThemeLight] = useState(propIsLight);
+  const isLight = embedded ? propIsLight : themeLight;
 
-  const [internalMap, setInternalMap] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem(LS_UDHAAR_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  const palette = useMemo(() => {
+    if (embedded && propPalette) return propPalette;
+    return isLight
+      ? {
+          bg: '#f1f5f9',
+          surface: '#ffffff',
+          surfaceAlt: '#f8fafc',
+          border: '#e2e8f0',
+          text: '#0f172a',
+          textSub: '#334155',
+          textMuted: '#64748b',
         }
-      }
-    } catch (_) {}
-    return {};
-  });
-
-  const udhaarMap = externalUdhaarMap !== null ? externalUdhaarMap : internalMap;
-
-  const persistMap = useCallback(
-    (nextMap) => {
-      if (typeof onExternalPersist === 'function') {
-        onExternalPersist(nextMap);
-      } else {
-        setInternalMap(nextMap);
-        try {
-          if (typeof window !== 'undefined' && window.localStorage) {
-            window.localStorage.setItem(LS_UDHAAR_KEY, JSON.stringify(nextMap));
-          }
-        } catch (_) {}
-      }
-    },
-    [onExternalPersist]
-  );
+      : {
+          bg: '#090d16',
+          surface: '#111827',
+          surfaceAlt: '#1e293b',
+          border: 'rgba(148, 163, 184, 0.2)',
+          text: '#f8fafc',
+          textSub: '#cbd5e1',
+          textMuted: '#94a3b8',
+        };
+  }, [embedded, propPalette, isLight]);
 
   const [toastMsg, setToastMsg] = useState('');
   const notify = useCallback(
     (msg) => {
-      setToastMsg(msg);
-      if (typeof onToast === 'function') onToast(msg);
-      setTimeout(() => setToastMsg((prev) => (prev === msg ? '' : prev)), 3200);
+      if (embedded && typeof onShowToast === 'function') {
+        onShowToast(msg);
+      } else {
+        setToastMsg(msg);
+        setTimeout(() => setToastMsg(''), 2800);
+      }
     },
-    [onToast]
+    [embedded, onShowToast]
   );
 
-  // Collapsible sections (Tap header to minimize / maximize)
-  const [collapsed, setCollapsed] = useState(() => {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SEPARATE INDIVIDUAL UDHAAR OTA ENGINE (ota-udhaar/udhaar-ota-manifest.json)
+  // Strictly isolated from Salary & OT OTA server
+  // ═══════════════════════════════════════════════════════════════════════════
+  const [udhaarOtaVersion, setUdhaarOtaVersion] = useState(() => {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem(LS_UDHAAR_COLLAPSED_KEY);
-        if (raw) return JSON.parse(raw) || {};
+      return localStorage.getItem(UDHAAR_OTA_VERSION_KEY) || BUILTIN_UDHAAR_OTA_VERSION;
+    } catch (_) {
+      return BUILTIN_UDHAAR_OTA_VERSION;
+    }
+  });
+  const [udhaarOtaBusy, setUdhaarOtaBusy] = useState(false);
+  const [availableUdhaarOta, setAvailableUdhaarOta] = useState(null);
+
+  const checkUdhaarOtaAvailability = useCallback(async () => {
+    if (embedded || udhaarOtaBusy) return null;
+    try {
+      const ts = Date.now();
+      let manifest = null;
+      let activeBase = UDHAAR_OTA_BASES[0];
+      for (const base of UDHAAR_OTA_BASES) {
+        try {
+          const res = await fetch(`${base}/udhaar-ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          if (res.ok) {
+            manifest = await res.json();
+            activeBase = base;
+            break;
+          }
+        } catch (_) {}
       }
+      if (!manifest || !manifest.buildId || manifest.appType !== 'udhaar-only') return null;
+
+      let currentBuildId = BUILTIN_UDHAAR_OTA_BUILD_ID;
+      try {
+        currentBuildId = localStorage.getItem(UDHAAR_OTA_BUILD_ID_KEY) || BUILTIN_UDHAAR_OTA_BUILD_ID;
+      } catch (_) {}
+
+      if (manifest.buildId !== currentBuildId) {
+        const info = {
+          version: String(manifest.version || BUILTIN_UDHAAR_OTA_VERSION),
+          buildId: String(manifest.buildId),
+          notes: String(manifest.notes || 'New Udhaar Tracker update ready'),
+          jsFile: String(manifest.jsFile || 'udhaar-bundle.js'),
+          cssFile: String(manifest.cssFile || 'udhaar-bundle.css'),
+          baseUrl: activeBase,
+        };
+        setAvailableUdhaarOta(info);
+        return info;
+      }
+      setAvailableUdhaarOta(null);
     } catch (_) {}
-    return {};
+    return null;
+  }, [embedded, udhaarOtaBusy]);
+
+  const applyUdhaarOtaUpdate = useCallback(async () => {
+    if (embedded || udhaarOtaBusy) return;
+    setUdhaarOtaBusy(true);
+    notify('Checking Udhaar OTA Server...');
+    try {
+      const ts = Date.now();
+      let manifest = null;
+      let activeBase = UDHAAR_OTA_BASES[0];
+      for (const base of UDHAAR_OTA_BASES) {
+        try {
+          const res = await fetch(`${base}/udhaar-ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          if (res.ok) {
+            manifest = await res.json();
+            activeBase = base;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (!manifest || !manifest.buildId || manifest.appType !== 'udhaar-only') {
+        notify('Could not reach Udhaar OTA Server');
+        setUdhaarOtaBusy(false);
+        return;
+      }
+
+      const jsRes = await fetch(`${activeBase}/${manifest.jsFile || 'udhaar-bundle.js'}?t=${ts}`, { cache: 'no-store' });
+      const cssRes = await fetch(`${activeBase}/${manifest.cssFile || 'udhaar-bundle.css'}?t=${ts}`, { cache: 'no-store' });
+      if (!jsRes.ok) {
+        notify('Failed to download Udhaar bundle');
+        setUdhaarOtaBusy(false);
+        return;
+      }
+      const rawJs = await jsRes.text();
+      const rawCss = cssRes.ok ? await cssRes.text() : '';
+      // Always enforce __UDHAAR_ONLY_APK__ flag inside the Udhaar OTA bundle so it never mixes with Salary/OT
+      const safeUdhaarJs = `window.__UDHAAR_ONLY_APK__ = true;\n${rawJs}`;
+
+      try {
+        localStorage.setItem(UDHAAR_OTA_VERSION_KEY, String(manifest.version || BUILTIN_UDHAAR_OTA_VERSION));
+        localStorage.setItem(UDHAAR_OTA_BUILD_ID_KEY, String(manifest.buildId));
+      } catch (_) {}
+      setUdhaarOtaVersion(String(manifest.version || BUILTIN_UDHAAR_OTA_VERSION));
+      setAvailableUdhaarOta(null);
+
+      if (
+        typeof window !== 'undefined' &&
+        window.PattanBiometric &&
+        typeof window.PattanBiometric.saveLiveOtaBundle === 'function'
+      ) {
+        const saved = window.PattanBiometric.saveLiveOtaBundle(
+          String(manifest.version || BUILTIN_UDHAAR_OTA_VERSION),
+          String(manifest.buildId),
+          safeUdhaarJs,
+          rawCss
+        );
+        if (saved) {
+          notify(`Updated Udhaar App to v${manifest.version}! Reloading...`);
+          setTimeout(() => window.location.reload(), 600);
+          return;
+        }
+      }
+      notify(`Udhaar App is up to date (v${manifest.version})`);
+    } catch (_) {
+      notify('Update check failed');
+    } finally {
+      setUdhaarOtaBusy(false);
+    }
+  }, [embedded, udhaarOtaBusy, notify]);
+
+  useEffect(() => {
+    if (embedded) return undefined;
+    checkUdhaarOtaAvailability();
+    const timer = setInterval(checkUdhaarOtaAvailability, 25000);
+    return () => clearInterval(timer);
+  }, [embedded, checkUdhaarOtaAvailability]);
+
+  // Collapsible Header State (Tap header to Minimize / Maximize)
+  const [minimized, setMinimized] = useState(() => {
+    try {
+      return localStorage.getItem('yasin_udhaar_simple_minimized_v1') === '1';
+    } catch (_) {
+      return false;
+    }
   });
 
-  const toggleSection = useCallback((secKey) => {
-    setCollapsed((prev) => {
-      const next = { ...prev, [secKey]: !prev[secKey] };
+  const toggleMinimized = () => {
+    setMinimized((prev) => {
+      const next = !prev;
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(LS_UDHAAR_COLLAPSED_KEY, JSON.stringify(next));
-        }
+        localStorage.setItem('yasin_udhaar_simple_minimized_v1', next ? '1' : '0');
       } catch (_) {}
       return next;
     });
-  }, []);
+  };
 
-  // Form states for Add / Edit Udhaar
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState('');
-  const [draftDirection, setDraftDirection] = useState('given'); // 'given' (They owe me) | 'taken' (I owe them)
-  const [draftPerson, setDraftPerson] = useState('');
-  const [draftAmount, setDraftAmount] = useState('');
-  const [draftPaidSoFar, setDraftPaidSoFar] = useState('');
-  const [draftTookDate, setDraftTookDate] = useState(todayIso);
-  const [draftTookTime, setDraftTookTime] = useState(() => new Date().toTimeString().slice(0, 5));
-  const [draftDueDate, setDraftDueDate] = useState('');
-  const [draftPaymentMode, setDraftPaymentMode] = useState('UPI');
-  const [draftPhone, setDraftPhone] = useState('');
-  const [draftNote, setDraftNote] = useState('');
-
-  // Partial payment inline modal state
-  const [partPayTargetId, setPartPayTargetId] = useState('');
-  const [partPayAmount, setPartPayAmount] = useState('');
-  const [partPayDate, setPartPayDate] = useState(todayIso);
-  const [partPayNote, setPartPayNote] = useState('');
-
-  // Filters & Views
-  const [filterTab, setFilterTab] = useState('pending'); // 'pending' | 'returned' | 'people' | 'all'
-  const [directionFilter, setDirectionFilter] = useState('all'); // 'all' | 'given' | 'taken'
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const openAddOrEditForm = useCallback(
-    (entry = null) => {
-      if (entry && entry.id) {
-        setEditingId(String(entry.id));
-        setDraftDirection(entry.direction === 'taken' ? 'taken' : 'given');
-        setDraftPerson(String(entry.person || ''));
-        setDraftAmount(String(entry.amount || ''));
-        setDraftPaidSoFar(entry.paidAmount ? String(entry.paidAmount) : '');
-        setDraftTookDate(String(entry.tookDate || entry.date || todayIso));
-        setDraftTookTime(String(entry.tookTime || entry.time || '12:00'));
-        setDraftDueDate(String(entry.dueDate || ''));
-        setDraftPaymentMode(String(entry.paymentMode || 'UPI'));
-        setDraftPhone(String(entry.phone || ''));
-        setDraftNote(String(entry.note || ''));
-      } else {
-        setEditingId('');
-        setDraftDirection('given');
-        setDraftPerson('');
-        setDraftAmount('');
-        setDraftPaidSoFar('');
-        setDraftTookDate(todayIso);
-        setDraftTookTime(new Date().toTimeString().slice(0, 5));
-        setDraftDueDate('');
-        setDraftPaymentMode('UPI');
-        setDraftPhone('');
-        setDraftNote('');
+  // Saved Udhaar List
+  const [items, setItems] = useState(() => {
+    try {
+      const raw = localStorage.getItem(UDHAAR_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
       }
-      setShowForm(true);
-      setCollapsed((prev) => ({ ...prev, main_card: false }));
-    },
-    [todayIso]
-  );
+    } catch (_) {}
+    return [];
+  });
 
+  const saveItems = (updater) => {
+    setItems((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem(UDHAAR_STORAGE_KEY, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  // Simple Form State
+  const [person, setPerson] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(() => getTodayIso());
+  const [time, setTime] = useState(() => getCurrentTimeHHMM());
+  const [note, setNote] = useState('');
+  const [phone, setPhone] = useState('');
+
+  // Filter: 'pending' | 'returned'
+  const [tab, setTab] = useState('pending');
+
+  // Simple Edit Modal State
+  const [editItem, setEditItem] = useState(null);
+
+  // Pre-fill when user taps 🤝 on a transaction in Expenses
   useEffect(() => {
-    if (externalDraftRequest && typeof externalDraftRequest === 'object') {
-      openAddOrEditForm(externalDraftRequest);
+    if (externalDraft && typeof externalDraft === 'object') {
+      setMinimized(false);
+      setPerson(externalDraft.person || '');
+      setAmount(externalDraft.amount ? String(externalDraft.amount) : '');
+      setDate(externalDraft.date || getTodayIso());
+      setTime(externalDraft.time || getCurrentTimeHHMM());
+      setNote(externalDraft.note || '');
       if (typeof onClearExternalDraft === 'function') {
         onClearExternalDraft();
       }
     }
-  }, [externalDraftRequest, openAddOrEditForm, onClearExternalDraft]);
+  }, [externalDraft, onClearExternalDraft]);
 
-  const handleExportJsonBackup = () => {
-    try {
-      const payload = JSON.stringify(
-        {
-          app: 'Udhaar Tracker Pro',
-          exportedAt: new Date().toISOString(),
-          udhaarMap,
-        },
-        null,
-        2
-      );
-      const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Udhaar-Backup-${todayIso}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      notify('✅ Exported Udhaar Backup JSON!');
-    } catch (_) {
-      notify('⚠️ Could not export backup file.');
-    }
-  };
-
-  const handleImportJsonBackup = async (ev) => {
-    const file = ev?.target?.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      if (ev?.target) ev.target.value = '';
-      const parsed = JSON.parse(text);
-      const incoming = parsed?.udhaarMap && typeof parsed.udhaarMap === 'object' ? parsed.udhaarMap : parsed;
-      if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
-        const merged = { ...udhaarMap, ...incoming };
-        persistMap(merged);
-        notify(`✅ Restored ${Object.keys(incoming).length} Udhaar entries from backup!`);
-      } else {
-        notify('⚠️ Invalid Udhaar backup file.');
-      }
-    } catch (_) {
-      notify('⚠️ Failed to read backup file.');
-    }
-  };
-
-  const handleSaveEntry = (e) => {
+  const handleAdd = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    const person = String(draftPerson || '').trim();
-    const amount = Number(String(draftAmount || '').replace(/,/g, ''));
-    const paidAmount = Math.max(0, Number(String(draftPaidSoFar || '0').replace(/,/g, '')) || 0);
-    const tookDate = String(draftTookDate || todayIso).trim() || todayIso;
-    const tookTime = String(draftTookTime || '12:00').trim() || '12:00';
-    if (!person || !(amount > 0)) {
-      notify('⚠️ Please enter both Person Name and a valid ₹ Amount.');
+    const cleanName = String(person || '').trim();
+    const numAmt = Number(amount);
+    if (!cleanName || !(numAmt > 0)) {
+      notify('Enter Friend Name and Amount');
       return;
     }
-    const id = editingId || `udhaar_${Date.now()}`;
-    const existing = udhaarMap[id] || {};
-    const isFullyReturned = paidAmount >= amount;
-    const nextEntry = {
-      ...existing,
-      id,
-      txId: existing.txId || '',
-      direction: draftDirection === 'taken' ? 'taken' : 'given',
-      person,
-      amount,
-      paidAmount: isFullyReturned ? amount : paidAmount,
-      date: tookDate,
-      tookDate,
-      time: tookTime,
-      tookTime,
-      dueDate: String(draftDueDate || '').trim(),
-      paymentMode: String(draftPaymentMode || 'UPI').trim(),
-      phone: String(draftPhone || '').trim(),
-      note: String(draftNote || '').trim(),
-      status: isFullyReturned ? 'returned' : 'pending',
-      returnedAt: isFullyReturned ? existing.returnedAt || todayIso : '',
-      installments: Array.isArray(existing.installments) ? existing.installments : [],
-      updatedAtMs: Date.now(),
+    const newItem = {
+      id: `udh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      person: cleanName,
+      amount: numAmt,
+      paidAmount: 0,
+      date: date || getTodayIso(),
+      time: time || getCurrentTimeHHMM(),
+      note: String(note || '').trim(),
+      phone: String(phone || '').replace(/[^0-9+]/g, ''),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
     };
-    persistMap({ ...udhaarMap, [id]: nextEntry });
-    setShowForm(false);
-    setEditingId('');
-    notify(
-      editingId
-        ? `✏️ Updated Udhaar for ${person} (₹${formatINR(amount)} · Took on ${tookDate})`
-        : `🤝 Saved Udhaar: ${person} · ₹${formatINR(amount)} (Took on ${tookDate})`
+    saveItems((prev) => [newItem, ...prev]);
+    setPerson('');
+    setAmount('');
+    setNote('');
+    setPhone('');
+    setDate(getTodayIso());
+    setTime(getCurrentTimeHHMM());
+    setTab('pending');
+    notify(`Saved ₹${formatINR(numAmt)} for ${cleanName}`);
+  };
+
+  const toggleStatus = (id) => {
+    saveItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const nextStatus = item.status === 'returned' ? 'pending' : 'returned';
+        return {
+          ...item,
+          status: nextStatus,
+          returnedAt: nextStatus === 'returned' ? getTodayIso() : null,
+        };
+      })
     );
   };
 
-  const handleRecordPartPayment = (e) => {
+  const deleteEntry = (id) => {
+    saveItems((prev) => prev.filter((item) => item.id !== id));
+    setEditItem(null);
+    notify('Entry deleted');
+  };
+
+  const saveEdit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    const target = udhaarMap[partPayTargetId];
-    if (!target) return;
-    const addAmt = Number(String(partPayAmount || '').replace(/,/g, ''));
-    if (!(addAmt > 0)) {
-      notify('⚠️ Enter a valid partial payment amount.');
-      return;
-    }
-    const prevPaid = Number(target.paidAmount) || 0;
-    const totalAmt = Number(target.amount) || 0;
-    const newPaid = Math.min(totalAmt, Number((prevPaid + addAmt).toFixed(2)));
-    const isNowSettled = newPaid >= totalAmt;
-    const nextInstallments = [
-      ...(Array.isArray(target.installments) ? target.installments : []),
-      {
-        id: `inst_${Date.now()}`,
-        amount: addAmt,
-        date: partPayDate || todayIso,
-        note: String(partPayNote || '').trim(),
-      },
-    ];
-    const updated = {
-      ...target,
-      paidAmount: newPaid,
-      status: isNowSettled ? 'returned' : 'pending',
-      returnedAt: isNowSettled ? partPayDate || todayIso : '',
-      installments: nextInstallments,
-      updatedAtMs: Date.now(),
-    };
-    persistMap({ ...udhaarMap, [target.id]: updated });
-    setPartPayTargetId('');
-    setPartPayAmount('');
-    setPartPayNote('');
-    notify(
-      isNowSettled
-        ? `✅ Full ₹${formatINR(totalAmt)} settled with ${target.person}!`
-        : `💵 Recorded ₹${formatINR(addAmt)} part payment from ${target.person} (Remaining: ₹${formatINR(totalAmt - newPaid)})`
+    if (!editItem) return;
+    const cleanName = String(editItem.person || '').trim();
+    const totalAmt = Number(editItem.amount) || 0;
+    const partPaid = Math.max(0, Number(editItem.paidAmount) || 0);
+    if (!cleanName || !(totalAmt > 0)) return;
+    const isNowReturned = partPaid >= totalAmt ? 'returned' : editItem.status;
+
+    saveItems((prev) =>
+      prev.map((item) =>
+        item.id === editItem.id
+          ? {
+              ...item,
+              person: cleanName,
+              amount: totalAmt,
+              paidAmount: Math.min(totalAmt, partPaid),
+              date: editItem.date || getTodayIso(),
+              time: editItem.time || '12:00',
+              note: String(editItem.note || '').trim(),
+              phone: String(editItem.phone || '').replace(/[^0-9+]/g, ''),
+              status: isNowReturned,
+            }
+          : item
+      )
     );
+    setEditItem(null);
+    notify(`Updated ${cleanName}`);
   };
 
-  const handleStatusChange = (id, nextStatus) => {
-    const existing = udhaarMap[id];
-    if (!existing) return;
-    const next = { ...udhaarMap };
-    if (nextStatus === 'delete') {
-      delete next[id];
-      persistMap(next);
-      notify(`🗑️ Deleted ${existing.person} Udhaar entry.`);
-      return;
-    }
-    const isRet = nextStatus === 'returned';
-    next[id] = {
-      ...existing,
-      status: isRet ? 'returned' : 'pending',
-      paidAmount: isRet ? Number(existing.amount) || 0 : 0,
-      returnedAt: isRet ? todayIso : '',
-      updatedAtMs: Date.now(),
-    };
-    persistMap(next);
-    notify(
-      isRet
-        ? `✅ Marked ₹${formatINR(existing.amount)} (${existing.person}) as Settled / Returned!`
-        : `⏳ Reopened ₹${formatINR(existing.amount)} (${existing.person}) as Pending.`
-    );
-  };
-
-  const handleWhatsAppRemind = (item) => {
-    if (!item) return;
-    const cleanDigits = String(item.phone || '').replace(/\D+/g, '');
-    const waPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
-    const tookDate = item.tookDate || item.date || todayIso;
-    const totalAmt = Number(item.amount) || 0;
-    const paidAmt = Number(item.paidAmount) || 0;
-    const remAmt = Math.max(0, totalAmt - paidAmt);
-    const notePart = item.note ? ` (${item.note})` : '';
-    const duePart = item.dueDate ? ` · Due Date: ${item.dueDate}` : '';
-    const msg =
-      item.direction === 'taken'
-        ? `Hi ${item.person}, regarding ₹${formatINR(totalAmt)} I took on ${tookDate}${notePart}: Remaining balance is ₹${formatINR(remAmt)}.`
-        : paidAmt > 0 && remAmt > 0
-          ? `Hi ${item.person}, gentle reminder regarding ₹${formatINR(totalAmt)} you took on ${tookDate}${notePart}. Received ₹${formatINR(paidAmt)} so far, remaining balance is ₹${formatINR(remAmt)}${duePart}. Please send via UPI when convenient 🙏`
-          : `Hi ${item.person}, gentle reminder regarding ₹${formatINR(totalAmt)} you took on ${tookDate}${notePart}${duePart}. Please send via UPI whenever convenient 🙏`;
-    const url = waPhone
-      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
+  const sendWhatsAppReminder = (item) => {
+    const remaining = Math.max(0, (Number(item.amount) || 0) - (Number(item.paidAmount) || 0));
+    const dateLabel = `${formatShortDate(item.date)}${item.time ? ` at ${formatTime12h(item.time)}` : ''}`;
+    const msg = `Hi ${item.person}, friendly reminder for ₹${formatINR(remaining)} taken on ${dateLabel}${item.note ? ` (${item.note})` : ''}. Please send when free.`;
+    const digits = String(item.phone || '').replace(/[^0-9]/g, '');
+    const phoneParam = digits.length === 10 ? `91${digits}` : digits;
+    const url = phoneParam
+      ? `https://wa.me/${phoneParam}?text=${encodeURIComponent(msg)}`
       : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    try {
-      window.open(url, '_blank', 'noopener,noreferrer');
-      notify(`💬 Opened WhatsApp reminder for ${item.person}`);
-    } catch (_) {}
-  };
-
-  const handleDownloadUdhaarCardPng = (item = null) => {
-    try {
-      const canvas = document.createElement('canvas');
-      const W = 960;
-      const H = item ? 680 : 1080;
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const grad = ctx.createLinearGradient(0, 0, W, H);
-      grad.addColorStop(0, '#091326');
-      grad.addColorStop(1, '#071f1a');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(28, 28, W - 56, H - 56);
-
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = '900 28px system-ui, sans-serif';
-      ctx.fillText('🤝 UDHAAR / MONEY LEDGER STATEMENT', 64, 90);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '700 18px system-ui, sans-serif';
-      ctx.fillText(`Generated on ${todayIso}`, 64, 125);
-
-      if (item) {
-        const total = Number(item.amount) || 0;
-        const paid = Number(item.paidAmount) || 0;
-        const rem = Math.max(0, total - paid);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 42px system-ui, sans-serif';
-        ctx.fillText(`👤 ${item.person}`, 64, 200);
-
-        ctx.fillStyle = item.direction === 'taken' ? '#60a5fa' : '#fbbf24';
-        ctx.font = '900 48px system-ui, sans-serif';
-        ctx.fillText(`Remaining: ₹${formatINR(rem)}`, 64, 270);
-
-        ctx.fillStyle = '#cbd5e1';
-        ctx.font = '700 24px system-ui, sans-serif';
-        ctx.fillText(`Total Amount: ₹${formatINR(total)}   |   Paid So Far: ₹${formatINR(paid)}`, 64, 330);
-        ctx.fillText(`📅 Date Taken: ${item.tookDate || item.date || todayIso} ${formatTime12h(item.tookTime || item.time)}`, 64, 380);
-        if (item.dueDate) ctx.fillText(`🗓️ Promised Return Date: ${item.dueDate}`, 64, 430);
-        if (item.note) ctx.fillText(`📝 Note: ${item.note}`, 64, 480);
-        ctx.fillStyle = '#34d399';
-        ctx.font = '800 22px system-ui, sans-serif';
-        ctx.fillText(`Status: ${item.status === 'returned' ? '✅ SETTLED' : '⏳ PENDING'}`, 64, 540);
-      } else {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 34px system-ui, sans-serif';
-        ctx.fillText(
-          `To Collect: ₹${formatINR(summary.pendingGivenTotal)}   |   To Pay: ₹${formatINR(summary.pendingTakenTotal)}`,
-          64,
-          190
-        );
-        summary.pendingList.slice(0, 12).forEach((en, idx) => {
-          const y = 260 + idx * 60;
-          const rem = Math.max(0, (Number(en.amount) || 0) - (Number(en.paidAmount) || 0));
-          ctx.fillStyle = '#e2e8f0';
-          ctx.font = '800 22px system-ui, sans-serif';
-          ctx.fillText(
-            `${idx + 1}. ${en.person} · Took on ${en.tookDate || en.date} ${en.note ? `(${en.note})` : ''}`,
-            64,
-            y
-          );
-          ctx.textAlign = 'right';
-          ctx.fillStyle = en.direction === 'taken' ? '#60a5fa' : '#fbbf24';
-          ctx.fillText(`₹${formatINR(rem)}`, W - 64, y);
-          ctx.textAlign = 'left';
-        });
-      }
-
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = item ? `Udhaar-${item.person}-${todayIso}.png` : `Udhaar-Summary-${todayIso}.png`;
-      a.click();
-      notify('🖼️ Downloaded Udhaar Statement Card (PNG)!');
-    } catch (_) {
-      notify('⚠️ Could not generate PNG card.');
-    }
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const summary = useMemo(() => {
-    const all = Object.values(udhaarMap || {}).filter((x) => x && typeof x === 'object' && Number(x.amount) > 0);
-    all.sort((a, b) => (Number(b.updatedAtMs) || 0) - (Number(a.updatedAtMs) || 0));
-
-    const pendingList = [];
-    const returnedList = [];
-    let pendingGivenTotal = 0;
-    let pendingTakenTotal = 0;
+    let pendingTotal = 0;
     let returnedTotal = 0;
-    const peopleMap = {};
-
-    for (const item of all) {
-      const total = Number(item.amount) || 0;
+    let pendingCount = 0;
+    let returnedCount = 0;
+    for (const item of items) {
+      if (!item) continue;
+      const amt = Number(item.amount) || 0;
       const paid = Number(item.paidAmount) || 0;
-      const rem = item.status === 'returned' ? 0 : Math.max(0, total - paid);
-      const dir = item.direction === 'taken' ? 'taken' : 'given';
-
-      if (item.status === 'returned' || rem <= 0) {
-        returnedList.push(item);
-        returnedTotal += total;
+      if (item.status === 'returned') {
+        returnedTotal += amt;
+        returnedCount += 1;
       } else {
-        pendingList.push(item);
-        if (dir === 'taken') pendingTakenTotal += rem;
-        else pendingGivenTotal += rem;
+        pendingTotal += Math.max(0, amt - paid);
+        returnedTotal += paid;
+        pendingCount += 1;
       }
-
-      const pKey = String(item.person || 'Unknown').trim().toLowerCase();
-      if (!peopleMap[pKey]) {
-        peopleMap[pKey] = {
-          person: item.person || 'Unknown',
-          phone: item.phone || '',
-          givenPending: 0,
-          takenPending: 0,
-          settledTotal: 0,
-          count: 0,
-          lastTookDate: item.tookDate || item.date || todayIso,
-          items: [],
-        };
-      }
-      const pEntry = peopleMap[pKey];
-      pEntry.count += 1;
-      if (!pEntry.phone && item.phone) pEntry.phone = item.phone;
-      if (item.status === 'returned' || rem <= 0) {
-        pEntry.settledTotal += total;
-      } else if (dir === 'taken') {
-        pEntry.takenPending += rem;
-      } else {
-        pEntry.givenPending += rem;
-      }
-      pEntry.items.push(item);
     }
+    return { pendingTotal, returnedTotal, pendingCount, returnedCount };
+  }, [items]);
 
-    const q = String(searchQuery || '').trim().toLowerCase();
-    const filterFn = (list) =>
-      list.filter((item) => {
-        if (directionFilter !== 'all') {
-          const d = item.direction === 'taken' ? 'taken' : 'given';
-          if (d !== directionFilter) return false;
-        }
-        if (!q) return true;
-        return (
-          String(item.person || '').toLowerCase().includes(q) ||
-          String(item.note || '').toLowerCase().includes(q) ||
-          String(item.tookDate || item.date || '').includes(q) ||
-          String(item.phone || '').includes(q)
-        );
-      });
+  const visibleItems = useMemo(
+    () => items.filter((i) => (tab === 'pending' ? i.status !== 'returned' : i.status === 'returned')),
+    [items, tab]
+  );
 
-    return {
-      all,
-      pendingList: filterFn(pendingList),
-      returnedList: filterFn(returnedList),
-      allFiltered: filterFn(all),
-      peopleList: Object.values(peopleMap).filter(
-        (p) => !q || String(p.person || '').toLowerCase().includes(q)
-      ),
-      pendingGivenTotal,
-      pendingTakenTotal,
-      returnedTotal,
-      rawPendingCount: pendingList.length,
-      rawReturnedCount: returnedList.length,
-    };
-  }, [udhaarMap, searchQuery, directionFilter, todayIso]);
-
-  const colors = {
-    bg: isLight ? '#f8fafc' : '#060b16',
-    surface: isLight ? '#ffffff' : '#0f172a',
-    surfaceAlt: isLight ? '#f1f5f9' : '#162033',
-    border: isLight ? '#cbd5e1' : 'rgba(148, 163, 184, 0.22)',
-    text: isLight ? '#0f172a' : '#f8fafc',
-    textSub: isLight ? '#334155' : '#cbd5e1',
-    textMuted: isLight ? '#64748b' : '#94a3b8',
-  };
-
-  const activeItems =
-    filterTab === 'pending'
-      ? summary.pendingList
-      : filterTab === 'returned'
-        ? summary.returnedList
-        : summary.allFiltered;
-
-  return (
+  const cardContent = (
     <div
       style={{
-        minHeight: embedded ? 'auto' : '100vh',
-        background: embedded ? 'transparent' : colors.bg,
-        color: colors.text,
-        padding: embedded ? 0 : '14px 12px 90px',
-        fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif",
-        boxSizing: 'border-box',
-        width: '100%',
+        borderRadius: 20,
+        background: palette.surface,
+        border: `1px solid ${palette.border}`,
+        padding: '14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
       }}
     >
-      {!embedded && (
-        <div
-          style={{
-            padding: '14px 16px',
-            borderRadius: 20,
-            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 60%, #064e3b 100%)',
-            border: '1px solid rgba(245, 158, 11, 0.45)',
-            marginBottom: 12,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          <div
-            onClick={() => toggleSection('hero_summary')}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 950, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>{collapsed.hero_summary ? '▸' : '▾'}</span>
-                <span>🤝 Udhaar &amp; Money Ledger Pro</span>
-              </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', marginTop: 2 }}>
-                {collapsed.hero_summary
-                  ? 'Minimized — Tap header to maximize summary & backup options'
-                  : 'Tap any section header to minimize/maximize · Track Who Took, When He Took, Edit & Part-Pay'}
-              </div>
-            </div>
-            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => handleDownloadUdhaarCardPng(null)}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(52, 211, 153, 0.5)',
-                  background: 'rgba(16, 185, 129, 0.18)',
-                  color: '#6ee7b7',
-                  fontSize: 11,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                🖼️ PNG Card
-              </button>
-              <button
-                type="button"
-                onClick={handleExportJsonBackup}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(96, 165, 250, 0.45)',
-                  background: 'rgba(59, 130, 246, 0.18)',
-                  color: '#93c5fd',
-                  fontSize: 11,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                📤 Backup
-              </button>
-              <button
-                type="button"
-                onClick={() => backupFileInputRef.current?.click()}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(251, 191, 36, 0.45)',
-                  background: 'rgba(245, 158, 11, 0.18)',
-                  color: '#fde68a',
-                  fontSize: 11,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                📥 Restore
-              </button>
-              <input
-                ref={backupFileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleImportJsonBackup}
-                style={{ display: 'none' }}
-              />
-            </div>
-          </div>
-
-          {!collapsed.hero_summary && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, paddingTop: 4 }}>
-              <div style={{ padding: '10px', borderRadius: 12, background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(245, 158, 11, 0.35)' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>💸 TO COLLECT (GIVEN)</div>
-                <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: '#ffffff', marginTop: 2 }}>
-                  ₹{formatINR(summary.pendingGivenTotal)}
-                </div>
-              </div>
-              <div style={{ padding: '10px', borderRadius: 12, background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(59, 130, 246, 0.35)' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#60a5fa' }}>📥 TO PAY (TAKEN)</div>
-                <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: '#ffffff', marginTop: 2 }}>
-                  ₹{formatINR(summary.pendingTakenTotal)}
-                </div>
-              </div>
-              <div style={{ padding: '10px', borderRadius: 12, background: 'rgba(15, 23, 42, 0.65)', border: '1px solid rgba(16, 185, 129, 0.35)' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#34d399' }}>✅ TOTAL SETTLED</div>
-                <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: '#ffffff', marginTop: 2 }}>
-                  ₹{formatINR(summary.returnedTotal)}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {toastMsg && !embedded && (
-        <div
-          style={{
-            padding: '10px 14px',
-            borderRadius: 12,
-            background: 'rgba(16, 185, 129, 0.18)',
-            border: '1px solid rgba(16, 185, 129, 0.45)',
-            color: '#6ee7b7',
-            fontSize: 12,
-            fontWeight: 800,
-            marginBottom: 10,
-          }}
-        >
-          {toastMsg}
-        </div>
-      )}
-
-      {/* MAIN UDHAAR CONTAINER CARD (Tap Header to Minimize / Maximize) */}
+      {/* 1. CLEAN HEADER — TAP ANYWHERE TO MINIMIZE / MAXIMIZE */}
       <div
-        className="stitch-bento-card"
+        onClick={toggleMinimized}
         style={{
-          padding: '14px',
-          borderRadius: 20,
-          background: colors.surface,
-          border: `1.5px solid ${summary.pendingGivenTotal > 0 ? 'rgba(245, 158, 11, 0.5)' : colors.border}`,
           display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-          boxSizing: 'border-box',
-          width: '100%',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+          cursor: 'pointer',
+          userSelect: 'none',
         }}
       >
-        {/* CLICKABLE ACCORDION HEADER — Tap to Minimize / Maximize */}
-        <div
-          onClick={() => toggleSection('main_card')}
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-        >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 950, color: colors.text, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{collapsed.main_card ? '▸' : '▾'}</span>
-              <span>🤝 Udhaar / Money to Collect</span>
-              <span
-                className="ot-tabular-nums"
-                style={{
-                  fontSize: 11,
-                  fontWeight: 900,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: 'rgba(245, 158, 11, 0.18)',
-                  color: '#fbbf24',
-                }}
-              >
-                ₹{formatINR(summary.pendingGivenTotal)} ({summary.rawPendingCount})
-              </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🤝</span>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
+              Udhaar Tracker {minimized ? '▸' : '▾'}
             </div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: colors.textMuted, marginTop: 2 }}>
-              {collapsed.main_card
-                ? 'Minimized — Tap header to maximize Udhaar tracker'
-                : 'Tap header to minimize · Track when he took, edit, part-pay & remind'}
+            <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600 }}>
+              Money given to friends
             </div>
-          </div>
-
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                if (showForm) {
-                  setShowForm(false);
-                  setEditingId('');
-                } else {
-                  openAddOrEditForm(null);
-                }
-              }}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 12,
-                border: '1px solid rgba(245, 158, 11, 0.55)',
-                background: showForm
-                  ? colors.surfaceAlt
-                  : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                color: showForm ? colors.textSub : '#ffffff',
-                fontSize: 11.5,
-                fontWeight: 900,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {showForm ? '✕ Close' : '+ Add Udhaar'}
-            </button>
           </div>
         </div>
 
-        {!collapsed.main_card && (
-          <>
-            {/* 3-Column Summary & View Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7 }}>
-              <button
-                type="button"
-                onClick={() => setFilterTab('pending')}
-                style={{
-                  padding: '9px 8px',
-                  borderRadius: 13,
-                  border: filterTab === 'pending' ? '1.5px solid #f59e0b' : `1px solid ${colors.border}`,
-                  background: filterTab === 'pending' ? 'rgba(245, 158, 11, 0.14)' : colors.surfaceAlt,
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                }}
-              >
-                <span style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>
-                  ⏳ PENDING ({summary.rawPendingCount})
-                </span>
-                <span className="ot-tabular-nums" style={{ fontSize: 14.5, fontWeight: 950, color: colors.text }}>
-                  ₹{formatINR(summary.pendingGivenTotal)}
-                </span>
-              </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {embedded && (
+            <a
+              href="https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar/Udhaar-Tracker-Pro-Friend.apk"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                padding: '5px 9px',
+                borderRadius: 999,
+                background: palette.surfaceAlt,
+                border: `1px solid ${palette.border}`,
+                color: palette.textSub,
+                fontSize: 10.5,
+                fontWeight: 800,
+                textDecoration: 'none',
+              }}
+            >
+              ⬇️ Friend APK
+            </a>
+          )}
+          <div
+            style={{
+              padding: '5px 10px',
+              borderRadius: 999,
+              background: isLight ? '#fef3c7' : 'rgba(245, 158, 11, 0.16)',
+              color: isLight ? '#b45309' : '#fbbf24',
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            ₹{formatINR(summary.pendingTotal)} {minimized ? '▸' : '▾'}
+          </div>
+        </div>
+      </div>
 
-              <button
-                type="button"
-                onClick={() => setFilterTab('returned')}
-                style={{
-                  padding: '9px 8px',
-                  borderRadius: 13,
-                  border: filterTab === 'returned' ? '1.5px solid #10b981' : `1px solid ${colors.border}`,
-                  background: filterTab === 'returned' ? 'rgba(16, 185, 129, 0.14)' : colors.surfaceAlt,
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                }}
-              >
-                <span style={{ fontSize: 10, fontWeight: 800, color: '#34d399' }}>
-                  ✅ SETTLED ({summary.rawReturnedCount})
-                </span>
-                <span className="ot-tabular-nums" style={{ fontSize: 14.5, fontWeight: 950, color: colors.text }}>
-                  ₹{formatINR(summary.returnedTotal)}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFilterTab('people')}
-                style={{
-                  padding: '9px 8px',
-                  borderRadius: 13,
-                  border: filterTab === 'people' ? '1.5px solid #60a5fa' : `1px solid ${colors.border}`,
-                  background: filterTab === 'people' ? 'rgba(59, 130, 246, 0.14)' : colors.surfaceAlt,
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                }}
-              >
-                <span style={{ fontSize: 10, fontWeight: 800, color: '#60a5fa' }}>
-                  👥 BY PERSON ({summary.peopleList.length})
-                </span>
-                <span className="ot-tabular-nums" style={{ fontSize: 12.5, fontWeight: 900, color: colors.textSub }}>
-                  Net Ledger
-                </span>
-              </button>
+      {/* 2. BODY (HIDDEN WHEN MINIMIZED) */}
+      {!minimized && (
+        <>
+          {/* Simple 2-Box Total Bar */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: 14,
+                background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? '#b45309' : '#fbbf24' }}>
+                ⏳ Pending to Get
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 2 }}>
+                ₹{formatINR(summary.pendingTotal)}
+              </div>
             </div>
 
-            {/* Search & Direction Filter Row */}
-            {summary.all.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  placeholder="🔍 Search person, date, or note..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    flex: '1 1 150px',
-                    padding: '7px 10px',
-                    borderRadius: 10,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.surfaceAlt,
-                    color: colors.text,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
-                />
-                {[
-                  { id: 'all', label: 'All' },
-                  { id: 'given', label: '💸 Given' },
-                  { id: 'taken', label: '📥 Taken' },
-                ].map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setDirectionFilter(d.id)}
-                    style={{
-                      padding: '6px 9px',
-                      borderRadius: 999,
-                      border: directionFilter === d.id ? '1.5px solid #f59e0b' : `1px solid ${colors.border}`,
-                      background: directionFilter === d.id ? 'rgba(245, 158, 11, 0.16)' : colors.surfaceAlt,
-                      color: directionFilter === d.id ? '#fbbf24' : colors.textSub,
-                      fontSize: 10.5,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: 14,
+                background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? '#047857' : '#34d399' }}>
+                ✅ Returned
               </div>
-            )}
+              <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 2 }}>
+                ₹{formatINR(summary.returnedTotal)}
+              </div>
+            </div>
+          </div>
 
-            {/* ADD / EDIT UDHAAR FORM (100% Mobile Responsive + Asks "When Did He Take?") */}
-            {showForm && (
-              <form
-                onSubmit={handleSaveEntry}
+          {/* Simple Add Form */}
+          <form
+            onSubmit={handleAdd}
+            style={{
+              padding: '12px',
+              borderRadius: 16,
+              background: palette.surfaceAlt,
+              border: `1px solid ${palette.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            {/* Row 1: Name + Amount */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+              <input
+                type="text"
+                value={person}
+                onChange={(e) => setPerson(e.target.value)}
+                placeholder="👤 Friend Name"
                 style={{
-                  padding: '12px',
-                  borderRadius: 16,
-                  background: colors.surfaceAlt,
-                  border: '1.5px solid rgba(245, 158, 11, 0.5)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                  boxSizing: 'border-box',
                   width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontSize: 13.5,
+                  fontWeight: 800,
+                  outline: 'none',
                 }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 950, color: '#fbbf24' }}>
-                    {editingId ? '✏️ Edit Udhaar Details' : '🤝 Add New Udhaar Entry'}
-                  </span>
-                  <div style={{ display: 'flex', gap: 5 }}>
-                    {[
-                      { id: 'given', label: '💸 He Took (Owes Me)' },
-                      { id: 'taken', label: '📥 I Took (I Owe)' },
-                    ].map((dir) => (
+              />
+              <input
+                type="number"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="₹ Amount"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontSize: 13.5,
+                  fontWeight: 900,
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* Row 2: When did he take? (Simple Today / Yesterday + Date & Time) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textSub }}>
+                  📅 When did he take?
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[
+                    { label: 'Today', iso: getTodayIso() },
+                    { label: 'Yesterday', iso: getRelativeDateIso(1) },
+                  ].map((chip) => {
+                    const active = date === chip.iso;
+                    return (
                       <button
-                        key={dir.id}
+                        key={chip.label}
                         type="button"
-                        onClick={() => setDraftDirection(dir.id)}
+                        onClick={() => setDate(chip.iso)}
                         style={{
-                          padding: '4px 9px',
+                          padding: '3px 9px',
                           borderRadius: 999,
-                          border: draftDirection === dir.id ? '1.5px solid #10b981' : `1px solid ${colors.border}`,
-                          background: draftDirection === dir.id ? 'rgba(16, 185, 129, 0.18)' : colors.surface,
-                          color: draftDirection === dir.id ? '#34d399' : colors.textSub,
-                          fontSize: 10.5,
+                          border: active ? '1px solid #f59e0b' : `1px solid ${palette.border}`,
+                          background: active ? 'rgba(245, 158, 11, 0.18)' : palette.surface,
+                          color: active ? (isLight ? '#b45309' : '#fbbf24') : palette.textMuted,
+                          fontSize: 11,
                           fontWeight: 800,
                           cursor: 'pointer',
                         }}
                       >
-                        {dir.label}
+                        {chip.label}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
+              </div>
 
-                {/* Person Name & Amount */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 10.5, fontWeight: 800, color: colors.textSub }}>
-                      👤 Person Name *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Ravi / Suresh"
-                      value={draftPerson}
-                      onChange={(e) => setDraftPerson(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '9px 10px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surface,
-                        color: colors.text,
-                        fontSize: 12.5,
-                        fontWeight: 700,
-                      }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ fontSize: 10.5, fontWeight: 800, color: colors.textSub }}>
-                      💰 Total Amount (₹) *
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 500"
-                      value={draftAmount}
-                      onChange={(e) => setDraftAmount(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '9px 10px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surface,
-                        color: colors.text,
-                        fontSize: 12.5,
-                        fontWeight: 800,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* WHEN DID HE TAKE? (Date + Quick Chips + Time) */}
-                <div
-                  style={{
-                    padding: '10px',
-                    borderRadius: 12,
-                    background: colors.surface,
-                    border: `1px solid ${colors.border}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                    <label style={{ fontSize: 11, fontWeight: 900, color: '#34d399' }}>
-                      📅 When Did He Take? (Date &amp; Time)
-                    </label>
-                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                      {[
-                        { label: 'Today', date: todayIso },
-                        { label: 'Yesterday', date: yesterdayIso },
-                        {
-                          label: '2 Days Ago',
-                          date: (() => {
-                            const d = new Date(`${todayIso}T12:00:00`);
-                            d.setDate(d.getDate() - 2);
-                            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                          })(),
-                        },
-                      ].map((chip) => {
-                        const active = draftTookDate === chip.date;
-                        return (
-                          <button
-                            key={chip.label}
-                            type="button"
-                            onClick={() => setDraftTookDate(chip.date)}
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: 999,
-                              border: active ? '1.5px solid #10b981' : `1px solid ${colors.border}`,
-                              background: active ? 'rgba(16, 185, 129, 0.18)' : colors.surfaceAlt,
-                              color: active ? '#34d399' : colors.textSub,
-                              fontSize: 10,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {chip.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
-                    <input
-                      type="date"
-                      value={draftTookDate}
-                      onChange={(e) => setDraftTookDate(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 9px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surfaceAlt,
-                        color: colors.text,
-                        fontSize: 12,
-                        fontWeight: 800,
-                      }}
-                    />
-                    <input
-                      type="time"
-                      value={draftTookTime}
-                      onChange={(e) => setDraftTookTime(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 9px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surfaceAlt,
-                        color: colors.text,
-                        fontSize: 12,
-                        fontWeight: 800,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Extra Edit Fields: Already Paid Part-Amount, Promised Return Date, Payment Mode */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <label style={{ fontSize: 10, fontWeight: 800, color: colors.textMuted }}>
-                      💵 Already Returned (₹)
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="0 (if part paid)"
-                      value={draftPaidSoFar}
-                      onChange={(e) => setDraftPaidSoFar(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 9px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surface,
-                        color: colors.text,
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                      }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <label style={{ fontSize: 10, fontWeight: 800, color: colors.textMuted }}>
-                      🗓️ Promised Return Date
-                    </label>
-                    <input
-                      type="date"
-                      value={draftDueDate}
-                      onChange={(e) => setDraftDueDate(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 9px',
-                        borderRadius: 10,
-                        border: `1px solid ${colors.border}`,
-                        background: colors.surface,
-                        color: colors.text,
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Phone, Mode & Note */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <input
-                    type="tel"
-                    placeholder="📱 WhatsApp / Mobile No"
-                    value={draftPhone}
-                    onChange={(e) => setDraftPhone(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: 10,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  />
-                  <select
-                    value={draftPaymentMode}
-                    onChange={(e) => setDraftPaymentMode(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: 10,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    <option value="UPI">💳 Mode: UPI</option>
-                    <option value="Cash">💵 Mode: Cash</option>
-                    <option value="PhonePe">🟣 PhonePe</option>
-                    <option value="GPay">🔵 GPay</option>
-                    <option value="Bank Transfer">🏦 Bank Transfer</option>
-                  </select>
-                </div>
-
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
                 <input
-                  type="text"
-                  placeholder="📝 Purpose / Item / Note (e.g. Petrol, Lunch, Medical, Emergency)"
-                  value={draftNote}
-                  onChange={(e) => setDraftNote(e.target.value)}
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    padding: '8px 10px',
-                    borderRadius: 10,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.surface,
-                    color: colors.text,
-                    fontSize: 12,
-                    fontWeight: 700,
+                    padding: '9px 10px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 12.5,
+                    fontWeight: 800,
+                    outline: 'none',
                   }}
                 />
-
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForm(false);
-                      setEditingId('');
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '10px',
-                      borderRadius: 11,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.textSub,
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    style={{
-                      flex: 2,
-                      padding: '10px 14px',
-                      borderRadius: 11,
-                      border: 'none',
-                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                      color: '#ffffff',
-                      fontSize: 12.5,
-                      fontWeight: 900,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {editingId ? '💾 Update Udhaar' : '🤝 Save Udhaar'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* PARTIAL PAYMENT INLINE DRAWER */}
-            {partPayTargetId && udhaarMap[partPayTargetId] && (
-              <form
-                onSubmit={handleRecordPartPayment}
-                style={{
-                  padding: '11px 12px',
-                  borderRadius: 14,
-                  background: colors.surfaceAlt,
-                  border: '1.5px solid #34d399',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 900, color: '#34d399', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>💵 Record Partial Return — {udhaarMap[partPayTargetId].person}</span>
-                  <button
-                    type="button"
-                    onClick={() => setPartPayTargetId('')}
-                    style={{ background: 'transparent', border: 'none', color: colors.textMuted, cursor: 'pointer', fontWeight: 900 }}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <input
-                    type="number"
-                    placeholder="Amount Returned ₹"
-                    value={partPayAmount}
-                    onChange={(e) => setPartPayAmount(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: 800,
-                    }}
-                  />
-                  <input
-                    type="date"
-                    value={partPayDate}
-                    onChange={(e) => setPartPayDate(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="Note (e.g. Sent via PhonePe)"
-                    value={partPayNote}
-                    onChange={(e) => setPartPayNote(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '8px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${colors.border}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      fontSize: 11.5,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 9,
-                      border: 'none',
-                      background: '#10b981',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✓ Save Part Pay
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* PERSON-WISE GROUPED VIEW */}
-            {filterTab === 'people' ? (
-              summary.peopleList.length === 0 ? (
-                <div style={{ padding: 14, textAlign: 'center', fontSize: 11.5, color: colors.textMuted }}>
-                  No people in Udhaar ledger yet. Tap <strong>+ Add Udhaar</strong> to start.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
-                  {summary.peopleList.map((p) => (
-                    <div
-                      key={p.person}
-                      style={{
-                        padding: '11px 12px',
-                        borderRadius: 14,
-                        background: colors.surfaceAlt,
-                        border: `1px solid ${colors.border}`,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 13.5, fontWeight: 900, color: colors.text }}>
-                          👤 {p.person} ({p.count} {p.count === 1 ? 'entry' : 'entries'})
-                        </div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: colors.textMuted, marginTop: 2 }}>
-                          Last took: {p.lastTookDate}
-                          {p.settledTotal > 0 ? ` · ✅ Settled ₹${formatINR(p.settledTotal)}` : ''}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: p.givenPending > 0 ? '#fbbf24' : '#34d399' }}>
-                          {p.givenPending > 0
-                            ? `Owes ₹${formatINR(p.givenPending)}`
-                            : p.takenPending > 0
-                              ? `You Owe ₹${formatINR(p.takenPending)}`
-                              : '✅ Settled'}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openAddOrEditForm({
-                              person: p.person,
-                              phone: p.phone,
-                              tookDate: todayIso,
-                            })
-                          }
-                          style={{
-                            padding: '5px 9px',
-                            borderRadius: 8,
-                            border: '1px solid rgba(245, 158, 11, 0.45)',
-                            background: 'rgba(245, 158, 11, 0.14)',
-                            color: '#fbbf24',
-                            fontSize: 10.5,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          + Add More
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : activeItems.length === 0 ? (
-              <div
-                style={{
-                  padding: '12px',
-                  borderRadius: 12,
-                  background: colors.surfaceAlt,
-                  border: `1px dashed ${colors.border}`,
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  color: colors.textMuted,
-                  textAlign: 'center',
-                }}
-              >
-                {filterTab === 'pending'
-                  ? '💡 Tap "🤝" on any payment row below (or tap "+ Add Udhaar") to record who took money & when they took it.'
-                  : 'No settled Udhaar entries yet.'}
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '9px 10px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surface,
+                    color: palette.text,
+                    fontSize: 12.5,
+                    fontWeight: 800,
+                    outline: 'none',
+                  }}
+                />
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: embedded ? 320 : 'none', overflowY: embedded ? 'auto' : 'visible' }}>
-                {activeItems.map((item) => {
-                  const isReturned = item.status === 'returned';
-                  const totalAmt = Number(item.amount) || 0;
-                  const paidAmt = Number(item.paidAmount) || 0;
-                  const remAmt = isReturned ? 0 : Math.max(0, totalAmt - paidAmt);
-                  const tookIso = item.tookDate || item.date || todayIso;
-                  const daysAgo = Math.max(
-                    0,
-                    Math.round(
-                      (new Date(`${todayIso}T12:00:00`).getTime() - new Date(`${tookIso}T12:00:00`).getTime()) / 86400000
-                    )
-                  );
-                  const daysAgoBadge =
-                    daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
+            </div>
 
-                  return (
-                    <div
-                      key={item.id}
-                      style={{
-                        padding: '11px 12px',
-                        borderRadius: 14,
-                        background: colors.surfaceAlt,
-                        border: `1px solid ${
-                          isReturned
-                            ? 'rgba(16, 185, 129, 0.35)'
-                            : item.direction === 'taken'
-                              ? 'rgba(59, 130, 246, 0.45)'
-                              : 'rgba(245, 158, 11, 0.4)'
-                        }`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      {/* Row 1: Person Name + Direction Badge + Remaining Amount */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 14, fontWeight: 900, color: colors.text }}>
-                            👤 {item.person}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 9.5,
-                              fontWeight: 800,
-                              padding: '2px 6px',
-                              borderRadius: 6,
-                              background: item.direction === 'taken' ? 'rgba(59, 130, 246, 0.16)' : 'rgba(245, 158, 11, 0.16)',
-                              color: item.direction === 'taken' ? '#60a5fa' : '#fbbf24',
-                            }}
-                          >
-                            {item.direction === 'taken' ? '📥 I Took' : '💸 He Took'}
-                          </span>
-                          {item.paymentMode && (
-                            <span style={{ fontSize: 10, fontWeight: 700, color: colors.textMuted }}>
-                              · {item.paymentMode}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div
-                            className="ot-tabular-nums"
-                            style={{
-                              fontSize: 16,
-                              fontWeight: 950,
-                              color: isReturned ? '#34d399' : item.direction === 'taken' ? '#60a5fa' : '#fbbf24',
-                            }}
-                          >
-                            ₹{formatINR(isReturned ? totalAmt : remAmt)}
-                          </div>
-                          {paidAmt > 0 && !isReturned && (
-                            <div style={{ fontSize: 10, fontWeight: 800, color: '#34d399' }}>
-                              Paid ₹{formatINR(paidAmt)} of ₹{formatINR(totalAmt)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+            {/* Row 3: Note + Save Button */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="📝 For what? (optional)"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: palette.text,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                + Add Udhaar
+              </button>
+            </div>
+          </form>
 
-                      {/* Row 2: Prominent "When He Took" Date Badge + Due Date + Note */}
-                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                        <span
-                          style={{
-                            padding: '3px 8px',
-                            borderRadius: 8,
-                            background: 'rgba(59, 130, 246, 0.14)',
-                            border: '1px solid rgba(59, 130, 246, 0.3)',
-                            color: '#60a5fa',
-                            fontSize: 11,
-                            fontWeight: 800,
-                          }}
-                        >
-                          📅 Took on: {tookIso} ({daysAgoBadge})
-                          {item.tookTime || item.time ? ` · ${formatTime12h(item.tookTime || item.time)}` : ''}
-                        </span>
-                        {item.dueDate && !isReturned && (
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: 8,
-                              background: 'rgba(244, 63, 94, 0.14)',
-                              color: '#fb7185',
-                              fontSize: 10.5,
-                              fontWeight: 800,
-                            }}
-                          >
-                            🗓️ Due: {item.dueDate}
-                          </span>
-                        )}
+          {/* Simple Pending / Returned Switch */}
+          {items.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setTab('pending')}
+                style={{
+                  padding: '8px',
+                  borderRadius: 10,
+                  border: tab === 'pending' ? '1px solid #f59e0b' : `1px solid ${palette.border}`,
+                  background: tab === 'pending' ? 'rgba(245, 158, 11, 0.16)' : palette.surfaceAlt,
+                  color: tab === 'pending' ? (isLight ? '#b45309' : '#fbbf24') : palette.textMuted,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                ⏳ Pending ({summary.pendingCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('returned')}
+                style={{
+                  padding: '8px',
+                  borderRadius: 10,
+                  border: tab === 'returned' ? '1px solid #10b981' : `1px solid ${palette.border}`,
+                  background: tab === 'returned' ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
+                  color: tab === 'returned' ? (isLight ? '#047857' : '#34d399') : palette.textMuted,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                ✅ Returned ({summary.returnedCount})
+              </button>
+            </div>
+          )}
+
+          {/* Clean List of People */}
+          {visibleItems.length === 0 ? (
+            <div
+              style={{
+                padding: '14px',
+                textAlign: 'center',
+                color: palette.textMuted,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {items.length === 0
+                ? 'No Udhaar entries yet. Add name & amount above.'
+                : tab === 'pending'
+                ? '🎉 All Udhaar has been returned!'
+                : 'No returned entries yet.'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {visibleItems.map((item) => {
+                const isReturned = item.status === 'returned';
+                const paid = Number(item.paidAmount) || 0;
+                const remaining = Math.max(0, (Number(item.amount) || 0) - paid);
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: '12px',
+                      borderRadius: 14,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    {/* Top Info Row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
+                          {item.person}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                          📅 Took on {formatShortDate(item.date)}
+                          {item.time ? ` · ${formatTime12h(item.time)}` : ''}
+                        </div>
                         {item.note && (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: colors.textSub }}>
+                          <div style={{ fontSize: 11.5, color: palette.textSub, fontWeight: 700, marginTop: 3 }}>
                             📝 {item.note}
-                          </span>
+                          </div>
                         )}
-                        {isReturned && item.returnedAt && (
-                          <span style={{ fontSize: 11, fontWeight: 800, color: '#34d399' }}>
-                            ✅ Settled {item.returnedAt}
-                          </span>
+                        {paid > 0 && !isReturned && (
+                          <div style={{ fontSize: 11, color: '#10b981', fontWeight: 800, marginTop: 3 }}>
+                            Paid ₹{formatINR(paid)} · Left ₹{formatINR(remaining)}
+                          </div>
                         )}
                       </div>
 
-                      {Array.isArray(item.installments) && item.installments.length > 0 && (
+                      <div style={{ textAlign: 'right' }}>
                         <div
                           style={{
-                            padding: '6px 9px',
-                            borderRadius: 8,
-                            background: colors.surface,
-                            border: `1px dashed ${colors.border}`,
-                            fontSize: 10.5,
-                            fontWeight: 700,
-                            color: colors.textSub,
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: 6,
-                          }}
-                        >
-                          <span style={{ color: '#34d399', fontWeight: 800 }}>💵 Part Payments:</span>
-                          {item.installments.map((inst) => (
-                            <span key={inst.id} style={{ padding: '1px 6px', borderRadius: 6, background: colors.surfaceAlt }}>
-                              ₹{formatINR(inst.amount)} on {inst.date}
-                              {inst.note ? ` (${inst.note})` : ''}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Row 3: Rich Responsive Action Buttons (Remind, Part Pay, Edit, Settled, Call, Share Card, Delete) */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', width: '100%' }}>
-                        {!isReturned && (
-                          <button
-                            type="button"
-                            onClick={() => handleWhatsAppRemind(item)}
-                            style={{
-                              flex: '1 1 85px',
-                              padding: '7px 8px',
-                              borderRadius: 9,
-                              border: '1px solid rgba(16, 185, 129, 0.45)',
-                              background: 'rgba(16, 185, 129, 0.15)',
-                              color: '#34d399',
-                              fontSize: 11,
-                              fontWeight: 900,
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            💬 Remind
-                          </button>
-                        )}
-                        {!isReturned && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPartPayTargetId(item.id);
-                              setPartPayAmount('');
-                              setPartPayDate(todayIso);
-                            }}
-                            style={{
-                              flex: '1 1 80px',
-                              padding: '7px 8px',
-                              borderRadius: 9,
-                              border: '1px solid rgba(245, 158, 11, 0.45)',
-                              background: 'rgba(245, 158, 11, 0.14)',
-                              color: '#fbbf24',
-                              fontSize: 11,
-                              fontWeight: 900,
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            💵 Part Pay
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(item.id, isReturned ? 'pending' : 'returned')}
-                          style={{
-                            flex: '1 1 85px',
-                            padding: '7px 8px',
-                            borderRadius: 9,
-                            border: `1px solid ${isReturned ? colors.border : 'rgba(59, 130, 246, 0.45)'}`,
-                            background: isReturned ? colors.surface : 'rgba(59, 130, 246, 0.15)',
-                            color: isReturned ? colors.textSub : '#60a5fa',
-                            fontSize: 11,
+                            fontSize: 17,
                             fontWeight: 900,
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
+                            color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
                           }}
                         >
-                          {isReturned ? '↩️ Reopen' : '✅ Returned'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openAddOrEditForm(item)}
-                          style={{
-                            padding: '7px 10px',
-                            borderRadius: 9,
-                            border: `1px solid ${colors.border}`,
-                            background: colors.surface,
-                            color: colors.text,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                          title="Edit person, amount, or when he took date"
-                        >
-                          ✏️ Edit
-                        </button>
-                        {item.phone && (
-                          <a
-                            href={`tel:${item.phone}`}
-                            style={{
-                              padding: '7px 9px',
-                              borderRadius: 9,
-                              border: `1px solid ${colors.border}`,
-                              background: colors.surface,
-                              color: '#34d399',
-                              fontSize: 11,
-                              fontWeight: 800,
-                              textDecoration: 'none',
-                            }}
-                            title="Call Person"
-                          >
-                            📞
-                          </a>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadUdhaarCardPng(item)}
-                          style={{
-                            padding: '7px 9px',
-                            borderRadius: 9,
-                            border: `1px solid ${colors.border}`,
-                            background: colors.surface,
-                            color: '#60a5fa',
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                          title="Download Udhaar Card PNG"
-                        >
-                          🖼️
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(item.id, 'delete')}
-                          style={{
-                            padding: '7px 9px',
-                            borderRadius: 9,
-                            border: '1px solid rgba(244, 63, 94, 0.3)',
-                            background: 'rgba(244, 63, 94, 0.08)',
-                            color: '#fb7185',
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                          title="Delete entry"
-                        >
-                          🗑️
-                        </button>
+                          ₹{formatINR(isReturned ? item.amount : remaining)}
+                        </div>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
+                          {isReturned ? '✅ Returned' : '⏳ Pending'}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
 
-            {/* Friend's Standalone Udhaar APK Download / Share Bar */}
-            {embedded && (
-              <div
+                    {/* Simple 3-Button Action Row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => toggleStatus(item.id)}
+                        style={{
+                          padding: '8px',
+                          borderRadius: 10,
+                          border: 'none',
+                          background: isReturned ? palette.surface : '#10b981',
+                          color: isReturned ? palette.textSub : '#ffffff',
+                          fontWeight: 900,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {isReturned ? '↩️ Mark Pending' : '✅ Returned'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditItem({ ...item })}
+                        style={{
+                          padding: '8px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.text,
+                          fontWeight: 800,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ✏️ Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => sendWhatsAppReminder(item)}
+                        style={{
+                          padding: '8px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: '#10b981',
+                          fontWeight: 800,
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        💬 Remind
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* SIMPLE CLEAN EDIT POPUP */}
+      {editItem && (
+        <div
+          onClick={() => setEditItem(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(2, 6, 23, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={saveEdit}
+            style={{
+              width: '100%',
+              maxWidth: 380,
+              borderRadius: 20,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              padding: 18,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              color: palette.text,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>✏️ Edit Udhaar</div>
+              <button
+                type="button"
+                onClick={() => setEditItem(null)}
                 style={{
-                  padding: '9px 12px',
-                  borderRadius: 12,
-                  background: colors.surfaceAlt,
-                  border: `1px dashed ${colors.border}`,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 8,
+                  border: 'none',
+                  background: 'transparent',
+                  color: palette.textMuted,
+                  fontSize: 18,
+                  cursor: 'pointer',
                 }}
               >
-                <span style={{ fontSize: 11, fontWeight: 700, color: colors.textSub }}>
-                  📱 Want Udhaar-Only APK for your friend? (No OT/Salary)
-                </span>
-                <a
-                  href="https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota/Udhaar-Tracker-Pro-Friend.apk"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: '5px 11px',
-                    borderRadius: 999,
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: '#ffffff',
-                    fontSize: 11,
-                    fontWeight: 900,
-                    textDecoration: 'none',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  ⬇️ Download Friend Udhaar APK
-                </a>
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                Friend Name
               </div>
-            )}
-          </>
+              <input
+                type="text"
+                value={editItem.person || ''}
+                onChange={(e) => setEditItem((p) => ({ ...p, person: e.target.value }))}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 14,
+                  fontWeight: 800,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Total Amount (₹)
+                </div>
+                <input
+                  type="number"
+                  value={editItem.amount ?? ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, amount: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 14,
+                    fontWeight: 900,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Part Paid So Far (₹)
+                </div>
+                <input
+                  type="number"
+                  value={editItem.paidAmount ?? 0}
+                  onChange={(e) => setEditItem((p) => ({ ...p, paidAmount: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 14,
+                    fontWeight: 900,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Date Taken
+                </div>
+                <input
+                  type="date"
+                  value={editItem.date || ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, date: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '9px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13,
+                    fontWeight: 800,
+                  }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Time Taken
+                </div>
+                <input
+                  type="time"
+                  value={editItem.time || ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, time: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '9px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13,
+                    fontWeight: 800,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                Note / Reason
+              </div>
+              <input
+                type="text"
+                value={editItem.note || ''}
+                onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
+                placeholder="For what?"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                WhatsApp Phone (optional)
+              </div>
+              <input
+                type="tel"
+                value={editItem.phone || ''}
+                onChange={(e) => setEditItem((p) => ({ ...p, phone: e.target.value }))}
+                placeholder="10-digit mobile number"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px',
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => deleteEntry(editItem.id)}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
+                  fontWeight: 900,
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                }}
+              >
+                🗑️ Delete
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return cardContent;
+  }
+
+  // Standalone APK wrapper for friend (Uses separate ota-udhaar server)
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: palette.bg,
+        color: palette.text,
+        padding: '14px 12px 48px',
+        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{ maxWidth: 460, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Clean Standalone Top Bar with Dedicated Udhaar OTA Update Button */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 14px',
+            borderRadius: 16,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 900 }}>🤝 Udhaar Tracker</div>
+            <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700 }}>
+              v{udhaarOtaVersion} · Udhaar OTA
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={applyUdhaarOtaUpdate}
+              disabled={udhaarOtaBusy}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 10,
+                border: availableUdhaarOta ? 'none' : `1px solid ${palette.border}`,
+                background: availableUdhaarOta ? '#10b981' : palette.surfaceAlt,
+                color: availableUdhaarOta ? '#ffffff' : palette.text,
+                fontSize: 11.5,
+                fontWeight: 800,
+                cursor: udhaarOtaBusy ? 'wait' : 'pointer',
+              }}
+            >
+              {udhaarOtaBusy ? '⏳...' : availableUdhaarOta ? `🚀 Update v${availableUdhaarOta.version}` : '🔄 Update'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setThemeLight((v) => !v)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 10,
+                border: `1px solid ${palette.border}`,
+                background: palette.surfaceAlt,
+                color: palette.text,
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              {isLight ? '🌙' : '☀️'}
+            </button>
+          </div>
+        </div>
+
+        {/* Dedicated Udhaar OTA Update Banner */}
+        {availableUdhaarOta && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 14,
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid #10b981',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 800 }}>
+              🚀 New Udhaar Update v{availableUdhaarOta.version}: {availableUdhaarOta.notes}
+            </div>
+            <button
+              type="button"
+              onClick={applyUdhaarOtaUpdate}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#10b981',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 11.5,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Update Now
+            </button>
+          </div>
         )}
+
+        {toastMsg && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 12,
+              background: '#10b981',
+              color: '#ffffff',
+              fontSize: 12.5,
+              fontWeight: 800,
+              textAlign: 'center',
+            }}
+          >
+            {toastMsg}
+          </div>
+        )}
+
+        {cardContent}
       </div>
     </div>
   );

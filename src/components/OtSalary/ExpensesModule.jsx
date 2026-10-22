@@ -544,21 +544,28 @@ export default function ExpensesModule({
   const udhaarCardRef = useRef(null);
 
   // 1-Tap Section Header Minimize / Maximize State (persisted in localStorage)
+  // Secondary sections start minimized by default so the main screen stays simple, clean, and uncluttered!
   const [collapsedExpSections, setCollapsedExpSections] = useState(() => {
+    const cleanDefault = {
+      sec_bento_summary: true,
+      sec_daily_limit: true,
+      sec_categories: true,
+      sec_ask_memory: true,
+    };
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem('pattan.expenses.collapsedSections_v1');
-        if (raw) return JSON.parse(raw) || {};
+        const raw = window.localStorage.getItem('pattan.expenses.collapsedSections_v2');
+        if (raw) return { ...cleanDefault, ...(JSON.parse(raw) || {}) };
       }
     } catch (_) {}
-    return {};
+    return cleanDefault;
   });
   const toggleExpSection = useCallback((secKey) => {
     setCollapsedExpSections((prev) => {
       const next = { ...prev, [secKey]: !prev[secKey] };
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('pattan.expenses.collapsedSections_v1', JSON.stringify(next));
+          window.localStorage.setItem('pattan.expenses.collapsedSections_v2', JSON.stringify(next));
         }
       } catch (_) {}
       return next;

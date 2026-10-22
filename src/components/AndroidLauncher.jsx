@@ -10,8 +10,20 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.26';
-  let buildId = 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
+  const isUdhaarOnly = typeof window !== 'undefined' && Boolean(window.__UDHAAR_ONLY_APK__);
+  if (isUdhaarOnly) {
+    let uVer = '1.0.1';
+    let uBid = 'udhaar_ota_1_0_1_clean_simple_ui';
+    try {
+      const lsUVer = localStorage.getItem('udhaar_standalone_ota_version_v1');
+      const lsUBid = localStorage.getItem('udhaar_standalone_ota_build_id_v1');
+      if (lsUVer) uVer = lsUVer;
+      if (lsUBid) uBid = lsUBid;
+    } catch (_) {}
+    return { version: uVer, buildId: uBid };
+  }
+  let version = '8.2.27';
+  let buildId = 'ota_8_2_27_simple_clean_ui_and_separate_udhaar_ota';
   try {
     if (
       typeof window !== 'undefined' &&
@@ -76,20 +88,27 @@ class MobileOtErrorBoundary extends React.Component {
   }
   async tryAutoHealFromRemoteOta(forceInstall = false, isSilentPoll = false) {
     try {
+      const isUdhaarOnly = typeof window !== 'undefined' && Boolean(window.__UDHAAR_ONLY_APK__);
       if (!isSilentPoll) {
-        this.setState({ healStatus: 'Checking GitHub for live OTA hotfix...' });
+        this.setState({ healStatus: isUdhaarOnly ? 'Checking Udhaar OTA Server...' : 'Checking GitHub for live OTA hotfix...' });
       }
       const { version: currentVer, buildId: currentBuildId } = getActiveBuildMetadata();
       const ts = Date.now();
-      const bases = [
-        'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota',
-        'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota',
-      ];
+      const bases = isUdhaarOnly
+        ? [
+            'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar',
+            'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota-udhaar',
+          ]
+        : [
+            'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota',
+            'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota',
+          ];
+      const manifestFile = isUdhaarOnly ? 'udhaar-ota-manifest.json' : 'ota-manifest.json';
       let manifest = null;
       let activeBase = bases[0];
       for (const b of bases) {
         try {
-          const mRes = await fetch(`${b}/ota-manifest.json?t=${ts}`, { cache: 'no-store' });
+          const mRes = await fetch(`${b}/${manifestFile}?t=${ts}`, { cache: 'no-store' });
           if (mRes.ok) {
             manifest = await mRes.json();
             activeBase = b;
@@ -98,7 +117,7 @@ class MobileOtErrorBoundary extends React.Component {
         } catch (_) {}
       }
       if (manifest) {
-        const remoteVer = String(manifest.version || '8.2.5');
+        const remoteVer = String(manifest.version || (isUdhaarOnly ? '1.0.1' : '8.2.5'));
         const remoteBuildId = String(manifest.buildId || '');
         const isNewerOrDifferent =
           forceInstall ||
@@ -115,20 +134,28 @@ class MobileOtErrorBoundary extends React.Component {
         }
 
         this.setState({ healStatus: `Downloading hotfix v${remoteVer} from GitHub...` });
+        const defaultJsFile = isUdhaarOnly ? 'udhaar-bundle.js' : 'app-bundle.js';
+        const defaultCssFile = isUdhaarOnly ? 'udhaar-bundle.css' : 'app-bundle.css';
         const [jsRes, cssRes] = await Promise.all([
-          fetch(`${activeBase}/${manifest.jsFile || 'app-bundle.js'}?t=${ts}`, { cache: 'no-store' }),
-          fetch(`${activeBase}/${manifest.cssFile || 'app-bundle.css'}?t=${ts}`, { cache: 'no-store' }),
+          fetch(`${activeBase}/${manifest.jsFile || defaultJsFile}?t=${ts}`, { cache: 'no-store' }),
+          fetch(`${activeBase}/${manifest.cssFile || defaultCssFile}?t=${ts}`, { cache: 'no-store' }),
         ]);
         if (jsRes.ok) {
-          const jsText = await jsRes.text();
+          const rawJs = await jsRes.text();
+          const jsText = isUdhaarOnly ? `window.__UDHAAR_ONLY_APK__ = true;\n${rawJs}` : rawJs;
           const cssText = cssRes.ok ? await cssRes.text() : '';
           if (jsText && jsText.length > 1000) {
             if (window.PattanBiometric && typeof window.PattanBiometric.saveLiveOtaBundle === 'function') {
               window.PattanBiometric.saveLiveOtaBundle(remoteVer, remoteBuildId, jsText, cssText);
             }
             try {
-              localStorage.setItem('pattan.ota.version', remoteVer);
-              localStorage.setItem('pattan.ota.buildId', remoteBuildId);
+              if (isUdhaarOnly) {
+                localStorage.setItem('udhaar_standalone_ota_version_v1', remoteVer);
+                localStorage.setItem('udhaar_standalone_ota_build_id_v1', remoteBuildId);
+              } else {
+                localStorage.setItem('pattan.ota.version', remoteVer);
+                localStorage.setItem('pattan.ota.buildId', remoteBuildId);
+              }
             } catch (_) {}
             this.setState({ healStatus: `✅ Installed hotfix v${remoteVer}! Reloading app...` });
             setTimeout(() => window.location.reload(), 250);

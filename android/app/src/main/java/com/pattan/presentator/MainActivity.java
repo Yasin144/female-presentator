@@ -50,8 +50,39 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
     private static final String BUILTIN_OTA_VERSION = "7.8.0";
+
+    private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
+    private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
+    private static final String UDHAAR_OTA_CSS_FILE = "udhaar_standalone_ota_bundle.css";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.1";
+
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
+
+    private boolean isUdhaarStandalonePackage() {
+        try {
+            String pkg = getPackageName();
+            return pkg != null && pkg.toLowerCase().contains("udhaar");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String getActiveOtaPrefName() {
+        return isUdhaarStandalonePackage() ? UDHAAR_OTA_PREF_NAME : OTA_PREF_NAME;
+    }
+
+    private String getActiveOtaJsFile() {
+        return isUdhaarStandalonePackage() ? UDHAAR_OTA_JS_FILE : OTA_JS_FILE;
+    }
+
+    private String getActiveOtaCssFile() {
+        return isUdhaarStandalonePackage() ? UDHAAR_OTA_CSS_FILE : OTA_CSS_FILE;
+    }
+
+    private String getActiveBuiltinOtaVersion() {
+        return isUdhaarStandalonePackage() ? BUILTIN_UDHAAR_OTA_VERSION : BUILTIN_OTA_VERSION;
+    }
 
     private final BroadcastReceiver paymentNotifReceiver = new BroadcastReceiver() {
         @Override
@@ -77,16 +108,16 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         try {
             long apkUpdateTime = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
-            SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+            SharedPreferences otaPrefs = getSharedPreferences(getActiveOtaPrefName(), Context.MODE_PRIVATE);
             long savedApkTime = otaPrefs.getLong("apk_last_update_time", 0L);
             if (apkUpdateTime > savedApkTime) {
-                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
-                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), getActiveOtaJsFile());
+                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), getActiveOtaCssFile());
                 if (otaJs.exists()) otaJs.delete();
                 if (otaCss.exists()) otaCss.delete();
                 otaPrefs.edit()
                     .putLong("apk_last_update_time", apkUpdateTime)
-                    .putString("ota_version", BUILTIN_OTA_VERSION)
+                    .putString("ota_version", getActiveBuiltinOtaVersion())
                     .putString("ota_build_id", "")
                     .apply();
             }
@@ -584,18 +615,21 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public String getLiveOtaStatusJson() {
             try {
-                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
-                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                String builtinVer = getActiveBuiltinOtaVersion();
+                SharedPreferences otaPrefs = getSharedPreferences(getActiveOtaPrefName(), Context.MODE_PRIVATE);
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), getActiveOtaJsFile());
                 boolean hasOta = otaJs.exists() && otaJs.length() > 1024;
                 JSONObject res = new JSONObject();
-                res.put("builtinVersion", BUILTIN_OTA_VERSION);
-                res.put("activeVersion", hasOta ? otaPrefs.getString("ota_version", BUILTIN_OTA_VERSION) : BUILTIN_OTA_VERSION);
+                res.put("builtinVersion", builtinVer);
+                res.put("activeVersion", hasOta ? otaPrefs.getString("ota_version", builtinVer) : builtinVer);
                 res.put("buildId", hasOta ? otaPrefs.getString("ota_build_id", "") : "");
                 res.put("updatedAt", otaPrefs.getString("ota_updated_at", ""));
                 res.put("hasOtaBundle", hasOta);
+                res.put("appType", isUdhaarStandalonePackage() ? "udhaar-only" : "salary-ot");
                 return res.toString();
             } catch (Exception ignored) {
-                return "{\"builtinVersion\":\"7.8.0\",\"activeVersion\":\"7.8.0\",\"hasOtaBundle\":false}";
+                String v = getActiveBuiltinOtaVersion();
+                return "{\"builtinVersion\":\"" + v + "\",\"activeVersion\":\"" + v + "\",\"hasOtaBundle\":false}";
             }
         }
 
@@ -603,21 +637,26 @@ public class MainActivity extends BridgeActivity {
         public boolean saveLiveOtaBundle(final String version, final String buildId, final String jsContent, final String cssContent) {
             try {
                 if (jsContent == null || jsContent.length() < 1024) return false;
-                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                String safeJsContent = jsContent;
+                if (isUdhaarStandalonePackage() && !safeJsContent.startsWith("window.__UDHAAR_ONLY_APK__")) {
+                    safeJsContent = "window.__UDHAAR_ONLY_APK__ = true;\n" + safeJsContent;
+                }
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), getActiveOtaJsFile());
                 try (java.io.FileOutputStream fos = new java.io.FileOutputStream(otaJs, false)) {
-                    fos.write(jsContent.getBytes(StandardCharsets.UTF_8));
+                    fos.write(safeJsContent.getBytes(StandardCharsets.UTF_8));
                     fos.flush();
                 }
                 if (cssContent != null && cssContent.length() > 50) {
-                    java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                    java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), getActiveOtaCssFile());
                     try (java.io.FileOutputStream fos = new java.io.FileOutputStream(otaCss, false)) {
                         fos.write(cssContent.getBytes(StandardCharsets.UTF_8));
                         fos.flush();
                     }
                 }
-                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+                String builtinVer = getActiveBuiltinOtaVersion();
+                SharedPreferences otaPrefs = getSharedPreferences(getActiveOtaPrefName(), Context.MODE_PRIVATE);
                 otaPrefs.edit()
-                    .putString("ota_version", version != null && !version.isEmpty() ? version : BUILTIN_OTA_VERSION)
+                    .putString("ota_version", version != null && !version.isEmpty() ? version : builtinVer)
                     .putString("ota_build_id", buildId != null ? buildId : "")
                     .putString("ota_updated_at", String.valueOf(System.currentTimeMillis()))
                     .apply();
@@ -630,13 +669,13 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public boolean clearLiveOtaBundle() {
             try {
-                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
-                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), getActiveOtaJsFile());
+                java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), getActiveOtaCssFile());
                 if (otaJs.exists()) otaJs.delete();
                 if (otaCss.exists()) otaCss.delete();
-                SharedPreferences otaPrefs = getSharedPreferences(OTA_PREF_NAME, Context.MODE_PRIVATE);
+                SharedPreferences otaPrefs = getSharedPreferences(getActiveOtaPrefName(), Context.MODE_PRIVATE);
                 otaPrefs.edit()
-                    .putString("ota_version", BUILTIN_OTA_VERSION)
+                    .putString("ota_version", getActiveBuiltinOtaVersion())
                     .putString("ota_build_id", "")
                     .apply();
                 return true;
@@ -1021,7 +1060,7 @@ public class MainActivity extends BridgeActivity {
                     String path = reqUri.getPath() != null ? reqUri.getPath() : "";
                     if (("localhost".equalsIgnoreCase(host) || "127.0.0.1".equalsIgnoreCase(host)) && path.startsWith("/assets/index-")) {
                         if (path.endsWith(".js")) {
-                            java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), OTA_JS_FILE);
+                            java.io.File otaJs = new java.io.File(getNoBackupFilesDir(), getActiveOtaJsFile());
                             if (otaJs.exists() && otaJs.length() > 1024) {
                                 java.util.Map<String, String> headers = new java.util.HashMap<>();
                                 headers.put("Access-Control-Allow-Origin", "*");
@@ -1036,7 +1075,7 @@ public class MainActivity extends BridgeActivity {
                                 );
                             }
                         } else if (path.endsWith(".css")) {
-                            java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), OTA_CSS_FILE);
+                            java.io.File otaCss = new java.io.File(getNoBackupFilesDir(), getActiveOtaCssFile());
                             if (otaCss.exists() && otaCss.length() > 50) {
                                 java.util.Map<String, String> headers = new java.util.HashMap<>();
                                 headers.put("Access-Control-Allow-Origin", "*");

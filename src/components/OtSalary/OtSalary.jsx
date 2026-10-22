@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.26';
+      return localStorage.getItem('pattan.ota.version') || '8.2.27';
     } catch (_) {
-      return '8.2.26';
+      return '8.2.27';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_27_simple_clean_ui_and_separate_udhaar_ota';
     } catch (_) {
-      return 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
+      return 'ota_8_2_27_simple_clean_ui_and_separate_udhaar_ota';
     }
   });
 

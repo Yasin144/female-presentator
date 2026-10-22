@@ -1,0 +1,9 @@
+{
+  "appType": "udhaar-only",
+  "version": "1.0.1",
+  "buildId": "udhaar_ota_1_0_1_clean_simple_ui",
+  "releasedAt": "2026-10-23T00:46:00+05:30",
+  "jsFile": "udhaar-bundle.js",
+  "cssFile": "udhaar-bundle.css",
+  "notes": "Udhaar Pro v1.0.1: Dedicated Individual Udhaar OTA Server (/ota-udhaar/) + Super Clean & Simple UI (Pending / Returned, When He Took Today/Yesterday/Date+Time, Edit, Mark Returned, WhatsApp Reminder)."
+}
