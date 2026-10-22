@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import OtSalary from './OtSalary/OtSalary.jsx';
+import UdhaarStandaloneApp from './OtSalary/UdhaarStandaloneApp.jsx';
 
 const LINK_KEY = 'pattan.android.serverUrl';
 const ANDROID_LAUNCH_MODE_KEY = 'pattan.android.launchMode';
@@ -9,8 +10,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.25';
-  let buildId = 'ota_8_2_25_responsive_udhaar_when_he_took';
+  let version = '8.2.26';
+  let buildId = 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
   try {
     if (
       typeof window !== 'undefined' &&
@@ -536,6 +537,15 @@ export function isPackagedAndroidLauncher() {
 export { MobileOtErrorBoundary };
 
 export default function AndroidLauncher() {
+  const isUdhaarOnlyApk = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.__UDHAAR_ONLY_APK__) return true;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('app') === 'udhaar') return true;
+    } catch (_) {}
+    return false;
+  }, []);
   const staleLink = useMemo(() => new URLSearchParams(window.location.search).get('staleMobileLink') === '1', []);
   const [activeApp, setActiveApp] = useState(() => {
     if (staleLink) return 'ot-salary';
@@ -600,6 +610,14 @@ export default function AndroidLauncher() {
       window.history.replaceState({}, '', '/');
     }
   }, [staleLink]);
+
+  if (isUdhaarOnlyApk) {
+    return (
+      <MobileOtErrorBoundary>
+        <UdhaarStandaloneApp embedded={false} />
+      </MobileOtErrorBoundary>
+    );
+  }
 
   if (activeApp === 'ot-salary') {
     return (

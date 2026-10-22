@@ -1,8 +1,8 @@
 {
-  "version": "8.2.25",
-  "buildId": "ota_8_2_25_responsive_udhaar_when_he_took",
-  "releasedAt": "2026-10-22T23:51:00+05:30",
+  "version": "8.2.26",
+  "buildId": "ota_8_2_26_collapsible_sections_and_udhaar_pro_apk",
+  "releasedAt": "2026-10-23T00:20:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.25: 100% Mobile-Responsive Udhaar / Returnable Money Tracker that asks 'When Did He Take?' (Date & Time picker + Today/Yesterday/2 Days Ago chips) + ✏️ Edit Date & 1-Tap WhatsApp Reminder."
+  "notes": "v8.2.26: Tap any Section Header to Minimize (▸) / Maximize (▾) across Expenses & OT + Upgraded Udhaar Pro (Edit, Partial Pay, Given/Taken, Due Date, Payment Mode, By Person, Call, PNG Statement) + Standalone Friend Udhaar APK."
 }

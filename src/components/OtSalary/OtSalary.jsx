@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.25';
+      return localStorage.getItem('pattan.ota.version') || '8.2.26';
     } catch (_) {
-      return '8.2.25';
+      return '8.2.26';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,11 +2192,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_25_responsive_udhaar_when_he_took';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
     } catch (_) {
-      return 'ota_8_2_25_responsive_udhaar_when_he_took';
+      return 'ota_8_2_26_collapsible_sections_and_udhaar_pro_apk';
     }
   });
+
+  // 🔽 Accordion Minimize / Maximize State for Every Section in OT & Salary
+  const [collapsedOtSections, setCollapsedOtSections] = useState(() => {
+    try {
+      const raw = localStorage.getItem('yasin_ot_collapsed_sections_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch (_) {}
+    return {};
+  });
+
+  const toggleOtSection = useCallback((secKey) => {
+    setCollapsedOtSections((prev) => {
+      const next = { ...prev, [secKey]: !prev[secKey] };
+      try {
+        localStorage.setItem('yasin_ot_collapsed_sections_v1', JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  }, []);
 
   // 🛡️ 1-Tap Stealth Calculator Decoy Mode State
   const [showStealthDecoy, setShowStealthDecoy] = useState(false);
@@ -7595,13 +7617,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 gap: 14,
               }}
             >
-              {/* Top Row: Live Digital Time + Date + Edit Button */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 10,
-              }}>
+              {/* Top Row: Live Digital Time + Date + Edit Button (Tap Header to Minimize / Maximize) */}
+              <div
+                onClick={() => toggleOtSection('sec_today_punch')}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Tap to minimize or maximize Today Punch Pad"
+              >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span
@@ -7623,7 +7651,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       fontSize: 10.5,
                       fontWeight: 800,
                     }}>
-                      ● Live
+                      ● Live {collapsedOtSections.sec_today_punch ? '▸' : '▾'}
                     </span>
                   </div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
@@ -7631,24 +7659,34 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowManualEditor(true)}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: 12,
-                    border: `1px solid ${ui.border}`,
-                    background: ui.cardSubBg,
-                    color: ui.textPrimary,
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ✏️ Edit Day
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowManualEditor(true);
+                    }}
+                    style={{
+                      padding: '7px 12px',
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✏️ Edit Day
+                  </button>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: ui.textSecondary }}>
+                    {collapsedOtSections.sec_today_punch ? '▸' : '▾'}
+                  </span>
+                </div>
               </div>
 
+              {!collapsedOtSections.sec_today_punch && (
+                <>
               {/* Side-by-Side Clean Biometric Punch Buttons */}
               <div style={{
                 display: 'grid',
@@ -7874,9 +7912,33 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </button>
                 </div>
               </div>
+                </>
+              )}
             </div>
 
             {/* SECTION 2: 2x2 GOOGLE STITCH BENTO SUMMARY GRID (Salary · OT · Today · Expenses) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                onClick={() => toggleOtSection('sec_today_bento')}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '2px 6px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Tap to minimize or maximize Summary Tiles"
+              >
+                <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  📊 Salary, OT &amp; Today Summary
+                </span>
+                <span style={{ fontSize: 11.5, fontWeight: 900, color: ui.textSecondary }}>
+                  {collapsedOtSections.sec_today_bento ? '▸ Show' : '▾ Hide'}
+                </span>
+              </div>
+
+              {!collapsedOtSections.sec_today_bento && (
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
@@ -8097,6 +8159,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   Month: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.allTimeCount} txns)
                 </div>
               </div>
+            </div>
+              )}
             </div>
 
             {/* 🏦 Quick Add Date: Salary & OT Payment Credit Cycle Card on Today Tab */}
@@ -8767,12 +8831,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 >
                   ‹
                 </button>
-                <div style={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+                <div
+                  onClick={toggleMonthCalendarGrid}
+                  style={{ textAlign: 'center', minWidth: 0, flex: 1, cursor: 'pointer', userSelect: 'none' }}
+                  title="Tap to minimize or maximize Month Calendar Grid"
+                >
                   <div style={{ fontSize: 15.5, fontWeight: 950, color: ui.textPrimary }}>
-                    {formattedMonthLabel}
+                    {formattedMonthLabel} {showMonthCalendarGrid ? '▾' : '▸'}
                   </div>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Tap any date to edit IN/OUT time &amp; OT
+                    Tap any date to edit IN/OUT time &amp; OT · Tap title to {showMonthCalendarGrid ? 'minimize' : 'maximize'}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -9011,10 +9079,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 gap: 10,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div
+                onClick={() => toggleOtSection('sec_month_bulk')}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', cursor: 'pointer', userSelect: 'none' }}
+                title="Tap to minimize or maximize Bulk Day Selector"
+              >
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 950, color: ui.textPrimary }}>
-                    ☑️ Select &amp; Select All Days — Set IN / OUT Time
+                    ☑️ Select &amp; Select All Days — Set IN / OUT Time {collapsedOtSections.sec_month_bulk ? '▸' : '▾'}
                   </div>
                   <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 600 }}>
                     {selectedBulkDates.length > 0
@@ -9022,7 +9094,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       : `Tap checkboxes below or "Select All Days" (${filteredMonthRows.length} days)`}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     onClick={selectAllBulkDates}
@@ -9078,6 +9150,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
 
+              {!collapsedOtSections.sec_month_bulk && (
+                <>
               {/* Bulk IN Time, OUT Time, Status Inputs */}
               <div style={{
                 display: 'grid',
@@ -9237,6 +9311,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   🚫 Clear OUT Time ({selectedBulkDates.length || filteredMonthRows.length} Days)
                 </button>
               </div>
+                </>
+              )}
             </div>
 
             {/* Day Cards List OR Full Table View */}
@@ -9525,10 +9601,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 gap: 12,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+              <div
+                onClick={() => toggleOtSection('sec_slip_hero')}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+                title="Tap to minimize or maximize Verified Payslip Hero"
+              >
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 800, color: ui.textSecondary, letterSpacing: '0.03em' }}>
-                    MONTHLY VERIFIED PAYSLIP · {formattedMonthLabel.toUpperCase()}
+                    MONTHLY VERIFIED PAYSLIP · {formattedMonthLabel.toUpperCase()} {collapsedOtSections.sec_slip_hero ? '▸' : '▾'}
                   </div>
                   <div
                     className="ot-tabular-nums"
@@ -9540,11 +9620,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     {displayProfileName} · Full Salary Not Cut by Expenses
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                   {renderSalaryEyeButton(false)}
                 </div>
               </div>
 
+              {!collapsedOtSections.sec_slip_hero && (
+                <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div
                   className="stitch-bento-card"
@@ -9764,6 +9846,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   </div>
                 </div>
               </div>
+                </>
+              )}
             </div>
 
             <div
@@ -9776,16 +9860,20 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 boxShadow: ui.shadow,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+              <div
+                onClick={() => toggleOtSection('sec_slip_details')}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: collapsedOtSections.sec_slip_details ? 0 : 14, cursor: 'pointer', userSelect: 'none' }}
+                title="Tap to minimize or maximize Monthly Salary Slip"
+              >
                 <div>
                   <div style={{ fontSize: 17, fontWeight: 950, color: ui.textPrimary }}>
-                    Monthly Salary Slip
+                    Monthly Salary Slip {collapsedOtSections.sec_slip_details ? '▸' : '▾'}
                   </div>
                   <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600 }}>
                     {formattedMonthLabel} · {displayProfileName}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                   {renderSalaryEyeButton(false)}
                   <span style={{
                     padding: '4px 10px',
@@ -9800,6 +9888,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               </div>
 
+              {!collapsedOtSections.sec_slip_details && (
+                <>
               {/* Structured Key-Value Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
@@ -9952,6 +10042,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   💬 Share
                 </button>
               </div>
+                </>
+              )}
             </div>
           </div>
         )}

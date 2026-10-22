@@ -17,6 +17,7 @@ import {
   getExpenseStorageStatus,
   loadEncryptedExpenseStore,
 } from '../../../frontend/expense-memory.js';
+import UdhaarStandaloneApp from './UdhaarStandaloneApp.jsx';
 
 const SMART_QA_CHIPS = [
   'How much did I spend yesterday?',
@@ -539,7 +540,30 @@ export default function ExpensesModule({
   const [udhaarDraftTookTime, setUdhaarDraftTookTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [udhaarDraftPhone, setUdhaarDraftPhone] = useState('');
   const [udhaarDraftNote, setUdhaarDraftNote] = useState('');
+  const [udhaarExternalDraft, setUdhaarExternalDraft] = useState(null);
   const udhaarCardRef = useRef(null);
+
+  // 1-Tap Section Header Minimize / Maximize State (persisted in localStorage)
+  const [collapsedExpSections, setCollapsedExpSections] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem('pattan.expenses.collapsedSections_v1');
+        if (raw) return JSON.parse(raw) || {};
+      }
+    } catch (_) {}
+    return {};
+  });
+  const toggleExpSection = useCallback((secKey) => {
+    setCollapsedExpSections((prev) => {
+      const next = { ...prev, [secKey]: !prev[secKey] };
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('pattan.expenses.collapsedSections_v1', JSON.stringify(next));
+        }
+      } catch (_) {}
+      return next;
+    });
+  }, []);
 
   const persistUdhaarMap = useCallback((nextMap) => {
     setUdhaarMap(nextMap);
@@ -558,6 +582,11 @@ export default function ExpensesModule({
     setUdhaarDraftTookTime(String(initial.tookTime || initial.time || new Date().toTimeString().slice(0, 5)));
     setUdhaarDraftPhone(String(initial.phone || '').trim());
     setUdhaarDraftNote(String(initial.note || '').trim());
+    setUdhaarExternalDraft({
+      ...initial,
+      tookDate: String(initial.tookDate || initial.date || todayIso),
+      tookTime: String(initial.tookTime || initial.time || new Date().toTimeString().slice(0, 5)),
+    });
     setShowAddUdhaarForm(true);
     setSubTab('overview');
     setTimeout(() => {
@@ -3556,7 +3585,19 @@ export default function ExpensesModule({
               gap: 12,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div
+              onClick={() => toggleExpSection('sec_bank_hero')}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title="Tap header to minimize or maximize"
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{
                   fontSize: 11.5,
@@ -3568,7 +3609,7 @@ export default function ExpensesModule({
                   alignItems: 'center',
                   gap: 6,
                 }}>
-                  <span>🏦 Main Account Balance</span>
+                  <span>{collapsedExpSections.sec_bank_hero ? '▸' : '▾'} 🏦 Main Account Balance</span>
                 </span>
                 <span style={{
                   padding: '3px 9px',
@@ -3603,48 +3644,50 @@ export default function ExpensesModule({
               </span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div
-                  className="ot-tabular-nums"
+            {!collapsedExpSections.sec_bank_hero && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div
+                    className="ot-tabular-nums"
+                    style={{
+                      fontSize: mobileMode ? 28 : 30,
+                      fontWeight: 900,
+                      color: isLight ? '#0f172a' : '#ffffff',
+                      letterSpacing: '-0.03em',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    ₹{formatINR(analytics.realAccountBalance || 0)}
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted, marginTop: 5 }}>
+                    🛡️ Verified Bank &amp; UPI Only · WhatsApp messages strictly blocked
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openCheckBalanceModal(effectiveBankBalanceInfo)}
                   style={{
-                    fontSize: mobileMode ? 28 : 30,
-                    fontWeight: 900,
-                    color: isLight ? '#0f172a' : '#ffffff',
-                    letterSpacing: '-0.03em',
-                    lineHeight: 1.1,
+                    padding: '10px 15px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(255, 255, 255, 0.22)',
+                    background: `linear-gradient(135deg, ${palette.activeBlue} 0%, #2563eb 100%)`,
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    flexShrink: 0,
+                    boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
                   }}
                 >
-                  ₹{formatINR(analytics.realAccountBalance || 0)}
-                </div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted, marginTop: 5 }}>
-                  🛡️ Verified Bank &amp; UPI Only · WhatsApp messages strictly blocked
-                </div>
+                  <span>🏦</span>
+                  <span>Check / Set Balance</span>
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => openCheckBalanceModal(effectiveBankBalanceInfo)}
-                style={{
-                  padding: '10px 15px',
-                  borderRadius: 14,
-                  border: '1px solid rgba(255, 255, 255, 0.22)',
-                  background: `linear-gradient(135deg, ${palette.activeBlue} 0%, #2563eb 100%)`,
-                  color: '#ffffff',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  flexShrink: 0,
-                  boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
-                }}
-              >
-                <span>🏦</span>
-                <span>Check / Set Balance</span>
-              </button>
-            </div>
+            )}
           </div>
 
           <div
@@ -3674,14 +3717,20 @@ export default function ExpensesModule({
               </div>
             )}
 
-            {/* HERO ROW 1: Unobstructed Period Title on Left + Compact Day Stepper on Right */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}>
+            {/* HERO ROW 1: Unobstructed Period Title on Left (Tap to Minimize/Maximize) + Compact Day Stepper on Right */}
+            <div
+              onClick={() => toggleExpSection('sec_date_filter')}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title="Tap header to minimize or maximize"
+            >
               <div style={{ minWidth: 0, flex: '1 1 180px' }}>
                 <div style={{
                   fontSize: 16,
@@ -3693,7 +3742,7 @@ export default function ExpensesModule({
                   flexWrap: 'wrap',
                   lineHeight: 1.25,
                 }}>
-                  <span>📅 {periodSummary.label}</span>
+                  <span>{collapsedExpSections.sec_date_filter ? '▸' : '▾'} 📅 {periodSummary.label}</span>
                   <span style={{
                     padding: '3px 9px',
                     borderRadius: 999,
@@ -3707,12 +3756,14 @@ export default function ExpensesModule({
                   </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 600, marginTop: 3 }}>
-                  Real-time payment ledger · Tap any date or filter below
+                  {collapsedExpSections.sec_date_filter
+                    ? 'Minimized — Tap header to maximize Date Filters & Quick Actions'
+                    : 'Tap header to minimize · Tap any date or filter below'}
                 </div>
               </div>
 
               {/* Compact Prev / Calendar Date Input / Next */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                 <button
                   type="button"
                   onClick={() => shiftSelectedDateByDays(-1)}
@@ -3770,6 +3821,8 @@ export default function ExpensesModule({
               </div>
             </div>
 
+            {!collapsedExpSections.sec_date_filter && (
+              <>
             {/* HERO ROW 2: Dedicated 4-Column Period Filter Bar (Today | Yesterday | Month | All) */}
             <div style={{
               display: 'flex',
@@ -4019,6 +4072,8 @@ export default function ExpensesModule({
                 <span>Suggest</span>
               </button>
             </div>
+              </>
+            )}
 
             <input
               ref={statementFileInputRef}
@@ -4030,15 +4085,47 @@ export default function ExpensesModule({
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 2: GOOGLE STITCH SIGNATURE 2x2 BENTO SUMMARY GRID
+              SECTION 2: GOOGLE STITCH SIGNATURE 2x2 BENTO SUMMARY GRID (Tap Header to Minimize/Maximize)
              ═══════════════════════════════════════════════════════════════════════ */}
           {subTab === 'overview' && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 10,
-            }}>
-              {/* Tile 1: Period Spent */}
+            <div
+              className="stitch-bento-card"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 20,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div
+                onClick={() => toggleExpSection('sec_bento_summary')}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  gap: 8,
+                }}
+                title="Tap header to minimize or maximize"
+              >
+                <span style={{ fontSize: 12, fontWeight: 900, color: palette.text }}>
+                  {collapsedExpSections.sec_bento_summary ? '▸' : '▾'} 📊 Period &amp; Month Summary Tiles
+                </span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
+                  {collapsedExpSections.sec_bento_summary ? 'Tap to expand' : 'Tap to minimize'}
+                </span>
+              </div>
+              {!collapsedExpSections.sec_bento_summary && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: 10,
+                }}>
+                  {/* Tile 1: Period Spent */}
               <div
                 className="stitch-bento-card"
                 style={{
@@ -4234,10 +4321,12 @@ export default function ExpensesModule({
                     : ''}
                 </div>
               </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Smart Daily Spend Limit Tracker & 1-Tap Visual Passbook Card */}
+          {/* Smart Daily Spend Limit Tracker & 1-Tap Visual Passbook Card (Tap Header to Minimize/Maximize) */}
           {subTab === 'overview' && (
             <div
               className="stitch-bento-card"
@@ -4251,10 +4340,22 @@ export default function ExpensesModule({
                 gap: 8,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div
+                onClick={() => toggleExpSection('sec_daily_limit')}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Tap header to minimize or maximize"
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, fontWeight: 900, color: palette.text }}>
-                    🎯 Daily Spend Limit
+                    {collapsedExpSections.sec_daily_limit ? '▸' : '▾'} 🎯 Daily Spend Limit
                   </span>
                   {dailySpendLimit > 0 ? (
                     <span
@@ -4287,592 +4388,106 @@ export default function ExpensesModule({
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleDownloadMonthlyPassbookCard}
-                  style={{
-                    padding: '5px 11px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(16, 185, 129, 0.45)',
-                    background: isLight
-                      ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
-                      : 'linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(37, 99, 235, 0.22) 100%)',
-                    color: isLight ? '#ffffff' : '#6ee7b7',
-                    fontSize: 11,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                  }}
-                >
-                  🖼️ Passbook Card
-                </button>
-              </div>
-
-              {dailySpendLimit > 0 && (
-                <div
-                  style={{
-                    width: '100%',
-                    height: 7,
-                    borderRadius: 999,
-                    background: palette.surfaceAlt,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
+                <div onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMonthlyPassbookCard}
                     style={{
-                      width: `${Math.min(100, Math.round(((Number(analytics.todaySpend || 0)) / dailySpendLimit) * 100))}%`,
-                      height: '100%',
+                      padding: '5px 11px',
                       borderRadius: 999,
-                      transition: 'width 0.25s ease',
-                      background:
-                        Number(analytics.todaySpend || 0) > dailySpendLimit
-                          ? 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)'
-                          : Number(analytics.todaySpend || 0) >= dailySpendLimit * 0.75
-                            ? 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)'
-                            : 'linear-gradient(90deg, #10b981 0%, #06b6d4 100%)',
+                      border: '1px solid rgba(16, 185, 129, 0.45)',
+                      background: isLight
+                        ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
+                        : 'linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(37, 99, 235, 0.22) 100%)',
+                      color: isLight ? '#ffffff' : '#6ee7b7',
+                      fontSize: 11,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
                     }}
-                  />
+                  >
+                    🖼️ Passbook Card
+                  </button>
                 </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                  {[300, 500, 1000, 2000, 0].map((preset) => {
-                    const active = dailySpendLimit === preset;
-                    return (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => updateDailySpendLimit(preset)}
-                        style={{
-                          padding: '3px 9px',
-                          borderRadius: 999,
-                          border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
-                          background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
-                          color: active ? '#34d399' : palette.textSub,
-                          fontSize: 10.5,
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {preset === 0 ? 'Off' : `₹${formatINR(preset)}`}
-                      </button>
-                    );
-                  })}
-                </div>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
-                  🔒 Silent visual alert only (Salary never spoken)
-                </span>
               </div>
+
+              {!collapsedExpSections.sec_daily_limit && (
+                <>
+                  {dailySpendLimit > 0 && (
+                    <div
+                      style={{
+                        width: '100%',
+                        height: 7,
+                        borderRadius: 999,
+                        background: palette.surfaceAlt,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(100, Math.round(((Number(analytics.todaySpend || 0)) / dailySpendLimit) * 100))}%`,
+                          height: '100%',
+                          borderRadius: 999,
+                          transition: 'width 0.25s ease',
+                          background:
+                            Number(analytics.todaySpend || 0) > dailySpendLimit
+                              ? 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)'
+                              : Number(analytics.todaySpend || 0) >= dailySpendLimit * 0.75
+                                ? 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)'
+                                : 'linear-gradient(90deg, #10b981 0%, #06b6d4 100%)',
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      {[300, 500, 1000, 2000, 0].map((preset) => {
+                        const active = dailySpendLimit === preset;
+                        return (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => updateDailySpendLimit(preset)}
+                            style={{
+                              padding: '3px 9px',
+                              borderRadius: 999,
+                              border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
+                              background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
+                              color: active ? '#34d399' : palette.textSub,
+                              fontSize: 10.5,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {preset === 0 ? 'Off' : `₹${formatINR(preset)}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
+                      🔒 Silent visual alert only (Salary never spoken)
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
-          {/* 🤝 UDHAAR / RETURNABLE MONEY TRACKER CARD (100% MOBILE RESPONSIVE + "WHEN HE TOOK" DATE PICKER) */}
+          {/* 🤝 UDHAAR / RETURNABLE MONEY TRACKER CARD (100% MOBILE RESPONSIVE + COLLAPSIBLE HEADER + EDIT + PART PAY + FRIEND APK) */}
           {subTab === 'overview' && (
-            <div
-              ref={udhaarCardRef}
-              className="stitch-bento-card"
-              style={{
-                padding: '14px',
-                borderRadius: 20,
-                background: palette.surface,
-                border: `1.5px solid ${udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.5)' : palette.border}`,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                boxSizing: 'border-box',
-                width: '100%',
-              }}
-            >
-              {/* Top Title Row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 950, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>🤝 Udhaar / Money to Collect</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted, marginTop: 1 }}>
-                    Track who took money, when they took it &amp; 1-tap WhatsApp reminder
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (showAddUdhaarForm) {
-                      setShowAddUdhaarForm(false);
-                      setUdhaarEditingId('');
-                    } else {
-                      openUdhaarFormForEntry({ tookDate: todayIso });
-                    }
-                  }}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: 12,
-                    border: '1px solid rgba(245, 158, 11, 0.55)',
-                    background: showAddUdhaarForm
-                      ? palette.surfaceAlt
-                      : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                    color: showAddUdhaarForm ? palette.textSub : '#ffffff',
-                    fontSize: 11.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                  }}
-                >
-                  {showAddUdhaarForm ? '✕ Close' : '+ Add Udhaar'}
-                </button>
-              </div>
-
-              {/* Responsive 2-Column Filter & Summary Tiles */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setUdhaarFilterTab('pending')}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 14,
-                    border: udhaarFilterTab === 'pending' ? '1.5px solid #f59e0b' : `1px solid ${palette.border}`,
-                    background: udhaarFilterTab === 'pending' ? 'rgba(245, 158, 11, 0.14)' : palette.surfaceAlt,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                  }}
-                >
-                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fbbf24' }}>
-                    ⏳ PENDING ({udhaarSummary.pendingList.length})
-                  </span>
-                  <span className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
-                    ₹{formatINR(udhaarSummary.pendingTotal)}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setUdhaarFilterTab('returned')}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 14,
-                    border: udhaarFilterTab === 'returned' ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
-                    background: udhaarFilterTab === 'returned' ? 'rgba(16, 185, 129, 0.14)' : palette.surfaceAlt,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                  }}
-                >
-                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#34d399' }}>
-                    ✅ COLLECTED ({udhaarSummary.returnedList.length})
-                  </span>
-                  <span className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
-                    ₹{formatINR(udhaarSummary.returnedTotal)}
-                  </span>
-                </button>
-              </div>
-
-              {/* Mobile-First Responsive Add / Edit Udhaar Form (Explicitly asks "When He Took") */}
-              {showAddUdhaarForm && (
-                <form
-                  onSubmit={handleAddManualUdhaar}
-                  style={{
-                    padding: '12px',
-                    borderRadius: 16,
-                    background: palette.surfaceAlt,
-                    border: '1.5px solid rgba(245, 158, 11, 0.45)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    boxSizing: 'border-box',
-                    width: '100%',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fbbf24' }}>
-                    {udhaarEditingId ? '✏️ Confirm / Edit Udhaar Details' : '🤝 Add New Udhaar (Money Given)'}
-                  </div>
-
-                  {/* Row 1: Who Took & Amount */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textSub }}>
-                        👤 Who Took Money?
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Name (e.g. Ravi)"
-                        value={udhaarDraftPerson}
-                        onChange={(e) => setUdhaarDraftPerson(e.target.value)}
-                        style={{
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          padding: '9px 10px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: palette.text,
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                        }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textSub }}>
-                        💰 Amount (₹)
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 500"
-                        value={udhaarDraftAmount}
-                        onChange={(e) => setUdhaarDraftAmount(e.target.value)}
-                        style={{
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          padding: '9px 10px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: palette.text,
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 2: WHEN HE TOOK (Date + Quick Chips + Time) */}
-                  <div
-                    style={{
-                      padding: '10px',
-                      borderRadius: 12,
-                      background: palette.surface,
-                      border: `1px solid ${palette.border}`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                      <label style={{ fontSize: 11, fontWeight: 900, color: '#34d399' }}>
-                        📅 When Did He Take? (Date &amp; Time)
-                      </label>
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                        {[
-                          { label: 'Today', date: todayIso },
-                          { label: 'Yesterday', date: yesterdayIso },
-                          {
-                            label: '2 Days Ago',
-                            date: (() => {
-                              const d = new Date(`${todayIso}T12:00:00`);
-                              d.setDate(d.getDate() - 2);
-                              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                            })(),
-                          },
-                        ].map((chip) => {
-                          const active = udhaarDraftTookDate === chip.date;
-                          return (
-                            <button
-                              key={chip.label}
-                              type="button"
-                              onClick={() => setUdhaarDraftTookDate(chip.date)}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: 999,
-                                border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
-                                background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
-                                color: active ? '#34d399' : palette.textSub,
-                                fontSize: 10,
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {chip.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
-                      <input
-                        type="date"
-                        value={udhaarDraftTookDate}
-                        onChange={(e) => setUdhaarDraftTookDate(e.target.value)}
-                        style={{
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          padding: '8px 9px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surfaceAlt,
-                          color: palette.text,
-                          fontSize: 12,
-                          fontWeight: 800,
-                        }}
-                      />
-                      <input
-                        type="time"
-                        value={udhaarDraftTookTime}
-                        onChange={(e) => setUdhaarDraftTookTime(e.target.value)}
-                        style={{
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          padding: '8px 9px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surfaceAlt,
-                          color: palette.text,
-                          fontSize: 12,
-                          fontWeight: 800,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 3: Optional WhatsApp Number & Reason */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input
-                      type="tel"
-                      placeholder="📱 WhatsApp No (optional)"
-                      value={udhaarDraftPhone}
-                      onChange={(e) => setUdhaarDraftPhone(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 10px',
-                        borderRadius: 10,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surface,
-                        color: palette.text,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="📝 Reason / Note (optional)"
-                      value={udhaarDraftNote}
-                      onChange={(e) => setUdhaarDraftNote(e.target.value)}
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 10px',
-                        borderRadius: 10,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surface,
-                        color: palette.text,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    />
-                  </div>
-
-                  {/* Row 4: Full-Width Save & Cancel */}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddUdhaarForm(false);
-                        setUdhaarEditingId('');
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: '10px',
-                        borderRadius: 11,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surface,
-                        color: palette.textSub,
-                        fontSize: 12,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      style={{
-                        flex: 2,
-                        padding: '10px 14px',
-                        borderRadius: 11,
-                        border: 'none',
-                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                        color: '#ffffff',
-                        fontSize: 12.5,
-                        fontWeight: 900,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      🤝 Save Udhaar
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Responsive List of Udhaar Items */}
-              {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).length === 0 ? (
-                <div style={{
-                  padding: '12px',
-                  borderRadius: 12,
-                  background: palette.surfaceAlt,
-                  border: `1px dashed ${palette.border}`,
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  color: palette.textMuted,
-                  textAlign: 'center',
-                }}>
-                  {udhaarFilterTab === 'pending'
-                    ? '💡 Tap "🤝" on any payment row below (or tap "+ Add Udhaar") to record who took money & when they took it.'
-                    : 'No returned Udhaar entries yet.'}
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
-                  {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).map((item) => {
-                    const isReturned = item.status === 'returned';
-                    const tookIso = item.tookDate || item.date || todayIso;
-                    const daysAgo = Math.max(
-                      0,
-                      Math.round(
-                        (new Date(`${todayIso}T12:00:00`).getTime() - new Date(`${tookIso}T12:00:00`).getTime()) / 86400000
-                      )
-                    );
-                    const daysAgoBadge =
-                      daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
-
-                    return (
-                      <div
-                        key={item.id}
-                        style={{
-                          padding: '11px 12px',
-                          borderRadius: 14,
-                          background: palette.surfaceAlt,
-                          border: `1px solid ${isReturned ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.4)'}`,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 8,
-                          boxSizing: 'border-box',
-                        }}
-                      >
-                        {/* Item Row 1: Person Name + Amount */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                          <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            👤 {item.person}
-                          </div>
-                          <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: isReturned ? '#34d399' : '#fbbf24', flexShrink: 0 }}>
-                            ₹{formatINR(item.amount)}
-                          </div>
-                        </div>
-
-                        {/* Item Row 2: Prominent "When He Took" Badge + Note */}
-                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          <span style={{
-                            padding: '3px 8px',
-                            borderRadius: 8,
-                            background: 'rgba(59, 130, 246, 0.14)',
-                            border: '1px solid rgba(59, 130, 246, 0.3)',
-                            color: '#60a5fa',
-                            fontSize: 11,
-                            fontWeight: 800,
-                          }}>
-                            📅 Took on: {tookIso} ({daysAgoBadge})
-                            {(item.tookTime || item.time) ? ` · ${formatTime12h(item.tookTime || item.time)}` : ''}
-                          </span>
-                          {item.note && (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: palette.textSub }}>
-                              📝 {item.note}
-                            </span>
-                          )}
-                          {isReturned && item.returnedAt && (
-                            <span style={{ fontSize: 11, fontWeight: 800, color: '#34d399' }}>
-                              ✅ Returned {item.returnedAt}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Item Row 3: Responsive Full-Width Action Buttons */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-                          {!isReturned && (
-                            <button
-                              type="button"
-                              onClick={() => handleSendUdhaarWhatsAppReminder(item)}
-                              style={{
-                                flex: 1,
-                                padding: '7px 8px',
-                                borderRadius: 10,
-                                border: '1px solid rgba(16, 185, 129, 0.45)',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#34d399',
-                                fontSize: 11,
-                                fontWeight: 900,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                              }}
-                              title="Send polite WhatsApp reminder"
-                            >
-                              💬 Remind
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleMarkUdhaarStatus(item.id, isReturned ? 'pending' : 'returned')}
-                            style={{
-                              flex: 1,
-                              padding: '7px 8px',
-                              borderRadius: 10,
-                              border: `1px solid ${isReturned ? palette.border : 'rgba(59, 130, 246, 0.45)'}`,
-                              background: isReturned ? palette.surface : 'rgba(59, 130, 246, 0.15)',
-                              color: isReturned ? palette.textSub : '#60a5fa',
-                              fontSize: 11,
-                              fontWeight: 900,
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {isReturned ? '↩️ Reopen' : '✅ Returned'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openUdhaarFormForEntry(item)}
-                            style={{
-                              padding: '7px 9px',
-                              borderRadius: 10,
-                              border: `1px solid ${palette.border}`,
-                              background: palette.surface,
-                              color: palette.textSub,
-                              fontSize: 11,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                            }}
-                            title="Edit When He Took date or details"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMarkUdhaarStatus(item.id, 'delete')}
-                            style={{
-                              padding: '7px 9px',
-                              borderRadius: 10,
-                              border: '1px solid rgba(244, 63, 94, 0.3)',
-                              background: 'rgba(244, 63, 94, 0.08)',
-                              color: '#fb7185',
-                              fontSize: 11,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                            }}
-                            title="Remove from Udhaar list"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div ref={udhaarCardRef} style={{ width: '100%', boxSizing: 'border-box' }}>
+              <UdhaarStandaloneApp
+                embedded={true}
+                isLight={isLight}
+                externalUdhaarMap={udhaarMap}
+                onExternalPersist={persistUdhaarMap}
+                onToast={setScanStatus}
+                externalDraftRequest={udhaarExternalDraft}
+                onClearExternalDraft={() => setUdhaarExternalDraft(null)}
+              />
             </div>
           )}
         </div>
@@ -5136,12 +4751,16 @@ export default function ExpensesModule({
               gap: 12,
             }}
           >
-            {/* Clean Section Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            {/* Clean Section Header (Tap to Minimize / Maximize) */}
+            <div
+              onClick={() => toggleExpSection('sec_recent_tx')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+              title="Tap to minimize or maximize Recent Transactions"
+            >
               <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
-                Transactions · {periodSummary.label}
+                Transactions · {periodSummary.label} {collapsedExpSections.sec_recent_tx ? '▸' : '▾'}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   onClick={() => setShowSmsPasteModal(true)}
@@ -5174,9 +4793,14 @@ export default function ExpensesModule({
                 >
                   Search &amp; Filter ›
                 </button>
+                <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted, paddingLeft: 2 }}>
+                  {collapsedExpSections.sec_recent_tx ? '▸' : '▾'}
+                </span>
               </div>
             </div>
 
+            {!collapsedExpSections.sec_recent_tx && (
+              <>
             {recentPaymentsList.length === 0 && (
               <div style={{
                 padding: '16px 12px',
@@ -5613,9 +5237,11 @@ export default function ExpensesModule({
               </div>
               </>
             )}
+            </>
+            )}
           </div>
 
-          {/* Clean 4-Category Bento Strip */}
+          {/* Clean 4-Category Bento Strip (Tap header to Minimize / Maximize) */}
           <div
             className="flutter-m3-card stitch-screen-card"
             style={{
@@ -5629,13 +5255,20 @@ export default function ExpensesModule({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div
+              onClick={() => toggleExpSection('sec_categories')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+              title="Tap to minimize or maximize Spend by Category"
+            >
               <span style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Spend by Category
+                Spend by Category {collapsedExpSections.sec_categories ? '▸' : '▾'}
               </span>
               <button
                 type="button"
-                onClick={() => setSubTab('insights')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSubTab('insights');
+                }}
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -5649,34 +5282,36 @@ export default function ExpensesModule({
                 View Insights ›
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-              {screen7CategoryCards.map((cat) => (
-                <button
-                  key={cat.label}
-                  type="button"
-                  onClick={() => {
-                    setFilterCategory(cat.id);
-                    setSubTab('transactions');
-                  }}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: 10,
-                    background: palette.surfaceAlt,
-                    border: `1px solid ${palette.border}`,
-                    color: palette.textSub,
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span>{cat.label}</span>
-                  <span style={{ color: palette.text, fontWeight: 900 }}>₹{formatINRShort(cat.amount)}</span>
-                </button>
-              ))}
-            </div>
+            {!collapsedExpSections.sec_categories && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+                {screen7CategoryCards.map((cat) => (
+                  <button
+                    key={cat.label}
+                    type="button"
+                    onClick={() => {
+                      setFilterCategory(cat.id);
+                      setSubTab('transactions');
+                    }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                      color: palette.textSub,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span>{cat.label}</span>
+                    <span style={{ color: palette.text, fontWeight: 900 }}>₹{formatINRShort(cat.amount)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 🧠 Ask Expense Memory (Natural-Language Q&A with Smart Question Chips) */}
@@ -5689,30 +5324,41 @@ export default function ExpensesModule({
               border: `1px solid ${palette.border}`,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div
+              onClick={() => toggleExpSection('sec_ask_memory')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsedExpSections.sec_ask_memory ? 0 : 8, cursor: 'pointer', userSelect: 'none' }}
+              title="Tap to minimize or maximize Ask Expense Memory"
+            >
               <div style={{ fontSize: 13, fontWeight: 800, color: isLight ? '#4f46e5' : '#818cf8' }}>
-                🧠 Ask Expense Memory
+                🧠 Ask Expense Memory {collapsedExpSections.sec_ask_memory ? '▸' : '▾'}
               </div>
-              {nlResponse && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNlResponse(null);
-                    setNlQuery('');
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: palette.textMuted,
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Clear ✕
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                {nlResponse && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNlResponse(null);
+                      setNlQuery('');
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: palette.textMuted,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear ✕
+                  </button>
+                )}
+                <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted }}>
+                  {collapsedExpSections.sec_ask_memory ? '▸' : '▾'}
+                </span>
+              </div>
             </div>
+            {!collapsedExpSections.sec_ask_memory && (
+              <>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="text"
@@ -5817,6 +5463,8 @@ export default function ExpensesModule({
                 )}
               </div>
             )}
+            </>
+            )}
           </div>
 
           {/* Review-Needed Section for Ambiguous / Pending / Possible-Duplicate Notices */}
@@ -5898,11 +5546,18 @@ export default function ExpensesModule({
             gap: 12,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <div
+            onClick={() => toggleExpSection('sec_passbook_tx')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+            title="Tap to minimize or maximize Transactions Passbook"
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 type="button"
-                onClick={() => setSubTab('overview')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSubTab('overview');
+                }}
                 style={{
                   width: 34,
                   height: 34,
@@ -5917,10 +5572,10 @@ export default function ExpensesModule({
                 ←
               </button>
               <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>
-                Transactions ({filteredTransactions.length})
+                Transactions ({filteredTransactions.length}) {collapsedExpSections.sec_passbook_tx ? '▸' : '▾'}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 onClick={() => setShowAdvancedFilters((prev) => !prev)}
@@ -5956,6 +5611,8 @@ export default function ExpensesModule({
             </div>
           </div>
 
+          {!collapsedExpSections.sec_passbook_tx && (
+            <>
           {/* Search Bar (Screen 8) */}
           <input
             type="text"
@@ -6563,6 +6220,8 @@ export default function ExpensesModule({
               ))}
             </div>
           )}
+            </>
+          )}
         </div>
       )}
 
@@ -6582,11 +6241,18 @@ export default function ExpensesModule({
             gap: 14,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div
+            onClick={() => toggleExpSection('sec_insights')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+            title="Tap to minimize or maximize Insights"
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 type="button"
-                onClick={() => setSubTab('overview')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSubTab('overview');
+                }}
                 style={{
                   width: 34,
                   height: 34,
@@ -6600,7 +6266,9 @@ export default function ExpensesModule({
               >
                 ←
               </button>
-              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>Insights</span>
+              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>
+                Insights {collapsedExpSections.sec_insights ? '▸' : '▾'}
+              </span>
             </div>
             <span style={{
               padding: '6px 12px',
@@ -6611,10 +6279,12 @@ export default function ExpensesModule({
               fontWeight: 800,
               color: palette.textSub,
             }}>
-              {selectedMonth} ▾
+              {selectedMonth} {collapsedExpSections.sec_insights ? '▸' : '▾'}
             </span>
           </div>
 
+          {!collapsedExpSections.sec_insights && (
+            <>
           {/* Segmented Sub-Tabs: Overview | Categories | Methods | Trends (Screen 10) */}
           <div style={{
             display: 'grid',
@@ -7044,6 +6714,8 @@ export default function ExpensesModule({
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
       )}
 
@@ -7063,26 +6735,42 @@ export default function ExpensesModule({
             gap: 12,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => setSubTab('overview')}
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                border: `1px solid ${palette.border}`,
-                background: palette.surfaceAlt,
-                color: palette.text,
-                fontWeight: 900,
-                cursor: 'pointer',
-              }}
-            >
-              ←
-            </button>
-            <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>Missing Notes</span>
+          <div
+            onClick={() => toggleExpSection('sec_missing_notes')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}
+            title="Tap to minimize or maximize Missing Notes"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSubTab('overview');
+                }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                ←
+              </button>
+              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>
+                Missing Notes {collapsedExpSections.sec_missing_notes ? '▸' : '▾'}
+              </span>
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted }}>
+              {collapsedExpSections.sec_missing_notes ? '▸' : '▾'}
+            </span>
           </div>
 
+          {!collapsedExpSections.sec_missing_notes && (
+            <>
           {/* Filter Pills: All (N) | Today (N) | This Week (N) (Screen 11) */}
           <div style={{ display: 'flex', gap: 8 }}>
             {[
@@ -7299,6 +6987,8 @@ export default function ExpensesModule({
                 );
               })}
               </div>
+            </>
+          )}
             </>
           )}
         </div>
