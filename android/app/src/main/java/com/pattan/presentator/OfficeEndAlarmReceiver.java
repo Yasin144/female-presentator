@@ -50,7 +50,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         if (context == null) return;
         final String textToSpeak = (speechText != null && !speechText.trim().isEmpty())
             ? speechText.trim()
-            : "Your time is completed. Your time has completed.";
+            : "Your time has completed.";
         try {
             final Context appCtx = context.getApplicationContext();
             try {
@@ -80,7 +80,6 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                                     activeTts.setLanguage(Locale.getDefault());
                                 }
                                 activeTts.setSpeechRate(0.95f);
-                                String doubleSpeech = textToSpeak + ". " + textToSpeak;
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                                     AudioAttributes attrs = new AudioAttributes.Builder()
                                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -89,9 +88,9 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                                     activeTts.setAudioAttributes(attrs);
                                     Bundle params = new Bundle();
                                     params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
-                                    activeTts.speak(doubleSpeech, TextToSpeech.QUEUE_FLUSH, params, "pattan_time_completed_utt");
+                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, params, "pattan_time_completed_utt");
                                 } else {
-                                    activeTts.speak(doubleSpeech, TextToSpeech.QUEUE_FLUSH, null);
+                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, null);
                                 }
                             } catch (Exception ignored) {}
                         }

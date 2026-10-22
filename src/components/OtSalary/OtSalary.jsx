@@ -3,8 +3,11 @@ import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
 import {
   speakTimeCompletedOutLoud,
+  speakOtMilestoneOutLoud,
   ensureVoiceAudioUnlocked,
   armShiftEndVoiceAlarm,
+  armShiftAndOtMilestonesSchedule,
+  stopScheduledVoiceAlarms,
   subscribeBackgroundClockTick,
   scheduleLockScreenVoiceTestInSeconds,
 } from './timeCompletedVoice.js';
@@ -2178,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.17';
+      return localStorage.getItem('pattan.ota.version') || '8.2.18';
     } catch (_) {
-      return '8.2.17';
+      return '8.2.18';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2189,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_17_lock_screen_voice_alarm_keepalive';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_18_clear_single_voice_and_hourly_ot_milestones';
     } catch (_) {
-      return 'ota_8_2_17_lock_screen_voice_alarm_keepalive';
+      return 'ota_8_2_18_clear_single_voice_and_hourly_ot_milestones';
     }
   });
 
@@ -3343,6 +3346,20 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const remSecs = remainingDutySeconds % 60;
     const remainingDutyStr = `${String(remHrs).padStart(2, '0')}:${String(remMins).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`;
 
+    const nextMilestoneHour = isShiftTimeCompleted ? Math.min(8, otHoursPart + 1) : 0;
+    const nextMilestoneTotalMins = (targetEndMins + nextMilestoneHour * 60) % 1440;
+    const nextMilestoneHHMM = minutesToTimeInput(nextMilestoneTotalMins);
+    const nextMilestoneFormatted = formatTime12h(nextMilestoneHHMM);
+    const nextMilestonePhrase =
+      nextMilestoneHour === 0
+        ? 'Your time has completed'
+        : nextMilestoneHour === 1
+          ? '1 hour completed'
+          : `${nextMilestoneHour} hours completed`;
+    const secondsToNextMilestone = isShiftTimeCompleted
+      ? Math.max(0, nextMilestoneHour * 3600 - otElapsedSeconds)
+      : remainingDutySeconds;
+
     return {
       isActive: isShiftTimeCompleted,
       isCompletedShift: isShiftTimeCompleted,
@@ -3369,6 +3386,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       totalTodayPay: baseDayPay + liveOtMoney,
       remainingDutySeconds,
       remainingDutyStr,
+      nextMilestoneHour,
+      nextMilestoneHHMM,
+      nextMilestoneFormatted,
+      nextMilestonePhrase,
+      secondsToNextMilestone,
     };
   }, [daysMap, todayIso, selectedDate, entryStatus, entryInTime, settings.officeStartTime, rates, liveNow]);
 
@@ -4261,56 +4283,72 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     } catch (_) {}
   }, [daysMap, updateTodaySignInTimeLive]);
 
-  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" -> Announces "Your time has completed" & Opens Live OT Screen
-  const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
+  // Trigger Notification: "Normal Office Time Ends & OT Time Starts!" + Hourly OT Milestones ("1 hour completed", etc.) until Logout
+  const triggerOtVoiceMilestoneNotification = useCallback((milestoneHour = 0, timeHHMMOverride = '') => {
+    const cleanHour = Math.max(0, Math.min(8, Math.round(Number(milestoneHour) || 0)));
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
     const inTimeUsed = todayRec.inTime || entryInTime || '08:23';
     const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
-    const computedEndHHMM = minutesToTimeInput((inM + rates.shiftMins) % 1440);
-    const endHHMM = endHHMMOverride || computedEndHHMM || settings.officeEndTime || '18:30';
-    const endFormatted = formatTime12h(endHHMM);
-    const title = `⏰ ${endFormatted}`;
-    const body = 'Your time has completed';
+    const computedEndMins = inM + rates.shiftMins;
+    const milestoneMins = (computedEndMins + cleanHour * 60) % 1440;
+    const computedMilestoneHHMM = minutesToTimeInput(milestoneMins);
+    const milestoneHHMM = timeHHMMOverride || computedMilestoneHHMM || settings.officeEndTime || '18:30';
+    const milestoneFormatted = formatTime12h(milestoneHHMM);
+    const phrase =
+      cleanHour === 0
+        ? 'Your time has completed'
+        : cleanHour === 1
+          ? '1 hour completed'
+          : `${cleanHour} hours completed`;
+    const title = cleanHour === 0 ? `⏰ ${milestoneFormatted}` : `⏱️ ${milestoneFormatted} · +${cleanHour}h OT`;
+    const body = phrase;
 
-    playBiometricBeep('in');
+    // Gentle haptic + single crystal-clear 16-bit voice announcement (never 3x, no overlapping beep or duplicate TTS)
     triggerBiometricHaptic(160);
-    speakTimeCompletedOutLoud();
+    speakOtMilestoneOutLoud(cleanHour);
     setShowLiveOtRunnerModal(true);
 
     setOtTimeStartedBanner({
       date: todayIso,
-      officeEndTimeFormatted: endFormatted,
+      officeEndTimeFormatted: formatTime12h(minutesToTimeInput(computedEndMins % 1440)),
       inTimeFormatted: formatTime12h(inTimeUsed),
       startedAtHHMM: getCurrentTime24h(),
       title,
       body,
+      milestoneHour: cleanHour,
     });
-    setSaveNotice(`🔊 ${endFormatted} — Your time has completed · Live OT Running!`);
+    setSaveNotice(`🔊 ${milestoneFormatted} — "${phrase}" · Live OT Running!`);
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof Notification !== 'undefined') {
       try {
-        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
-        if (nativeBridge && typeof nativeBridge.triggerOfficeEndOtStartNotification === 'function') {
-          nativeBridge.triggerOfficeEndOtStartNotification(title, body);
-        } else if (typeof Notification !== 'undefined') {
-          if (Notification.permission === 'granted') {
-            new Notification(title, { body });
-          } else if (Notification.permission !== 'denied') {
-            Notification.requestPermission().then((perm) => {
-              if (perm === 'granted') new Notification(title, { body });
-            }).catch(() => {});
-          }
+        if (Notification.permission === 'granted') {
+          new Notification(title, { body });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then((perm) => {
+            if (perm === 'granted') new Notification(title, { body });
+          }).catch(() => {});
         }
       } catch (_) {}
     }
   }, [settings.officeEndTime, daysMap, entryInTime, rates.shiftMins]);
 
-  // Sync Native Android Daily Alarm + Continuous Lock-Screen Hardware Audio Alarm for Exact Shift End Time
+  const triggerOfficeEndAndOtStartNotification = useCallback((endHHMMOverride = '') => {
+    triggerOtVoiceMilestoneNotification(0, endHHMMOverride);
+  }, [triggerOtVoiceMilestoneNotification]);
+
+  // Arm Continuous Pre-Baked 16-Bit Lock-Screen Voice Schedule for Shift End (0h) + Every 1 Hour of OT (1h..8h) Until Logout
   useEffect(() => {
     ensureVoiceAudioUnlocked();
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
+
+    // Stop all scheduled voice alarms immediately if user has logged out (punched OUT) or is on leave
+    if (todayRec?.status === 'leave' || (todayRec?.outTime && String(todayRec.outTime).trim())) {
+      stopScheduledVoiceAlarms();
+      return;
+    }
+
     const inTimeUsed = todayRec.inTime || (selectedDate === todayIso ? entryInTime : '') || settings.officeStartTime || '08:23';
     const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
     const statusUsed = todayRec.status || (selectedDate === todayIso ? entryStatus : 'present') || 'present';
@@ -4320,66 +4358,78 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         : statusUsed === 'ot_only'
           ? 0
           : rates.shiftMins;
-    const targetEndMins = (inM + targetDutyMins) % 1440;
-    const endHour24 = Math.floor(targetEndMins / 60);
-    const endMin = targetEndMins % 60;
+    const targetEndMinsTotal = inM + targetDutyMins;
+    const targetEndMinsMod = targetEndMinsTotal % 1440;
+    const endHour24 = Math.floor(targetEndMinsMod / 60);
+    const endMin = targetEndMinsMod % 60;
 
-    if (typeof window !== 'undefined') {
-      try {
-        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
-        if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function') {
-          nativeBridge.scheduleOfficeEndOtAlarm(
-            endHour24,
-            endMin,
-            normalizeEmployeeName(settings.employeeName)
-          );
-        }
-      } catch (_) {}
-    }
-
-    if (todayRec?.status === 'leave' || (todayRec?.outTime && String(todayRec.outTime).trim())) {
-      armShiftEndVoiceAlarm({ targetEpochMs: 0, dateKey: '' });
-      return;
-    }
-
-    const shiftAlarmKey = `${todayIso}_${inTimeUsed}_${targetEndMins}`;
-    let alreadySpokenKey = '';
-    let alreadySpokenDate = '';
+    const shiftAlarmKey = `${todayIso}_${inTimeUsed}_${targetEndMinsMod}`;
+    let spokenHours = [];
     try {
-      alreadySpokenKey = localStorage.getItem('pattan.ot.officeEndVoiceSpokenKey_v8217') || '';
-      alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8214') || '';
+      const savedObj = JSON.parse(localStorage.getItem('pattan.ot.spokenMilestones_v8218') || '{}');
+      if (savedObj && savedObj.shiftBaseKey === shiftAlarmKey && Array.isArray(savedObj.hours)) {
+        spokenHours = savedObj.hours.map((h) => Number(h));
+      }
     } catch (_) {}
 
     const now = new Date();
-    const targetDate = new Date(
+    const nowEpochMs = now.getTime();
+    const baseShiftEndDate = new Date(
       now.getFullYear(),
       now.getMonth(),
       now.getDate(),
-      endHour24,
-      endMin,
+      Math.floor(targetEndMinsTotal / 60),
+      targetEndMinsTotal % 60,
       0,
       0
     );
-    const targetEpochMs = targetDate.getTime();
-    const endHHMM = minutesToTimeInput(targetEndMins);
+    const shiftEndEpochMs = baseShiftEndDate.getTime();
 
-    if (alreadySpokenKey !== shiftAlarmKey && targetEpochMs > now.getTime()) {
-      armShiftEndVoiceAlarm({
-        targetEpochMs,
-        dateKey: shiftAlarmKey,
-        onTrigger: () => {
-          try {
-            localStorage.setItem('pattan.ot.officeEndVoiceSpokenKey_v8217', shiftAlarmKey);
-            localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8214', todayIso);
-            localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
-          } catch (_) {}
-          triggerOfficeEndAndOtStartNotification(endHHMM);
-        },
-      });
-    } else if (alreadySpokenKey === shiftAlarmKey || alreadySpokenDate === todayIso) {
-      armShiftEndVoiceAlarm({ targetEpochMs: 0, dateKey: '' });
+    // Mark any milestone that is already more than 2 minutes in the past as passed so it never blurts out late
+    const spokenSet = new Set(spokenHours);
+    let updatedPast = false;
+    for (let h = 0; h <= 8; h++) {
+      const mEpochMs = shiftEndEpochMs + h * 3600 * 1000;
+      if (nowEpochMs > mEpochMs + 120 * 1000 && !spokenSet.has(h)) {
+        spokenSet.add(h);
+        updatedPast = true;
+      }
     }
-  }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, settings.employeeName, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
+    if (updatedPast) {
+      try {
+        localStorage.setItem(
+          'pattan.ot.spokenMilestones_v8218',
+          JSON.stringify({ shiftBaseKey: shiftAlarmKey, hours: Array.from(spokenSet) })
+        );
+      } catch (_) {}
+    }
+
+    armShiftAndOtMilestonesSchedule({
+      shiftEndEpochMs,
+      dateKey: shiftAlarmKey,
+      alreadySpokenHours: Array.from(spokenSet),
+      onMilestoneTrigger: (m) => {
+        const hTriggered = Number(m?.hour) || 0;
+        try {
+          const curSaved = JSON.parse(localStorage.getItem('pattan.ot.spokenMilestones_v8218') || '{}');
+          const curHours =
+            curSaved && curSaved.shiftBaseKey === shiftAlarmKey && Array.isArray(curSaved.hours)
+              ? curSaved.hours
+              : [];
+          const nextHours = Array.from(new Set([...curHours, hTriggered]));
+          localStorage.setItem(
+            'pattan.ot.spokenMilestones_v8218',
+            JSON.stringify({ shiftBaseKey: shiftAlarmKey, hours: nextHours })
+          );
+          if (hTriggered === 0) {
+            localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
+          }
+        } catch (_) {}
+        const milestoneMins = (targetEndMinsTotal + hTriggered * 60) % 1440;
+        triggerOtVoiceMilestoneNotification(hTriggered, minutesToTimeInput(milestoneMins));
+      },
+    });
+  }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, rates.shiftMins, triggerOtVoiceMilestoneNotification]);
 
   useEffect(() => {
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
@@ -4388,7 +4438,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
     if (todayRec?.status === 'leave') return;
-    if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
+    if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT (logged out)
 
     const inTimeUsed = todayRec.inTime || (selectedDate === todayIso ? entryInTime : '') || '08:23';
     const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
@@ -4402,44 +4452,51 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const targetEndMins = inM + targetDutyMins;
     const shiftAlarmKey = `${todayIso}_${inTimeUsed}_${targetEndMins % 1440}`;
 
-    // Trigger once per day as soon as current time is at or past targetEndMins (e.g. 08:23 AM + 8h 30m = 04:53 PM)
     if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 58) {
       if (autoOpenedLiveOtDateRef.current !== todayIso) {
         autoOpenedLiveOtDateRef.current = todayIso;
         setShowLiveOtRunnerModal(true);
       }
-      let alreadySpokenKey = '';
-      let alreadySpokenDate = '';
-      try {
-        alreadySpokenKey = localStorage.getItem('pattan.ot.officeEndVoiceSpokenKey_v8217') || '';
-        alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8214') || '';
-      } catch (_) {}
-      if (alreadySpokenKey !== shiftAlarmKey && alreadySpokenDate !== todayIso) {
+
+      const otElapsedMins = nowMins - targetEndMins;
+      const currentMilestoneHour = Math.floor(otElapsedMins / 60);
+      const minsPastCurrentMilestone = otElapsedMins - currentMilestoneHour * 60;
+
+      if (currentMilestoneHour >= 0 && currentMilestoneHour <= 8 && minsPastCurrentMilestone <= 2) {
+        let spokenHours = [];
         try {
-          localStorage.setItem('pattan.ot.officeEndVoiceSpokenKey_v8217', shiftAlarmKey);
-          localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8214', todayIso);
-          localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
+          const savedObj = JSON.parse(localStorage.getItem('pattan.ot.spokenMilestones_v8218') || '{}');
+          if (savedObj && savedObj.shiftBaseKey === shiftAlarmKey && Array.isArray(savedObj.hours)) {
+            spokenHours = savedObj.hours.map((h) => Number(h));
+          }
         } catch (_) {}
-        const isScreenOffOrLocked = typeof document !== 'undefined' && Boolean(document.hidden);
-        const minsPastShiftEnd = nowMins - targetEndMins;
-        // Always speak if screen is locked/off OR if within 2 minutes of exact shift end time.
-        // Never blurt out late just because the user opened the app hours after shift end.
-        if (isScreenOffOrLocked || minsPastShiftEnd <= 2) {
-          const endHHMM = minutesToTimeInput(targetEndMins % 1440);
-          triggerOfficeEndAndOtStartNotification(endHHMM);
+
+        if (!spokenHours.includes(currentMilestoneHour)) {
+          try {
+            const nextHours = Array.from(new Set([...spokenHours, currentMilestoneHour]));
+            localStorage.setItem(
+              'pattan.ot.spokenMilestones_v8218',
+              JSON.stringify({ shiftBaseKey: shiftAlarmKey, hours: nextHours })
+            );
+            if (currentMilestoneHour === 0) {
+              localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
+            }
+          } catch (_) {}
+          const milestoneHHMM = minutesToTimeInput((targetEndMins + currentMilestoneHour * 60) % 1440);
+          triggerOtVoiceMilestoneNotification(currentMilestoneHour, milestoneHHMM);
         }
       }
     }
-  }, [liveClockHHMM, daysMap, selectedDate, entryInTime, entryStatus, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
+  }, [liveClockHHMM, daysMap, selectedDate, entryInTime, entryStatus, rates.shiftMins, triggerOtVoiceMilestoneNotification]);
 
   const handleTestLockScreenVoiceIn6Sec = useCallback(() => {
     ensureVoiceAudioUnlocked();
-    setSaveNotice('🔒 Lock your phone / turn screen OFF now! Voice will speak in 6 seconds...');
+    setSaveNotice('🔒 Lock your phone / turn screen OFF now! Voice will speak ONCE in 6 seconds...');
     scheduleLockScreenVoiceTestInSeconds(6, () => {
       const endHHMM = liveOtTicker?.officeEnd24h || settings.officeEndTime || '18:30';
-      triggerOfficeEndAndOtStartNotification(endHHMM);
+      triggerOtVoiceMilestoneNotification(0, endHHMM);
     });
-  }, [liveOtTicker?.officeEnd24h, settings.officeEndTime, triggerOfficeEndAndOtStartNotification]);
+  }, [liveOtTicker?.officeEnd24h, settings.officeEndTime, triggerOtVoiceMilestoneNotification]);
 
   // 1-Tap & Biometric Touch Sensor Live Mobile Punch Actions
   const punchEnterNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
@@ -4508,6 +4565,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   };
 
   const punchExitNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
+    stopScheduledVoiceAlarms();
     const todayIso = getTodayIsoDate();
     const nowHHMM = getNowTimeHHMM();
     setLiveClockHHMM(nowHHMM);
@@ -6286,6 +6344,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
                 <button
                   type="button"
+                  onClick={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
+                  title="Hear the hourly OT voice announcement (e.g. '1 hour completed')"
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(168, 85, 247, 0.55)',
+                    background: 'rgba(168, 85, 247, 0.2)',
+                    color: isLight ? '#6b21a8' : '#d8b4fe',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔊 {Math.max(1, liveOtTicker.otHoursPart || 1)}h Voice
+                </button>
+                <button
+                  type="button"
                   onClick={handleTestLockScreenVoiceIn6Sec}
                   title="Tap, then lock your phone or turn screen off — speaks in 6 seconds while locked"
                   style={{
@@ -6319,6 +6394,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
               </div>
             </div>
+
+            {liveOtTicker.nextMilestoneFormatted && (
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 850,
+                  color: isLight ? '#0f172a' : '#cbd5e1',
+                  background: isLight ? 'rgba(255,255,255,0.7)' : 'rgba(15, 23, 42, 0.55)',
+                  border: '1px solid rgba(148, 163, 184, 0.28)',
+                  borderRadius: 10,
+                  padding: '5px 10px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                }}
+              >
+                <span>
+                  🔔 Hourly OT Voice: Next <strong>&ldquo;{liveOtTicker.nextMilestonePhrase}&rdquo;</strong> at{' '}
+                  <strong style={{ color: '#38bdf8' }}>{liveOtTicker.nextMilestoneFormatted}</strong>
+                </span>
+                <span style={{ color: '#10b981', fontWeight: 900 }}>Every 1 hr until OUT</span>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
               <div
@@ -6602,18 +6702,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
 
               {/* Bottom Action Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))', gap: 8 }}>
                 <button
                   type="button"
                   onClick={() => speakTimeCompletedOutLoud()}
                   style={{
-                    padding: '12px 12px',
+                    padding: '12px 10px',
                     borderRadius: 14,
                     border: '1px solid rgba(245, 158, 11, 0.6)',
                     background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
                     color: '#ffffff',
                     fontWeight: 950,
-                    fontSize: 12.5,
+                    fontSize: 12,
                     cursor: 'pointer',
                   }}
                 >
@@ -6621,15 +6721,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
                 <button
                   type="button"
+                  onClick={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
+                  style={{
+                    padding: '12px 10px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(168, 85, 247, 0.65)',
+                    background: 'linear-gradient(135deg, #7e22ce 0%, #a855f7 100%)',
+                    color: '#ffffff',
+                    fontWeight: 950,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔊 {Math.max(1, liveOtTicker.otHoursPart || 1)} Hr Voice
+                </button>
+                <button
+                  type="button"
                   onClick={handleTestLockScreenVoiceIn6Sec}
                   style={{
-                    padding: '12px 12px',
+                    padding: '12px 10px',
                     borderRadius: 14,
                     border: '1px solid rgba(56, 189, 248, 0.65)',
                     background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
                     color: '#ffffff',
                     fontWeight: 950,
-                    fontSize: 12.5,
+                    fontSize: 12,
                     cursor: 'pointer',
                   }}
                 >
@@ -6642,13 +6758,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     performBiometricPunch('out');
                   }}
                   style={{
-                    padding: '12px 12px',
+                    padding: '12px 10px',
                     borderRadius: 14,
                     border: '1px solid rgba(244, 63, 94, 0.65)',
                     background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
                     color: '#ffffff',
                     fontWeight: 950,
-                    fontSize: 12.5,
+                    fontSize: 12,
                     cursor: 'pointer',
                   }}
                 >

@@ -1,8 +1,8 @@
 {
-  "version": "8.2.17",
-  "buildId": "ota_8_2_17_lock_screen_voice_alarm_keepalive",
-  "releasedAt": "2026-10-22T17:58:00+05:30",
+  "version": "8.2.18",
+  "buildId": "ota_8_2_18_clear_single_voice_and_hourly_ot_milestones",
+  "releasedAt": "2026-10-22T18:38:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.17: Lock-Screen & Screen-Off Voice Alarm Fix — Continuous background audio keep-alive (ScriptProcessor + MediaStream + looping WAV + Web Worker + C++ WebAudio hardware clock) speaks 'Your time is completed' at the exact shift-end second even when your phone is locked or screen is off, and never blurts out late only when opening the app."
+  "notes": "v8.2.18: Studio-Clear 16-Bit Single Voice (Speaks 1x Only, Never 3x) + Screen-Off Pre-Baked WAV Schedule + Hourly OT Voice Announcements ('1 hour completed', '2 hours completed', etc.) Every 1 Hour After OT Starts Until Punch OUT."
 }

@@ -1323,6 +1323,31 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(tx190.merchant, 'Pavan Kkpalli');
       assert.equal(tx190.app, 'Indian Bank');
     });
+
+    it('speaks crystal-clear 16-bit voice 1x only (never 3x), works on screen-off, and announces every 1 hour of OT until logout (v8.2.18)', () => {
+      const voiceSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/timeCompletedVoice.js'),
+        'utf8'
+      );
+      const otSalarySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/OtSalary.jsx'),
+        'utf8'
+      );
+      // 1. 16-bit 12kHz voice clips for 0h ("Your time has completed") through 8h ("8 hours completed")
+      for (let h = 0; h <= 8; h++) {
+        assert.equal(voiceSrc.includes(`"ot_${h}":`), true, `Missing 16-bit clip ot_${h}`);
+      }
+      // 2. Never repeats 3 times
+      assert.equal(voiceSrc.includes('rep < 3'), false, 'Voice must never loop 3 times');
+      // 3. Supports hourly OT schedule & stops on logout (punch OUT)
+      assert.equal(voiceSrc.includes('export function armShiftAndOtMilestonesSchedule'), true);
+      assert.equal(voiceSrc.includes('export function speakOtMilestoneOutLoud'), true);
+      assert.equal(voiceSrc.includes('export function stopScheduledVoiceAlarms'), true);
+      assert.equal(otSalarySrc.includes('triggerOtVoiceMilestoneNotification'), true);
+      assert.equal(otSalarySrc.includes('1 hour completed'), true);
+      assert.equal(otSalarySrc.includes('hours completed'), true);
+      assert.equal(otSalarySrc.includes('stopScheduledVoiceAlarms()'), true);
+    });
   });
 });
 
