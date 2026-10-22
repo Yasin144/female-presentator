@@ -1,8 +1,8 @@
 {
-  "version": "8.2.19",
-  "buildId": "ota_8_2_19_auto_force_speaker_volume_on_zero",
-  "releasedAt": "2026-10-22T19:01:00+05:30",
+  "version": "8.2.20",
+  "buildId": "ota_8_2_20_uninterrupted_screen_off_hourly_ot_voice",
+  "releasedAt": "2026-10-22T19:25:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.19: Auto-Force Raise Speaker Volume (90%) Even When All Volumes Are Set to 0 + Studio-Clear 16-Bit Single Voice (1x Only) + Screen-Off WAV Schedule + Hourly OT Voice Announcements Until Punch OUT."
+  "notes": "v8.2.20: Uninterrupted Multi-Hour Screen-Off Voice Stream (0h..8h baked into a single continuous WAV that never resets audio.src while locked) + Auto-Force Speaker Volume (90%) + Disarms Legacy 2x TTS Overlap."
 }

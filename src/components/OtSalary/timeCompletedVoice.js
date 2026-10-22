@@ -34,6 +34,7 @@ let activeScheduleSignature = '';
 let activeScheduledMilestones = [];
 let activeOnMilestoneCallback = null;
 let isLockTestRunning = false;
+let lastShiftScheduleParams = null;
 
 let directVoiceAudioEl = null;
 let directVoiceBlobUrl = '';
@@ -206,12 +207,16 @@ export function forceRaisePhoneSpeakerVolume() {
   return true;
 }
 
-function isCountdownCurrentlySpeakingMilestone(milestoneHour) {
+function isCountdownCurrentlySpeakingMilestone(milestoneHour, includeAlreadyPassedOnStream = false) {
   if (!countdownAudioEl || countdownAudioEl.paused) return false;
   const curSec = Number(countdownAudioEl.currentTime) || 0;
   for (const m of activeScheduledMilestones) {
     if (milestoneHour === undefined || m.hour === milestoneHour) {
-      if (curSec >= m.wavStartSec - 2.5 && curSec <= m.wavEndSec + 2.0) {
+      if (includeAlreadyPassedOnStream) {
+        if (curSec >= m.wavStartSec - 2.5) {
+          return true;
+        }
+      } else if (curSec >= m.wavStartSec - 2.5 && curSec <= m.wavEndSec + 2.5) {
         return true;
       }
     }
@@ -224,12 +229,14 @@ function syncAndCheckScheduledMilestones() {
   const nowMs = Date.now();
   const elapsedWallSec = Math.max(0, (nowMs - scheduleStartWallMs) / 1000);
 
-  // If countdownAudioEl drifted by more than 2.2s (e.g. due to a brief notification/call),
+  // If countdownAudioEl drifted by more than 2.5s (e.g. due to a brief notification/call),
   // seek it back to exact wall-clock alignment so the baked voice plays at the exact second.
+  // Never seek while countdownAudioEl is actively inside a voice milestone window.
   if (countdownAudioEl && !countdownAudioEl.paused) {
     const audioSec = Number(countdownAudioEl.currentTime) || 0;
     const duration = Number(countdownAudioEl.duration) || 0;
-    if (duration > 0 && elapsedWallSec < duration - 0.5 && Math.abs(audioSec - elapsedWallSec) > 2.2) {
+    const speakingNow = isCountdownCurrentlySpeakingMilestone(undefined, false);
+    if (!speakingNow && duration > 0 && elapsedWallSec < duration - 0.5 && Math.abs(audioSec - elapsedWallSec) > 2.5) {
       try {
         countdownAudioEl.currentTime = elapsedWallSec;
       } catch (_) {}
@@ -245,15 +252,15 @@ function syncAndCheckScheduledMilestones() {
 
   for (const m of activeScheduledMilestones) {
     if (m.fired) continue;
-    if (!m.volumeBoosted && nowMs >= m.epochMs - 1200) {
+    if (!m.volumeBoosted && nowMs >= m.epochMs - 1500) {
       m.volumeBoosted = true;
       forceRaisePhoneSpeakerVolume();
     }
     if (nowMs >= m.epochMs) {
       m.fired = true;
       forceRaisePhoneSpeakerVolume();
-      const alreadySpeakingOnCountdown = isCountdownCurrentlySpeakingMilestone(m.hour);
-      if (!alreadySpeakingOnCountdown) {
+      const alreadyHandledByContinuousStream = isCountdownCurrentlySpeakingMilestone(m.hour, true);
+      if (!alreadyHandledByContinuousStream) {
         // Advance countdownAudioEl past this milestone so it can never play a second time later
         if (countdownAudioEl) {
           try {
@@ -264,7 +271,14 @@ function syncAndCheckScheduledMilestones() {
       } else {
         lastSpokenWallMs = nowMs;
       }
-      if (typeof activeOnMilestoneCallback === 'function') {
+      if (m.isLockTest) {
+        isLockTestRunning = false;
+        if (typeof m.onLockTestTrigger === 'function') {
+          try {
+            m.onLockTestTrigger();
+          } catch (_) {}
+        }
+      } else if (typeof activeOnMilestoneCallback === 'function') {
         try {
           activeOnMilestoneCallback(m);
         } catch (_) {}
@@ -311,6 +325,7 @@ export function stopScheduledVoiceAlarms() {
   activeScheduleSignature = '';
   activeScheduledMilestones = [];
   activeOnMilestoneCallback = null;
+  lastShiftScheduleParams = null;
   scheduleStartWallMs = 0;
   isLockTestRunning = false;
   if (countdownAudioEl) {
@@ -422,16 +437,42 @@ export function armShiftAndOtMilestonesSchedule({
   if (typeof window === 'undefined') return;
   ensureVoiceAudioUnlocked();
 
-  // Do not overwrite an active 6-second Lock Test while it is counting down
-  if (isLockTestRunning) return;
-
   const baseEpochMs = Number(shiftEndEpochMs) || 0;
   if (baseEpochMs <= 0 || !dateKey) {
     stopScheduledVoiceAlarms();
     return;
   }
 
+  lastShiftScheduleParams = {
+    shiftEndEpochMs: baseEpochMs,
+    dateKey,
+    alreadySpokenHours: Array.isArray(alreadySpokenHours) ? [...alreadySpokenHours] : [],
+    onMilestoneTrigger,
+  };
+
+  // Do not overwrite an active 6-second Lock Test while it is counting down
+  if (isLockTestRunning) return;
+
   const spokenSet = new Set(Array.isArray(alreadySpokenHours) ? alreadySpokenHours.map((h) => Number(h)) : []);
+  const shiftSignature = `${dateKey}@${baseEpochMs}`;
+
+  // CRITICAL FOR MULTI-HOUR SCREEN-OFF PLAYBACK:
+  // Once the continuous multi-hour WAV stream is playing for this shift, NEVER rebuild or replace
+  // countdownAudioEl.src when a milestone (e.g. 0h or 1h) finishes and enters alreadySpokenHours.
+  // Replacing audio.src while the screen is off causes Android WebView to drop background audio focus.
+  if (shiftSignature === activeScheduleSignature && countdownAudioEl && !countdownAudioEl.paused && !countdownAudioEl.ended) {
+    activeOnMilestoneCallback = typeof onMilestoneTrigger === 'function' ? onMilestoneTrigger : null;
+    for (const m of activeScheduledMilestones) {
+      if (spokenSet.has(m.hour)) {
+        m.fired = true;
+      }
+    }
+    if (activeScheduledMilestones.every((m) => m.fired)) {
+      stopScheduledVoiceAlarms();
+    }
+    return;
+  }
+
   const nowMs = Date.now();
   const upcoming = [];
 
@@ -453,13 +494,7 @@ export function armShiftAndOtMilestonesSchedule({
     return;
   }
 
-  const signature = upcoming.map((m) => `${m.milestoneKey}@${m.epochMs}`).join('|');
-  if (signature === activeScheduleSignature && countdownAudioEl && !countdownAudioEl.paused) {
-    activeOnMilestoneCallback = typeof onMilestoneTrigger === 'function' ? onMilestoneTrigger : null;
-    return;
-  }
-
-  startBakedScheduleWav(upcoming, signature, onMilestoneTrigger);
+  startBakedScheduleWav(upcoming, shiftSignature, onMilestoneTrigger);
 }
 
 // Legacy single-alarm wrapper (delegates to armShiftAndOtMilestonesSchedule)
@@ -489,8 +524,11 @@ export function speakOtMilestoneOutLoud(milestoneHour = 0, options = {}) {
   if (nowMs - lastSpokenWallMs < 3500) {
     return true;
   }
-  // If the pre-baked countdown <audio> element is ALREADY playing this exact voice clip right now, do not double-play!
-  if (!options?.fromScheduleFallback && isCountdownCurrentlySpeakingMilestone(cleanHour)) {
+  // If the pre-baked countdown <audio> element is ALREADY playing (or already played on the continuous stream) this milestone, do not double-play!
+  if (
+    !options?.fromScheduleFallback &&
+    isCountdownCurrentlySpeakingMilestone(cleanHour, Boolean(options?.fromMilestoneTrigger))
+  ) {
     lastSpokenWallMs = nowMs;
     return true;
   }
@@ -600,8 +638,9 @@ export function ensureVoiceAudioUnlocked() {
 }
 
 // 1-Tap Lock-Screen Voice Test: immediately starts a pre-baked 16-bit WAV with 6 seconds of
-// inaudible 16 Hz lead-in followed by 1x "Your time has completed." so the user can tap the button,
-// lock their phone / turn off the screen, and hear it speak clearly once while the screen is off.
+// inaudible 16 Hz lead-in followed by 1x "Your time has completed." AND seamlessly appends
+// all upcoming Shift End + Hourly OT milestones (0h..8h) in the same continuous WAV stream
+// so that even if the user leaves their phone locked after the test, every hour still announces!
 export function scheduleLockScreenVoiceTestInSeconds(seconds = 6, onTrigger = null) {
   if (typeof window === 'undefined') return;
   ensureVoiceAudioUnlocked();
@@ -609,21 +648,36 @@ export function scheduleLockScreenVoiceTestInSeconds(seconds = 6, onTrigger = nu
   const targetEpochMs = Date.now() + delaySec * 1000;
   isLockTestRunning = true;
 
-  startBakedScheduleWav(
-    [
-      {
-        hour: 0,
-        epochMs: targetEpochMs,
-        milestoneKey: `lock_test_${targetEpochMs}`,
-      },
-    ],
-    `lock_test_${targetEpochMs}`,
-    () => {
-      if (typeof onTrigger === 'function') {
-        try {
-          onTrigger();
-        } catch (_) {}
+  const combinedMilestones = [
+    {
+      hour: 0,
+      epochMs: targetEpochMs,
+      milestoneKey: `lock_test_${targetEpochMs}`,
+      isLockTest: true,
+      onLockTestTrigger: onTrigger,
+    },
+  ];
+
+  let nextSignature = `lock_test_${targetEpochMs}`;
+  let shiftCallback = null;
+
+  if (lastShiftScheduleParams && lastShiftScheduleParams.shiftEndEpochMs > 0 && lastShiftScheduleParams.dateKey) {
+    const { shiftEndEpochMs, dateKey, alreadySpokenHours, onMilestoneTrigger } = lastShiftScheduleParams;
+    const spokenSet = new Set(Array.isArray(alreadySpokenHours) ? alreadySpokenHours.map((h) => Number(h)) : []);
+    for (let h = 0; h <= 8; h++) {
+      if (spokenSet.has(h)) continue;
+      const mEpochMs = shiftEndEpochMs + h * 3600 * 1000;
+      if (mEpochMs > targetEpochMs + 4000) {
+        combinedMilestones.push({
+          hour: h,
+          epochMs: mEpochMs,
+          milestoneKey: `${dateKey}_ot_${h}`,
+        });
       }
     }
-  );
+    nextSignature = `${dateKey}@${shiftEndEpochMs}`;
+    shiftCallback = onMilestoneTrigger;
+  }
+
+  startBakedScheduleWav(combinedMilestones, nextSignature, shiftCallback);
 }

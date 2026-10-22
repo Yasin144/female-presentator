@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.19';
+      return localStorage.getItem('pattan.ota.version') || '8.2.20';
     } catch (_) {
-      return '8.2.19';
+      return '8.2.20';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_19_auto_force_speaker_volume_on_zero';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_20_uninterrupted_screen_off_hourly_ot_voice';
     } catch (_) {
-      return 'ota_8_2_19_auto_force_speaker_volume_on_zero';
+      return 'ota_8_2_20_uninterrupted_screen_off_hourly_ot_voice';
     }
   });
 
@@ -4306,7 +4306,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
     // Gentle haptic + single crystal-clear 16-bit voice announcement (never 3x, no overlapping beep or duplicate TTS)
     triggerBiometricHaptic(160);
-    speakOtMilestoneOutLoud(cleanHour);
+    speakOtMilestoneOutLoud(cleanHour, { fromMilestoneTrigger: true });
     setShowLiveOtRunnerModal(true);
 
     setOtTimeStartedBanner({
@@ -4404,24 +4404,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
     }
 
-    // Also arm Native Android AlarmManager (USAGE_ALARM stream, which plays even when Media Volume is 0)
-    // for the next upcoming milestone (0h Shift End, or +1h, +2h, ... OT)
+    // Disarm the legacy APK's 2x robotic TTS alarm for today by pushing its PendingIntent 23h58m into the future
+    // (2 minutes in the past -> tomorrow) so only our studio-clear 1x 16-bit WAV schedule speaks every hour.
     if (typeof window !== 'undefined') {
       try {
         const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
         if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function') {
-          let nextAlarmHourIdx = 0;
-          for (let h = 0; h <= 8; h++) {
-            const mEpoch = shiftEndEpochMs + h * 3600 * 1000;
-            if (!spokenSet.has(h) && mEpoch > nowEpochMs) {
-              nextAlarmHourIdx = h;
-              break;
-            }
-          }
-          const nextAlarmTotalMins = (targetEndMinsTotal + nextAlarmHourIdx * 60) % 1440;
+          const pastTotalMins = (now.getHours() * 60 + now.getMinutes() - 2 + 1440) % 1440;
           nativeBridge.scheduleOfficeEndOtAlarm(
-            Math.floor(nextAlarmTotalMins / 60),
-            nextAlarmTotalMins % 60,
+            Math.floor(pastTotalMins / 60),
+            pastTotalMins % 60,
             normalizeEmployeeName(settings.employeeName)
           );
         }
@@ -4447,16 +4439,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           );
           if (hTriggered === 0) {
             localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
-          }
-          // Advance native Android AlarmManager to the next +1h OT milestone automatically
-          const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
-          if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function' && hTriggered + 1 <= 8) {
-            const nextHrMins = (targetEndMinsTotal + (hTriggered + 1) * 60) % 1440;
-            nativeBridge.scheduleOfficeEndOtAlarm(
-              Math.floor(nextHrMins / 60),
-              nextHrMins % 60,
-              normalizeEmployeeName(settings.employeeName)
-            );
           }
         } catch (_) {}
         const milestoneMins = (targetEndMinsTotal + hTriggered * 60) % 1440;
