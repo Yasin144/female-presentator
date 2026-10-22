@@ -54,7 +54,7 @@ public class MainActivity extends BridgeActivity {
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "udhaar_standalone_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.1";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.3";
 
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
@@ -150,29 +150,33 @@ public class MainActivity extends BridgeActivity {
                 handleSmartBackGesture();
             }
         });
-        try {
-            IntentFilter filter = new IntentFilter(PaymentNotificationService.ACTION_MOBILE_TXN);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(paymentNotifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-                if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 9501);
+        if (!isUdhaarStandalonePackage()) {
+            try {
+                IntentFilter filter = new IntentFilter(PaymentNotificationService.ACTION_MOBILE_TXN);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    registerReceiver(paymentNotifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                    if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 9501);
+                    }
+                } else {
+                    registerReceiver(paymentNotifReceiver, filter);
                 }
-            } else {
-                registerReceiver(paymentNotifReceiver, filter);
-            }
-        } catch (Exception ignored) {}
-        try {
-            OfficeEndAlarmReceiver.ensureChannel(getApplicationContext());
-            OfficeEndAlarmReceiver.scheduleFromSavedPrefs(getApplicationContext());
-        } catch (Exception ignored) {}
-        handleIncomingSharedReceiptIntent(getIntent());
+            } catch (Exception ignored) {}
+            try {
+                OfficeEndAlarmReceiver.ensureChannel(getApplicationContext());
+                OfficeEndAlarmReceiver.scheduleFromSavedPrefs(getApplicationContext());
+            } catch (Exception ignored) {}
+            handleIncomingSharedReceiptIntent(getIntent());
+        }
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        handleIncomingSharedReceiptIntent(intent);
+        if (!isUdhaarStandalonePackage()) {
+            handleIncomingSharedReceiptIntent(intent);
+        }
     }
 
     @Override
@@ -181,7 +185,9 @@ public class MainActivity extends BridgeActivity {
         if (bridge != null && bridge.getWebView() != null) {
             bridge.getWebView().resumeTimers();
         }
-        performMobileTransactionScanAsync();
+        if (!isUdhaarStandalonePackage()) {
+            performMobileTransactionScanAsync();
+        }
     }
 
     @Override

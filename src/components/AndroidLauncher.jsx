@@ -12,8 +12,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 function getActiveBuildMetadata() {
   const isUdhaarOnly = typeof window !== 'undefined' && Boolean(window.__UDHAAR_ONLY_APK__);
   if (isUdhaarOnly) {
-    let uVer = '1.0.1';
-    let uBid = 'udhaar_ota_1_0_1_clean_simple_ui';
+    let uVer = '1.0.3';
+    let uBid = 'udhaar_ota_1_0_3_created_by_pattan_yasin_screenshot_ocr_biometric_lock';
     try {
       const lsUVer = localStorage.getItem('udhaar_standalone_ota_version_v1');
       const lsUBid = localStorage.getItem('udhaar_standalone_ota_build_id_v1');
@@ -22,8 +22,8 @@ function getActiveBuildMetadata() {
     } catch (_) {}
     return { version: uVer, buildId: uBid };
   }
-  let version = '8.2.27';
-  let buildId = 'ota_8_2_27_simple_clean_ui_and_separate_udhaar_ota';
+  let version = '8.2.28';
+  let buildId = 'ota_8_2_28_udhaar_payments_file_screenshot_biometric_lock';
   try {
     if (
       typeof window !== 'undefined' &&
