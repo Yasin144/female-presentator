@@ -3,7 +3,6 @@ import './index.css'
 import App from './App.jsx'
 import AppWarnings from './components/AppWarnings.jsx'
 import AndroidLauncher, { isPackagedAndroidLauncher, MobileOtErrorBoundary } from './components/AndroidLauncher.jsx'
-import OtSalary from './components/OtSalary/OtSalary.jsx'
 import './classic-presentator.css'
 import './classic-modules.css'
 import './classic-studio.css'
@@ -193,35 +192,15 @@ if (!window.electronAPI) {
   };
 }
 
-function isStandaloneOtMobileMode() {
-  if (typeof window === 'undefined') return false;
-  if (window.__PATTAN_STANDALONE_OT_APP__ === true) return true;
-  const pathname = (window.location.pathname || '').toLowerCase();
-  if (pathname === '/ot' || pathname === '/ot/' || pathname.endsWith('/ot-mobile') || pathname.endsWith('/ot-mobile.html')) {
-    return true;
-  }
-  const params = new URLSearchParams(window.location.search || '');
-  const appParam = (params.get('app') || params.get('module') || '').toLowerCase();
-  return appParam === 'ot' || appParam === 'ot-salary';
-}
-
-if ('serviceWorker' in navigator) {
-  if (isPackagedAndroidLauncher()) {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      regs.forEach((r) => r.unregister().catch(() => {}));
-    }).catch(() => {});
-  } else if (isStandaloneOtMobileMode()) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/ot-sw.js').catch(() => {});
-    });
-  }
+if ('serviceWorker' in navigator && isPackagedAndroidLauncher()) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister().catch(() => {}));
+  }).catch(() => {});
 }
 
 createRoot(document.getElementById('root')).render(
-  isStandaloneOtMobileMode()
-    ? <MobileOtErrorBoundary><OtSalary standaloneMobile={true} /></MobileOtErrorBoundary>
-    : isPackagedAndroidLauncher()
-      ? <MobileOtErrorBoundary><AndroidLauncher /></MobileOtErrorBoundary>
-      : <><App /><AppWarnings /></>
+  isPackagedAndroidLauncher()
+    ? <MobileOtErrorBoundary><AndroidLauncher /></MobileOtErrorBoundary>
+    : <><App /><AppWarnings /></>
 )
 

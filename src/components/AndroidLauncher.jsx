@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.20';
-  let buildId = 'ota_8_2_20_uninterrupted_screen_off_hourly_ot_voice';
+  let version = '8.2.21';
+  let buildId = 'ota_8_2_21_recent_tx_inner_scroller_and_apk_only';
   try {
     if (
       typeof window !== 'undefined' &&
@@ -519,6 +519,7 @@ function normalizeServerUrl(value) {
 
 export function isPackagedAndroidLauncher() {
   if (typeof window === 'undefined') return false;
+  if (window.PattanBiometric || window.PattanBiometricBridge) return true;
   const cap = window.Capacitor;
   const isCapAndroid =
     (typeof cap?.isNativePlatform === 'function' ? Boolean(cap.isNativePlatform()) : Boolean(cap?.isNativePlatform)) ||

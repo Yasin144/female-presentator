@@ -4133,47 +4133,108 @@ export default function ExpensesModule({
             )}
 
             {overviewDisplayGroups.length > 0 && (
-              <div
-                ref={recentScrollerRef}
-                onTouchStart={(e) => e.stopPropagation()}
-                onTouchEnd={(e) => e.stopPropagation()}
-                style={{
+              <>
+                <div style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                  overscrollBehavior: 'contain',
-                  WebkitOverflowScrolling: 'touch',
-                }}
-              >
-                {overviewDisplayGroups.map((dayGroup) => (
-                  <div
-                    key={dayGroup.date}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    {/* Clean Day Header Bar */}
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  padding: '6px 10px',
+                  borderRadius: 12,
+                  background: palette.surfaceAlt,
+                  border: `1px solid ${palette.border}`,
+                }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
+                    📜 Inner Scroller · {recentPaymentsList.length} Transaction{recentPaymentsList.length === 1 ? '' : 's'}
+                  </span>
+                  {recentPaymentsList.length > 3 && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                        style={{
+                          padding: '4px 9px',
+                          borderRadius: 999,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.textSub,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ↑ Top
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                        style={{
+                          padding: '4px 9px',
+                          borderRadius: 999,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.textSub,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ↓ Bottom
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  ref={recentScrollerRef}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    maxHeight: mobileMode ? 420 : 520,
+                    overflowY: 'auto',
+                    overscrollBehavior: 'contain',
+                    WebkitOverflowScrolling: 'touch',
+                    paddingRight: 4,
+                    scrollBehavior: 'smooth',
+                  }}
+                >
+                  {overviewDisplayGroups.map((dayGroup) => (
                     <div
+                      key={dayGroup.date}
                       style={{
-                        padding: '6px 10px',
-                        borderRadius: 10,
-                        background: palette.surfaceAlt,
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        color: palette.textSub,
+                        flexDirection: 'column',
+                        gap: 8,
                       }}
                     >
-                      <span>{dayGroup.label} ({dayGroup.items.length})</span>
-                      <div style={{ display: 'flex', gap: 10, fontWeight: 900 }}>
-                        {dayGroup.daySpent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINR(dayGroup.daySpent)}</span>}
-                        {dayGroup.dayReceived > 0 && <span style={{ color: '#34d399' }}>+₹{formatINR(dayGroup.dayReceived)}</span>}
+                      {/* Clean Sticky Day Header Bar Inside Scroller */}
+                      <div
+                        style={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          padding: '6px 10px',
+                          borderRadius: 10,
+                          background: palette.surfaceAlt,
+                          borderBottom: `1px solid ${palette.border}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: 12,
+                          fontWeight: 800,
+                          color: palette.textSub,
+                        }}
+                      >
+                        <span>{dayGroup.label} ({dayGroup.items.length})</span>
+                        <div style={{ display: 'flex', gap: 10, fontWeight: 900 }}>
+                          {dayGroup.daySpent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINR(dayGroup.daySpent)}</span>}
+                          {dayGroup.dayReceived > 0 && <span style={{ color: '#34d399' }}>+₹{formatINR(dayGroup.dayReceived)}</span>}
+                        </div>
                       </div>
-                    </div>
 
                     {/* Clean, Simple, Dynamic Transaction Cards */}
                     {dayGroup.items.map((tx) => {
@@ -4398,6 +4459,7 @@ export default function ExpensesModule({
                   </div>
                 ))}
               </div>
+              </>
             )}
           </div>
 
@@ -5034,14 +5096,22 @@ export default function ExpensesModule({
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 12,
+                maxHeight: mobileMode ? 460 : 560,
+                overflowY: 'auto',
                 overscrollBehavior: 'contain',
                 WebkitOverflowScrolling: 'touch',
+                paddingRight: 4,
+                scrollBehavior: 'smooth',
               }}
             >
               {groupedByDay.map((group) => (
                 <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
                     background: palette.surfaceAlt,
+                    borderBottom: `1px solid ${palette.border}`,
                     padding: '6px 10px',
                     borderRadius: 10,
                     display: 'flex',
@@ -7043,8 +7113,8 @@ export default function ExpensesModule({
                 <div style={{ fontSize: 11.5, fontWeight: 900, color: palette.text, marginBottom: 6 }}>
                   📜 How Your Balance Changed (Recent Statement)
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {recentPaymentsList.slice(0, 4).map((tx) => {
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', paddingRight: 4 }}>
+                  {recentPaymentsList.map((tx) => {
                     const isCredit = tx.type === 'credit' || tx.type === 'refund';
                     const bAfter = Number.isFinite(Number(tx.runningBalance)) ? tx.runningBalance : tx.accountBalance;
                     return (

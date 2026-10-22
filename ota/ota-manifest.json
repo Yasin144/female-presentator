@@ -1,8 +1,8 @@
 {
-  "version": "8.2.20",
-  "buildId": "ota_8_2_20_uninterrupted_screen_off_hourly_ot_voice",
-  "releasedAt": "2026-10-22T19:25:00+05:30",
+  "version": "8.2.21",
+  "buildId": "ota_8_2_21_recent_tx_inner_scroller_and_apk_only",
+  "releasedAt": "2026-10-22T21:13:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.20: Uninterrupted Multi-Hour Screen-Off Voice Stream (0h..8h baked into a single continuous WAV that never resets audio.src while locked) + Auto-Force Speaker Volume (90%) + Disarms Legacy 2x TTS Overlap."
+  "notes": "v8.2.21: Recent Transactions & Passbook show all transactions inside a dedicated Inner Scroller (with Top/Bottom quick jump, not full-page scroll) + Removed OT & Salary app from desktop/web app (Mobile APK only)."
 }
