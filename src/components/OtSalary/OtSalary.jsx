@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.23';
+      return localStorage.getItem('pattan.ota.version') || '8.2.24';
     } catch (_) {
-      return '8.2.23';
+      return '8.2.24';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_24_fix_expenses_tdz_and_header_row';
     } catch (_) {
-      return 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
+      return 'ota_8_2_24_fix_expenses_tdz_and_header_row';
     }
   });
 
@@ -5692,42 +5692,62 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 8,
+            gap: 6,
             paddingTop: 10,
             borderTop: `1px solid ${ui.border}`,
-            flexWrap: 'wrap',
+            flexWrap: 'nowrap',
           }}>
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 6,
-              padding: '5px 10px',
+              gap: 4,
+              padding: '4px 8px',
               borderRadius: 10,
               background: ui.cardSubBg,
               border: `1px solid ${ui.border}`,
+              minWidth: 0,
+              flexShrink: 1,
             }}>
-              <span style={{ fontSize: 12 }}>📅</span>
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => {
-                  if (e.target.value) setSelectedMonth(e.target.value);
-                }}
+              <button
+                type="button"
+                onClick={() => shiftSelectedMonth(-1)}
                 style={{
-                  background: 'transparent',
+                  padding: '0 4px',
                   border: 'none',
-                  padding: 0,
-                  color: '#2563eb',
-                  fontWeight: 800,
-                  fontSize: 12,
+                  background: 'transparent',
+                  color: ui.textSecondary,
+                  fontWeight: 900,
+                  fontSize: 13,
                   cursor: 'pointer',
-                  outline: 'none',
-                  width: 136,
                 }}
-              />
+              >
+                ‹
+              </button>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: ui.textPrimary, whiteSpace: 'nowrap' }}>
+                📅 {(() => {
+                  const [yr, mo] = String(selectedMonth || '2026-10').split('-').map(Number);
+                  if (!yr || !mo) return selectedMonth;
+                  return new Date(yr, mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                })()}
+              </span>
+              <button
+                type="button"
+                onClick={() => shiftSelectedMonth(1)}
+                style={{
+                  padding: '0 4px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: ui.textSecondary,
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                ›
+              </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={activateStealthDecoy}
@@ -11437,7 +11457,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span style={{ fontSize: 15, lineHeight: 1 }}>
                   {nav.icon}
                 </span>
-                <span style={{ whiteSpace: 'nowrap' }}>{nav.label}</span>
+                <span style={{ whiteSpace: 'nowrap', fontSize: 10.5 }}>{nav.label}</span>
                 <span style={{ display: 'none' }}>{nav.title}</span>
               </button>
             );

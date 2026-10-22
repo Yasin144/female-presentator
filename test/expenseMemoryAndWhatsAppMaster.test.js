@@ -1131,6 +1131,16 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(declIdx > 0, true);
       assert.equal(goBackIdx > declIdx, true);
 
+      // Verify todayIso is declared at the very top of ExpensesModule before any useCallback/useEffect (no TDZ crash)
+      const expensesModuleSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      const todayIsoIdx = expensesModuleSrc.indexOf('const todayIso = getTodayIso();');
+      const firstCallbackIdx = expensesModuleSrc.indexOf('useCallback(');
+      assert.equal(todayIsoIdx > 0, true);
+      assert.equal(todayIsoIdx < firstCallbackIdx, true);
+
       // 2. Verify End-of-App Build Version Footer & AI Submit Help button at the end of OtSalary.jsx
       assert.equal(otSalarySrc.includes('END OF APP — BUILD VERSION & AI SUBMIT / REACH OUT HELP FOOTER'), true);
       assert.equal(otSalarySrc.includes('Build Version: v{liveOtaVersion}'), true);

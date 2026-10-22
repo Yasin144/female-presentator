@@ -248,6 +248,7 @@ export default function ExpensesModule({
   onSyncEmail,
   onOpenChangeMobileModal,
 }) {
+  const todayIso = getTodayIso();
   const effectiveMonthlySalary = Number(monthlyNetSalary || netMonthlySalary || 0);
   const hasLinkedEmail = Boolean(isEmailLinked || String(activeAccountEmail || '').trim());
   const isOwnerMasterLinked = Boolean(isOwnerAccount || String(activeAccountEmail || '').trim().toLowerCase() === 'patanyasin144@gmail.com');
@@ -1478,8 +1479,6 @@ export default function ExpensesModule({
       } catch (_) {}
     }
   }, [notifGranted]);
-
-  const todayIso = getTodayIso();
 
   const yesterdayIsoCalculated = useMemo(() => {
     const tObj = new Date(`${todayIso}T12:00:00`);

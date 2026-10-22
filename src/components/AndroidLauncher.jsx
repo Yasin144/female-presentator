@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.23';
-  let buildId = 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
+  let version = '8.2.24';
+  let buildId = 'ota_8_2_24_fix_expenses_tdz_and_header_row';
   try {
     if (
       typeof window !== 'undefined' &&
