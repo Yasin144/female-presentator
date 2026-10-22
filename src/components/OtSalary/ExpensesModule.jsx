@@ -517,7 +517,7 @@ export default function ExpensesModule({
     } catch (_) {}
   }, []);
 
-  // 🤝 Udhaar / Returnable Money Tracker (1-tap on any transaction + manual add + 1-tap WhatsApp reminder)
+  // 🤝 Udhaar / Returnable Money Tracker (1-tap on any transaction + manual add + "When He Took" date + 1-tap WhatsApp reminder)
   const [udhaarMap, setUdhaarMap] = useState(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -531,11 +531,15 @@ export default function ExpensesModule({
     return {};
   });
   const [showAddUdhaarForm, setShowAddUdhaarForm] = useState(false);
+  const [udhaarEditingId, setUdhaarEditingId] = useState('');
   const [udhaarFilterTab, setUdhaarFilterTab] = useState('pending'); // 'pending' | 'returned'
   const [udhaarDraftPerson, setUdhaarDraftPerson] = useState('');
   const [udhaarDraftAmount, setUdhaarDraftAmount] = useState('');
+  const [udhaarDraftTookDate, setUdhaarDraftTookDate] = useState(todayIso);
+  const [udhaarDraftTookTime, setUdhaarDraftTookTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [udhaarDraftPhone, setUdhaarDraftPhone] = useState('');
   const [udhaarDraftNote, setUdhaarDraftNote] = useState('');
+  const udhaarCardRef = useRef(null);
 
   const persistUdhaarMap = useCallback((nextMap) => {
     setUdhaarMap(nextMap);
@@ -546,27 +550,41 @@ export default function ExpensesModule({
     } catch (_) {}
   }, []);
 
+  const openUdhaarFormForEntry = useCallback((initial = {}) => {
+    setUdhaarEditingId(String(initial.id || ''));
+    setUdhaarDraftPerson(String(initial.person || '').trim());
+    setUdhaarDraftAmount(initial.amount ? String(initial.amount) : '');
+    setUdhaarDraftTookDate(String(initial.tookDate || initial.date || todayIso));
+    setUdhaarDraftTookTime(String(initial.tookTime || initial.time || new Date().toTimeString().slice(0, 5)));
+    setUdhaarDraftPhone(String(initial.phone || '').trim());
+    setUdhaarDraftNote(String(initial.note || '').trim());
+    setShowAddUdhaarForm(true);
+    setSubTab('overview');
+    setTimeout(() => {
+      try {
+        udhaarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (_) {}
+    }, 80);
+  }, [todayIso]);
+
   const handleToggleTxUdhaar = useCallback((tx) => {
     if (!tx || !tx.id) return;
     const key = String(tx.id);
     const existing = udhaarMap[key];
     const next = { ...udhaarMap };
     if (!existing) {
-      next[key] = {
+      // Open the responsive Udhaar form pre-filled with this transaction so the user can confirm/pick "When He Took"!
+      openUdhaarFormForEntry({
         id: key,
         txId: key,
-        person: String(tx.merchant || 'Friend / Colleague').trim(),
+        person: String(tx.merchant || 'Friend').trim(),
         amount: Number(tx.amount) || 0,
-        date: tx.date || todayIso,
-        time: tx.time || '12:00',
+        tookDate: tx.date || todayIso,
+        tookTime: tx.time || '12:00',
         phone: '',
         note: String(tx.personalNote || tx.note || tx.paymentRemark || '').trim(),
-        status: 'pending',
-        returnedAt: '',
-        updatedAtMs: Date.now(),
-      };
-      persistUdhaarMap(next);
-      setScanStatus(`🤝 Marked ₹${formatINR(tx.amount)} (${tx.merchant || 'Payment'}) as Udhaar / Money to Collect!`);
+      });
+      setScanStatus(`📅 Confirm "When He Took" date for ₹${formatINR(tx.amount)} (${tx.merchant || 'Friend'})`);
     } else if (existing.status === 'pending') {
       next[key] = {
         ...existing,
@@ -581,7 +599,7 @@ export default function ExpensesModule({
       persistUdhaarMap(next);
       setScanStatus(`↩️ Removed ${existing.person} from Udhaar list.`);
     }
-  }, [udhaarMap, persistUdhaarMap, todayIso]);
+  }, [udhaarMap, persistUdhaarMap, todayIso, openUdhaarFormForEntry]);
 
   const handleMarkUdhaarStatus = useCallback((id, nextStatus) => {
     const key = String(id || '');
@@ -612,43 +630,52 @@ export default function ExpensesModule({
     if (e && e.preventDefault) e.preventDefault();
     const person = String(udhaarDraftPerson || '').trim();
     const amount = Number(String(udhaarDraftAmount || '').replace(/,/g, ''));
+    const tookDate = String(udhaarDraftTookDate || todayIso).trim() || todayIso;
+    const tookTime = String(udhaarDraftTookTime || '12:00').trim() || '12:00';
     if (!person || !(amount > 0)) {
-      setScanStatus('⚠️ Enter both Person Name and a valid ₹ Amount for Udhaar.');
+      setScanStatus('⚠️ Please enter both Person Name and ₹ Amount.');
       return;
     }
-    const id = `udhaar_${Date.now()}`;
+    const id = udhaarEditingId || `udhaar_${Date.now()}`;
+    const prevEntry = udhaarMap[id] || {};
     const next = {
       ...udhaarMap,
       [id]: {
+        ...prevEntry,
         id,
-        txId: '',
+        txId: prevEntry.txId || (id.startsWith('udhaar_') ? '' : id),
         person,
         amount,
-        date: todayIso,
-        time: new Date().toTimeString().slice(0, 5),
+        date: tookDate,
+        tookDate,
+        time: tookTime,
+        tookTime,
         phone: String(udhaarDraftPhone || '').trim(),
         note: String(udhaarDraftNote || '').trim(),
-        status: 'pending',
-        returnedAt: '',
+        status: prevEntry.status || 'pending',
+        returnedAt: prevEntry.returnedAt || '',
         updatedAtMs: Date.now(),
       },
     };
     persistUdhaarMap(next);
+    setUdhaarEditingId('');
     setUdhaarDraftPerson('');
     setUdhaarDraftAmount('');
+    setUdhaarDraftTookDate(todayIso);
     setUdhaarDraftPhone('');
     setUdhaarDraftNote('');
     setShowAddUdhaarForm(false);
     setUdhaarFilterTab('pending');
-    setScanStatus(`🤝 Added ₹${formatINR(amount)} (${person}) to Udhaar / Money to Collect!`);
-  }, [udhaarDraftPerson, udhaarDraftAmount, udhaarDraftPhone, udhaarDraftNote, udhaarMap, persistUdhaarMap, todayIso]);
+    setScanStatus(`🤝 Saved Udhaar: ₹${formatINR(amount)} taken by ${person} on ${tookDate}!`);
+  }, [udhaarEditingId, udhaarDraftPerson, udhaarDraftAmount, udhaarDraftTookDate, udhaarDraftTookTime, udhaarDraftPhone, udhaarDraftNote, udhaarMap, persistUdhaarMap, todayIso]);
 
   const handleSendUdhaarWhatsAppReminder = useCallback((entry) => {
     if (!entry) return;
     const cleanDigits = String(entry.phone || '').replace(/\D+/g, '');
     const waPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+    const tookOnDate = entry.tookDate || entry.date || todayIso;
     const notePart = entry.note ? ` (${entry.note})` : '';
-    const msg = `Hi ${entry.person || 'Bro'}, gentle reminder regarding ₹${formatINR(entry.amount)} sent on ${entry.date || todayIso}${notePart}. Please send via UPI whenever convenient 🙏`;
+    const msg = `Hi ${entry.person || 'Bro'}, gentle reminder regarding ₹${formatINR(entry.amount)} you took on ${tookOnDate}${notePart}. Please send via UPI whenever convenient 🙏`;
     const waUrl = waPhone
       ? `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
       : `https://wa.me/?text=${encodeURIComponent(msg)}`;
@@ -4342,239 +4369,446 @@ export default function ExpensesModule({
             </div>
           )}
 
-          {/* 🤝 UDHAAR / RETURNABLE MONEY TRACKER CARD (WHO OWES ME + 1-TAP WHATSAPP REMINDER) */}
+          {/* 🤝 UDHAAR / RETURNABLE MONEY TRACKER CARD (100% MOBILE RESPONSIVE + "WHEN HE TOOK" DATE PICKER) */}
           {subTab === 'overview' && (
             <div
+              ref={udhaarCardRef}
               className="stitch-bento-card"
               style={{
-                padding: '13px 14px',
-                borderRadius: 18,
+                padding: '14px',
+                borderRadius: 20,
                 background: palette.surface,
-                border: `1px solid ${udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.45)' : palette.border}`,
+                border: `1.5px solid ${udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.5)' : palette.border}`,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 10,
+                gap: 12,
+                boxSizing: 'border-box',
+                width: '100%',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>
-                    🤝 Udhaar / Money to Collect
-                  </span>
-                  <span
-                    className="ot-tabular-nums"
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 900,
-                      padding: '2px 9px',
-                      borderRadius: 999,
-                      background: udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.16)',
-                      color: udhaarSummary.pendingTotal > 0 ? '#fbbf24' : '#34d399',
-                    }}
-                  >
-                    Pending: ₹{formatINR(udhaarSummary.pendingTotal)} ({udhaarSummary.pendingList.length})
-                  </span>
-                  {udhaarSummary.returnedTotal > 0 && (
-                    <span
-                      className="ot-tabular-nums"
-                      style={{
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        background: 'rgba(16, 185, 129, 0.14)',
-                        color: '#34d399',
-                      }}
-                    >
-                      Collected: ₹{formatINR(udhaarSummary.returnedTotal)}
-                    </span>
-                  )}
+              {/* Top Title Row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 950, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>🤝 Udhaar / Money to Collect</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted, marginTop: 1 }}>
+                    Track who took money, when they took it &amp; 1-tap WhatsApp reminder
+                  </div>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {udhaarSummary.all.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setUdhaarFilterTab((prev) => (prev === 'pending' ? 'returned' : 'pending'))}
-                      style={{
-                        padding: '4px 9px',
-                        borderRadius: 999,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.textSub,
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {udhaarFilterTab === 'pending'
-                        ? `✅ History (${udhaarSummary.returnedList.length})`
-                        : `⏳ Pending (${udhaarSummary.pendingList.length})`}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowAddUdhaarForm((v) => !v)}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      border: '1px solid rgba(245, 158, 11, 0.5)',
-                      background: 'rgba(245, 158, 11, 0.16)',
-                      color: isLight ? '#b45309' : '#fbbf24',
-                      fontSize: 11,
-                      fontWeight: 900,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {showAddUdhaarForm ? '✕ Close' : '+ Add Udhaar'}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showAddUdhaarForm) {
+                      setShowAddUdhaarForm(false);
+                      setUdhaarEditingId('');
+                    } else {
+                      openUdhaarFormForEntry({ tookDate: todayIso });
+                    }
+                  }}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(245, 158, 11, 0.55)',
+                    background: showAddUdhaarForm
+                      ? palette.surfaceAlt
+                      : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: showAddUdhaarForm ? palette.textSub : '#ffffff',
+                    fontSize: 11.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  {showAddUdhaarForm ? '✕ Close' : '+ Add Udhaar'}
+                </button>
               </div>
 
+              {/* Responsive 2-Column Filter & Summary Tiles */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setUdhaarFilterTab('pending')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 14,
+                    border: udhaarFilterTab === 'pending' ? '1.5px solid #f59e0b' : `1px solid ${palette.border}`,
+                    background: udhaarFilterTab === 'pending' ? 'rgba(245, 158, 11, 0.14)' : palette.surfaceAlt,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fbbf24' }}>
+                    ⏳ PENDING ({udhaarSummary.pendingList.length})
+                  </span>
+                  <span className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
+                    ₹{formatINR(udhaarSummary.pendingTotal)}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUdhaarFilterTab('returned')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 14,
+                    border: udhaarFilterTab === 'returned' ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
+                    background: udhaarFilterTab === 'returned' ? 'rgba(16, 185, 129, 0.14)' : palette.surfaceAlt,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#34d399' }}>
+                    ✅ COLLECTED ({udhaarSummary.returnedList.length})
+                  </span>
+                  <span className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: palette.text }}>
+                    ₹{formatINR(udhaarSummary.returnedTotal)}
+                  </span>
+                </button>
+              </div>
+
+              {/* Mobile-First Responsive Add / Edit Udhaar Form (Explicitly asks "When He Took") */}
               {showAddUdhaarForm && (
                 <form
                   onSubmit={handleAddManualUdhaar}
                   style={{
-                    padding: '10px',
-                    borderRadius: 12,
+                    padding: '12px',
+                    borderRadius: 16,
                     background: palette.surfaceAlt,
-                    border: `1px solid ${palette.border}`,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                    gap: 8,
+                    border: '1.5px solid rgba(245, 158, 11, 0.45)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                    boxSizing: 'border-box',
+                    width: '100%',
                   }}
                 >
-                  <input
-                    type="text"
-                    placeholder="Person Name (e.g. Ravi)"
-                    value={udhaarDraftPerson}
-                    onChange={(e) => setUdhaarDraftPerson(e.target.value)}
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fbbf24' }}>
+                    {udhaarEditingId ? '✏️ Confirm / Edit Udhaar Details' : '🤝 Add New Udhaar (Money Given)'}
+                  </div>
+
+                  {/* Row 1: Who Took & Amount */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textSub }}>
+                        👤 Who Took Money?
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Name (e.g. Ravi)"
+                        value={udhaarDraftPerson}
+                        onChange={(e) => setUdhaarDraftPerson(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '9px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.text,
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textSub }}>
+                        💰 Amount (₹)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 500"
+                        value={udhaarDraftAmount}
+                        onChange={(e) => setUdhaarDraftAmount(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '9px 10px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surface,
+                          color: palette.text,
+                          fontSize: 12.5,
+                          fontWeight: 800,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: WHEN HE TOOK (Date + Quick Chips + Time) */}
+                  <div
                     style={{
-                      padding: '7px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${palette.border}`,
+                      padding: '10px',
+                      borderRadius: 12,
                       background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                    }}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Amount ₹ (e.g. 500)"
-                    value={udhaarDraftAmount}
-                    onChange={(e) => setUdhaarDraftAmount(e.target.value)}
-                    style={{
-                      padding: '7px 9px',
-                      borderRadius: 9,
                       border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                    }}
-                  />
-                  <input
-                    type="tel"
-                    placeholder="WhatsApp No (optional)"
-                    value={udhaarDraftPhone}
-                    onChange={(e) => setUdhaarDraftPhone(e.target.value)}
-                    style={{
-                      padding: '7px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                    }}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Reason / Note (optional)"
-                    value={udhaarDraftNote}
-                    onChange={(e) => setUdhaarDraftNote(e.target.value)}
-                    style={{
-                      padding: '7px 9px',
-                      borderRadius: 9,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 9,
-                      border: 'none',
-                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                      color: '#ffffff',
-                      fontSize: 11.5,
-                      fontWeight: 900,
-                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
                     }}
                   >
-                    🤝 Save Udhaar
-                  </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <label style={{ fontSize: 11, fontWeight: 900, color: '#34d399' }}>
+                        📅 When Did He Take? (Date &amp; Time)
+                      </label>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {[
+                          { label: 'Today', date: todayIso },
+                          { label: 'Yesterday', date: yesterdayIso },
+                          {
+                            label: '2 Days Ago',
+                            date: (() => {
+                              const d = new Date(`${todayIso}T12:00:00`);
+                              d.setDate(d.getDate() - 2);
+                              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                            })(),
+                          },
+                        ].map((chip) => {
+                          const active = udhaarDraftTookDate === chip.date;
+                          return (
+                            <button
+                              key={chip.label}
+                              type="button"
+                              onClick={() => setUdhaarDraftTookDate(chip.date)}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: 999,
+                                border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
+                                background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
+                                color: active ? '#34d399' : palette.textSub,
+                                fontSize: 10,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {chip.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+                      <input
+                        type="date"
+                        value={udhaarDraftTookDate}
+                        onChange={(e) => setUdhaarDraftTookDate(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 9px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surfaceAlt,
+                          color: palette.text,
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                      />
+                      <input
+                        type="time"
+                        value={udhaarDraftTookTime}
+                        onChange={(e) => setUdhaarDraftTookTime(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 9px',
+                          borderRadius: 10,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surfaceAlt,
+                          color: palette.text,
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 3: Optional WhatsApp Number & Reason */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <input
+                      type="tel"
+                      placeholder="📱 WhatsApp No (optional)"
+                      value={udhaarDraftPhone}
+                      onChange={(e) => setUdhaarDraftPhone(e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surface,
+                        color: palette.text,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="📝 Reason / Note (optional)"
+                      value={udhaarDraftNote}
+                      onChange={(e) => setUdhaarDraftNote(e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surface,
+                        color: palette.text,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+
+                  {/* Row 4: Full-Width Save & Cancel */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddUdhaarForm(false);
+                        setUdhaarEditingId('');
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 11,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surface,
+                        color: palette.textSub,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      style={{
+                        flex: 2,
+                        padding: '10px 14px',
+                        borderRadius: 11,
+                        border: 'none',
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        color: '#ffffff',
+                        fontSize: 12.5,
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🤝 Save Udhaar
+                    </button>
+                  </div>
                 </form>
               )}
 
+              {/* Responsive List of Udhaar Items */}
               {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).length === 0 ? (
-                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                <div style={{
+                  padding: '12px',
+                  borderRadius: 12,
+                  background: palette.surfaceAlt,
+                  border: `1px dashed ${palette.border}`,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: palette.textMuted,
+                  textAlign: 'center',
+                }}>
                   {udhaarFilterTab === 'pending'
-                    ? '💡 Tap "🤝" on any payment row below (or "+ Add Udhaar") to track money friends owe you and send 1-tap WhatsApp reminders.'
+                    ? '💡 Tap "🤝" on any payment row below (or tap "+ Add Udhaar") to record who took money & when they took it.'
                     : 'No returned Udhaar entries yet.'}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 220, overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
                   {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).map((item) => {
                     const isReturned = item.status === 'returned';
+                    const tookIso = item.tookDate || item.date || todayIso;
+                    const daysAgo = Math.max(
+                      0,
+                      Math.round(
+                        (new Date(`${todayIso}T12:00:00`).getTime() - new Date(`${tookIso}T12:00:00`).getTime()) / 86400000
+                      )
+                    );
+                    const daysAgoBadge =
+                      daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
+
                     return (
                       <div
                         key={item.id}
                         style={{
-                          padding: '8px 10px',
-                          borderRadius: 12,
+                          padding: '11px 12px',
+                          borderRadius: 14,
                           background: palette.surfaceAlt,
-                          border: `1px solid ${isReturned ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'}`,
+                          border: `1px solid ${isReturned ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.4)'}`,
                           display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
+                          flexDirection: 'column',
                           gap: 8,
-                          flexWrap: 'wrap',
+                          boxSizing: 'border-box',
                         }}
                       >
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span>{item.person}</span>
-                            <span className="ot-tabular-nums" style={{ color: isReturned ? '#34d399' : '#fbbf24' }}>
-                              ₹{formatINR(item.amount)}
-                            </span>
+                        {/* Item Row 1: Person Name + Amount */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div style={{ fontSize: 14, fontWeight: 900, color: palette.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            👤 {item.person}
                           </div>
-                          <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
-                            Sent {item.date || todayIso}
-                            {item.note ? ` · 📝 ${item.note}` : ''}
-                            {isReturned && item.returnedAt ? ` · ✅ Returned ${item.returnedAt}` : ''}
+                          <div className="ot-tabular-nums" style={{ fontSize: 16, fontWeight: 950, color: isReturned ? '#34d399' : '#fbbf24', flexShrink: 0 }}>
+                            ₹{formatINR(item.amount)}
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {/* Item Row 2: Prominent "When He Took" Badge + Note */}
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <span style={{
+                            padding: '3px 8px',
+                            borderRadius: 8,
+                            background: 'rgba(59, 130, 246, 0.14)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            color: '#60a5fa',
+                            fontSize: 11,
+                            fontWeight: 800,
+                          }}>
+                            📅 Took on: {tookIso} ({daysAgoBadge})
+                            {(item.tookTime || item.time) ? ` · ${formatTime12h(item.tookTime || item.time)}` : ''}
+                          </span>
+                          {item.note && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: palette.textSub }}>
+                              📝 {item.note}
+                            </span>
+                          )}
+                          {isReturned && item.returnedAt && (
+                            <span style={{ fontSize: 11, fontWeight: 800, color: '#34d399' }}>
+                              ✅ Returned {item.returnedAt}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Item Row 3: Responsive Full-Width Action Buttons */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
                           {!isReturned && (
                             <button
                               type="button"
                               onClick={() => handleSendUdhaarWhatsAppReminder(item)}
                               style={{
-                                padding: '4px 8px',
-                                borderRadius: 8,
+                                flex: 1,
+                                padding: '7px 8px',
+                                borderRadius: 10,
                                 border: '1px solid rgba(16, 185, 129, 0.45)',
                                 background: 'rgba(16, 185, 129, 0.15)',
                                 color: '#34d399',
-                                fontSize: 10.5,
-                                fontWeight: 800,
+                                fontSize: 11,
+                                fontWeight: 900,
                                 cursor: 'pointer',
+                                whiteSpace: 'nowrap',
                               }}
                               title="Send polite WhatsApp reminder"
                             >
@@ -4585,34 +4819,53 @@ export default function ExpensesModule({
                             type="button"
                             onClick={() => handleMarkUdhaarStatus(item.id, isReturned ? 'pending' : 'returned')}
                             style={{
-                              padding: '4px 8px',
-                              borderRadius: 8,
+                              flex: 1,
+                              padding: '7px 8px',
+                              borderRadius: 10,
                               border: `1px solid ${isReturned ? palette.border : 'rgba(59, 130, 246, 0.45)'}`,
                               background: isReturned ? palette.surface : 'rgba(59, 130, 246, 0.15)',
                               color: isReturned ? palette.textSub : '#60a5fa',
-                              fontSize: 10.5,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {isReturned ? '↩️ Reopen' : '✅ Returned'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openUdhaarFormForEntry(item)}
+                            style={{
+                              padding: '7px 9px',
+                              borderRadius: 10,
+                              border: `1px solid ${palette.border}`,
+                              background: palette.surface,
+                              color: palette.textSub,
+                              fontSize: 11,
                               fontWeight: 800,
                               cursor: 'pointer',
                             }}
+                            title="Edit When He Took date or details"
                           >
-                            {isReturned ? '↩️ Undo' : '✅ Returned'}
+                            ✏️
                           </button>
                           <button
                             type="button"
                             onClick={() => handleMarkUdhaarStatus(item.id, 'delete')}
                             style={{
-                              padding: '4px 7px',
-                              borderRadius: 8,
+                              padding: '7px 9px',
+                              borderRadius: 10,
                               border: '1px solid rgba(244, 63, 94, 0.3)',
                               background: 'rgba(244, 63, 94, 0.08)',
                               color: '#fb7185',
-                              fontSize: 10,
+                              fontSize: 11,
                               fontWeight: 800,
                               cursor: 'pointer',
                             }}
                             title="Remove from Udhaar list"
                           >
-                            ✕
+                            🗑️
                           </button>
                         </div>
                       </div>

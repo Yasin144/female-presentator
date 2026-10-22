@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.24';
+      return localStorage.getItem('pattan.ota.version') || '8.2.25';
     } catch (_) {
-      return '8.2.24';
+      return '8.2.25';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_24_fix_expenses_tdz_and_header_row';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_25_responsive_udhaar_when_he_took';
     } catch (_) {
-      return 'ota_8_2_24_fix_expenses_tdz_and_header_row';
+      return 'ota_8_2_25_responsive_udhaar_when_he_took';
     }
   });
 

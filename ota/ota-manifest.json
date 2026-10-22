@@ -1,8 +1,8 @@
 {
-  "version": "8.2.24",
-  "buildId": "ota_8_2_24_fix_expenses_tdz_and_header_row",
-  "releasedAt": "2026-10-22T23:34:00+05:30",
+  "version": "8.2.25",
+  "buildId": "ota_8_2_25_responsive_udhaar_when_he_took",
+  "releasedAt": "2026-10-22T23:51:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.24: Fixed Expense Memory initialization order ('Cannot access G before initialization') + Clean 1-row Month Switcher (< Oct 2026 >) + Udhaar Tracker + 1-Tap Stealth Calculator Mode."
+  "notes": "v8.2.25: 100% Mobile-Responsive Udhaar / Returnable Money Tracker that asks 'When Did He Take?' (Date & Time picker + Today/Yesterday/2 Days Ago chips) + ✏️ Edit Date & 1-Tap WhatsApp Reminder."
 }
