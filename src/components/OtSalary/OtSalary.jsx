@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.18';
+      return localStorage.getItem('pattan.ota.version') || '8.2.19';
     } catch (_) {
-      return '8.2.18';
+      return '8.2.19';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_18_clear_single_voice_and_hourly_ot_milestones';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_19_auto_force_speaker_volume_on_zero';
     } catch (_) {
-      return 'ota_8_2_18_clear_single_voice_and_hourly_ot_milestones';
+      return 'ota_8_2_19_auto_force_speaker_volume_on_zero';
     }
   });
 

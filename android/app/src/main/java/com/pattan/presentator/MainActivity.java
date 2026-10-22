@@ -700,7 +700,20 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public void vibrate(final int durationMs) {
+            if (durationMs >= 150) {
+                OfficeEndAlarmReceiver.forceRaiseSpeakerVolume(getApplicationContext());
+            }
             triggerNativeVibrate(durationMs);
+        }
+
+        @JavascriptInterface
+        public boolean forceMaxSpeakerVolume() {
+            try {
+                OfficeEndAlarmReceiver.forceRaiseSpeakerVolume(getApplicationContext());
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
         }
 
         @JavascriptInterface

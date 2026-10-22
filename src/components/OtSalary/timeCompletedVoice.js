@@ -180,6 +180,32 @@ function getOrInitAudioContext() {
   return sharedVoiceCtx;
 }
 
+export function forceRaisePhoneSpeakerVolume() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const bridge = window.PattanBiometric || window.PattanBiometricBridge;
+    if (bridge) {
+      if (typeof bridge.forceMaxSpeakerVolume === 'function') {
+        bridge.forceMaxSpeakerVolume();
+      }
+      if (typeof bridge.vibrate === 'function') {
+        bridge.vibrate(161);
+      }
+    }
+  } catch (_) {}
+  try {
+    if (countdownAudioEl) {
+      countdownAudioEl.muted = false;
+      countdownAudioEl.volume = 1.0;
+    }
+    if (directVoiceAudioEl) {
+      directVoiceAudioEl.muted = false;
+      directVoiceAudioEl.volume = 1.0;
+    }
+  } catch (_) {}
+  return true;
+}
+
 function isCountdownCurrentlySpeakingMilestone(milestoneHour) {
   if (!countdownAudioEl || countdownAudioEl.paused) return false;
   const curSec = Number(countdownAudioEl.currentTime) || 0;
@@ -219,8 +245,13 @@ function syncAndCheckScheduledMilestones() {
 
   for (const m of activeScheduledMilestones) {
     if (m.fired) continue;
+    if (!m.volumeBoosted && nowMs >= m.epochMs - 1200) {
+      m.volumeBoosted = true;
+      forceRaisePhoneSpeakerVolume();
+    }
     if (nowMs >= m.epochMs) {
       m.fired = true;
+      forceRaisePhoneSpeakerVolume();
       const alreadySpeakingOnCountdown = isCountdownCurrentlySpeakingMilestone(m.hour);
       if (!alreadySpeakingOnCountdown) {
         // Advance countdownAudioEl past this milestone so it can never play a second time later
@@ -449,6 +480,7 @@ export function armShiftEndVoiceAlarm({ targetEpochMs = 0, dateKey = '', onTrigg
 export function speakOtMilestoneOutLoud(milestoneHour = 0, options = {}) {
   if (typeof window === 'undefined') return false;
   ensureVoiceAudioUnlocked();
+  forceRaisePhoneSpeakerVolume();
 
   const nowMs = Date.now();
   const cleanHour = Math.max(0, Math.min(8, Math.round(Number(milestoneHour) || 0)));
@@ -517,7 +549,10 @@ function playViaWebAudioFallback(cleanHour = 0) {
     }
     const src = ctx.createBufferSource();
     src.buffer = audioBuffer;
-    src.connect(ctx.destination);
+    const gain = ctx.createGain();
+    gain.gain.value = 1.35;
+    src.connect(gain);
+    gain.connect(ctx.destination);
     src.start(0);
     return true;
   } catch (_) {

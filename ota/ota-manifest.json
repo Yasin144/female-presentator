@@ -1,8 +1,8 @@
 {
-  "version": "8.2.18",
-  "buildId": "ota_8_2_18_clear_single_voice_and_hourly_ot_milestones",
-  "releasedAt": "2026-10-22T18:38:00+05:30",
+  "version": "8.2.19",
+  "buildId": "ota_8_2_19_auto_force_speaker_volume_on_zero",
+  "releasedAt": "2026-10-22T19:01:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.18: Studio-Clear 16-Bit Single Voice (Speaks 1x Only, Never 3x) + Screen-Off Pre-Baked WAV Schedule + Hourly OT Voice Announcements ('1 hour completed', '2 hours completed', etc.) Every 1 Hour After OT Starts Until Punch OUT."
+  "notes": "v8.2.19: Auto-Force Raise Speaker Volume (90%) Even When All Volumes Are Set to 0 + Studio-Clear 16-Bit Single Voice (1x Only) + Screen-Off WAV Schedule + Hourly OT Voice Announcements Until Punch OUT."
 }

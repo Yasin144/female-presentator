@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.18';
-  let buildId = 'ota_8_2_18_clear_single_voice_and_hourly_ot_milestones';
+  let version = '8.2.19';
+  let buildId = 'ota_8_2_19_auto_force_speaker_volume_on_zero';
   try {
     if (
       typeof window !== 'undefined' &&

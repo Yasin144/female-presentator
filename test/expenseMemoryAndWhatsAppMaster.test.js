@@ -1343,6 +1343,7 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(voiceSrc.includes('export function armShiftAndOtMilestonesSchedule'), true);
       assert.equal(voiceSrc.includes('export function speakOtMilestoneOutLoud'), true);
       assert.equal(voiceSrc.includes('export function stopScheduledVoiceAlarms'), true);
+      assert.equal(voiceSrc.includes('export function forceRaisePhoneSpeakerVolume'), true);
       assert.equal(otSalarySrc.includes('triggerOtVoiceMilestoneNotification'), true);
       assert.equal(otSalarySrc.includes('1 hour completed'), true);
       assert.equal(otSalarySrc.includes('hours completed'), true);
