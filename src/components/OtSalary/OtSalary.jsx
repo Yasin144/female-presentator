@@ -4404,6 +4404,30 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
     }
 
+    // Also arm Native Android AlarmManager (USAGE_ALARM stream, which plays even when Media Volume is 0)
+    // for the next upcoming milestone (0h Shift End, or +1h, +2h, ... OT)
+    if (typeof window !== 'undefined') {
+      try {
+        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
+        if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function') {
+          let nextAlarmHourIdx = 0;
+          for (let h = 0; h <= 8; h++) {
+            const mEpoch = shiftEndEpochMs + h * 3600 * 1000;
+            if (!spokenSet.has(h) && mEpoch > nowEpochMs) {
+              nextAlarmHourIdx = h;
+              break;
+            }
+          }
+          const nextAlarmTotalMins = (targetEndMinsTotal + nextAlarmHourIdx * 60) % 1440;
+          nativeBridge.scheduleOfficeEndOtAlarm(
+            Math.floor(nextAlarmTotalMins / 60),
+            nextAlarmTotalMins % 60,
+            normalizeEmployeeName(settings.employeeName)
+          );
+        }
+      } catch (_) {}
+    }
+
     armShiftAndOtMilestonesSchedule({
       shiftEndEpochMs,
       dateKey: shiftAlarmKey,
@@ -4424,12 +4448,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           if (hTriggered === 0) {
             localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
           }
+          // Advance native Android AlarmManager to the next +1h OT milestone automatically
+          const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
+          if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function' && hTriggered + 1 <= 8) {
+            const nextHrMins = (targetEndMinsTotal + (hTriggered + 1) * 60) % 1440;
+            nativeBridge.scheduleOfficeEndOtAlarm(
+              Math.floor(nextHrMins / 60),
+              nextHrMins % 60,
+              normalizeEmployeeName(settings.employeeName)
+            );
+          }
         } catch (_) {}
         const milestoneMins = (targetEndMinsTotal + hTriggered * 60) % 1440;
         triggerOtVoiceMilestoneNotification(hTriggered, minutesToTimeInput(milestoneMins));
       },
     });
-  }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, rates.shiftMins, triggerOtVoiceMilestoneNotification]);
+  }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, settings.employeeName, rates.shiftMins, triggerOtVoiceMilestoneNotification]);
 
   useEffect(() => {
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
