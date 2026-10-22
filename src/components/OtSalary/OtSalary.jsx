@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.22';
+      return localStorage.getItem('pattan.ota.version') || '8.2.23';
     } catch (_) {
-      return '8.2.22';
+      return '8.2.23';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,11 +2192,102 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_22_passbook_card_daily_limit_and_scroller_toggle';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
     } catch (_) {
-      return 'ota_8_2_22_passbook_card_daily_limit_and_scroller_toggle';
+      return 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
     }
   });
+
+  // 🛡️ 1-Tap Stealth Calculator Decoy Mode State
+  const [showStealthDecoy, setShowStealthDecoy] = useState(false);
+  const [stealthDisplay, setStealthDisplay] = useState('0');
+  const [stealthExpr, setStealthExpr] = useState('');
+  const [stealthHistory, setStealthHistory] = useState([]);
+  const stealthLastEqTapRef = useRef(0);
+
+  const activateStealthDecoy = useCallback(() => {
+    triggerBiometricHaptic(35);
+    setSalaryBiometricVisible(false);
+    setExpensesBiometricUnlocked(false);
+    setShowStealthDecoy(true);
+  }, []);
+
+  const handleStealthCalcInput = useCallback((btn) => {
+    if (btn === 'AC') {
+      setStealthDisplay('0');
+      setStealthExpr('');
+      return;
+    }
+    if (btn === '⌫') {
+      setStealthDisplay((prev) => (prev.length > 1 ? prev.slice(0, -1) : '0'));
+      return;
+    }
+    if (btn === '+/-') {
+      setStealthDisplay((prev) => (prev.startsWith('-') ? prev.slice(1) : prev !== '0' ? `-${prev}` : '0'));
+      return;
+    }
+    if (btn === '%') {
+      setStealthDisplay((prev) => {
+        const v = Number(prev);
+        return Number.isFinite(v) ? String(Number((v / 100).toFixed(6))) : '0';
+      });
+      return;
+    }
+    if (['+', '-', '×', '÷'].includes(btn)) {
+      setStealthExpr(`${stealthDisplay} ${btn}`);
+      setStealthDisplay('0');
+      return;
+    }
+    if (btn === '=') {
+      const now = Date.now();
+      if (now - stealthLastEqTapRef.current < 550) {
+        // Double-tap '=' secretly exits Stealth Decoy Mode!
+        stealthLastEqTapRef.current = 0;
+        triggerBiometricHaptic(50);
+        setShowStealthDecoy(false);
+        return;
+      }
+      stealthLastEqTapRef.current = now;
+      if (!stealthExpr) return;
+      const parts = stealthExpr.split(' ');
+      const a = Number(parts[0]);
+      const op = parts[1];
+      const b = Number(stealthDisplay);
+      let res = b;
+      if (op === '+') res = a + b;
+      else if (op === '-') res = a - b;
+      else if (op === '×') res = a * b;
+      else if (op === '÷') res = b !== 0 ? a / b : 0;
+      const formatted = Number.isFinite(res) ? String(Number(res.toFixed(6))) : '0';
+      setStealthHistory((h) => [`${stealthExpr} ${stealthDisplay} = ${formatted}`, ...h.slice(0, 3)]);
+      setStealthDisplay(formatted);
+      setStealthExpr('');
+      return;
+    }
+    if (btn === '.') {
+      setStealthDisplay((prev) => (prev.includes('.') ? prev : `${prev}.`));
+      return;
+    }
+    setStealthDisplay((prev) => (prev === '0' ? String(btn) : `${prev}${btn}`.slice(0, 14)));
+  }, [stealthDisplay, stealthExpr]);
+
+  // 📅 Collapsible Month Attendance Calendar Grid State
+  const [showMonthCalendarGrid, setShowMonthCalendarGrid] = useState(() => {
+    try {
+      const v = localStorage.getItem('pattan.ot.showMonthCalendarGrid_v1');
+      if (v === '0') return false;
+    } catch (_) {}
+    return true;
+  });
+  const toggleMonthCalendarGrid = useCallback(() => {
+    setShowMonthCalendarGrid((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('pattan.ot.showMonthCalendarGrid_v1', next ? '1' : '0');
+      } catch (_) {}
+      return next;
+    });
+  }, []);
 
   const displayProfileName = useMemo(() => {
     const cleanCustom = String(customProfileName || '').trim();
@@ -5149,6 +5240,143 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         overflowAnchor: 'none',
       }}
     >
+      {/* 🛡️ 1-TAP STEALTH CALCULATOR DECOY MODE OVERLAY (Locks Salary & Expenses immediately) */}
+      {showStealthDecoy && (
+        <div
+          className="ot-no-print"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999999,
+            background: '#090d16',
+            color: '#f8fafc',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            padding: '18px 16px 28px',
+            boxSizing: 'border-box',
+          }}
+        >
+          {/* Top Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div
+              onDoubleClick={() => setShowStealthDecoy(false)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+            >
+              <span style={{ fontSize: 18 }}>🧮</span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: '#e2e8f0' }}>Standard Calculator</div>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>
+                  Tip: Tap &ldquo;=&rdquo; twice quickly to exit
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowStealthDecoy(false)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 999,
+                border: '1px solid rgba(148, 163, 184, 0.22)',
+                background: 'rgba(30, 41, 59, 0.7)',
+                color: '#94a3b8',
+                fontSize: 11,
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              🔓 Exit
+            </button>
+          </div>
+
+          {/* Calculator Display & History Tape */}
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-end',
+              alignItems: 'flex-end',
+              padding: '16px 10px',
+              gap: 6,
+            }}
+          >
+            {stealthHistory.map((line, i) => (
+              <div key={i} className="ot-tabular-nums" style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                {line}
+              </div>
+            ))}
+            <div className="ot-tabular-nums" style={{ fontSize: 18, color: '#94a3b8', fontWeight: 700, minHeight: 24 }}>
+              {stealthExpr}
+            </div>
+            <div
+              className="ot-tabular-nums"
+              style={{
+                fontSize: 48,
+                fontWeight: 900,
+                color: '#ffffff',
+                letterSpacing: '-0.02em',
+                wordBreak: 'break-all',
+                textAlign: 'right',
+              }}
+            >
+              {stealthDisplay}
+            </div>
+          </div>
+
+          {/* 4x5 Calculator Keypad */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 10,
+              maxWidth: 420,
+              width: '100%',
+              margin: '0 auto',
+            }}
+          >
+            {[
+              'AC', '+/-', '%', '÷',
+              '7', '8', '9', '×',
+              '4', '5', '6', '-',
+              '1', '2', '3', '+',
+              '0', '.', '⌫', '=',
+            ].map((btn) => {
+              const isOp = ['÷', '×', '-', '+', '='].includes(btn);
+              const isTop = ['AC', '+/-', '%'].includes(btn);
+              return (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleStealthCalcInput(btn)}
+                  style={{
+                    height: 62,
+                    padding: 0,
+                    borderRadius: 18,
+                    border: 'none',
+                    background:
+                      btn === '='
+                        ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                        : isOp
+                          ? '#2563eb'
+                          : isTop
+                            ? '#1e293b'
+                            : '#111827',
+                    color: '#ffffff',
+                    fontSize: 22,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                  }}
+                >
+                  {btn}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* SCREEN 1: SPLASH SCREEN OVERLAY (Toggleable via Logo / Splash button) */}
       {showSplash && (
         <div
@@ -5494,12 +5722,37 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   fontSize: 12,
                   cursor: 'pointer',
                   outline: 'none',
-                  width: 108,
+                  width: 136,
                 }}
               />
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+              <button
+                type="button"
+                onClick={activateStealthDecoy}
+                title="1-Tap Stealth Calculator Mode (Instantly hides app & locks salary/expenses)"
+                aria-label="Stealth Calculator Mode"
+                style={{
+                  width: 34,
+                  height: 34,
+                  padding: 0,
+                  borderRadius: 11,
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(16, 185, 129, 0.45)',
+                  background: isLight ? '#f1f5f9' : 'rgba(16, 185, 129, 0.14)',
+                  color: isLight ? '#0f172a' : '#34d399',
+                  fontSize: 15,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <span>🛡️</span>
+                <span style={{ display: 'none' }}>Stealth</span>
+              </button>
+
               {mobileTab === 'expenses' && expensesBiometricUnlocked && (
                 <button
                   type="button"
@@ -8473,7 +8726,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                marginBottom: 12,
+                gap: 8,
+                marginBottom: showMonthCalendarGrid ? 8 : 0,
               }}>
                 <button
                   type="button"
@@ -8481,108 +8735,185 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   style={{
                     width: 34,
                     height: 34,
+                    padding: 0,
                     borderRadius: 10,
                     border: `1px solid ${ui.border}`,
                     background: ui.cardSubBg,
                     color: ui.textPrimary,
                     fontWeight: 900,
                     cursor: 'pointer',
+                    flexShrink: 0,
                   }}
                 >
                   ‹
                 </button>
-                <div style={{ fontSize: 16, fontWeight: 950, color: ui.textPrimary }}>
-                  {formattedMonthLabel}
+                <div style={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 950, color: ui.textPrimary }}>
+                    {formattedMonthLabel}
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: ui.textSecondary }}>
+                    Tap any date to edit IN/OUT time &amp; OT
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => shiftSelectedMonth(1)}
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    border: `1px solid ${ui.border}`,
-                    background: ui.cardSubBg,
-                    color: ui.textPrimary,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ›
-                </button>
-              </div>
-
-              {/* 7-Column Mini Calendar Grid (S M T W T F S) */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 4,
-                textAlign: 'center',
-                marginBottom: 6,
-              }}>
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, idx) => (
-                  <div
-                    key={idx}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={toggleMonthCalendarGrid}
                     style={{
+                      padding: '6px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textSecondary,
                       fontSize: 11,
                       fontWeight: 800,
-                      color: idx === 0 ? '#f87171' : ui.textSecondary,
-                      padding: '4px 0',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    {d}
-                  </div>
-                ))}
-                {calendarGridCells.map((cell, idx) => {
-                  if (!cell) {
-                    return <div key={`empty_${idx}`} style={{ height: 32 }} />;
-                  }
-                  const isSel = cell.iso === selectedDate;
-                  const hasOt = cell.earnings.otMins > 0;
-                  return (
-                    <button
-                      key={cell.iso}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDate(cell.iso);
-                        setShowManualEditor(true);
-                      }}
-                      style={{
-                        height: 34,
-                        borderRadius: 9,
-                        border: isSel
-                          ? `1.5px solid ${ui.accentColor}`
-                          : hasOt
-                            ? '1px solid rgba(52, 211, 153, 0.45)'
-                            : '1px solid transparent',
-                        background: isSel
-                          ? ui.accentGrad
-                          : hasOt
-                            ? 'rgba(16, 185, 129, 0.14)'
-                            : cell.isSaved
-                              ? isLight ? '#f1f5f9' : 'rgba(255,255,255,0.04)'
-                              : 'transparent',
-                        color: isSel
-                          ? '#ffffff'
-                          : cell.isSunday
-                            ? '#f87171'
-                            : ui.textPrimary,
-                        fontWeight: isSel || hasOt ? 900 : 700,
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        position: 'relative',
-                      }}
-                    >
-                      {cell.dayNum}
-                    </button>
-                  );
-                })}
+                    {showMonthCalendarGrid ? '📅 Hide Grid' : '📅 Show Grid'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => shiftSelectedMonth(1)}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      padding: 0,
+                      borderRadius: 10,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.cardSubBg,
+                      color: ui.textPrimary,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                    }}
+                  >
+                    ›
+                  </button>
+                </div>
               </div>
+
+              {showMonthCalendarGrid && (
+                <>
+                  {/* Legend explaining the Calendar Colors */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    padding: '5px 8px',
+                    marginBottom: 8,
+                    borderRadius: 10,
+                    background: ui.cardSubBg,
+                    border: `1px solid ${ui.border}`,
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    color: ui.textSecondary,
+                  }}>
+                    <span style={{ color: '#34d399' }}>⚡ Green = Extra OT Day</span>
+                    <span>·</span>
+                    <span style={{ color: '#60a5fa' }}>✓ Saved Present</span>
+                    <span>·</span>
+                    <span style={{ color: '#f87171' }}>Red = Sunday</span>
+                  </div>
+
+                  {/* 7-Column Mini Calendar Grid (Sun..Sat) — Fixed 1-line date cells */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                    gap: 5,
+                    textAlign: 'center',
+                    marginBottom: 4,
+                  }}>
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          color: idx === 0 ? '#f87171' : ui.textSecondary,
+                          padding: '3px 0',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {d}
+                      </div>
+                    ))}
+                    {calendarGridCells.map((cell, idx) => {
+                      if (!cell) {
+                        return <div key={`empty_${idx}`} style={{ height: 38 }} />;
+                      }
+                      const isSel = cell.iso === selectedDate;
+                      const hasOt = cell.earnings.otMins > 0;
+                      const otHrsShort = hasOt ? `${(cell.earnings.otMins / 60).toFixed(1).replace(/\.0$/, '')}h` : '';
+                      return (
+                        <button
+                          key={cell.iso}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDate(cell.iso);
+                            setShowManualEditor(true);
+                          }}
+                          style={{
+                            height: 38,
+                            padding: '2px 0',
+                            minWidth: 0,
+                            borderRadius: 10,
+                            border: isSel
+                              ? `1.5px solid ${ui.accentColor}`
+                              : hasOt
+                                ? '1px solid rgba(52, 211, 153, 0.55)'
+                                : cell.isSaved
+                                  ? '1px solid rgba(96, 165, 250, 0.35)'
+                                  : '1px solid transparent',
+                            background: isSel
+                              ? ui.accentGrad
+                              : hasOt
+                                ? 'rgba(16, 185, 129, 0.16)'
+                                : cell.isSaved
+                                  ? isLight ? '#eff6ff' : 'rgba(59, 130, 246, 0.12)'
+                                  : 'transparent',
+                            color: isSel
+                              ? '#ffffff'
+                              : cell.isSunday
+                                ? '#f87171'
+                                : ui.textPrimary,
+                            fontWeight: isSel || hasOt ? 900 : 700,
+                            fontSize: 12.5,
+                            lineHeight: 1.1,
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 1,
+                          }}
+                        >
+                          <span>{cell.dayNum}</span>
+                          {(hasOt || cell.isSaved) && (
+                            <span style={{
+                              fontSize: 8.5,
+                              fontWeight: 900,
+                              color: isSel ? '#ffffff' : hasOt ? '#34d399' : '#60a5fa',
+                              lineHeight: 1,
+                            }}>
+                              {hasOt ? `+${otHrsShort}` : '✓'}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Filter Pills Row: All | Present | Half | Off | Leave | OT + Cards/Table View Toggle */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, maxWidth: '100%' }}>
                 {[
                   { id: 'all', label: 'All' },
                   { id: 'present', label: 'Present' },
@@ -8598,7 +8929,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       type="button"
                       onClick={() => setViewFilter(pill.id)}
                       style={{
-                        padding: '7px 14px',
+                        padding: '7px 13px',
                         borderRadius: 999,
                         border: active ? `1px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
                         background: active ? ui.accentGrad : ui.cardBg,
@@ -8607,6 +8938,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         fontSize: 12,
                         cursor: 'pointer',
                         whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}
                     >
                       {pill.label}
@@ -11105,7 +11437,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 <span style={{ fontSize: 15, lineHeight: 1 }}>
                   {nav.icon}
                 </span>
-                <span>{nav.label}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>{nav.label}</span>
                 <span style={{ display: 'none' }}>{nav.title}</span>
               </button>
             );

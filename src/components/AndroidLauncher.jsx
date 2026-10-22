@@ -9,8 +9,8 @@ if (typeof window !== 'undefined' && typeof window.workspaceSection === 'undefin
 }
 
 function getActiveBuildMetadata() {
-  let version = '8.2.22';
-  let buildId = 'ota_8_2_22_passbook_card_daily_limit_and_scroller_toggle';
+  let version = '8.2.23';
+  let buildId = 'ota_8_2_23_udhaar_stealth_and_calendar_fix';
   try {
     if (
       typeof window !== 'undefined' &&

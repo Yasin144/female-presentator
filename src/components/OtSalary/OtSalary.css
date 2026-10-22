@@ -129,7 +129,8 @@
 
 @media (max-width: 420px) {
   .ot-pro-shell button {
-    word-break: break-word;
+    word-break: normal;
+    overflow-wrap: normal;
   }
 }
 

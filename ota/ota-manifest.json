@@ -1,8 +1,8 @@
 {
-  "version": "8.2.22",
-  "buildId": "ota_8_2_22_passbook_card_daily_limit_and_scroller_toggle",
-  "releasedAt": "2026-10-22T22:07:00+05:30",
+  "version": "8.2.23",
+  "buildId": "ota_8_2_23_udhaar_stealth_and_calendar_fix",
+  "releasedAt": "2026-10-22T23:12:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.22: 1-Tap Scroll View Switcher (Inside Scroller <-> Full Page) + Smart Daily Spend Limit Tracker (silent visual alert, never speaks salary) + 1-Tap Visual Monthly Passbook Card PNG Export."
+  "notes": "v8.2.23: Udhaar / Returnable Money Tracker (1-tap on any payment + WhatsApp reminder) + 1-Tap Stealth Calculator Decoy Mode + Fixed Month Calendar 2-digit numbers & added clear OT/Present status legend + Hide/Show Grid toggle."
 }

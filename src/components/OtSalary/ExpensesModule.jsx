@@ -516,6 +516,163 @@ export default function ExpensesModule({
     } catch (_) {}
   }, []);
 
+  // 🤝 Udhaar / Returnable Money Tracker (1-tap on any transaction + manual add + 1-tap WhatsApp reminder)
+  const [udhaarMap, setUdhaarMap] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem('pattan.expenses.udhaarTracker_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        }
+      }
+    } catch (_) {}
+    return {};
+  });
+  const [showAddUdhaarForm, setShowAddUdhaarForm] = useState(false);
+  const [udhaarFilterTab, setUdhaarFilterTab] = useState('pending'); // 'pending' | 'returned'
+  const [udhaarDraftPerson, setUdhaarDraftPerson] = useState('');
+  const [udhaarDraftAmount, setUdhaarDraftAmount] = useState('');
+  const [udhaarDraftPhone, setUdhaarDraftPhone] = useState('');
+  const [udhaarDraftNote, setUdhaarDraftNote] = useState('');
+
+  const persistUdhaarMap = useCallback((nextMap) => {
+    setUdhaarMap(nextMap);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('pattan.expenses.udhaarTracker_v1', JSON.stringify(nextMap));
+      }
+    } catch (_) {}
+  }, []);
+
+  const handleToggleTxUdhaar = useCallback((tx) => {
+    if (!tx || !tx.id) return;
+    const key = String(tx.id);
+    const existing = udhaarMap[key];
+    const next = { ...udhaarMap };
+    if (!existing) {
+      next[key] = {
+        id: key,
+        txId: key,
+        person: String(tx.merchant || 'Friend / Colleague').trim(),
+        amount: Number(tx.amount) || 0,
+        date: tx.date || todayIso,
+        time: tx.time || '12:00',
+        phone: '',
+        note: String(tx.personalNote || tx.note || tx.paymentRemark || '').trim(),
+        status: 'pending',
+        returnedAt: '',
+        updatedAtMs: Date.now(),
+      };
+      persistUdhaarMap(next);
+      setScanStatus(`🤝 Marked ₹${formatINR(tx.amount)} (${tx.merchant || 'Payment'}) as Udhaar / Money to Collect!`);
+    } else if (existing.status === 'pending') {
+      next[key] = {
+        ...existing,
+        status: 'returned',
+        returnedAt: todayIso,
+        updatedAtMs: Date.now(),
+      };
+      persistUdhaarMap(next);
+      setScanStatus(`✅ Marked ₹${formatINR(existing.amount)} from ${existing.person} as Returned!`);
+    } else {
+      delete next[key];
+      persistUdhaarMap(next);
+      setScanStatus(`↩️ Removed ${existing.person} from Udhaar list.`);
+    }
+  }, [udhaarMap, persistUdhaarMap, todayIso]);
+
+  const handleMarkUdhaarStatus = useCallback((id, nextStatus) => {
+    const key = String(id || '');
+    if (!key || !udhaarMap[key]) return;
+    const next = { ...udhaarMap };
+    if (nextStatus === 'delete') {
+      const removed = next[key];
+      delete next[key];
+      persistUdhaarMap(next);
+      setScanStatus(`🗑️ Removed ${removed?.person || 'entry'} from Udhaar tracker.`);
+      return;
+    }
+    next[key] = {
+      ...next[key],
+      status: nextStatus,
+      returnedAt: nextStatus === 'returned' ? todayIso : '',
+      updatedAtMs: Date.now(),
+    };
+    persistUdhaarMap(next);
+    setScanStatus(
+      nextStatus === 'returned'
+        ? `✅ Marked ₹${formatINR(next[key].amount)} (${next[key].person}) as Returned!`
+        : `⏳ Reopened ₹${formatINR(next[key].amount)} (${next[key].person}) as Pending.`
+    );
+  }, [udhaarMap, persistUdhaarMap, todayIso]);
+
+  const handleAddManualUdhaar = useCallback((e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const person = String(udhaarDraftPerson || '').trim();
+    const amount = Number(String(udhaarDraftAmount || '').replace(/,/g, ''));
+    if (!person || !(amount > 0)) {
+      setScanStatus('⚠️ Enter both Person Name and a valid ₹ Amount for Udhaar.');
+      return;
+    }
+    const id = `udhaar_${Date.now()}`;
+    const next = {
+      ...udhaarMap,
+      [id]: {
+        id,
+        txId: '',
+        person,
+        amount,
+        date: todayIso,
+        time: new Date().toTimeString().slice(0, 5),
+        phone: String(udhaarDraftPhone || '').trim(),
+        note: String(udhaarDraftNote || '').trim(),
+        status: 'pending',
+        returnedAt: '',
+        updatedAtMs: Date.now(),
+      },
+    };
+    persistUdhaarMap(next);
+    setUdhaarDraftPerson('');
+    setUdhaarDraftAmount('');
+    setUdhaarDraftPhone('');
+    setUdhaarDraftNote('');
+    setShowAddUdhaarForm(false);
+    setUdhaarFilterTab('pending');
+    setScanStatus(`🤝 Added ₹${formatINR(amount)} (${person}) to Udhaar / Money to Collect!`);
+  }, [udhaarDraftPerson, udhaarDraftAmount, udhaarDraftPhone, udhaarDraftNote, udhaarMap, persistUdhaarMap, todayIso]);
+
+  const handleSendUdhaarWhatsAppReminder = useCallback((entry) => {
+    if (!entry) return;
+    const cleanDigits = String(entry.phone || '').replace(/\D+/g, '');
+    const waPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+    const notePart = entry.note ? ` (${entry.note})` : '';
+    const msg = `Hi ${entry.person || 'Bro'}, gentle reminder regarding ₹${formatINR(entry.amount)} sent on ${entry.date || todayIso}${notePart}. Please send via UPI whenever convenient 🙏`;
+    const waUrl = waPhone
+      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    try {
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      setScanStatus(`💬 Opened WhatsApp reminder for ${entry.person} (₹${formatINR(entry.amount)})`);
+    } catch (_) {}
+  }, [todayIso]);
+
+  const udhaarSummary = useMemo(() => {
+    const all = Object.values(udhaarMap || {}).filter((x) => x && typeof x === 'object' && Number(x.amount) > 0);
+    all.sort((a, b) => (Number(b.updatedAtMs) || 0) - (Number(a.updatedAtMs) || 0));
+    const pendingList = all.filter((x) => x.status !== 'returned');
+    const returnedList = all.filter((x) => x.status === 'returned');
+    const pendingTotal = pendingList.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+    const returnedTotal = returnedList.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+    return {
+      all,
+      pendingList,
+      returnedList,
+      pendingTotal,
+      returnedTotal,
+    };
+  }, [udhaarMap]);
+
   // In-App Feature Suggestion / Request Box State (Works Online & Offline, shows Live Loading Indicator while AI works, and shows "✅ Update Completed" when done)
   const [suggestionInputText, setSuggestionInputText] = useState('');
   const [suggestionScreenshotDataUrl, setSuggestionScreenshotDataUrl] = useState('');
@@ -4185,6 +4342,287 @@ export default function ExpensesModule({
               </div>
             </div>
           )}
+
+          {/* 🤝 UDHAAR / RETURNABLE MONEY TRACKER CARD (WHO OWES ME + 1-TAP WHATSAPP REMINDER) */}
+          {subTab === 'overview' && (
+            <div
+              className="stitch-bento-card"
+              style={{
+                padding: '13px 14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.45)' : palette.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>
+                    🤝 Udhaar / Money to Collect
+                  </span>
+                  <span
+                    className="ot-tabular-nums"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 900,
+                      padding: '2px 9px',
+                      borderRadius: 999,
+                      background: udhaarSummary.pendingTotal > 0 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.16)',
+                      color: udhaarSummary.pendingTotal > 0 ? '#fbbf24' : '#34d399',
+                    }}
+                  >
+                    Pending: ₹{formatINR(udhaarSummary.pendingTotal)} ({udhaarSummary.pendingList.length})
+                  </span>
+                  {udhaarSummary.returnedTotal > 0 && (
+                    <span
+                      className="ot-tabular-nums"
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 800,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(16, 185, 129, 0.14)',
+                        color: '#34d399',
+                      }}
+                    >
+                      Collected: ₹{formatINR(udhaarSummary.returnedTotal)}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {udhaarSummary.all.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setUdhaarFilterTab((prev) => (prev === 'pending' ? 'returned' : 'pending'))}
+                      style={{
+                        padding: '4px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.textSub,
+                        fontSize: 10.5,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {udhaarFilterTab === 'pending'
+                        ? `✅ History (${udhaarSummary.returnedList.length})`
+                        : `⏳ Pending (${udhaarSummary.pendingList.length})`}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUdhaarForm((v) => !v)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(245, 158, 11, 0.5)',
+                      background: 'rgba(245, 158, 11, 0.16)',
+                      color: isLight ? '#b45309' : '#fbbf24',
+                      fontSize: 11,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {showAddUdhaarForm ? '✕ Close' : '+ Add Udhaar'}
+                  </button>
+                </div>
+              </div>
+
+              {showAddUdhaarForm && (
+                <form
+                  onSubmit={handleAddManualUdhaar}
+                  style={{
+                    padding: '10px',
+                    borderRadius: 12,
+                    background: palette.surfaceAlt,
+                    border: `1px solid ${palette.border}`,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                    gap: 8,
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Person Name (e.g. Ravi)"
+                    value={udhaarDraftPerson}
+                    onChange={(e) => setUdhaarDraftPerson(e.target.value)}
+                    style={{
+                      padding: '7px 9px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                    }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Amount ₹ (e.g. 500)"
+                    value={udhaarDraftAmount}
+                    onChange={(e) => setUdhaarDraftAmount(e.target.value)}
+                    style={{
+                      padding: '7px 9px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                    }}
+                  />
+                  <input
+                    type="tel"
+                    placeholder="WhatsApp No (optional)"
+                    value={udhaarDraftPhone}
+                    onChange={(e) => setUdhaarDraftPhone(e.target.value)}
+                    style={{
+                      padding: '7px 9px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Reason / Note (optional)"
+                    value={udhaarDraftNote}
+                    onChange={(e) => setUdhaarDraftNote(e.target.value)}
+                    style={{
+                      padding: '7px 9px',
+                      borderRadius: 9,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.text,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 9,
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                      color: '#ffffff',
+                      fontSize: 11.5,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🤝 Save Udhaar
+                  </button>
+                </form>
+              )}
+
+              {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).length === 0 ? (
+                <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted }}>
+                  {udhaarFilterTab === 'pending'
+                    ? '💡 Tap "🤝" on any payment row below (or "+ Add Udhaar") to track money friends owe you and send 1-tap WhatsApp reminders.'
+                    : 'No returned Udhaar entries yet.'}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 220, overflowY: 'auto' }}>
+                  {(udhaarFilterTab === 'pending' ? udhaarSummary.pendingList : udhaarSummary.returnedList).map((item) => {
+                    const isReturned = item.status === 'returned';
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 12,
+                          background: palette.surfaceAlt,
+                          border: `1px solid ${isReturned ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>{item.person}</span>
+                            <span className="ot-tabular-nums" style={{ color: isReturned ? '#34d399' : '#fbbf24' }}>
+                              ₹{formatINR(item.amount)}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
+                            Sent {item.date || todayIso}
+                            {item.note ? ` · 📝 ${item.note}` : ''}
+                            {isReturned && item.returnedAt ? ` · ✅ Returned ${item.returnedAt}` : ''}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {!isReturned && (
+                            <button
+                              type="button"
+                              onClick={() => handleSendUdhaarWhatsAppReminder(item)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: 8,
+                                border: '1px solid rgba(16, 185, 129, 0.45)',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#34d399',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                              title="Send polite WhatsApp reminder"
+                            >
+                              💬 Remind
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleMarkUdhaarStatus(item.id, isReturned ? 'pending' : 'returned')}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 8,
+                              border: `1px solid ${isReturned ? palette.border : 'rgba(59, 130, 246, 0.45)'}`,
+                              background: isReturned ? palette.surface : 'rgba(59, 130, 246, 0.15)',
+                              color: isReturned ? palette.textSub : '#60a5fa',
+                              fontSize: 10.5,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {isReturned ? '↩️ Undo' : '✅ Returned'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkUdhaarStatus(item.id, 'delete')}
+                            style={{
+                              padding: '4px 7px',
+                              borderRadius: 8,
+                              border: '1px solid rgba(244, 63, 94, 0.3)',
+                              background: 'rgba(244, 63, 94, 0.08)',
+                              color: '#fb7185',
+                              fontSize: 10,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                            title="Remove from Udhaar list"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -4760,8 +5198,41 @@ export default function ExpensesModule({
                               </div>
                               <div
                                 onClick={(e) => e.stopPropagation()}
-                                style={{ display: 'flex', gap: 4 }}
+                                style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}
                               >
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleTxUdhaar(tx)}
+                                  style={{
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
+                                    border: udhaarMap[tx.id]
+                                      ? udhaarMap[tx.id].status === 'returned'
+                                        ? '1px solid rgba(16, 185, 129, 0.45)'
+                                        : '1px solid rgba(245, 158, 11, 0.5)'
+                                      : `1px solid ${palette.border}`,
+                                    background: udhaarMap[tx.id]
+                                      ? udhaarMap[tx.id].status === 'returned'
+                                        ? 'rgba(16, 185, 129, 0.16)'
+                                        : 'rgba(245, 158, 11, 0.18)'
+                                      : palette.surface,
+                                    color: udhaarMap[tx.id]
+                                      ? udhaarMap[tx.id].status === 'returned'
+                                        ? '#34d399'
+                                        : '#fbbf24'
+                                      : palette.textSub,
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Mark as Udhaar / Returnable Money (Tap again when returned)"
+                                >
+                                  {udhaarMap[tx.id]
+                                    ? udhaarMap[tx.id].status === 'returned'
+                                      ? '✅ Paid'
+                                      : '⏳ Udhaar'
+                                    : '🤝'}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleToggleTransactionDirection(tx)}
@@ -5679,8 +6150,41 @@ export default function ExpensesModule({
                             </div>
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              style={{ display: 'flex', gap: 4 }}
+                              style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}
                             >
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTxUdhaar(tx)}
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  border: udhaarMap[tx.id]
+                                    ? udhaarMap[tx.id].status === 'returned'
+                                      ? '1px solid rgba(16, 185, 129, 0.45)'
+                                      : '1px solid rgba(245, 158, 11, 0.5)'
+                                    : `1px solid ${palette.border}`,
+                                  background: udhaarMap[tx.id]
+                                    ? udhaarMap[tx.id].status === 'returned'
+                                      ? 'rgba(16, 185, 129, 0.16)'
+                                      : 'rgba(245, 158, 11, 0.18)'
+                                    : palette.surface,
+                                  color: udhaarMap[tx.id]
+                                    ? udhaarMap[tx.id].status === 'returned'
+                                      ? '#34d399'
+                                      : '#fbbf24'
+                                    : palette.textSub,
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                }}
+                                title="Mark as Udhaar / Returnable Money (Tap again when returned)"
+                              >
+                                {udhaarMap[tx.id]
+                                  ? udhaarMap[tx.id].status === 'returned'
+                                    ? '✅ Paid'
+                                    : '⏳ Udhaar'
+                                  : '🤝'}
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleToggleTransactionDirection(tx)}
