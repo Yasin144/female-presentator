@@ -471,6 +471,51 @@ export default function ExpensesModule({
   const [balanceDraftBank, setBalanceDraftBank] = useState('SBI Bank');
   const [balanceDraftMask, setBalanceDraftMask] = useState('');
 
+  // 1-Tap Scroll Mode Switcher ('inside' = dedicated inner scroller, 'full' = full-page scroll)
+  const [txScrollMode, setTxScrollMode] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('pattan.expenses.txScrollMode_v1');
+        if (saved === 'inside' || saved === 'full') return saved;
+      }
+    } catch (_) {}
+    return 'inside';
+  });
+  const toggleTxScrollMode = useCallback(() => {
+    setTxScrollMode((prev) => {
+      const next = prev === 'inside' ? 'full' : 'inside';
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('pattan.expenses.txScrollMode_v1', next);
+        }
+      } catch (_) {}
+      return next;
+    });
+  }, []);
+
+  // Smart Daily Spend Limit Tracker (Default ₹500/day; 0 = Off)
+  const [dailySpendLimit, setDailySpendLimit] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem('pattan.expenses.dailySpendLimit_v1');
+        if (raw !== null && raw !== '') {
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+        }
+      }
+    } catch (_) {}
+    return 500;
+  });
+  const updateDailySpendLimit = useCallback((nextLimit) => {
+    const clean = Math.max(0, Math.round(Number(nextLimit) || 0));
+    setDailySpendLimit(clean);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('pattan.expenses.dailySpendLimit_v1', String(clean));
+      }
+    } catch (_) {}
+  }, []);
+
   // In-App Feature Suggestion / Request Box State (Works Online & Offline, shows Live Loading Indicator while AI works, and shows "✅ Update Completed" when done)
   const [suggestionInputText, setSuggestionInputText] = useState('');
   const [suggestionScreenshotDataUrl, setSuggestionScreenshotDataUrl] = useState('');
@@ -2496,6 +2541,236 @@ export default function ExpensesModule({
     setScanStatus('✅ Exported JSON backup of your Expense Memory.');
   };
 
+  // Discreet Daily Spend Limit Alert (Visual + subtle vibration only — NEVER speaks financial numbers out loud)
+  useEffect(() => {
+    if (!dailySpendLimit || dailySpendLimit <= 0) return;
+    const spentToday = Number(analytics.todaySpend || 0);
+    if (spentToday <= dailySpendLimit) return;
+    const alertKey = `pattan.expenses.dailyLimitAlert_${todayIso}_${dailySpendLimit}`;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (window.localStorage.getItem(alertKey) === '1') return;
+        window.localStorage.setItem(alertKey, '1');
+      }
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate([70, 40, 70]);
+      }
+    } catch (_) {}
+    setScanStatus(
+      `🎯 Daily Spend Alert: Today's spend (₹${formatINR(spentToday)}) crossed your ₹${formatINR(dailySpendLimit)} daily limit.`
+    );
+  }, [analytics.todaySpend, dailySpendLimit, todayIso]);
+
+  // 1-Tap Visual Monthly Passbook Card Generator (High-DPI PNG, strictly excludes private salary numbers)
+  const handleDownloadMonthlyPassbookCard = useCallback(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      const W = 1080;
+      const H = 1320;
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const drawRoundRect = (x, y, w, h, r) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      };
+
+      // Background gradient
+      const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+      bgGrad.addColorStop(0, '#06131f');
+      bgGrad.addColorStop(0.5, '#0b192c');
+      bgGrad.addColorStop(1, '#071c18');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Outer card frame
+      drawRoundRect(36, 36, W - 72, H - 72, 36);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
+      ctx.stroke();
+
+      // Header Banner
+      drawRoundRect(68, 68, W - 136, 130, 24);
+      const hdrGrad = ctx.createLinearGradient(68, 68, W - 68, 198);
+      hdrGrad.addColorStop(0, '#064e3b');
+      hdrGrad.addColorStop(1, '#1e3a8a');
+      ctx.fillStyle = hdrGrad;
+      ctx.fill();
+
+      ctx.fillStyle = '#6ee7b7';
+      ctx.font = '800 22px system-ui, -apple-system, sans-serif';
+      ctx.fillText('📒 EXPENSE PASSBOOK SUMMARY CARD', 100, 120);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 40px system-ui, -apple-system, sans-serif';
+      ctx.fillText(`Month: ${selectedMonth}`, 100, 170);
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '700 20px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`As of ${todayIso}`, W - 100, 168);
+      ctx.textAlign = 'left';
+
+      // 2x2 Bento Summary Tiles
+      const tiles = [
+        {
+          label: 'TODAY SPENT',
+          value: `₹${formatINR(analytics.todaySpend || 0)}`,
+          sub: dailySpendLimit > 0 ? `Daily Limit: ₹${formatINR(dailySpendLimit)}` : `Date: ${todayIso}`,
+          accent: '#f87171',
+        },
+        {
+          label: 'MONTH TOTAL SPENT',
+          value: `₹${formatINR(analytics.netSpending || 0)}`,
+          sub: `${analytics.totalCount || 0} Transactions in ${selectedMonth}`,
+          accent: '#60a5fa',
+        },
+        {
+          label: 'MONTH RECEIVED / CREDIT',
+          value: `+₹${formatINR(analytics.totalCredits || 0)}`,
+          sub: 'Deposits & Refunds',
+          accent: '#34d399',
+        },
+        {
+          label: 'REMAINING BANK BAL',
+          value: `₹${formatINR(analytics.realAccountBalance || 0)}`,
+          sub: analytics.latestBankName || effectiveBankBalanceInfo?.bankName || 'Primary Bank A/c',
+          accent: '#2dd4bf',
+        },
+      ];
+
+      const tileW = (W - 136 - 24) / 2;
+      const tileH = 165;
+      tiles.forEach((t, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const tx = 68 + col * (tileW + 24);
+        const ty = 226 + row * (tileH + 22);
+
+        drawRoundRect(tx, ty, tileW, tileH, 22);
+        ctx.fillStyle = '#111c2d';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+        ctx.stroke();
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '800 18px system-ui, -apple-system, sans-serif';
+        ctx.fillText(t.label, tx + 26, ty + 44);
+
+        ctx.fillStyle = t.accent;
+        ctx.font = '900 42px system-ui, -apple-system, sans-serif';
+        ctx.fillText(t.value, tx + 26, ty + 102);
+
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = '600 18px system-ui, -apple-system, sans-serif';
+        ctx.fillText(String(t.sub).slice(0, 36), tx + 26, ty + 140);
+      });
+
+      // Top Categories Breakdown Section
+      const catY = 616;
+      drawRoundRect(68, catY, W - 136, 360, 24);
+      ctx.fillStyle = '#111c2d';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '900 24px system-ui, -apple-system, sans-serif';
+      ctx.fillText('📊 TOP SPENDING CATEGORIES (THIS MONTH)', 98, catY + 46);
+
+      const topCats = (analytics.categoryBreakdown || []).slice(0, 5);
+      if (topCats.length === 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '600 20px system-ui, -apple-system, sans-serif';
+        ctx.fillText('No spending categories recorded for this month yet.', 98, catY + 110);
+      } else {
+        topCats.forEach((c, i) => {
+          const rowY = catY + 86 + i * 52;
+          const pct = Math.min(100, Math.max(0, Number(c.percentage || 0)));
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = '700 20px system-ui, -apple-system, sans-serif';
+          ctx.fillText(`${c.category} (${pct.toFixed(0)}%)`, 98, rowY);
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = '800 20px system-ui, -apple-system, sans-serif';
+          ctx.fillText(`₹${formatINR(c.amount || 0)}`, W - 98, rowY);
+          ctx.textAlign = 'left';
+
+          // Progress track
+          drawRoundRect(98, rowY + 10, W - 196, 10, 5);
+          ctx.fillStyle = 'rgba(148, 163, 184, 0.18)';
+          ctx.fill();
+
+          const barW = Math.max(12, ((W - 196) * pct) / 100);
+          drawRoundRect(98, rowY + 10, barW, 10, 5);
+          ctx.fillStyle = i === 0 ? '#f87171' : i === 1 ? '#fbbf24' : '#34d399';
+          ctx.fill();
+        });
+      }
+
+      // Recent Transactions Snapshot
+      const recY = 1000;
+      drawRoundRect(68, recY, W - 136, 220, 24);
+      ctx.fillStyle = '#111c2d';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '900 22px system-ui, -apple-system, sans-serif';
+      ctx.fillText('🧾 LATEST TRANSACTIONS SNAPSHOT', 98, recY + 42);
+
+      const latest3 = (recentPaymentsList || []).slice(0, 3);
+      if (latest3.length === 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '600 19px system-ui, -apple-system, sans-serif';
+        ctx.fillText('No recent transactions in current filter.', 98, recY + 95);
+      } else {
+        latest3.forEach((tx, idx) => {
+          const ry = recY + 84 + idx * 42;
+          const isCr = tx.type === 'credit' || tx.type === 'refund';
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '700 19px system-ui, -apple-system, sans-serif';
+          const title = `${tx.date || ''} · ${String(tx.merchant || tx.category || 'Payment').slice(0, 30)}`;
+          ctx.fillText(title, 98, ry);
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = isCr ? '#34d399' : '#f87171';
+          ctx.font = '800 20px system-ui, -apple-system, sans-serif';
+          ctx.fillText(`${isCr ? '+' : '-'}₹${formatINR(tx.amount || 0)}`, W - 98, ry);
+          ctx.textAlign = 'left';
+        });
+      }
+
+      // Footer
+      ctx.fillStyle = '#64748b';
+      ctx.font = '700 17px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Expense Memory Passbook · Private Offline Summary (Salary Hidden for Privacy)', W / 2, H - 52);
+      ctx.textAlign = 'left';
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `Passbook-Summary-${selectedMonth}.png`;
+      a.click();
+      setScanStatus(`🖼️ Downloaded Passbook Summary Card (${selectedMonth})!`);
+    } catch (_) {
+      setScanStatus('⚠️ Could not generate Passbook Summary Card image.');
+    }
+  }, [analytics, selectedMonth, todayIso, dailySpendLimit, effectiveBankBalanceInfo, recentPaymentsList]);
+
   const handleClearAllExpenses = () => {
     setScanStatus('🔒 Permanent Ledger Active: Transactions are permanently protected and cannot be deleted.');
   };
@@ -3778,6 +4053,138 @@ export default function ExpensesModule({
               </div>
             </div>
           )}
+
+          {/* Smart Daily Spend Limit Tracker & 1-Tap Visual Passbook Card */}
+          {subTab === 'overview' && (
+            <div
+              className="stitch-bento-card"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: palette.text }}>
+                    🎯 Daily Spend Limit
+                  </span>
+                  {dailySpendLimit > 0 ? (
+                    <span
+                      className="ot-tabular-nums"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background:
+                          Number(analytics.todaySpend || 0) > dailySpendLimit
+                            ? 'rgba(239, 68, 68, 0.16)'
+                            : Number(analytics.todaySpend || 0) >= dailySpendLimit * 0.75
+                              ? 'rgba(245, 158, 11, 0.16)'
+                              : 'rgba(16, 185, 129, 0.16)',
+                        color:
+                          Number(analytics.todaySpend || 0) > dailySpendLimit
+                            ? '#f87171'
+                            : Number(analytics.todaySpend || 0) >= dailySpendLimit * 0.75
+                              ? '#fbbf24'
+                              : '#34d399',
+                      }}
+                    >
+                      ₹{formatINR(analytics.todaySpend || 0)} / ₹{formatINR(dailySpendLimit)} Today
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>
+                      Off (Tap a preset below to enable)
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadMonthlyPassbookCard}
+                  style={{
+                    padding: '5px 11px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(16, 185, 129, 0.45)',
+                    background: isLight
+                      ? 'linear-gradient(135deg, #059669 0%, #0d9488 100%)'
+                      : 'linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(37, 99, 235, 0.22) 100%)',
+                    color: isLight ? '#ffffff' : '#6ee7b7',
+                    fontSize: 11,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                >
+                  🖼️ Passbook Card
+                </button>
+              </div>
+
+              {dailySpendLimit > 0 && (
+                <div
+                  style={{
+                    width: '100%',
+                    height: 7,
+                    borderRadius: 999,
+                    background: palette.surfaceAlt,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, Math.round(((Number(analytics.todaySpend || 0)) / dailySpendLimit) * 100))}%`,
+                      height: '100%',
+                      borderRadius: 999,
+                      transition: 'width 0.25s ease',
+                      background:
+                        Number(analytics.todaySpend || 0) > dailySpendLimit
+                          ? 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)'
+                          : Number(analytics.todaySpend || 0) >= dailySpendLimit * 0.75
+                            ? 'linear-gradient(90deg, #f59e0b 0%, #eab308 100%)'
+                            : 'linear-gradient(90deg, #10b981 0%, #06b6d4 100%)',
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                  {[300, 500, 1000, 2000, 0].map((preset) => {
+                    const active = dailySpendLimit === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => updateDailySpendLimit(preset)}
+                        style={{
+                          padding: '3px 9px',
+                          borderRadius: 999,
+                          border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
+                          background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
+                          color: active ? '#34d399' : palette.textSub,
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {preset === 0 ? 'Off' : `₹${formatINR(preset)}`}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: palette.textMuted }}>
+                  🔒 Silent visual alert only (Salary never spoken)
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -4146,59 +4553,81 @@ export default function ExpensesModule({
                   border: `1px solid ${palette.border}`,
                 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
-                    📜 Inner Scroller · {recentPaymentsList.length} Transaction{recentPaymentsList.length === 1 ? '' : 's'}
+                    {txScrollMode === 'inside' ? '📜 Inside Scroller' : '📄 Full Page View'} · {recentPaymentsList.length} Transaction{recentPaymentsList.length === 1 ? '' : 's'}
                   </span>
-                  {recentPaymentsList.length > 3 && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        type="button"
-                        onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                        style={{
-                          padding: '4px 9px',
-                          borderRadius: 999,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: palette.textSub,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ↑ Top
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                        style={{
-                          padding: '4px 9px',
-                          borderRadius: 999,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: palette.textSub,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ↓ Bottom
-                      </button>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={toggleTxScrollMode}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 999,
+                        border: '1px solid rgba(52, 211, 153, 0.45)',
+                        background: 'rgba(16, 185, 129, 0.14)',
+                        color: '#34d399',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {txScrollMode === 'inside' ? '⇄ Full Page' : '⇄ Inside Scroller'}
+                    </button>
+                    {txScrollMode === 'inside' && recentPaymentsList.length > 3 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: 999,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surface,
+                            color: palette.textSub,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ↑ Top
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: 999,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surface,
+                            color: palette.textSub,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ↓ Bottom
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div
                   ref={recentScrollerRef}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  onTouchEnd={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => {
+                    if (txScrollMode === 'inside') e.stopPropagation();
+                  }}
+                  onTouchEnd={(e) => {
+                    if (txScrollMode === 'inside') e.stopPropagation();
+                  }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 12,
-                    maxHeight: mobileMode ? 420 : 520,
-                    overflowY: 'auto',
-                    overscrollBehavior: 'contain',
+                    maxHeight: txScrollMode === 'inside' ? (mobileMode ? 420 : 520) : 'none',
+                    overflowY: txScrollMode === 'inside' ? 'auto' : 'visible',
+                    overscrollBehavior: txScrollMode === 'inside' ? 'contain' : 'auto',
                     WebkitOverflowScrolling: 'touch',
-                    paddingRight: 4,
+                    paddingRight: txScrollMode === 'inside' ? 4 : 0,
                     scrollBehavior: 'smooth',
                   }}
                 >
@@ -5043,44 +5472,78 @@ export default function ExpensesModule({
             border: `1px solid ${palette.border}`,
           }}>
             <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
-              📜 Passbook Inner Scroller · {filteredTransactions.length} Unlimited Transactions
+              {txScrollMode === 'inside' ? '📜 Passbook Inside Scroller' : '📄 Passbook Full Page View'} · {filteredTransactions.length} Unlimited Transactions
             </span>
-            {filteredTransactions.length > 3 && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                  style={{
-                    padding: '4px 9px',
-                    borderRadius: 999,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.textSub,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ↑ Top
-                </button>
-                <button
-                  type="button"
-                  onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                  style={{
-                    padding: '4px 9px',
-                    borderRadius: 999,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: palette.textSub,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ↓ Bottom
-                </button>
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleDownloadMonthlyPassbookCard}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(59, 130, 246, 0.45)',
+                  background: 'rgba(59, 130, 246, 0.14)',
+                  color: '#60a5fa',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                🖼️ Passbook Card
+              </button>
+              <button
+                type="button"
+                onClick={toggleTxScrollMode}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(52, 211, 153, 0.45)',
+                  background: 'rgba(16, 185, 129, 0.14)',
+                  color: '#34d399',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                {txScrollMode === 'inside' ? '⇄ Full Page' : '⇄ Inside Scroller'}
+              </button>
+              {txScrollMode === 'inside' && filteredTransactions.length > 3 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: 999,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.textSub,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ↑ Top
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: 999,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.textSub,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ↓ Bottom
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {groupedByDay.length === 0 ? (
@@ -5090,17 +5553,21 @@ export default function ExpensesModule({
           ) : (
             <div
               ref={transactionsScrollerRef}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => e.stopPropagation()}
+              onTouchStart={(e) => {
+                if (txScrollMode === 'inside') e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
+                if (txScrollMode === 'inside') e.stopPropagation();
+              }}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 12,
-                maxHeight: mobileMode ? 460 : 560,
-                overflowY: 'auto',
-                overscrollBehavior: 'contain',
+                maxHeight: txScrollMode === 'inside' ? (mobileMode ? 460 : 560) : 'none',
+                overflowY: txScrollMode === 'inside' ? 'auto' : 'visible',
+                overscrollBehavior: txScrollMode === 'inside' ? 'contain' : 'auto',
                 WebkitOverflowScrolling: 'touch',
-                paddingRight: 4,
+                paddingRight: txScrollMode === 'inside' ? 4 : 0,
                 scrollBehavior: 'smooth',
               }}
             >

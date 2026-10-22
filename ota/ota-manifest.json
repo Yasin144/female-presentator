@@ -1,8 +1,8 @@
 {
-  "version": "8.2.21",
-  "buildId": "ota_8_2_21_recent_tx_inner_scroller_and_apk_only",
-  "releasedAt": "2026-10-22T21:13:00+05:30",
+  "version": "8.2.22",
+  "buildId": "ota_8_2_22_passbook_card_daily_limit_and_scroller_toggle",
+  "releasedAt": "2026-10-22T22:07:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.21: Recent Transactions & Passbook show all transactions inside a dedicated Inner Scroller (with Top/Bottom quick jump, not full-page scroll) + Removed OT & Salary app from desktop/web app (Mobile APK only)."
+  "notes": "v8.2.22: 1-Tap Scroll View Switcher (Inside Scroller <-> Full Page) + Smart Daily Spend Limit Tracker (silent visual alert, never speaks salary) + 1-Tap Visual Monthly Passbook Card PNG Export."
 }
