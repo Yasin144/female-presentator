@@ -14,6 +14,7 @@ import android.media.AudioAttributes;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.speech.tts.TextToSpeech;
 
 import androidx.core.app.NotificationCompat;
@@ -49,8 +50,19 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
         if (context == null) return;
         final String textToSpeak = (speechText != null && !speechText.trim().isEmpty())
             ? speechText.trim()
-            : "Your time has completed";
+            : "Your time is completed. Your time has completed.";
         try {
+            final Context appCtx = context.getApplicationContext();
+            try {
+                PowerManager pm = (PowerManager) appCtx.getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    PowerManager.WakeLock wl = pm.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK,
+                        "pattan:office_end_voice_wakelock"
+                    );
+                    wl.acquire(15000L);
+                }
+            } catch (Exception ignored) {}
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
                     if (activeTts != null) {
@@ -60,7 +72,6 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                         } catch (Exception ignored) {}
                         activeTts = null;
                     }
-                    final Context appCtx = context.getApplicationContext();
                     activeTts = new TextToSpeech(appCtx, status -> {
                         if (status == TextToSpeech.SUCCESS && activeTts != null) {
                             try {
@@ -69,17 +80,18 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
                                     activeTts.setLanguage(Locale.getDefault());
                                 }
                                 activeTts.setSpeechRate(0.95f);
+                                String doubleSpeech = textToSpeak + ". " + textToSpeak;
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                                     AudioAttributes attrs = new AudioAttributes.Builder()
-                                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                                        .setUsage(AudioAttributes.USAGE_ALARM)
                                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                                         .build();
                                     activeTts.setAudioAttributes(attrs);
                                     Bundle params = new Bundle();
                                     params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
-                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, params, "pattan_time_completed_utt");
+                                    activeTts.speak(doubleSpeech, TextToSpeech.QUEUE_FLUSH, params, "pattan_time_completed_utt");
                                 } else {
-                                    activeTts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, null);
+                                    activeTts.speak(doubleSpeech, TextToSpeech.QUEUE_FLUSH, null);
                                 }
                             } catch (Exception ignored) {}
                         }
@@ -196,9 +208,13 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
 
             long triggerAtMillis = target.getTimeInMillis();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi);
+                try {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi);
+                } catch (SecurityException se) {
+                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi);
+                }
             } else {
-                am.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi);
+                am.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi);
             }
         } catch (Exception ignored) {}
     }

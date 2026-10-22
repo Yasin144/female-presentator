@@ -105,6 +105,7 @@ public class MainActivity extends BridgeActivity {
                 wv.setBackgroundColor(android.graphics.Color.parseColor("#070C18"));
             } catch (Exception ignored) {}
             wv.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+            wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
             wv.clearCache(true);
             PattanBiometricBridge bioBridge = new PattanBiometricBridge();
             wv.addJavascriptInterface(bioBridge, "PattanBiometric");
@@ -146,7 +147,18 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        if (bridge != null && bridge.getWebView() != null) {
+            bridge.getWebView().resumeTimers();
+        }
         performMobileTransactionScanAsync();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (bridge != null && bridge.getWebView() != null) {
+            bridge.getWebView().resumeTimers();
+        }
     }
 
     private void handleIncomingSharedReceiptIntent(Intent intent) {

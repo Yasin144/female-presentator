@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
-import { speakTimeCompletedOutLoud, ensureVoiceAudioUnlocked } from './timeCompletedVoice.js';
+import {
+  speakTimeCompletedOutLoud,
+  ensureVoiceAudioUnlocked,
+  armShiftEndVoiceAlarm,
+  subscribeBackgroundClockTick,
+  scheduleLockScreenVoiceTestInSeconds,
+} from './timeCompletedVoice.js';
 import './OtSalary.css';
 import {
   loadEncryptedExpenseStore,
@@ -1808,14 +1814,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [mobileTab, navigateTab, goBackStep]);
 
   useEffect(() => {
-    const clockTimer = setInterval(() => {
-      const now = new Date();
+    const tickClock = (nowObj) => {
+      const now = nowObj instanceof Date ? nowObj : new Date();
       setLiveNow(now);
       setLiveClockHHMM(
         `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
       );
-    }, 1000);
-    return () => clearInterval(clockTimer);
+    };
+    const clockTimer = setInterval(() => tickClock(new Date()), 1000);
+    const unsubWorker = subscribeBackgroundClockTick(tickClock);
+    return () => {
+      clearInterval(clockTimer);
+      unsubWorker();
+    };
   }, []);
 
   useEffect(() => {
@@ -2167,9 +2178,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.16';
+      return localStorage.getItem('pattan.ota.version') || '8.2.17';
     } catch (_) {
-      return '8.2.16';
+      return '8.2.17';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2178,9 +2189,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_17_lock_screen_voice_alarm_keepalive';
     } catch (_) {
-      return 'ota_8_2_16_auto_apply_190_debit_and_message_sync_dedup';
+      return 'ota_8_2_17_lock_screen_voice_alarm_keepalive';
     }
   });
 
@@ -4295,14 +4306,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   }, [settings.officeEndTime, daysMap, entryInTime, rates.shiftMins]);
 
-  // Sync Native Android Daily Alarm for Exact Shift End Time (Sign-In + Shift Duration) & Unlock Voice Audio
+  // Sync Native Android Daily Alarm + Continuous Lock-Screen Hardware Audio Alarm for Exact Shift End Time
   useEffect(() => {
     ensureVoiceAudioUnlocked();
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
-    const inTimeUsed = todayRec.inTime || entryInTime || settings.officeStartTime || '10:00';
-    const inM = parseTimeToMinutes(inTimeUsed, 10 * 60);
-    const targetEndMins = (inM + rates.shiftMins) % 1440;
+    const inTimeUsed = todayRec.inTime || (selectedDate === todayIso ? entryInTime : '') || settings.officeStartTime || '08:23';
+    const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
+    const statusUsed = todayRec.status || (selectedDate === todayIso ? entryStatus : 'present') || 'present';
+    const targetDutyMins =
+      statusUsed === 'half'
+        ? Math.round(rates.shiftMins / 2)
+        : statusUsed === 'ot_only'
+          ? 0
+          : rates.shiftMins;
+    const targetEndMins = (inM + targetDutyMins) % 1440;
     const endHour24 = Math.floor(targetEndMins / 60);
     const endMin = targetEndMins % 60;
 
@@ -4318,7 +4336,50 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         }
       } catch (_) {}
     }
-  }, [daysMap, entryInTime, settings.officeStartTime, settings.employeeName, rates.shiftMins]);
+
+    if (todayRec?.status === 'leave' || (todayRec?.outTime && String(todayRec.outTime).trim())) {
+      armShiftEndVoiceAlarm({ targetEpochMs: 0, dateKey: '' });
+      return;
+    }
+
+    const shiftAlarmKey = `${todayIso}_${inTimeUsed}_${targetEndMins}`;
+    let alreadySpokenKey = '';
+    let alreadySpokenDate = '';
+    try {
+      alreadySpokenKey = localStorage.getItem('pattan.ot.officeEndVoiceSpokenKey_v8217') || '';
+      alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8214') || '';
+    } catch (_) {}
+
+    const now = new Date();
+    const targetDate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      endHour24,
+      endMin,
+      0,
+      0
+    );
+    const targetEpochMs = targetDate.getTime();
+    const endHHMM = minutesToTimeInput(targetEndMins);
+
+    if (alreadySpokenKey !== shiftAlarmKey && targetEpochMs > now.getTime()) {
+      armShiftEndVoiceAlarm({
+        targetEpochMs,
+        dateKey: shiftAlarmKey,
+        onTrigger: () => {
+          try {
+            localStorage.setItem('pattan.ot.officeEndVoiceSpokenKey_v8217', shiftAlarmKey);
+            localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8214', todayIso);
+            localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
+          } catch (_) {}
+          triggerOfficeEndAndOtStartNotification(endHHMM);
+        },
+      });
+    } else if (alreadySpokenKey === shiftAlarmKey || alreadySpokenDate === todayIso) {
+      armShiftEndVoiceAlarm({ targetEpochMs: 0, dateKey: '' });
+    }
+  }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, settings.employeeName, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
 
   useEffect(() => {
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
@@ -4329,9 +4390,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     if (todayRec?.status === 'leave') return;
     if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT
 
-    const inTimeUsed = todayRec.inTime || entryInTime || '08:23';
+    const inTimeUsed = todayRec.inTime || (selectedDate === todayIso ? entryInTime : '') || '08:23';
     const inM = parseTimeToMinutes(inTimeUsed, 8 * 60 + 23);
-    const statusUsed = todayRec.status || 'present';
+    const statusUsed = todayRec.status || (selectedDate === todayIso ? entryStatus : 'present') || 'present';
     const targetDutyMins =
       statusUsed === 'half'
         ? Math.round(rates.shiftMins / 2)
@@ -4339,6 +4400,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           ? 0
           : rates.shiftMins;
     const targetEndMins = inM + targetDutyMins;
+    const shiftAlarmKey = `${todayIso}_${inTimeUsed}_${targetEndMins % 1440}`;
 
     // Trigger once per day as soon as current time is at or past targetEndMins (e.g. 08:23 AM + 8h 30m = 04:53 PM)
     if (nowMins >= targetEndMins && nowMins <= 23 * 60 + 58) {
@@ -4346,20 +4408,38 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         autoOpenedLiveOtDateRef.current = todayIso;
         setShowLiveOtRunnerModal(true);
       }
+      let alreadySpokenKey = '';
       let alreadySpokenDate = '';
       try {
+        alreadySpokenKey = localStorage.getItem('pattan.ot.officeEndVoiceSpokenKey_v8217') || '';
         alreadySpokenDate = localStorage.getItem('pattan.ot.officeEndVoiceSpokenDate_v8214') || '';
       } catch (_) {}
-      if (alreadySpokenDate !== todayIso) {
+      if (alreadySpokenKey !== shiftAlarmKey && alreadySpokenDate !== todayIso) {
         try {
+          localStorage.setItem('pattan.ot.officeEndVoiceSpokenKey_v8217', shiftAlarmKey);
           localStorage.setItem('pattan.ot.officeEndVoiceSpokenDate_v8214', todayIso);
           localStorage.setItem('pattan.ot.officeEndNotifiedDate', todayIso);
         } catch (_) {}
-        const endHHMM = minutesToTimeInput(targetEndMins % 1440);
-        triggerOfficeEndAndOtStartNotification(endHHMM);
+        const isScreenOffOrLocked = typeof document !== 'undefined' && Boolean(document.hidden);
+        const minsPastShiftEnd = nowMins - targetEndMins;
+        // Always speak if screen is locked/off OR if within 2 minutes of exact shift end time.
+        // Never blurt out late just because the user opened the app hours after shift end.
+        if (isScreenOffOrLocked || minsPastShiftEnd <= 2) {
+          const endHHMM = minutesToTimeInput(targetEndMins % 1440);
+          triggerOfficeEndAndOtStartNotification(endHHMM);
+        }
       }
     }
-  }, [liveClockHHMM, daysMap, entryInTime, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
+  }, [liveClockHHMM, daysMap, selectedDate, entryInTime, entryStatus, rates.shiftMins, triggerOfficeEndAndOtStartNotification]);
+
+  const handleTestLockScreenVoiceIn6Sec = useCallback(() => {
+    ensureVoiceAudioUnlocked();
+    setSaveNotice('🔒 Lock your phone / turn screen OFF now! Voice will speak in 6 seconds...');
+    scheduleLockScreenVoiceTestInSeconds(6, () => {
+      const endHHMM = liveOtTicker?.officeEnd24h || settings.officeEndTime || '18:30';
+      triggerOfficeEndAndOtStartNotification(endHHMM);
+    });
+  }, [liveOtTicker?.officeEnd24h, settings.officeEndTime, triggerOfficeEndAndOtStartNotification]);
 
   // 1-Tap & Biometric Touch Sensor Live Mobile Punch Actions
   const punchEnterNowAndSave = (isBiometric = false, methodUsed = 'touch-sensor') => {
@@ -6206,6 +6286,23 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
                 <button
                   type="button"
+                  onClick={handleTestLockScreenVoiceIn6Sec}
+                  title="Tap, then lock your phone or turn screen off — speaks in 6 seconds while locked"
+                  style={{
+                    padding: '4px 9px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(56, 189, 248, 0.55)',
+                    background: 'rgba(14, 165, 233, 0.2)',
+                    color: isLight ? '#0369a1' : '#7dd3fc',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔒 Lock Test (6s)
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowLiveOtRunnerModal(true)}
                   style={{
                     padding: '4px 10px',
@@ -6524,6 +6621,22 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </button>
                 <button
                   type="button"
+                  onClick={handleTestLockScreenVoiceIn6Sec}
+                  style={{
+                    padding: '12px 12px',
+                    borderRadius: 14,
+                    border: '1px solid rgba(56, 189, 248, 0.65)',
+                    background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+                    color: '#ffffff',
+                    fontWeight: 950,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔒 Lock Test (6s)
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     setShowLiveOtRunnerModal(false);
                     performBiometricPunch('out');
@@ -6649,6 +6762,25 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   }}
                 >
                   🔔 Test &ldquo;Office Time Ends &amp; OT Time Starts&rdquo; Notification Now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNotificationsModal(false);
+                    handleTestLockScreenVoiceIn6Sec();
+                  }}
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(56, 189, 248, 0.6)',
+                    background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔒 Test Voice While Phone Locked / Screen Off (6s)
                 </button>
               </div>
 
