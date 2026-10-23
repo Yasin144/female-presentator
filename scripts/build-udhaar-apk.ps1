@@ -22,6 +22,8 @@ New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 Move-Item (Join-Path $javaDir "PaymentNotificationService.java") $backupDir -Force
 Move-Item (Join-Path $javaDir "MobileTransactionParser.java") $backupDir -Force
 Move-Item (Join-Path $javaDir "OfficeEndAlarmReceiver.java") $backupDir -Force
+$resDir = Join-Path $rootDir "android\app\src\main\res"
+Copy-Item $resDir (Join-Path $backupDir "res") -Recurse -Force
 
 $ksFile = Join-Path $env:TEMP "pattan-udhaar-release-v108.jks"
 if (-not (Test-Path $ksFile)) {
@@ -127,6 +129,8 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -140,8 +144,9 @@ public class MainActivity extends BridgeActivity {
     private static final String UDHAAR_OTA_PREF_NAME = "pattan_udhaar_live_ota_prefs_v1";
     private static final String UDHAAR_OTA_JS_FILE = "pattan_udhaar_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "pattan_udhaar_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.8";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.9";
     private String pendingBioActionType = "unlock";
+    private long lastRootBackPressMs = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -162,6 +167,53 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception ignored) {}
         bridge.setWebViewClient(new UdhaarWebViewClient());
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleSmartBackGesture();
+            }
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        handleSmartBackGesture();
+    }
+
+    private void handleSmartBackGesture() {
+        if (bridge == null || bridge.getWebView() == null) {
+            moveTaskToBack(true);
+            return;
+        }
+        final WebView webView = bridge.getWebView();
+        final String js = "(function(){"
+            + "try {"
+            + "  if (typeof window.__handlePattanHardwareBack === 'function') {"
+            + "    return String(window.__handlePattanHardwareBack() || '');"
+            + "  }"
+            + "  if (typeof window.__udhaarHandleHardwareBack === 'function') {"
+            + "    return String(window.__udhaarHandleHardwareBack() || '');"
+            + "  }"
+            + "} catch (e) {}"
+            + "return '';"
+            + "})()";
+        webView.evaluateJavascript(js, value -> {
+            String clean = value == null ? "" : value.replace("\"", "").trim();
+            if ("handled".equalsIgnoreCase(clean) || "true".equalsIgnoreCase(clean)) {
+                triggerNativeVibrate(25);
+                lastRootBackPressMs = 0L;
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastRootBackPressMs < 2200L) {
+                moveTaskToBack(true);
+            } else {
+                lastRootBackPressMs = now;
+                triggerNativeVibrate(35);
+                Toast.makeText(MainActivity.this, "Press back again to exit Udhaar Book", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @Override
@@ -512,9 +564,9 @@ public class MainActivity extends BridgeActivity {
 "@
     [System.IO.File]::WriteAllText($mainActivityPath, $cleanMainActivity, $utf8NoBom)
 
-    # 4. Configure build.gradle and strings.xml for com.pattan.udhaar v1.0.8
+    # 4. Configure build.gradle, strings.xml, and custom Amber-Gold Udhaar Book Launcher Icons for com.pattan.udhaar v1.0.9
     $ksPath = $ksFile.Replace("\", "/")
-    $udhaarGradle = $origGradle.Replace('applicationId "com.pattan.presentator"', 'applicationId "com.pattan.udhaar"').Replace('versionCode 24', 'versionCode 8').Replace('versionName "7.8"', 'versionName "1.0.8"')
+    $udhaarGradle = $origGradle.Replace('applicationId "com.pattan.presentator"', 'applicationId "com.pattan.udhaar"').Replace('versionCode 24', 'versionCode 9').Replace('versionName "7.8"', 'versionName "1.0.9"')
     $signingBlock = @"
     signingConfigs {
         release {
@@ -544,6 +596,141 @@ public class MainActivity extends BridgeActivity {
 "@
     [System.IO.File]::WriteAllText($stringsPath, $udhaarStrings, $utf8NoBom)
 
+    # 4b. Replace Adaptive Launcher Icon XMLs & PNGs with Distinct Amber-Orange & Gold "UDHAAR ₹" Book Logo
+    $bgColorXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#EA580C</color>
+</resources>
+"@
+    [System.IO.File]::WriteAllText((Join-Path $resDir "values\ic_launcher_background.xml"), $bgColorXml, $utf8NoBom)
+
+    $adaptiveXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+"@
+    [System.IO.File]::WriteAllText((Join-Path $resDir "mipmap-anydpi-v26\ic_launcher.xml"), $adaptiveXml, $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $resDir "mipmap-anydpi-v26\ic_launcher_round.xml"), $adaptiveXml, $utf8NoBom)
+
+    $bgDrawableXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#F59E0B" />
+                <item android:offset="0.55" android:color="#EA580C" />
+                <item android:offset="1.0" android:color="#9A3412" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#22FDE047"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+</vector>
+"@
+    [System.IO.File]::WriteAllText((Join-Path $resDir "drawable\ic_launcher_background.xml"), $bgDrawableXml, $utf8NoBom)
+
+    $fgDrawableXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Left & Right Open Ledger Book Pages -->
+    <path
+        android:fillColor="#FFFBEB"
+        android:strokeColor="#FDE047"
+        android:strokeWidth="1.5"
+        android:pathData="M26,30 C26,27.5 28,25.5 30.5,25.5 L50,25.5 C52.2,25.5 54,27.3 54,29.5 L54,74 C54,72 52.2,70.5 50,70.5 L30.5,70.5 C28,70.5 26,68.5 26,66 Z" />
+    <path
+        android:fillColor="#FEF3C7"
+        android:strokeColor="#FDE047"
+        android:strokeWidth="1.5"
+        android:pathData="M82,30 C82,27.5 80,25.5 77.5,25.5 L58,25.5 C55.8,25.5 54,27.3 54,29.5 L54,74 C54,72 55.8,70.5 58,70.5 L77.5,70.5 C80,70.5 82,68.5 82,66 Z" />
+    <!-- Ledger Lines -->
+    <path android:strokeColor="#D97706" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M32,35 L47,35" />
+    <path android:strokeColor="#F59E0B" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M32,42 L44,42" />
+    <path android:strokeColor="#D97706" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M61,35 L76,35" />
+    <path android:strokeColor="#F59E0B" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M64,42 L76,42" />
+    <!-- Center Gold Rupee Coin -->
+    <path
+        android:fillColor="#B45309"
+        android:strokeColor="#FEF08A"
+        android:strokeWidth="2.5"
+        android:pathData="M54,53m-15,0a15,15 0,1 1,30 0a15,15 0,1 1,-30 0" />
+    <!-- Rupee Symbol (₹) inside Coin -->
+    <path
+        android:strokeColor="#FFFBEB"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M48,45 L60,45 M48,50 L60,50 M54,45 C56.5,45 58,46.8 58,49 C58,51.5 56,53 52.5,53 L49,53 L58.5,61.5" />
+</vector>
+"@
+    [System.IO.File]::WriteAllText((Join-Path $resDir "drawable-v24\ic_launcher_foreground.xml"), $fgDrawableXml, $utf8NoBom)
+
+    Add-Type -AssemblyName System.Drawing
+    $densities = @(
+        @{ Folder = "mipmap-mdpi"; Size = 48 },
+        @{ Folder = "mipmap-hdpi"; Size = 72 },
+        @{ Folder = "mipmap-xhdpi"; Size = 96 },
+        @{ Folder = "mipmap-xxhdpi"; Size = 144 },
+        @{ Folder = "mipmap-xxxhdpi"; Size = 192 }
+    )
+    foreach ($d in $densities) {
+        $sz = $d.Size
+        $folderPath = Join-Path $resDir $d.Folder
+        $bmp = New-Object System.Drawing.Bitmap($sz, $sz)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+
+        $rect = New-Object System.Drawing.Rectangle(0, 0, $sz, $sz)
+        $gradBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+            $rect,
+            [System.Drawing.Color]::FromArgb(255, 245, 158, 11),
+            [System.Drawing.Color]::FromArgb(255, 180, 83, 9),
+            45.0
+        )
+        $g.FillEllipse($gradBrush, 1, 1, $sz - 2, $sz - 2)
+        $borderPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 254, 240, 138), [Math]::Max(2, [int]($sz * 0.05)))
+        $g.DrawEllipse($borderPen, 2, 2, $sz - 4, $sz - 4)
+
+        $fontSize = [Math]::Max(14, [int]($sz * 0.44))
+        $font = New-Object System.Drawing.Font("Segoe UI", $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+        $sf = New-Object System.Drawing.StringFormat
+        $sf.Alignment = [System.Drawing.StringAlignment]::Center
+        $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 251, 235))
+        $g.DrawString("₹", $font, $whiteBrush, [float]($sz / 2), [float]($sz * 0.43), $sf)
+
+        $subFontSize = [Math]::Max(7, [int]($sz * 0.14))
+        $subFont = New-Object System.Drawing.Font("Segoe UI", $subFontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+        $goldBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 254, 240, 138))
+        $g.DrawString("UDHAAR", $subFont, $goldBrush, [float]($sz / 2), [float]($sz * 0.76), $sf)
+
+        $g.Dispose()
+        $bmp.Save((Join-Path $folderPath "ic_launcher.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Save((Join-Path $folderPath "ic_launcher_round.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Save((Join-Path $folderPath "ic_launcher_foreground.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+    }
+
     # 5. Build clean release APK
     Push-Location (Join-Path $rootDir "android")
     .\gradlew.bat assembleRelease
@@ -554,7 +741,7 @@ public class MainActivity extends BridgeActivity {
     Copy-Item $apkSrc (Join-Path $rootDir "ota-udhaar\Udhaar-Tracker-Pro-Friend.apk") -Force
     Copy-Item $apkSrc (Join-Path $rootDir "ota\Udhaar-Tracker-Pro-Friend.apk") -Force
     Remove-Item (Join-Path $rootDir "public\Udhaar-Tracker-Pro-Friend.apk") -Force -ErrorAction SilentlyContinue
-    Write-Host "PLAY-PROTECT-CLEAN APK v1.0.8 BUILT & COPIED: $((Get-Item $apkSrc).Length) bytes"
+    Write-Host "PLAY-PROTECT-CLEAN APK v1.0.9 BUILT & COPIED: $((Get-Item $apkSrc).Length) bytes"
 } finally {
     if ((Get-Location).Path.EndsWith("\android")) { Pop-Location }
     [System.IO.File]::WriteAllText($manifestPath, $origManifest, $utf8NoBom)
@@ -562,6 +749,10 @@ public class MainActivity extends BridgeActivity {
     [System.IO.File]::WriteAllText($stringsPath, $origStrings, $utf8NoBom)
     [System.IO.File]::WriteAllText($mainActivityPath, $origMainActivity, $utf8NoBom)
     Move-Item (Join-Path $backupDir "*.java") $javaDir -Force
+    if (Test-Path (Join-Path $backupDir "res")) {
+        Remove-Item $resDir -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $backupDir "res") $resDir -Recurse -Force
+    }
     Remove-Item $backupDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item "$pubDir\*" -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item (Join-Path $rootDir "renderer-dist\*") $pubDir -Recurse -Force

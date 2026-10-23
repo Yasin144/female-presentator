@@ -1,8 +1,8 @@
 {
-  "version": "8.2.31",
-  "buildId": "ota_8_2_31_never_pause_background_music",
-  "releasedAt": "2026-10-23T08:32:00+05:30",
+  "version": "8.2.32",
+  "buildId": "ota_8_2_32_distinct_app_logos",
+  "releasedAt": "2026-10-23T03:30:18Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.31: Stopped continuous background <audio> stream from stealing Android audio focus so Spotify / YouTube Music / background music never pauses when opening or using the Salary & OT app."
+  "notes": "v8.2.32: Custom Indigo-Emerald SALARY & OT Clock+Rupee header logo badge + background music never pauses when opening the app."
 }

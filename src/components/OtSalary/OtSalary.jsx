@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.31';
+      return localStorage.getItem('pattan.ota.version') || '8.2.32';
     } catch (_) {
-      return '8.2.31';
+      return '8.2.32';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_31_never_pause_background_music';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_32_distinct_salary_and_udhaar_logos';
     } catch (_) {
-      return 'ota_8_2_31_never_pause_background_music';
+      return 'ota_8_2_32_distinct_salary_and_udhaar_logos';
     }
   });
 
@@ -5572,7 +5572,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     }}
                   />
                 ) : (
-                  getEmployeeInitials(displayProfileName)
+                  <svg width="34" height="34" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="6" y="8" width="52" height="48" rx="14" fill="#1E1B4B" stroke="#38BDF8" strokeWidth="2.5" />
+                    <circle cx="24" cy="28" r="10" fill="#0F172A" stroke="#34D399" strokeWidth="2.5" />
+                    <path d="M24 22V28L28 31" stroke="#34D399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <text x="44" y="34" textAnchor="middle" fill="#FDE047" fontSize="18" fontWeight="900" fontFamily="system-ui, sans-serif">₹</text>
+                    <rect x="10" y="42" width="44" height="10" rx="5" fill="#0284C7" />
+                    <text x="32" y="49.5" textAnchor="middle" fill="#FFFFFF" fontSize="7.2" fontWeight="900" letterSpacing="0.5" fontFamily="system-ui, sans-serif">SALARY OT</text>
+                  </svg>
                 )}
                 <span
                   style={{
@@ -5613,6 +5620,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {displayProfileName}
+                  </span>
+                  <span
+                    style={{
+                      padding: '2px 6px',
+                      borderRadius: 6,
+                      background: 'rgba(14, 165, 233, 0.16)',
+                      border: '1px solid rgba(56, 189, 248, 0.45)',
+                      color: isLight ? '#0369a1' : '#38bdf8',
+                      fontSize: 9,
+                      fontWeight: 900,
+                      letterSpacing: '0.04em',
+                      flexShrink: 0,
+                    }}
+                  >
+                    SALARY &amp; OT
                   </span>
                   <span style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }}>✏️</span>
                 </div>

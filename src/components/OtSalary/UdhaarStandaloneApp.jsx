@@ -5,8 +5,84 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.8';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_8_play_protect_clean_manifest_no_notif_service';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.9';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_9_distinct_udhaar_book_logo_and_launcher_icon';
+
+function UdhaarBookLogoBadge({ size = 44 }) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.round(size * 0.28),
+        background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 55%, #b45309 100%)',
+        boxShadow: '0 4px 12px rgba(234, 88, 12, 0.38), inset 0 1px 1px rgba(255, 255, 255, 0.35)',
+        border: '1.5px solid rgba(253, 224, 71, 0.65)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+      title="Udhaar Book Official Logo"
+    >
+      <svg
+        width={Math.round(size * 0.86)}
+        height={Math.round(size * 0.86)}
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Open Ledger Book Pages */}
+        <path
+          d="M10 14C10 11.7909 11.7909 10 14 10H28C30.2091 10 32 11.7909 32 14V46C32 44.3431 30.6569 43 29 43H14C11.7909 43 10 41.2091 10 39V14Z"
+          fill="#FFFBEB"
+          stroke="#FDE68A"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M54 14C54 11.7909 52.2091 10 50 10H36C33.7909 10 32 11.7909 32 14V46C32 44.3431 33.3431 43 35 43H50C52.2091 43 54 41.2091 54 39V14Z"
+          fill="#FEF3C7"
+          stroke="#FDE68A"
+          strokeWidth="1.5"
+        />
+        {/* Ledger Lines */}
+        <line x1="15" y1="18" x2="27" y2="18" stroke="#D97706" strokeWidth="2" strokeLinecap="round" />
+        <line x1="15" y1="24" x2="25" y2="24" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
+        <line x1="37" y1="18" x2="49" y2="18" stroke="#D97706" strokeWidth="2" strokeLinecap="round" />
+        <line x1="39" y1="24" x2="49" y2="24" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
+        {/* Center Royal Gold Rupee Emblem */}
+        <circle cx="32" cy="30" r="11.5" fill="#B45309" stroke="#FEF08A" strokeWidth="2" />
+        <text
+          x="32"
+          y="35.5"
+          textAnchor="middle"
+          fill="#FFFBEB"
+          fontSize="16"
+          fontWeight="900"
+          fontFamily="system-ui, sans-serif"
+        >
+          ₹
+        </text>
+        {/* Bottom UDHAAR Pill Banner */}
+        <rect x="8" y="47" width="48" height="12" rx="6" fill="#78350F" stroke="#FDE047" strokeWidth="1.2" />
+        <text
+          x="32"
+          y="55.5"
+          textAnchor="middle"
+          fill="#FEF08A"
+          fontSize="8.2"
+          fontWeight="900"
+          letterSpacing="0.6"
+          fontFamily="system-ui, sans-serif"
+        >
+          UDHAAR
+        </text>
+      </svg>
+    </div>
+  );
+}
 
 // Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
 const UDHAAR_OTA_BASES = [
@@ -1232,6 +1308,73 @@ export default function UdhaarStandaloneApp({
   // Edit Modal State
   const [editItem, setEditItem] = useState(null);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ANDROID HARDWARE BACK BUTTON HANDLER (Never exit unexpectedly!)
+  // Closes open modals -> collapses expanded member details -> clears search
+  // ═══════════════════════════════════════════════════════════════════════════
+  const handleHardwareBackPress = useCallback(() => {
+    if (whatsAppPhonePromptItem) {
+      setWhatsAppPhonePromptItem(null);
+      return 'handled';
+    }
+    if (paymentModalItem) {
+      setPaymentModalItem(null);
+      return 'handled';
+    }
+    if (editItem) {
+      setEditItem(null);
+      return 'handled';
+    }
+    if (showAddModal) {
+      setShowAddModal(false);
+      return 'handled';
+    }
+    const hasExpandedPerson =
+      allPersonsExpanded || Object.values(expandedPersonIds || {}).some(Boolean);
+    if (hasExpandedPerson) {
+      setAllPersonsExpanded(false);
+      setExpandedPersonIds({});
+      return 'handled';
+    }
+    if (searchQuery && searchQuery.trim().length > 0) {
+      setSearchQuery('');
+      return 'handled';
+    }
+    if (selectedSheetFilter !== 'ALL') {
+      setSelectedSheetFilter('ALL');
+      return 'handled';
+    }
+    if (tab !== 'pending') {
+      setTab('pending');
+      return 'handled';
+    }
+    return '';
+  }, [
+    whatsAppPhonePromptItem,
+    paymentModalItem,
+    editItem,
+    showAddModal,
+    allPersonsExpanded,
+    expandedPersonIds,
+    searchQuery,
+    selectedSheetFilter,
+    tab,
+  ]);
+
+  useEffect(() => {
+    if (embedded || typeof window === 'undefined') return undefined;
+    window.__handlePattanHardwareBack = handleHardwareBackPress;
+    window.__udhaarHandleHardwareBack = handleHardwareBackPress;
+    return () => {
+      if (window.__handlePattanHardwareBack === handleHardwareBackPress) {
+        delete window.__handlePattanHardwareBack;
+      }
+      if (window.__udhaarHandleHardwareBack === handleHardwareBackPress) {
+        delete window.__udhaarHandleHardwareBack;
+      }
+    };
+  }, [embedded, handleHardwareBackPress]);
+
   const activeExternalDraft = externalDraft || externalDraftRequest;
   useEffect(() => {
     if (!embedded && activeExternalDraft && typeof activeExternalDraft === 'object') {
@@ -1307,22 +1450,7 @@ export default function UdhaarStandaloneApp({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 180px' }}>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 11,
-                background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
-                border: '1px solid rgba(245, 158, 11, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 17,
-                flexShrink: 0,
-              }}
-            >
-              🤝
-            </div>
+            <UdhaarBookLogoBadge size={38} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
@@ -1748,7 +1876,7 @@ export default function UdhaarStandaloneApp({
     const stats = getPaymentStats(item);
     const dateLabel = `${formatShortDate(item.date)}${item.time ? ` at ${formatTime12h(item.time)}` : ''}`;
     const lines = [
-      `🤝 *Udhaar Details — ${item.person}*`,
+      `🤝 *Udhaar Details & Payment Request — ${item.person}*`,
       `━━━━━━━━━━━━━━━━━━━━`,
       `💰 *Total Taken:* ₹${formatINR(stats.totalAmount)}`,
       `📅 *When Taken:* ${dateLabel}`,
@@ -1770,8 +1898,14 @@ export default function UdhaarStandaloneApp({
     lines.push(`━━━━━━━━━━━━━━━━━━━━`);
     if (stats.isReturned || stats.remaining <= 0) {
       lines.push(`🎉 *Balance Left:* ₹0 (Fully Settled ✅)`);
+      lines.push(`🙏 Thank you for settling the full amount!`);
     } else {
       lines.push(`⏳ *Balance Left to Pay:* *₹${formatINR(stats.remaining)}*`);
+      lines.push(``);
+      lines.push(`🙏 *REQUEST TO PAY:*`);
+      lines.push(
+        `Kindly pay the pending Udhaar balance of *₹${formatINR(stats.remaining)}* via *PhonePe / Google Pay / Paytm / UPI* at your earliest convenience. Thank you!`
+      );
     }
     return lines.join('\n');
   }, []);
@@ -1895,26 +2029,26 @@ export default function UdhaarStandaloneApp({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 20,
-                fontWeight: 900,
-                flexShrink: 0,
-              }}
-            >
-              🤝
-            </div>
+            <UdhaarBookLogoBadge size={44} />
             <div>
-              <div style={{ fontSize: 16.5, fontWeight: 900, color: palette.text, lineHeight: 1.15 }}>
-                Udhaar Book
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 16.5, fontWeight: 900, color: palette.text, lineHeight: 1.15 }}>
+                  Udhaar Book
+                </span>
+                <span
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: 6,
+                    background: 'rgba(245, 158, 11, 0.18)',
+                    border: '1px solid rgba(245, 158, 11, 0.45)',
+                    color: isLight ? '#b45309' : '#fbbf24',
+                    fontSize: 9.5,
+                    fontWeight: 900,
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  LEDGER
+                </span>
               </div>
               <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
                 v{udhaarOtaVersion} · Standalone App
@@ -2823,7 +2957,7 @@ export default function UdhaarStandaloneApp({
                                         whiteSpace: 'nowrap',
                                       }}
                                     >
-                                      💬 Share on WhatsApp
+                                      💬 Share &amp; Request to Pay
                                     </button>
                                   </div>
                                 </div>
@@ -2984,7 +3118,7 @@ export default function UdhaarStandaloneApp({
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    💬 WhatsApp
+                                    💬 Request to Pay
                                   </button>
 
                                   <button
