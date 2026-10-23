@@ -1,10 +1,10 @@
 {
   "appType": "udhaar-only",
-  "version": "1.0.7",
-  "buildId": "udhaar_ota_1_0_7_compact_header_lock_icon",
-  "releasedAt": "2026-10-23T07:45:00+05:30",
+  "version": "1.0.8",
+  "buildId": "udhaar_ota_1_0_8_play_protect_clean_manifest_no_notif_service",
+  "releasedAt": "2026-10-23T08:00:00+05:30",
   "jsFile": "udhaar-bundle.js",
   "cssFile": "udhaar-bundle.css",
   "apkFile": "Udhaar-Tracker-Pro-Friend.apk",
-  "notes": "v1.0.7: Removed the large Biometric App Lock module box and replaced it with a compact App Lock Icon (🔒 / 🔓) right in the top header bar next to Check Update & Theme toggle."
+  "notes": "v1.0.8: Removed BIND_NOTIFICATION_LISTENER_SERVICE, PaymentNotificationService, and financial app queries from the Standalone Udhaar APK so Google Play Protect Enhanced Fraud Protection never blocks installation."
 }

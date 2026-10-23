@@ -5,8 +5,8 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.7';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_7_compact_header_lock_icon';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.8';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_8_play_protect_clean_manifest_no_notif_service';
 
 // Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
 const UDHAAR_OTA_BASES = [
