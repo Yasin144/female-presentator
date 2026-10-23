@@ -147,5 +147,5 @@ export async function pollIncomingSuggestionsOnce() {
 if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('listen-suggestions.mjs')) {
   console.log('Listening for live user feature suggestions from mobile app (Reactive Wakeup enabled)...');
   pollIncomingSuggestionsOnce();
-  setInterval(pollIncomingSuggestionsOnce, 2500);
+  setInterval(pollIncomingSuggestionsOnce, 4500);
 }

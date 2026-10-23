@@ -5,8 +5,8 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.6';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_6_auto_biometric_50_members_whatsapp_scroller';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.7';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_7_compact_header_lock_icon';
 
 // Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
 const UDHAAR_OTA_BASES = [
@@ -1963,6 +1963,35 @@ export default function UdhaarStandaloneApp({
 
               <button
                 type="button"
+                onClick={toggleBiometricLockSetting}
+                style={{
+                  padding: '5px 9px',
+                  borderRadius: 8,
+                  border: biometricLockEnabled
+                    ? '1px solid rgba(16, 185, 129, 0.55)'
+                    : `1px solid ${palette.border}`,
+                  background: biometricLockEnabled
+                    ? 'rgba(16, 185, 129, 0.16)'
+                    : palette.surfaceAlt,
+                  color: biometricLockEnabled ? '#10b981' : palette.textMuted,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                title={
+                  biometricLockEnabled
+                    ? 'Biometric App Lock ON (Tap to Disable)'
+                    : 'Biometric App Lock OFF (Tap to Enable)'
+                }
+              >
+                {biometricLockEnabled ? '🔒' : '🔓'}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setThemeLight((v) => !v)}
                 style={{
                   padding: '5px 9px',
@@ -1998,76 +2027,6 @@ export default function UdhaarStandaloneApp({
             {toastMsg}
           </div>
         )}
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            2. OPTIONAL BIOMETRIC LOCK BAR (Simple 1-Row Enable / Disable)
-           ═══════════════════════════════════════════════════════════════════ */}
-        <div
-          style={{
-            padding: '10px 14px',
-            borderRadius: 14,
-            background: palette.surface,
-            border: biometricLockEnabled ? '1px solid rgba(16, 185, 129, 0.4)' : `1px solid ${palette.border}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16 }}>{biometricLockEnabled ? '🔒' : '🔓'}</span>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>
-                Biometric App Lock: {biometricLockEnabled ? 'ENABLED' : 'DISABLED (Optional)'}
-              </div>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
-                {biometricLockEnabled
-                  ? 'Asks for fingerprint/PIN on app open (tap Disable to turn off)'
-                  : 'Turn on if you want fingerprint lock when opening the app'}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            {biometricLockEnabled && !isVaultLocked && (
-              <button
-                type="button"
-                onClick={() => {
-                  autoPromptTriggeredRef.current = true;
-                  setIsVaultLocked(true);
-                }}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 9,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.textSub,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                🔒 Lock
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={toggleBiometricLockSetting}
-              style={{
-                padding: '6px 11px',
-                borderRadius: 9,
-                border: biometricLockEnabled ? '1px solid rgba(239, 68, 68, 0.4)' : 'none',
-                background: biometricLockEnabled ? 'rgba(239, 68, 68, 0.12)' : '#10b981',
-                color: biometricLockEnabled ? '#ef4444' : '#ffffff',
-                fontSize: 11,
-                fontWeight: 900,
-                cursor: 'pointer',
-              }}
-            >
-              {biometricLockEnabled ? 'Disable Lock' : 'Enable Lock'}
-            </button>
-          </div>
-        </div>
 
         {/* IF LOCKED: Show Biometric Scanner Lock Screen (Auto-triggers Android Biometric Prompt on Open) */}
         {biometricLockEnabled && isVaultLocked ? (

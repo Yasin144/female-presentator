@@ -1,10 +1,10 @@
 {
   "appType": "udhaar-only",
-  "version": "1.0.6",
-  "buildId": "udhaar_ota_1_0_6_auto_biometric_50_members_whatsapp_scroller",
-  "releasedAt": "2026-10-23T07:26:00+05:30",
+  "version": "1.0.7",
+  "buildId": "udhaar_ota_1_0_7_compact_header_lock_icon",
+  "releasedAt": "2026-10-23T07:45:00+05:30",
   "jsFile": "udhaar-bundle.js",
   "cssFile": "udhaar-bundle.css",
   "apkFile": "Udhaar-Tracker-Pro-Friend.apk",
-  "notes": "v1.0.6: Strict Standalone Udhaar App launch (never opens Yasin Salary OT app), Auto Biometric Lock on App Open (optional enable/disable), 50+ Members Numbered Directory & Search with Tap-Name-to-Maximize Details, Mobile Number for Direct WhatsApp Statement Sharing, and Inside Scroller for Payment History."
+  "notes": "v1.0.7: Removed the large Biometric App Lock module box and replaced it with a compact App Lock Icon (🔒 / 🔓) right in the top header bar next to Check Update & Theme toggle."
 }
