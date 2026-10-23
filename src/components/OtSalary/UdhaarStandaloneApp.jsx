@@ -5,14 +5,18 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.3';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_3_created_by_pattan_yasin_screenshot_ocr_biometric_lock';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.5';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_5_separate_apk_download_and_clean_ui';
 
 // Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
 const UDHAAR_OTA_BASES = [
   'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar',
   'https://cdn.jsdelivr.net/gh/Yasin144/female-presentator@main/ota-udhaar',
 ];
+
+// Direct Download URL for the Standalone Udhaar APK (Play-Protect Safe Signed Release APK)
+const STANDALONE_UDHAAR_APK_URL =
+  'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar/Udhaar-Tracker-Pro-Friend.apk';
 
 const PAYMENT_MODES = ['PhonePe', 'GPay', 'Paytm', 'Cash', 'UPI', 'Bank'];
 
@@ -57,7 +61,6 @@ function formatTime12h(hhmm) {
   return `${h12}:${mStr || '00'} ${ampm}`;
 }
 
-// Compute payment breakdown: how many times paid, each payment's amount/mode/date, total paid, and remaining to pay
 function getPaymentStats(item) {
   const totalAmount = Math.max(0, Number(item?.amount) || 0);
   const rawPayments = Array.isArray(item?.payments) ? item.payments : [];
@@ -72,7 +75,6 @@ function getPaymentStats(item) {
       note: String(p.note || '').trim(),
     }));
 
-  // Preserve legacy single paidAmount if payments array was not populated yet
   const legacyPaid = Math.max(0, Number(item?.paidAmount) || 0);
   const sumFromList = paidList.reduce((acc, p) => acc + p.amount, 0);
   if (paidList.length === 0 && legacyPaid > 0) {
@@ -83,7 +85,7 @@ function getPaymentStats(item) {
         paidThrough: String(item?.paidThrough || 'UPI'),
         paidDate: String(item?.returnedAt || item?.date || getTodayIso()),
         paidTime: '',
-        note: 'Recorded payment',
+        note: '',
       },
     ];
   }
@@ -105,9 +107,7 @@ function getPaymentStats(item) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// UNIVERSAL FILE & SHEET PARSER (Excel .xlsx/.xls, CSV, TSV, Word .docx, PDF, JSON, TXT)
-// Automatically reads internal document data and creates Udhaar persons
-// according to Sheet Name and how much each person has to pay!
+// UNIVERSAL FILE, SHEET & SCREENSHOT PARSER
 // ═══════════════════════════════════════════════════════════════════════════
 function parseAmountNumber(rawVal) {
   if (typeof rawVal === 'number' && Number.isFinite(rawVal)) return Math.abs(rawVal);
@@ -117,7 +117,6 @@ function parseAmountNumber(rawVal) {
     .replace(/,/g, '')
     .trim();
   if (!str) return NaN;
-  // Reject 10-digit phone numbers or YYYY-MM-DD dates
   if (/^\d{10,12}$/.test(str) || /^\d{4}-\d{1,2}-\d{1,2}$/.test(str) || /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(str)) {
     return NaN;
   }
@@ -153,7 +152,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
 
   if (nonEmptyRows.length === 0) return [];
 
-  // Detect header row if present
   let headerIdx = -1;
   let colMap = { name: -1, amount: -1, toPay: -1, paid: -1, mode: -1, date: -1, note: -1 };
 
@@ -200,7 +198,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
     const row = nonEmptyRows[i];
     if (row.length === 0) continue;
 
-    // Skip grand total footer rows if other person rows already exist
     const firstNonEmpty = row.find((c) => c !== '') || '';
     if (/^(grand\s*total|total\s*amount|sub\s*total|sum)$/i.test(firstNonEmpty) && extractedPeople.length > 0) {
       continue;
@@ -229,7 +226,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
       if (colMap.note !== -1 && row[colMap.note]) entryNote = row[colMap.note];
     }
 
-    // Fallback row heuristic: find first text cell (name) and numeric cells (money)
     if (!personName || !Number.isFinite(totalAmt)) {
       const textCells = [];
       const numCells = [];
@@ -249,7 +245,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
       if (!Number.isFinite(totalAmt) && numCells.length > 0) {
         totalAmt = numCells[0];
         if (numCells.length >= 2 && paidAmt === 0 && numCells[1] <= numCells[0]) {
-          // If 3 numbers: [Total, Paid, Balance] -> check if num0 - num1 == num2
           if (numCells.length >= 3 && Math.abs(numCells[0] - numCells[1] - numCells[2]) < 2) {
             paidAmt = numCells[1];
           }
@@ -257,7 +252,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
       }
     }
 
-    // What if the Sheet itself is named after the person (e.g. Sheet Name = "Raju") and rows inside are amounts/items?
     if ((!personName || /^(amount|money|balance|to\s*pay|total|item|cash|upi|\d+)$/i.test(personName)) && Number.isFinite(totalAmt)) {
       if (!isGenericSheetName(cleanSheet)) {
         if (personName && !/^(amount|money|balance|to\s*pay|total)$/i.test(personName)) {
@@ -280,8 +274,6 @@ function parseRowsFromSheetGrid(rows2D, sheetName = 'Sheet1', fallbackFileName =
     }
   }
 
-  // Special Case: If the Sheet Name IS a Person's Name (e.g. Sheet "Kiran" has 4 rows of items/amounts for Kiran),
-  // merge them under that Sheet Name so one clean Udhaar Person is created for that Sheet with total money to pay!
   if (
     extractedPeople.length > 1 &&
     !isGenericSheetName(cleanSheet) &&
@@ -315,7 +307,6 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
   const text = String(rawText || '').trim();
   if (!text) return [];
 
-  // 1. Try JSON first
   if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
     try {
       const parsed = JSON.parse(text);
@@ -361,7 +352,6 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
     } catch (_) {}
   }
 
-  // 2. Check for HTML / XML Table (.xls or HTML table export)
   if (/<table|<tr|<td|<Worksheet|<Row|<Cell/i.test(text)) {
     try {
       const parser = new DOMParser();
@@ -391,7 +381,6 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
     } catch (_) {}
   }
 
-  // 3. Check for CSV / TSV lines
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -408,13 +397,11 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
     if (csvRes.length > 0) return csvRes;
   }
 
-  // 4. Parse free-form text lines (e.g. "Raju - 1500", "1. Kiran ₹2,500 paid 500", "Salman: 800")
   const freeResults = [];
   for (const rawLine of lines) {
     const cleanLine = rawLine.replace(/^\s*(?:\d+[.)]\s*|[-*•]\s*)/, '').trim();
     if (!cleanLine || cleanLine.length > 180) continue;
 
-    // Look for "paid <amount>" inside the line
     let paidAmt = 0;
     let paidVia = 'UPI';
     const paidMatch = cleanLine.match(/\b(?:paid|returned|given\s*back)\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
@@ -427,10 +414,8 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
       paidVia = viaMatch[1];
     }
 
-    // Remove the "paid ..." part before extracting main Name + Amount
     const mainPart = cleanLine.replace(/\b(?:paid|returned|given\s*back)\s*(?:rs\.?|inr|₹)?\s*[\d,]+(?:\.\d{1,2})?.*$/i, '').trim();
 
-    // Pattern A: "Name ... ₹1,500"
     const matchNameFirst = mainPart.match(
       /^([A-Za-z][A-Za-z0-9\s._()-]{1,40}?)\s*[:=\-–—,\s]\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)\b/i
     );
@@ -451,7 +436,6 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
       }
     }
 
-    // Pattern B: "₹1,500 - Name"
     const matchAmtFirst = mainPart.match(
       /^(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)\s*[:=\-–—,\s]\s*([A-Za-z][A-Za-z0-9\s._()-]{1,40})$/i
     );
@@ -472,9 +456,7 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
     }
   }
 
-  // 5. Screenshot / Receipt / Multi-line pairing (e.g. UPI Screenshot "Paid to <Name>" + "₹<Amount>", or Name on one line & Amount on the next line)
   if (freeResults.length === 0 && lines.length >= 2) {
-    // Check UPI receipt screenshot pattern ("Paid to / Sent to / To: <Name>" and "₹ 500")
     const joinedText = lines.join('\n');
     const upiNameMatch = joinedText.match(
       /(?:paid\s+to|sent\s+to|transfer(?:red)?\s+to|received\s+from|to)\s*[:\-]?\s*\n?\s*([A-Za-z][A-Za-z\s.]{2,34})/i
@@ -490,13 +472,12 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
           paidAmount: 0,
           paidThrough: 'UPI',
           date: getTodayIso(),
-          note: 'Imported from Screenshot',
+          note: 'Read from Screenshot',
           sheetName: cleanSheet,
         });
       }
     }
 
-    // Check adjacent lines where Line i is a Name and Line i+1 is an Amount (common in table/list screenshots)
     if (freeResults.length === 0) {
       for (let i = 0; i < lines.length - 1; i++) {
         const l1 = lines[i].replace(/^\s*(?:\d+[.)]\s*|[-*•]\s*)/, '').trim();
@@ -516,13 +497,12 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
             note: '',
             sheetName: cleanSheet,
           });
-          i++; // skip paired amount line
+          i++;
         }
       }
     }
   }
 
-  // If the file only had numbers and the file/sheet name is a person's name
   if (freeResults.length === 0 && !isGenericSheetName(cleanSheet)) {
     const nums = [];
     for (const line of lines) {
@@ -548,17 +528,13 @@ function parseFreeTextIntoPeople(rawText, sheetName = 'Document') {
   return freeResults;
 }
 
-// Parse Excel .xlsx or Word .docx using JSZip
 async function parseZipBasedDocument(arrayBuffer, fileName) {
   const zip = await JSZip.loadAsync(arrayBuffer);
   const results = [];
 
-  // 1. Check if it is an Excel .xlsx file (has xl/workbook.xml)
   const workbookFile = zip.file('xl/workbook.xml');
   if (workbookFile) {
     const parser = new DOMParser();
-
-    // Load Shared Strings (xl/sharedStrings.xml)
     const sharedStrings = [];
     const ssFile = zip.file('xl/sharedStrings.xml');
     if (ssFile) {
@@ -575,7 +551,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
       }
     }
 
-    // Map r:id -> target worksheet path from xl/_rels/workbook.xml.rels
     const relMap = {};
     const relsFile = zip.file('xl/_rels/workbook.xml.rels');
     if (relsFile) {
@@ -591,7 +566,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
       }
     }
 
-    // Read sheet names in order from xl/workbook.xml
     const wbXml = await workbookFile.async('string');
     const wbDoc = parser.parseFromString(wbXml, 'application/xml');
     const sheetNodes = wbDoc.getElementsByTagName('sheet');
@@ -653,7 +627,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
     return results;
   }
 
-  // 2. Check if it is a Word .docx file (has word/document.xml)
   const wordFile = zip.file('word/document.xml');
   if (wordFile) {
     const wordXml = await wordFile.async('string');
@@ -661,7 +634,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
     const wDoc = parser.parseFromString(wordXml, 'application/xml');
     const sheetLabel = cleanFileBaseName(fileName) || 'Word Doc';
 
-    // Check Word tables first
     const trNodes = wDoc.getElementsByTagName('w:tr');
     if (trNodes.length > 0) {
       const grid = [];
@@ -680,7 +652,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
       if (tableRes.length > 0) return tableRes;
     }
 
-    // Paragraphs fallback
     const pNodes = wDoc.getElementsByTagName('w:p');
     const lines = [];
     for (let p = 0; p < pNodes.length; p++) {
@@ -695,7 +666,6 @@ async function parseZipBasedDocument(arrayBuffer, fileName) {
   return results;
 }
 
-// Compress an image file onto a canvas and return a JPEG dataURL (for fast Screenshot OCR)
 async function imageFileToCompressedDataUrl(file) {
   return new Promise((resolve) => {
     try {
@@ -735,11 +705,9 @@ async function imageFileToCompressedDataUrl(file) {
   });
 }
 
-// Multi-layer Screenshot OCR Reader: reads text & tables from any uploaded screenshot (.png, .jpg, .webp)
 async function extractScreenshotText(file) {
   const { dataUrl, imgElement } = await imageFileToCompressedDataUrl(file);
 
-  // Layer 1: Native Android / Chrome Shape Detection API (window.TextDetector) if available
   if (typeof window !== 'undefined' && typeof window.TextDetector === 'function' && imgElement) {
     try {
       const detector = new window.TextDetector();
@@ -753,7 +721,6 @@ async function extractScreenshotText(file) {
           }
           return ay - by;
         });
-        // Merge blocks on the same horizontal row into a single line
         const rowLines = [];
         let currentRowY = null;
         let currentRowParts = [];
@@ -777,7 +744,6 @@ async function extractScreenshotText(file) {
     } catch (_) {}
   }
 
-  // Layer 2: Cloud Table & Receipt OCR Engine (ocr.space Engine 2 & Engine 1 fallback)
   if (dataUrl) {
     for (const engineNum of ['2', '1']) {
       try {
@@ -807,14 +773,12 @@ async function extractScreenshotText(file) {
   return { text: '', dataUrl };
 }
 
-// Extract text from Screenshot Image, Excel, Word, PDF, CSV, or arbitrary binary/text file
 async function extractUniversalFilePeople(file) {
   const fileName = file?.name || 'Uploaded File';
   const baseSheetName = cleanFileBaseName(fileName) || 'Imported Sheet';
   const isImageFile =
     /^image\//i.test(String(file?.type || '')) || /\.(png|jpe?g|webp|bmp|gif)$/i.test(fileName);
 
-  // 0. If user uploaded a Screenshot / Image, run Screenshot OCR!
   if (isImageFile) {
     const { text: ocrText, dataUrl } = await extractScreenshotText(file);
     const ocrPeople = ocrText ? parseFreeTextIntoPeople(ocrText, baseSheetName) : [];
@@ -829,7 +793,6 @@ async function extractUniversalFilePeople(file) {
   const arrayBuffer = await file.arrayBuffer();
   const bytes = new Uint8Array(arrayBuffer);
 
-  // Check ZIP signature (PK\x03\x04) -> .xlsx, .docx, .ods, .zip
   if (bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
     try {
       const zipRes = await parseZipBasedDocument(arrayBuffer, fileName);
@@ -837,10 +800,8 @@ async function extractUniversalFilePeople(file) {
     } catch (_) {}
   }
 
-  // Decode UTF-8 / Latin1 text
   const utf8Text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 
-  // Check if PDF (%PDF-)
   if (utf8Text.startsWith('%PDF-') || /\.pdf$/i.test(fileName)) {
     const extractedStrings = [];
     const literalRegex = /\(([^()\\]*(?:\\.[^()\\]*)*)\)\s*(?:Tj|')/g;
@@ -865,7 +826,6 @@ async function extractUniversalFilePeople(file) {
     }
   }
 
-  // Universal text / CSV / TSV / JSON / HTML / XML parser
   return { people: parseFreeTextIntoPeople(utf8Text, baseSheetName), isScreenshot: false };
 }
 
@@ -898,7 +858,7 @@ export default function UdhaarStandaloneApp({
           bg: '#090d16',
           surface: '#111827',
           surfaceAlt: '#1e293b',
-          border: 'rgba(148, 163, 184, 0.2)',
+          border: 'rgba(148, 163, 184, 0.18)',
           text: '#f8fafc',
           textSub: '#cbd5e1',
           textMuted: '#94a3b8',
@@ -921,7 +881,6 @@ export default function UdhaarStandaloneApp({
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SEPARATE INDIVIDUAL UDHAAR OTA ENGINE (ota-udhaar/udhaar-ota-manifest.json)
-  // Strictly isolated from Salary & OT OTA server
   // ═══════════════════════════════════════════════════════════════════════════
   const [udhaarOtaVersion, setUdhaarOtaVersion] = useState(() => {
     try {
@@ -1049,7 +1008,7 @@ export default function UdhaarStandaloneApp({
     return () => clearInterval(timer);
   }, [embedded, checkUdhaarOtaAvailability]);
 
-  // Collapsible Header State (Tap header to Minimize / Maximize)
+  // Collapsible Section States
   const [minimized, setMinimized] = useState(() => {
     try {
       return localStorage.getItem('yasin_udhaar_simple_minimized_v1') === '1';
@@ -1057,6 +1016,8 @@ export default function UdhaarStandaloneApp({
       return false;
     }
   });
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [listCollapsed, setListCollapsed] = useState(false);
 
   const toggleMinimized = () => {
     setMinimized((prev) => {
@@ -1090,7 +1051,8 @@ export default function UdhaarStandaloneApp({
     });
   }, []);
 
-  // Simple Form State
+  // Add Udhaar Modal State (Closed by default so the main screen is 100% clean!)
+  const [showAddModal, setShowAddModal] = useState(false);
   const [person, setPerson] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(() => getTodayIso());
@@ -1098,12 +1060,13 @@ export default function UdhaarStandaloneApp({
   const [note, setNote] = useState('');
   const [phone, setPhone] = useState('');
 
-  // Filter: 'pending' | 'returned'
+  // Search & Filter: 'pending' | 'returned'
+  const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('pending');
   const [selectedSheetFilter, setSelectedSheetFilter] = useState('ALL');
 
-  // Inline "Record Paid" Drawer State (for recording when he paid, how much, paid through, paid date)
-  const [payItemId, setPayItemId] = useState(null);
+  // Dedicated "Record Payment" Modal State
+  const [paymentModalItem, setPaymentModalItem] = useState(null);
   const [payAmountDraft, setPayAmountDraft] = useState('');
   const [payThroughDraft, setPayThroughDraft] = useState('PhonePe');
   const [payDateDraft, setPayDateDraft] = useState(() => getTodayIso());
@@ -1116,7 +1079,7 @@ export default function UdhaarStandaloneApp({
   const [lastImportSummary, setLastImportSummary] = useState(null);
   const [uploadedScreenshotPreview, setUploadedScreenshotPreview] = useState(null);
 
-  // Optional Biometric Lock State (OFF by default; when enabled, locks Udhaar data until fingerprint/screen unlock)
+  // Optional Biometric Lock State
   const [biometricLockEnabled, setBiometricLockEnabled] = useState(() => {
     try {
       return localStorage.getItem(UDHAAR_BIOMETRIC_LOCK_KEY) === '1';
@@ -1131,9 +1094,10 @@ export default function UdhaarStandaloneApp({
       return false;
     }
   });
-  const pendingBioIntentRef = useRef('unlock'); // 'unlock' | 'disable'
+  const pendingBioIntentRef = useRef('unlock');
 
   useEffect(() => {
+    if (embedded) return undefined;
     const onBioResult = (ev) => {
       const detail = ev?.detail || {};
       if (detail.actionType && !String(detail.actionType).startsWith('udhaar')) return;
@@ -1155,11 +1119,10 @@ export default function UdhaarStandaloneApp({
     };
     window.addEventListener('pattan-biometric-result', onBioResult);
     return () => window.removeEventListener('pattan-biometric-result', onBioResult);
-  }, [notify]);
+  }, [embedded, notify]);
 
-  // Auto-lock when app goes to background ONLY if user enabled Biometric Lock
   useEffect(() => {
-    if (!biometricLockEnabled) return undefined;
+    if (embedded || !biometricLockEnabled) return undefined;
     const onVisChange = () => {
       if (document.visibilityState === 'hidden') {
         setIsVaultLocked(true);
@@ -1167,7 +1130,7 @@ export default function UdhaarStandaloneApp({
     };
     document.addEventListener('visibilitychange', onVisChange);
     return () => document.removeEventListener('visibilitychange', onVisChange);
-  }, [biometricLockEnabled]);
+  }, [embedded, biometricLockEnabled]);
 
   const requestBiometricAuth = useCallback(
     (intent = 'unlock') => {
@@ -1184,7 +1147,6 @@ export default function UdhaarStandaloneApp({
         );
         return;
       }
-      // Browser fallback when testing outside Android APK
       if (intent === 'disable') {
         setBiometricLockEnabled(false);
         setIsVaultLocked(false);
@@ -1207,31 +1169,199 @@ export default function UdhaarStandaloneApp({
       try {
         localStorage.setItem(UDHAAR_BIOMETRIC_LOCK_KEY, '1');
       } catch (_) {}
-      notify('🔒 Biometric Lock Enabled! Data is now protected.');
+      notify('🔒 Biometric Lock Enabled!');
     } else {
       requestBiometricAuth('disable');
     }
   }, [biometricLockEnabled, notify, requestBiometricAuth]);
 
-  // Simple Edit Modal State
+  // Edit Modal State
   const [editItem, setEditItem] = useState(null);
 
-  // Pre-fill when user taps 🤝 on a transaction in Expenses
   const activeExternalDraft = externalDraft || externalDraftRequest;
   useEffect(() => {
-    if (activeExternalDraft && typeof activeExternalDraft === 'object') {
+    if (!embedded && activeExternalDraft && typeof activeExternalDraft === 'object') {
       setMinimized(false);
       setPerson(activeExternalDraft.person || '');
       setAmount(activeExternalDraft.amount ? String(activeExternalDraft.amount) : '');
       setDate(activeExternalDraft.tookDate || activeExternalDraft.date || getTodayIso());
       setTime(activeExternalDraft.tookTime || activeExternalDraft.time || getCurrentTimeHHMM());
       setNote(activeExternalDraft.note || '');
+      setShowAddModal(true);
       if (typeof onClearExternalDraft === 'function') {
         onClearExternalDraft();
       }
     }
-  }, [activeExternalDraft, onClearExternalDraft]);
+  }, [embedded, activeExternalDraft, onClearExternalDraft]);
 
+  const handleDownloadStandaloneApk = () => {
+    const downloadUrl = `${STANDALONE_UDHAAR_APK_URL}?t=${Date.now()}`;
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        window.PattanBiometric &&
+        typeof window.PattanBiometric.launchUpiUri === 'function'
+      ) {
+        window.PattanBiometric.launchUpiUri(downloadUrl);
+        notify('⬇️ Downloading Standalone Udhaar APK (Latest Update)...');
+        return;
+      }
+    } catch (_) {}
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+    notify('⬇️ Downloading Standalone Udhaar APK (Latest Update)...');
+  };
+
+  const handleShareApkOnWhatsApp = () => {
+    const text = `🤝 *Udhaar Book App (Created by Pattan Yasin)*\nDownload the latest Play-Protect-safe Standalone Udhaar APK here:\n${STANDALONE_UDHAAR_APK_URL}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WHEN EMBEDDED INSIDE SALARY & OT APP:
+  // Render ONLY a super-clean APK Download Card!
+  // All Udhaar updates go strictly to the downloaded Standalone Udhaar APK & ota-udhaar/ server!
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (embedded) {
+    return (
+      <div
+        style={{
+          borderRadius: 20,
+          background: palette.surface,
+          border: `1px solid ${palette.border}`,
+          padding: '14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <div
+          onClick={toggleMinimized}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+                flexShrink: 0,
+              }}
+            >
+              🤝
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
+                Udhaar Tracker App {minimized ? '▸' : '▾'}
+              </div>
+              <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 1 }}>
+                Separate Standalone APK · Created by Pattan Yasin
+              </div>
+            </div>
+          </div>
+
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDownloadStandaloneApk();
+            }}
+            style={{
+              padding: '7px 12px',
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+              color: '#ffffff',
+              fontSize: 12,
+              fontWeight: 900,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⬇️ Download APK
+          </div>
+        </div>
+
+        {!minimized && (
+          <div
+            style={{
+              padding: '12px',
+              borderRadius: 14,
+              background: palette.surfaceAlt,
+              border: `1px solid ${palette.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: palette.textSub, lineHeight: 1.45 }}>
+              All Udhaar Book updates (Clean Layout, Payment Installments, File/Screenshot Reader &amp; Biometric Lock) are delivered strictly inside the <b>Standalone Udhaar APK</b> so your Salary &amp; OT app stays 100% clean.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleDownloadStandaloneApk}
+                style={{
+                  padding: '11px 12px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>⬇️</span>
+                <span>Download Udhaar APK</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleShareApkOnWhatsApp}
+                style={{
+                  padding: '11px 10px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surface,
+                  color: '#10b981',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>💬</span>
+                <span>Share APK</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STANDALONE UDHAAR APK LOGIC & HANDLERS (embedded === false)
+  // ═══════════════════════════════════════════════════════════════════════════
   const handleAdd = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const cleanName = String(person || '').trim();
@@ -1261,18 +1391,14 @@ export default function UdhaarStandaloneApp({
     setPhone('');
     setDate(getTodayIso());
     setTime(getCurrentTimeHHMM());
+    setShowAddModal(false);
     setTab('pending');
-    notify(`Saved ₹${formatINR(numAmt)} for ${cleanName}`);
+    notify(`✅ Saved ₹${formatINR(numAmt)} for ${cleanName}`);
   };
 
-  // Open inline "Record Paid" box for a person
-  const openRecordPayment = (item) => {
-    if (payItemId === item.id) {
-      setPayItemId(null);
-      return;
-    }
+  const openRecordPaymentModal = (item) => {
     const stats = getPaymentStats(item);
-    setPayItemId(item.id);
+    setPaymentModalItem(item);
     setPayAmountDraft(stats.remaining > 0 ? String(stats.remaining) : '');
     setPayThroughDraft('PhonePe');
     setPayDateDraft(getTodayIso());
@@ -1280,8 +1406,9 @@ export default function UdhaarStandaloneApp({
     setPayNoteDraft('');
   };
 
-  // Save a new payment installment (how much he paid, paid through, paid date & time)
-  const handleSavePayment = (item) => {
+  const handleSavePayment = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!paymentModalItem) return;
     const paidNum = Number(payAmountDraft);
     if (!(paidNum > 0)) {
       notify('Enter how much he paid');
@@ -1298,7 +1425,7 @@ export default function UdhaarStandaloneApp({
 
     saveItems((prev) =>
       prev.map((entry) => {
-        if (entry.id !== item.id) return entry;
+        if (entry.id !== paymentModalItem.id) return entry;
         const stats = getPaymentStats(entry);
         const updatedPayments = [...stats.paidList, newPayment];
         const newTotalPaid = updatedPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
@@ -1314,13 +1441,12 @@ export default function UdhaarStandaloneApp({
       })
     );
 
-    setPayItemId(null);
+    setPaymentModalItem(null);
     setPayAmountDraft('');
     setPayNoteDraft('');
-    notify(`✅ Recorded ₹${formatINR(paidNum)} paid via ${payThroughDraft} on ${formatShortDate(payDateDraft)}`);
+    notify(`✅ Recorded ₹${formatINR(paidNum)} paid via ${payThroughDraft}`);
   };
 
-  // Remove an individual payment entry from history
   const handleRemovePaymentRecord = (itemId, paymentId) => {
     saveItems((prev) =>
       prev.map((entry) => {
@@ -1340,7 +1466,6 @@ export default function UdhaarStandaloneApp({
     notify('Removed payment entry');
   };
 
-  // Universal File & Screenshot Upload Handler (Screenshots, Excel, CSV, PDF, Word, JSON, TXT, etc.)
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (e.target) e.target.value = '';
@@ -1363,7 +1488,8 @@ export default function UdhaarStandaloneApp({
 
       if (!parsedPeople || parsedPeople.length === 0) {
         if (extracted?.isScreenshot) {
-          notify('📷 Screenshot attached! Enter Name & Amount from screenshot above.');
+          setShowAddModal(true);
+          notify('📷 Screenshot attached! Enter Name & Amount.');
         } else {
           notify(`Could not find Name & Amount rows in "${file.name}".`);
         }
@@ -1423,9 +1549,7 @@ export default function UdhaarStandaloneApp({
         createdIds,
       });
       setTab('pending');
-      notify(
-        `✅ Read ${newEntries.length} person(s) from ${extracted?.isScreenshot ? 'Screenshot' : file.name}!`
-      );
+      notify(`✅ Added ${newEntries.length} person(s) from ${extracted?.isScreenshot ? 'Screenshot' : file.name}!`);
     } catch (_) {
       notify('Could not read file. Try Screenshot, Excel (.xlsx), CSV, TXT, or PDF.');
     } finally {
@@ -1453,7 +1577,6 @@ export default function UdhaarStandaloneApp({
             returnedAt: null,
           };
         }
-        // Marking as Returned records any remaining balance as paid today
         const updatedPayments =
           stats.remaining > 0
             ? [
@@ -1559,337 +1682,1031 @@ export default function UdhaarStandaloneApp({
     return { pendingTotal, returnedTotal, pendingCount, returnedCount };
   }, [items, selectedSheetFilter]);
 
-  const visibleItems = useMemo(
-    () =>
-      items.filter((i) => {
-        if (!i) return false;
-        if (selectedSheetFilter !== 'ALL' && i.sheetName !== selectedSheetFilter) return false;
-        const stats = getPaymentStats(i);
-        return tab === 'pending' ? !stats.isReturned : stats.isReturned;
-      }),
-    [items, tab, selectedSheetFilter]
-  );
+  const visibleItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter((i) => {
+      if (!i) return false;
+      if (selectedSheetFilter !== 'ALL' && i.sheetName !== selectedSheetFilter) return false;
+      const stats = getPaymentStats(i);
+      const matchesTab = tab === 'pending' ? !stats.isReturned : stats.isReturned;
+      if (!matchesTab) return false;
+      if (!q) return true;
+      return `${i.person || ''} ${i.note || ''} ${i.sheetName || ''}`.toLowerCase().includes(q);
+    });
+  }, [items, tab, selectedSheetFilter, searchQuery]);
 
-  const cardContent = (
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STANDALONE UDHAAR APK FULL-SCREEN LAYOUT (CLEAN, STRUCTURED, ZERO CONFUSION)
+  // ═══════════════════════════════════════════════════════════════════════════
+  return (
     <div
       style={{
-        borderRadius: 20,
-        background: palette.surface,
-        border: `1px solid ${palette.border}`,
-        padding: '14px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
+        minHeight: '100vh',
+        background: palette.bg,
+        color: palette.text,
+        padding: '14px 12px 56px',
+        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        boxSizing: 'border-box',
       }}
     >
-      {/* 1. CLEAN HEADER — TAP ANYWHERE TO MINIMIZE / MAXIMIZE + TOP RIGHT CREATED BY PATTAN YASIN */}
-      <div
-        onClick={toggleMinimized}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 8,
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>🤝</span>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
-              Udhaar Tracker {minimized ? '▸' : '▾'}
+      {/* Hidden File Input for Universal Sheet / Screenshot Import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="*/*,image/*,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.doc,.docx,.json,.xml,.html"
+        onChange={handleFileUpload}
+        style={{ display: 'none' }}
+      />
+
+      <div style={{ maxWidth: 460, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* ═══════════════════════════════════════════════════════════════════
+            1. TOP APP BAR — "Created by Pattan Yasin" on Top-Right Corner
+           ═══════════════════════════════════════════════════════════════════ */}
+        <div
+          style={{
+            padding: '12px 14px',
+            borderRadius: 18,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                fontWeight: 900,
+                flexShrink: 0,
+              }}
+            >
+              🤝
             </div>
-            <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 600 }}>
-              Track who took, how many times paid &amp; balance
+            <div>
+              <div style={{ fontSize: 16.5, fontWeight: 900, color: palette.text, lineHeight: 1.15 }}>
+                Udhaar Book
+              </div>
+              <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                v{udhaarOtaVersion} · Standalone App
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
+            <div
+              style={{
+                padding: '3px 9px',
+                borderRadius: 999,
+                background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.16)',
+                border: '1px solid rgba(99, 102, 241, 0.35)',
+                color: isLight ? '#4338ca' : '#a5b4fc',
+                fontSize: 10.5,
+                fontWeight: 900,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ✨ Created by Pattan Yasin
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={applyUdhaarOtaUpdate}
+                disabled={udhaarOtaBusy}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  border: availableUdhaarOta ? 'none' : `1px solid ${palette.border}`,
+                  background: availableUdhaarOta ? '#10b981' : palette.surfaceAlt,
+                  color: availableUdhaarOta ? '#ffffff' : palette.textSub,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: udhaarOtaBusy ? 'wait' : 'pointer',
+                }}
+              >
+                {udhaarOtaBusy
+                  ? '⏳...'
+                  : availableUdhaarOta
+                  ? `🚀 Update v${availableUdhaarOta.version}`
+                  : '🔄 Check Update'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setThemeLight((v) => !v)}
+                style={{
+                  padding: '5px 9px',
+                  borderRadius: 8,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.text,
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+                title="Switch Light / Dark Mode"
+              >
+                {isLight ? '🌙' : '☀️'}
+              </button>
             </div>
           </div>
         </div>
 
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}
-        >
-          {/* Top-Right Corner Author Badge */}
-          <span
+        {/* Toast Notification Banner */}
+        {toastMsg && (
+          <div
             style={{
-              padding: '2px 8px',
-              borderRadius: 999,
-              background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.16)',
-              border: '1px solid rgba(99, 102, 241, 0.35)',
-              color: isLight ? '#4338ca' : '#a5b4fc',
-              fontSize: 9.5,
-              fontWeight: 900,
-              letterSpacing: '0.02em',
-              whiteSpace: 'nowrap',
+              padding: '10px 14px',
+              borderRadius: 12,
+              background: '#10b981',
+              color: '#ffffff',
+              fontSize: 12.5,
+              fontWeight: 800,
+              textAlign: 'center',
             }}
           >
-            ✨ Created by Pattan Yasin
-          </span>
+            {toastMsg}
+          </div>
+        )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {/* Optional Biometric Lock Enable / Disable Toggle */}
-            <button
-              type="button"
-              onClick={toggleBiometricLockSetting}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 999,
-                border: biometricLockEnabled ? '1px solid #10b981' : `1px solid ${palette.border}`,
-                background: biometricLockEnabled ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
-                color: biometricLockEnabled ? '#10b981' : palette.textMuted,
-                fontSize: 10.5,
-                fontWeight: 800,
-                cursor: 'pointer',
-              }}
-              title="Optional Biometric Lock: Enable or Disable"
-            >
-              {biometricLockEnabled ? '🔒 Lock: ON' : '🔓 Lock: OFF'}
-            </button>
+        {/* ═══════════════════════════════════════════════════════════════════
+            2. OPTIONAL BIOMETRIC LOCK BAR (Simple 1-Row Enable / Disable)
+           ═══════════════════════════════════════════════════════════════════ */}
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: 14,
+            background: palette.surface,
+            border: biometricLockEnabled ? '1px solid rgba(16, 185, 129, 0.4)' : `1px solid ${palette.border}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>{biometricLockEnabled ? '🔒' : '🔓'}</span>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 900, color: palette.text }}>
+                Biometric App Lock: {biometricLockEnabled ? 'ENABLED' : 'DISABLED (Optional)'}
+              </div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
+                {biometricLockEnabled
+                  ? 'Only you can view Udhaar data with fingerprint/PIN'
+                  : 'Turn on if you want to hide data with fingerprint lock'}
+              </div>
+            </div>
+          </div>
 
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
             {biometricLockEnabled && !isVaultLocked && (
               <button
                 type="button"
                 onClick={() => setIsVaultLocked(true)}
                 style={{
-                  padding: '4px 7px',
-                  borderRadius: 999,
+                  padding: '6px 10px',
+                  borderRadius: 9,
                   border: `1px solid ${palette.border}`,
                   background: palette.surfaceAlt,
                   color: palette.textSub,
-                  fontSize: 10.5,
+                  fontSize: 11,
                   fontWeight: 800,
                   cursor: 'pointer',
                 }}
-                title="Lock Udhaar Screen Now"
               >
-                🔒
+                🔒 Lock
               </button>
             )}
-
-            {embedded && (
-              <a
-                href="https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar/Udhaar-Tracker-Pro-Friend.apk"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 999,
-                  background: palette.surfaceAlt,
-                  border: `1px solid ${palette.border}`,
-                  color: palette.textSub,
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  textDecoration: 'none',
-                }}
-              >
-                ⬇️ Friend APK
-              </a>
-            )}
-            <div
-              onClick={toggleMinimized}
+            <button
+              type="button"
+              onClick={toggleBiometricLockSetting}
               style={{
-                padding: '4px 9px',
-                borderRadius: 999,
-                background: isLight ? '#fef3c7' : 'rgba(245, 158, 11, 0.16)',
-                color: isLight ? '#b45309' : '#fbbf24',
-                fontSize: 11.5,
+                padding: '6px 11px',
+                borderRadius: 9,
+                border: biometricLockEnabled ? '1px solid rgba(239, 68, 68, 0.4)' : 'none',
+                background: biometricLockEnabled ? 'rgba(239, 68, 68, 0.12)' : '#10b981',
+                color: biometricLockEnabled ? '#ef4444' : '#ffffff',
+                fontSize: 11,
                 fontWeight: 900,
                 cursor: 'pointer',
               }}
             >
-              {isVaultLocked ? '🔒 Locked' : `₹${formatINR(summary.pendingTotal)}`} {minimized ? '▸' : '▾'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 1B. OPTIONAL BIOMETRIC PRIVACY LOCK SCREEN (SHOWN ONLY WHEN LOCK IS ENABLED & LOCKED) */}
-      {!minimized && biometricLockEnabled && isVaultLocked && (
-        <div
-          style={{
-            padding: '24px 16px',
-            borderRadius: 16,
-            background: palette.surfaceAlt,
-            border: '1.5px solid rgba(16, 185, 129, 0.4)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            textAlign: 'center',
-            gap: 10,
-          }}
-        >
-          <div style={{ fontSize: 34 }}>🔒</div>
-          <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
-            Udhaar Data is Biometric Locked
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: palette.textMuted, maxWidth: 280 }}>
-            No one can see your Udhaar list or amounts without your fingerprint or phone lock.
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 4 }}>
-            <button
-              type="button"
-              onClick={() => requestBiometricAuth('unlock')}
-              style={{
-                padding: '10px 18px',
-                borderRadius: 12,
-                border: 'none',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              👆 Unlock with Fingerprint
-            </button>
-            <button
-              type="button"
-              onClick={() => requestBiometricAuth('disable')}
-              style={{
-                padding: '10px 14px',
-                borderRadius: 12,
-                border: `1px solid ${palette.border}`,
-                background: palette.surface,
-                color: palette.textSub,
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Disable Lock
+              {biometricLockEnabled ? 'Disable Lock' : 'Enable Lock'}
             </button>
           </div>
         </div>
-      )}
 
-      {/* 2. BODY (HIDDEN WHEN MINIMIZED OR WHEN BIOMETRIC LOCKED) */}
-      {!minimized && (!biometricLockEnabled || !isVaultLocked) && (
-        <>
-          {/* Simple 2-Box Total Bar */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: 14,
-                background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.1)',
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-              }}
-            >
-              <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? '#b45309' : '#fbbf24' }}>
-                ⏳ Remaining to Pay
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 2 }}>
-                ₹{formatINR(summary.pendingTotal)}
-              </div>
-            </div>
-
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: 14,
-                background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.1)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-              }}
-            >
-              <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? '#047857' : '#34d399' }}>
-                ✅ Total Paid / Returned
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 2 }}>
-                ₹{formatINR(summary.returnedTotal)}
-              </div>
-            </div>
-          </div>
-
-          {/* Simple Add Form + Universal File Upload Button */}
-          <form
-            onSubmit={handleAdd}
+        {/* IF LOCKED: Show Clean Biometric Lock Screen */}
+        {biometricLockEnabled && isVaultLocked ? (
+          <div
             style={{
-              padding: '12px',
-              borderRadius: 16,
-              background: palette.surfaceAlt,
-              border: `1px solid ${palette.border}`,
+              padding: '36px 20px',
+              borderRadius: 20,
+              background: palette.surface,
+              border: '1.5px solid rgba(16, 185, 129, 0.4)',
               display: 'flex',
               flexDirection: 'column',
-              gap: 10,
+              alignItems: 'center',
+              textAlign: 'center',
+              gap: 12,
             }}
           >
-            {/* Row 1: Name + Amount */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+            <div style={{ fontSize: 42 }}>🔒</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: palette.text }}>
+              Udhaar Book is Locked
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: palette.textMuted, maxWidth: 260 }}>
+              Verify your fingerprint, face, or phone screen lock to view your Udhaar records.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+              <button
+                type="button"
+                onClick={() => requestBiometricAuth('unlock')}
+                style={{
+                  padding: '11px 20px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: '#10b981',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                }}
+              >
+                👆 Unlock Now
+              </button>
+              <button
+                type="button"
+                onClick={() => requestBiometricAuth('disable')}
+                style={{
+                  padding: '11px 14px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Disable Lock
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* ═══════════════════════════════════════════════════════════════
+                3. SUMMARY TOTALS SECTION (Tap Header to Minimize / Maximize)
+               ═══════════════════════════════════════════════════════════════ */}
+            <div
+              style={{
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div
+                onClick={() => setSummaryCollapsed((v) => !v)}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  📊 Total Summary {summaryCollapsed ? '▸' : '▾'}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#d97706' : '#fbbf24' }}>
+                  Pending: ₹{formatINR(summary.pendingTotal)}
+                </span>
+              </div>
+
+              {!summaryCollapsed && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div
+                    style={{
+                      padding: '14px 12px',
+                      borderRadius: 14,
+                      background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid rgba(245, 158, 11, 0.35)',
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, fontWeight: 900, color: isLight ? '#b45309' : '#fbbf24', textTransform: 'uppercase' }}>
+                      ⏳ You Will Get
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: isLight ? '#d97706' : '#fbbf24', marginTop: 4 }}>
+                      ₹{formatINR(summary.pendingTotal)}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, marginTop: 2 }}>
+                      {summary.pendingCount} {summary.pendingCount === 1 ? 'Person' : 'People'} Pending
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '14px 12px',
+                      borderRadius: 14,
+                      background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, fontWeight: 900, color: '#10b981', textTransform: 'uppercase' }}>
+                      ✅ Received Back
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', marginTop: 4 }}>
+                      ₹{formatINR(summary.returnedTotal)}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, marginTop: 2 }}>
+                      {summary.returnedCount} Fully Settled
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 2 Primary Action Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(true)}
+                  style={{
+                    padding: '13px 12px',
+                    borderRadius: 14,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: 13.5,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>➕</span>
+                  <span>Add Udhaar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isImportingFile}
+                  style={{
+                    padding: '13px 10px',
+                    borderRadius: 14,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontWeight: 800,
+                    fontSize: 12.5,
+                    cursor: isImportingFile ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>📂</span>
+                  <span>{isImportingFile ? 'Reading...' : 'Upload File / Photo'}</span>
+                </button>
+              </div>
+
+              {lastImportSummary && (
+                <div
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: 12,
+                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.14)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
+                    ✅ Imported {lastImportSummary.count} person(s) from <b>{lastImportSummary.fileName}</b> (₹
+                    {formatINR(lastImportSummary.totalToPay)})
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUndoLastImport}
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: 8,
+                      border: `1px solid ${palette.border}`,
+                      background: palette.surface,
+                      color: palette.textSub,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Undo
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════
+                4. PEOPLE LEDGER SECTION (Tap Header to Minimize / Maximize)
+               ═══════════════════════════════════════════════════════════════ */}
+            <div
+              style={{
+                borderRadius: 18,
+                background: palette.surface,
+                border: `1px solid ${palette.border}`,
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div
+                onClick={() => setListCollapsed((v) => !v)}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ fontSize: 13.5, fontWeight: 900, color: palette.text }}>
+                  👥 People Udhaar List ({items.length}) {listCollapsed ? '▸' : '▾'}
+                </span>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
+                  {listCollapsed ? 'Tap to expand' : 'Tap to minimize'}
+                </span>
+              </div>
+
+              {!listCollapsed && (
+                <>
+                  {/* Sheet Filter Chips (If files/sheets were uploaded) */}
+                  {allSheetNames.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSheetFilter('ALL')}
+                        style={{
+                          padding: '5px 11px',
+                          borderRadius: 999,
+                          border: selectedSheetFilter === 'ALL' ? '1px solid #6366f1' : `1px solid ${palette.border}`,
+                          background: selectedSheetFilter === 'ALL' ? 'rgba(99, 102, 241, 0.16)' : palette.surfaceAlt,
+                          color: selectedSheetFilter === 'ALL' ? (isLight ? '#4338ca' : '#a5b4fc') : palette.textMuted,
+                          fontSize: 11.5,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        All Sheets ({items.length})
+                      </button>
+                      {allSheetNames.map((sName) => {
+                        const active = selectedSheetFilter === sName;
+                        const count = items.filter((x) => x?.sheetName === sName).length;
+                        return (
+                          <button
+                            key={sName}
+                            type="button"
+                            onClick={() => setSelectedSheetFilter(sName)}
+                            style={{
+                              padding: '5px 11px',
+                              borderRadius: 999,
+                              border: active ? '1px solid #6366f1' : `1px solid ${palette.border}`,
+                              background: active ? 'rgba(99, 102, 241, 0.16)' : palette.surfaceAlt,
+                              color: active ? (isLight ? '#4338ca' : '#a5b4fc') : palette.textMuted,
+                              fontSize: 11.5,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            📄 {sName} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Search Input (when 2+ items exist) */}
+                  {items.length >= 2 && (
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="🔍 Search friend name or note..."
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '9px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.text,
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        outline: 'none',
+                      }}
+                    />
+                  )}
+
+                  {/* Clean 2-Tab Switch: Pending vs Settled */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 6,
+                      padding: 4,
+                      borderRadius: 12,
+                      background: palette.surfaceAlt,
+                      border: `1px solid ${palette.border}`,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setTab('pending')}
+                      style={{
+                        padding: '9px',
+                        borderRadius: 9,
+                        border: 'none',
+                        background: tab === 'pending' ? palette.surface : 'transparent',
+                        color: tab === 'pending' ? (isLight ? '#d97706' : '#fbbf24') : palette.textMuted,
+                        fontSize: 12.5,
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        boxShadow: tab === 'pending' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                      }}
+                    >
+                      ⏳ Pending ({summary.pendingCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTab('returned')}
+                      style={{
+                        padding: '9px',
+                        borderRadius: 9,
+                        border: 'none',
+                        background: tab === 'returned' ? palette.surface : 'transparent',
+                        color: tab === 'returned' ? '#10b981' : palette.textMuted,
+                        fontSize: 12.5,
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        boxShadow: tab === 'returned' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                      }}
+                    >
+                      ✅ Settled ({summary.returnedCount})
+                    </button>
+                  </div>
+
+                  {/* People Cards */}
+                  {visibleItems.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '30px 16px',
+                        textAlign: 'center',
+                        borderRadius: 16,
+                        background: palette.surfaceAlt,
+                        border: `1px dashed ${palette.border}`,
+                        color: palette.textMuted,
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {items.length === 0
+                        ? 'No Udhaar entries yet. Tap "➕ Add Udhaar" or "📂 Upload File / Photo" above.'
+                        : tab === 'pending'
+                        ? '🎉 All Udhaar entries are settled!'
+                        : 'No settled entries yet.'}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {visibleItems.map((item) => {
+                        const stats = getPaymentStats(item);
+                        const isReturned = stats.isReturned;
+                        const initial = String(item.person || 'F')
+                          .trim()
+                          .charAt(0)
+                          .toUpperCase();
+
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: '14px',
+                              borderRadius: 16,
+                              background: palette.surfaceAlt,
+                              border: `1px solid ${palette.border}`,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                            }}
+                          >
+                            {/* Top Row: Person Name & Date Taken */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 12,
+                                    background: isReturned
+                                      ? 'rgba(16, 185, 129, 0.16)'
+                                      : 'rgba(245, 158, 11, 0.16)',
+                                    color: isReturned ? '#10b981' : isLight ? '#b45309' : '#fbbf24',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 16,
+                                    fontWeight: 900,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {initial}
+                                </div>
+
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 16, fontWeight: 900, color: palette.text }}>
+                                      {item.person}
+                                    </span>
+                                    {item.sheetName && (
+                                      <span
+                                        style={{
+                                          padding: '2px 7px',
+                                          borderRadius: 6,
+                                          background: 'rgba(99, 102, 241, 0.14)',
+                                          color: isLight ? '#4338ca' : '#a5b4fc',
+                                          fontSize: 10,
+                                          fontWeight: 800,
+                                        }}
+                                      >
+                                        📄 {item.sheetName}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                                    📅 Took on {formatShortDate(item.date)}
+                                    {item.time ? ` at ${formatTime12h(item.time)}` : ''}
+                                  </div>
+                                  {item.note && (
+                                    <div style={{ fontSize: 11.5, color: palette.textSub, fontWeight: 700, marginTop: 2 }}>
+                                      📝 {item.note}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <span
+                                style={{
+                                  padding: '4px 9px',
+                                  borderRadius: 999,
+                                  background: isReturned ? 'rgba(16, 185, 129, 0.16)' : 'rgba(245, 158, 11, 0.16)',
+                                  color: isReturned ? '#10b981' : isLight ? '#b45309' : '#fbbf24',
+                                  fontSize: 10.5,
+                                  fontWeight: 900,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {isReturned ? '✅ SETTLED' : '⏳ PENDING'}
+                              </span>
+                            </div>
+
+                            {/* Middle Row: Crystal-Clear 3-Column Financial Breakdown Box */}
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr 1.1fr',
+                                gap: 6,
+                                padding: '10px',
+                                borderRadius: 12,
+                                background: palette.surface,
+                                border: `1px solid ${palette.border}`,
+                                textAlign: 'center',
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                  Total Taken
+                                </div>
+                                <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text, marginTop: 2 }}>
+                                  ₹{formatINR(stats.totalAmount)}
+                                </div>
+                              </div>
+
+                              <div style={{ borderLeft: `1px solid ${palette.border}`, borderRight: `1px solid ${palette.border}` }}>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                  Paid ({stats.paidCount}x)
+                                </div>
+                                <div style={{ fontSize: 14.5, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
+                                  ₹{formatINR(stats.totalPaid)}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                  Balance Left
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 15.5,
+                                    fontWeight: 900,
+                                    color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  ₹{formatINR(stats.remaining)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Payment Installment History (When 1+ payments recorded) */}
+                            {stats.paidList.length > 0 && (
+                              <div
+                                style={{
+                                  padding: '8px 10px',
+                                  borderRadius: 10,
+                                  background: palette.surface,
+                                  border: `1px solid ${palette.border}`,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 4,
+                                }}
+                              >
+                                <div style={{ fontSize: 10.5, fontWeight: 900, color: '#10b981', textTransform: 'uppercase' }}>
+                                  Payment History ({stats.paidList.length} {stats.paidList.length === 1 ? 'Time' : 'Times'} Paid)
+                                </div>
+                                {stats.paidList.map((p, idx) => (
+                                  <div
+                                    key={p.id || idx}
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      color: palette.textSub,
+                                    }}
+                                  >
+                                    <span>
+                                      #{idx + 1} · <b style={{ color: '#10b981' }}>₹{formatINR(p.amount)}</b> via{' '}
+                                      <b>{p.paidThrough || 'UPI'}</b> · {formatShortDate(p.paidDate)}
+                                      {p.paidTime ? ` ${formatTime12h(p.paidTime)}` : ''}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemovePaymentRecord(item.id, p.id)}
+                                      style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: palette.textMuted,
+                                        fontSize: 11,
+                                        cursor: 'pointer',
+                                        padding: '0 4px',
+                                      }}
+                                      title="Remove payment entry"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Bottom 3-Button Action Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr 0.85fr', gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => openRecordPaymentModal(item)}
+                                style={{
+                                  padding: '9px 10px',
+                                  borderRadius: 10,
+                                  border: 'none',
+                                  background: '#10b981',
+                                  color: '#ffffff',
+                                  fontWeight: 900,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                💵 Record Paid
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => sendWhatsAppReminder(item)}
+                                style={{
+                                  padding: '9px 10px',
+                                  borderRadius: 10,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: '#10b981',
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                💬 WhatsApp
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditItem({ ...item })}
+                                style={{
+                                  padding: '9px 10px',
+                                  borderRadius: 10,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.textSub,
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✏️ Edit
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 1: CLEAN "ADD UDHAAR" POPUP
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {showAddModal && (
+        <div
+          onClick={() => setShowAddModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(2, 6, 23, 0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleAdd}
+            style={{
+              width: '100%',
+              maxWidth: 390,
+              borderRadius: 22,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              color: palette.text,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 17, fontWeight: 900 }}>➕ Add New Udhaar</div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: palette.textMuted,
+                  fontSize: 18,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {uploadedScreenshotPreview && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: 8,
+                  borderRadius: 10,
+                  background: palette.surfaceAlt,
+                  border: `1px solid ${palette.border}`,
+                }}
+              >
+                <img
+                  src={uploadedScreenshotPreview.dataUrl}
+                  alt="Screenshot"
+                  style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 8 }}
+                />
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: palette.textSub }}>
+                  📷 {uploadedScreenshotPreview.fileName}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                Friend / Person Name
+              </div>
               <input
                 type="text"
+                autoFocus
                 value={person}
                 onChange={(e) => setPerson(e.target.value)}
-                placeholder="👤 Friend Name"
+                placeholder="e.g. Raju, Kiran"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
-                  padding: '10px 12px',
+                  padding: '11px 12px',
                   borderRadius: 12,
                   border: `1px solid ${palette.border}`,
-                  background: palette.surface,
+                  background: palette.surfaceAlt,
                   color: palette.text,
-                  fontSize: 13.5,
+                  fontSize: 14.5,
                   fontWeight: 800,
                   outline: 'none',
                 }}
               />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                Amount Given (₹)
+              </div>
               <input
                 type="number"
                 inputMode="decimal"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="₹ Amount"
+                placeholder="₹ 0"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
-                  padding: '10px 12px',
+                  padding: '11px 12px',
                   borderRadius: 12,
                   border: `1px solid ${palette.border}`,
-                  background: palette.surface,
+                  background: palette.surfaceAlt,
                   color: palette.text,
-                  fontSize: 13.5,
+                  fontSize: 16,
                   fontWeight: 900,
                   outline: 'none',
                 }}
               />
             </div>
 
-            {/* Row 2: When did he take? (Simple Today / Yesterday + Date & Time) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textSub }}>
-                  📅 When did he take?
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
+                  When did he take?
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {[
                     { label: 'Today', iso: getTodayIso() },
                     { label: 'Yesterday', iso: getRelativeDateIso(1) },
-                  ].map((chip) => {
-                    const active = date === chip.iso;
-                    return (
-                      <button
-                        key={chip.label}
-                        type="button"
-                        onClick={() => setDate(chip.iso)}
-                        style={{
-                          padding: '3px 9px',
-                          borderRadius: 999,
-                          border: active ? '1px solid #f59e0b' : `1px solid ${palette.border}`,
-                          background: active ? 'rgba(245, 158, 11, 0.18)' : palette.surface,
-                          color: active ? (isLight ? '#b45309' : '#fbbf24') : palette.textMuted,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {chip.label}
-                      </button>
-                    );
-                  })}
+                  ].map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => setDate(chip.iso)}
+                      style={{
+                        padding: '3px 9px',
+                        borderRadius: 999,
+                        border: date === chip.iso ? '1px solid #f59e0b' : `1px solid ${palette.border}`,
+                        background: date === chip.iso ? 'rgba(245, 158, 11, 0.16)' : palette.surfaceAlt,
+                        color: date === chip.iso ? '#f59e0b' : palette.textMuted,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
                 <input
                   type="date"
@@ -1898,14 +2715,13 @@ export default function UdhaarStandaloneApp({
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    padding: '9px 10px',
+                    padding: '10px',
                     borderRadius: 12,
                     border: `1px solid ${palette.border}`,
-                    background: palette.surface,
+                    background: palette.surfaceAlt,
                     color: palette.text,
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 800,
-                    outline: 'none',
                   }}
                 />
                 <input
@@ -1915,715 +2731,291 @@ export default function UdhaarStandaloneApp({
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    padding: '9px 10px',
+                    padding: '10px',
                     borderRadius: 12,
                     border: `1px solid ${palette.border}`,
-                    background: palette.surface,
+                    background: palette.surfaceAlt,
                     color: palette.text,
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 800,
-                    outline: 'none',
                   }}
                 />
               </div>
             </div>
 
-            {/* Row 3: Note + Save Button */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                Note / Reason (Optional)
+              </div>
               <input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="📝 For what? (optional)"
+                placeholder="e.g. Lunch, Petrol, Emergency"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
                   padding: '10px 12px',
                   borderRadius: 12,
                   border: `1px solid ${palette.border}`,
-                  background: palette.surface,
+                  background: palette.surfaceAlt,
                   color: palette.text,
-                  fontSize: 12.5,
+                  fontSize: 13,
                   fontWeight: 700,
-                  outline: 'none',
                 }}
               />
-              <button
-                type="submit"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 12,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
-                + Add Udhaar
-              </button>
             </div>
 
-            {/* Row 4: Universal File / Sheet / Screenshot Upload (Reads any Screenshot, Excel, CSV, PDF, Word, TXT & creates Udhaar persons) */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="*/*,image/*,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.doc,.docx,.json,.xml,.html"
-              onChange={handleFileUpload}
-              style={{ display: 'none' }}
-            />
             <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImportingFile}
+              type="submit"
               style={{
-                width: '100%',
-                padding: '9px 12px',
+                padding: '12px',
                 borderRadius: 12,
-                border: `1px dashed ${isLight ? '#6366f1' : 'rgba(129, 140, 248, 0.5)'}`,
-                background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.12)',
-                color: isLight ? '#4338ca' : '#a5b4fc',
-                fontSize: 12,
-                fontWeight: 800,
-                cursor: isImportingFile ? 'wait' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
+                border: 'none',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 14,
+                cursor: 'pointer',
+                marginTop: 4,
               }}
             >
-              <span>📷</span>
-              <span>
-                {isImportingFile
-                  ? 'Reading Screenshot / File Data...'
-                  : 'Upload Screenshot / File / Sheet (Image, Excel, CSV, PDF, Word)'}
-              </span>
+              ✓ Save Udhaar
             </button>
           </form>
+        </div>
+      )}
 
-          {/* Uploaded Screenshot Preview Banner */}
-          {uploadedScreenshotPreview && (
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: 12,
-                background: palette.surfaceAlt,
-                border: `1px solid ${palette.border}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                <img
-                  src={uploadedScreenshotPreview.dataUrl}
-                  alt="Uploaded Screenshot"
-                  style={{
-                    width: 48,
-                    height: 48,
-                    objectFit: 'cover',
-                    borderRadius: 8,
-                    border: `1px solid ${palette.border}`,
-                    flexShrink: 0,
-                  }}
-                />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: palette.text }}>
-                    📷 {uploadedScreenshotPreview.fileName}
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted }}>
-                    {uploadedScreenshotPreview.count > 0
-                      ? `✅ Auto-read ${uploadedScreenshotPreview.count} person(s) from screenshot`
-                      : 'Screenshot loaded — check or add person above'}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUploadedScreenshotPreview(null)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: palette.textMuted,
-                  fontSize: 13,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {/* Imported File Confirmation Banner */}
-          {lastImportSummary && (
-            <div
-              style={{
-                padding: '9px 12px',
-                borderRadius: 12,
-                background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.4)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 8,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
-                ✅ Imported {lastImportSummary.count} person(s) from <b>{lastImportSummary.fileName}</b>
-                {lastImportSummary.sheets?.length > 0 ? ` (${lastImportSummary.sheets.join(', ')})` : ''} · Total ₹
-                {formatINR(lastImportSummary.totalToPay)} to pay
-              </div>
-              <button
-                type="button"
-                onClick={handleUndoLastImport}
-                style={{
-                  padding: '4px 9px',
-                  borderRadius: 8,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surface,
-                  color: palette.textSub,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                ↩️ Undo
-              </button>
-            </div>
-          )}
-
-          {/* Sheet Name Filter Pills (When multiple sheets are imported) */}
-          {allSheetNames.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-              <button
-                type="button"
-                onClick={() => setSelectedSheetFilter('ALL')}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: 999,
-                  border: selectedSheetFilter === 'ALL' ? '1px solid #6366f1' : `1px solid ${palette.border}`,
-                  background: selectedSheetFilter === 'ALL' ? 'rgba(99, 102, 241, 0.18)' : palette.surfaceAlt,
-                  color: selectedSheetFilter === 'ALL' ? (isLight ? '#4338ca' : '#a5b4fc') : palette.textMuted,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                All Sheets ({items.length})
-              </button>
-              {allSheetNames.map((sName) => {
-                const active = selectedSheetFilter === sName;
-                const count = items.filter((x) => x?.sheetName === sName).length;
-                return (
-                  <button
-                    key={sName}
-                    type="button"
-                    onClick={() => setSelectedSheetFilter(sName)}
-                    style={{
-                      padding: '5px 10px',
-                      borderRadius: 999,
-                      border: active ? '1px solid #6366f1' : `1px solid ${palette.border}`,
-                      background: active ? 'rgba(99, 102, 241, 0.18)' : palette.surfaceAlt,
-                      color: active ? (isLight ? '#4338ca' : '#a5b4fc') : palette.textMuted,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    📄 {sName} ({count})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Simple Pending / Returned Switch */}
-          {items.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              <button
-                type="button"
-                onClick={() => setTab('pending')}
-                style={{
-                  padding: '8px',
-                  borderRadius: 10,
-                  border: tab === 'pending' ? '1px solid #f59e0b' : `1px solid ${palette.border}`,
-                  background: tab === 'pending' ? 'rgba(245, 158, 11, 0.16)' : palette.surfaceAlt,
-                  color: tab === 'pending' ? (isLight ? '#b45309' : '#fbbf24') : palette.textMuted,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                ⏳ Pending ({summary.pendingCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('returned')}
-                style={{
-                  padding: '8px',
-                  borderRadius: 10,
-                  border: tab === 'returned' ? '1px solid #10b981' : `1px solid ${palette.border}`,
-                  background: tab === 'returned' ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
-                  color: tab === 'returned' ? (isLight ? '#047857' : '#34d399') : palette.textMuted,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                ✅ Returned ({summary.returnedCount})
-              </button>
-            </div>
-          )}
-
-          {/* Clean List of People */}
-          {visibleItems.length === 0 ? (
-            <div
-              style={{
-                padding: '14px',
-                textAlign: 'center',
-                color: palette.textMuted,
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              {items.length === 0
-                ? 'No Udhaar entries yet. Add name & amount or upload a file above.'
-                : tab === 'pending'
-                ? '🎉 All Udhaar has been returned!'
-                : 'No returned entries yet.'}
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {visibleItems.map((item) => {
-                const stats = getPaymentStats(item);
-                const isReturned = stats.isReturned;
-                const isRecordingPay = payItemId === item.id;
-
-                return (
-                  <div
-                    key={item.id}
-                    style={{
-                      padding: '12px',
-                      borderRadius: 14,
-                      background: palette.surfaceAlt,
-                      border: `1px solid ${palette.border}`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10,
-                    }}
-                  >
-                    {/* Top Info Row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
-                            {item.person}
-                          </span>
-                          {item.sheetName && (
-                            <span
-                              style={{
-                                padding: '2px 7px',
-                                borderRadius: 999,
-                                background: 'rgba(99, 102, 241, 0.15)',
-                                color: isLight ? '#4338ca' : '#a5b4fc',
-                                fontSize: 10,
-                                fontWeight: 800,
-                              }}
-                            >
-                              📄 {item.sheetName}
-                            </span>
-                          )}
-                        </div>
-
-                        <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                          📅 Took ₹{formatINR(stats.totalAmount)} on {formatShortDate(item.date)}
-                          {item.time ? ` · ${formatTime12h(item.time)}` : ''}
-                        </div>
-
-                        {item.note && (
-                          <div style={{ fontSize: 11.5, color: palette.textSub, fontWeight: 700, marginTop: 3 }}>
-                            📝 {item.note}
-                          </div>
-                        )}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 2: CLEAN "RECORD PAYMENT" POPUP (How Much Paid, Paid Through, Paid Date)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {paymentModalItem && (
+        <div
+          onClick={() => setPaymentModalItem(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(2, 6, 23, 0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSavePayment}
+            style={{
+              width: '100%',
+              maxWidth: 390,
+              borderRadius: 22,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              color: palette.text,
+            }}
+          >
+            {(() => {
+              const stats = getPaymentStats(paymentModalItem);
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 16.5, fontWeight: 900 }}>
+                        💵 Record Payment · {paymentModalItem.person}
                       </div>
-
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div
-                          style={{
-                            fontSize: 17,
-                            fontWeight: 900,
-                            color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
-                          }}
-                        >
-                          ₹{formatINR(isReturned ? stats.totalAmount : stats.remaining)}
-                        </div>
-                        <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
-                          {isReturned ? '✅ Fully Paid' : '⏳ To Pay'}
-                        </div>
+                      <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                        Total ₹{formatINR(stats.totalAmount)} · Paid {stats.paidCount}x (₹{formatINR(stats.totalPaid)}) ·{' '}
+                        <b style={{ color: '#f59e0b' }}>Left ₹{formatINR(stats.remaining)}</b>
                       </div>
                     </div>
-
-                    {/* Payment Summary Strip: Total | Paid (How many times) | Remaining */}
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => setPaymentModalItem(null)}
                       style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 6,
-                        padding: '7px 10px',
-                        borderRadius: 10,
-                        background: palette.surface,
-                        border: `1px solid ${palette.border}`,
-                        fontSize: 11.5,
-                        fontWeight: 800,
+                        border: 'none',
+                        background: 'transparent',
+                        color: palette.textMuted,
+                        fontSize: 18,
+                        cursor: 'pointer',
                       }}
                     >
-                      <span style={{ color: palette.textSub }}>
-                        Total: <b>₹{formatINR(stats.totalAmount)}</b>
+                      ✕
+                    </button>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
+                        How much did he pay? (₹)
                       </span>
-                      <span style={{ color: '#10b981' }}>
-                        Paid: <b>₹{formatINR(stats.totalPaid)}</b> ({stats.paidCount}{' '}
-                        {stats.paidCount === 1 ? 'time' : 'times'})
-                      </span>
-                      <span style={{ color: isReturned ? '#10b981' : '#f59e0b' }}>
-                        Balance: <b>₹{formatINR(stats.remaining)}</b>
-                      </span>
-                    </div>
-
-                    {/* Payment History List: Shows each time he paid, how much, paid through & paid date */}
-                    {stats.paidList.length > 0 && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 4,
-                          padding: '8px 10px',
-                          borderRadius: 10,
-                          background: isLight ? '#f0fdf4' : 'rgba(16, 185, 129, 0.08)',
-                          border: '1px solid rgba(16, 185, 129, 0.25)',
-                        }}
-                      >
-                        <div style={{ fontSize: 10.5, fontWeight: 900, color: isLight ? '#047857' : '#34d399' }}>
-                          💵 Payment History (Paid {stats.paidList.length}{' '}
-                          {stats.paidList.length === 1 ? 'time' : 'times'}):
-                        </div>
-                        {stats.paidList.map((p, idx) => (
-                          <div
-                            key={p.id || idx}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: 6,
-                              fontSize: 11.5,
-                              fontWeight: 700,
-                              color: palette.text,
-                            }}
-                          >
-                            <span>
-                              <b>#{idx + 1}</b> · Paid <b style={{ color: '#10b981' }}>₹{formatINR(p.amount)}</b> via{' '}
-                              <b>{p.paidThrough || 'UPI'}</b> · 📅 {formatShortDate(p.paidDate)}
-                              {p.paidTime ? ` ${formatTime12h(p.paidTime)}` : ''}
-                              {p.note ? ` (${p.note})` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePaymentRecord(item.id, p.id)}
-                              title="Remove this payment entry"
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: palette.textMuted,
-                                fontSize: 11,
-                                fontWeight: 900,
-                                cursor: 'pointer',
-                                padding: '0 4px',
-                              }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Inline "Record Paid" Box (When he paid, How much he paid, Paid through, Paid date) */}
-                    {isRecordingPay && (
-                      <div
-                        style={{
-                          padding: '10px',
-                          borderRadius: 12,
-                          background: palette.surface,
-                          border: '1.5px solid #10b981',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 8,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>
-                            💵 Record Payment from {item.person}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setPayItemId(null)}
-                            style={{
-                              border: 'none',
-                              background: 'transparent',
-                              color: palette.textMuted,
-                              fontSize: 13,
-                              fontWeight: 900,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-
-                        {/* Amount Paid + Full Balance quick chip */}
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            value={payAmountDraft}
-                            onChange={(e) => setPayAmountDraft(e.target.value)}
-                            placeholder="₹ How much he paid?"
-                            style={{
-                              flex: 1,
-                              padding: '8px 10px',
-                              borderRadius: 10,
-                              border: `1px solid ${palette.border}`,
-                              background: palette.surfaceAlt,
-                              color: palette.text,
-                              fontSize: 13,
-                              fontWeight: 900,
-                              outline: 'none',
-                            }}
-                          />
-                          {stats.remaining > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setPayAmountDraft(String(stats.remaining))}
-                              style={{
-                                padding: '8px 10px',
-                                borderRadius: 10,
-                                border: '1px solid rgba(16, 185, 129, 0.4)',
-                                background: 'rgba(16, 185, 129, 0.14)',
-                                color: '#10b981',
-                                fontSize: 11,
-                                fontWeight: 900,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Full ₹{formatINR(stats.remaining)}
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Paid Through Pills (PhonePe, GPay, Paytm, Cash, UPI, Bank) */}
-                        <div>
-                          <div style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                            💳 Paid Through:
-                          </div>
-                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            {PAYMENT_MODES.map((mode) => {
-                              const active = payThroughDraft === mode;
-                              return (
-                                <button
-                                  key={mode}
-                                  type="button"
-                                  onClick={() => setPayThroughDraft(mode)}
-                                  style={{
-                                    padding: '4px 9px',
-                                    borderRadius: 999,
-                                    border: active ? '1px solid #10b981' : `1px solid ${palette.border}`,
-                                    background: active ? 'rgba(16, 185, 129, 0.18)' : palette.surfaceAlt,
-                                    color: active ? '#10b981' : palette.textSub,
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {mode}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Paid Date & Time */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>
-                              📅 Paid Date:
-                            </span>
-                            <div style={{ display: 'flex', gap: 5 }}>
-                              {[
-                                { label: 'Today', iso: getTodayIso() },
-                                { label: 'Yesterday', iso: getRelativeDateIso(1) },
-                              ].map((c) => (
-                                <button
-                                  key={c.label}
-                                  type="button"
-                                  onClick={() => setPayDateDraft(c.iso)}
-                                  style={{
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    border: payDateDraft === c.iso ? '1px solid #10b981' : `1px solid ${palette.border}`,
-                                    background: payDateDraft === c.iso ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
-                                    color: payDateDraft === c.iso ? '#10b981' : palette.textMuted,
-                                    fontSize: 10.5,
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {c.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 6 }}>
-                            <input
-                              type="date"
-                              value={payDateDraft}
-                              onChange={(e) => setPayDateDraft(e.target.value)}
-                              style={{
-                                width: '100%',
-                                boxSizing: 'border-box',
-                                padding: '7px 8px',
-                                borderRadius: 8,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surfaceAlt,
-                                color: palette.text,
-                                fontSize: 12,
-                                fontWeight: 800,
-                              }}
-                            />
-                            <input
-                              type="time"
-                              value={payTimeDraft}
-                              onChange={(e) => setPayTimeDraft(e.target.value)}
-                              style={{
-                                width: '100%',
-                                boxSizing: 'border-box',
-                                padding: '7px 8px',
-                                borderRadius: 8,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surfaceAlt,
-                                color: palette.text,
-                                fontSize: 12,
-                                fontWeight: 800,
-                              }}
-                            />
-                          </div>
-                        </div>
-
+                      {stats.remaining > 0 && (
                         <button
                           type="button"
-                          onClick={() => handleSavePayment(item)}
+                          onClick={() => setPayAmountDraft(String(stats.remaining))}
                           style={{
-                            padding: '9px 12px',
-                            borderRadius: 10,
-                            border: 'none',
-                            background: '#10b981',
-                            color: '#ffffff',
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            border: '1px solid #10b981',
+                            background: 'rgba(16, 185, 129, 0.14)',
+                            color: '#10b981',
+                            fontSize: 10.5,
                             fontWeight: 900,
-                            fontSize: 12.5,
                             cursor: 'pointer',
                           }}
                         >
-                          ✅ Save Payment (₹{formatINR(payAmountDraft || 0)} via {payThroughDraft})
+                          Full ₹{formatINR(stats.remaining)}
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      autoFocus
+                      value={payAmountDraft}
+                      onChange={(e) => setPayAmountDraft(e.target.value)}
+                      placeholder="₹ Enter amount paid"
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '11px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${palette.border}`,
+                        background: palette.surfaceAlt,
+                        color: palette.text,
+                        fontSize: 16,
+                        fontWeight: 900,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
 
-                    {/* Clean 4-Button Action Row */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr 0.9fr', gap: 6 }}>
-                      <button
-                        type="button"
-                        onClick={() => openRecordPayment(item)}
-                        style={{
-                          padding: '8px 6px',
-                          borderRadius: 10,
-                          border: '1px solid rgba(16, 185, 129, 0.45)',
-                          background: isRecordingPay ? '#10b981' : 'rgba(16, 185, 129, 0.14)',
-                          color: isRecordingPay ? '#ffffff' : '#10b981',
-                          fontWeight: 900,
-                          fontSize: 11.5,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        💵 + Paid
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => toggleStatus(item.id)}
-                        style={{
-                          padding: '8px 6px',
-                          borderRadius: 10,
-                          border: 'none',
-                          background: isReturned ? palette.surface : '#10b981',
-                          color: isReturned ? palette.textSub : '#ffffff',
-                          fontWeight: 900,
-                          fontSize: 11.5,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {isReturned ? '↩️ Pending' : '✅ Full Paid'}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setEditItem({ ...item })}
-                        style={{
-                          padding: '8px 6px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: palette.text,
-                          fontWeight: 800,
-                          fontSize: 11.5,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ✏️ Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => sendWhatsAppReminder(item)}
-                        style={{
-                          padding: '8px 6px',
-                          borderRadius: 10,
-                          border: `1px solid ${palette.border}`,
-                          background: palette.surface,
-                          color: '#10b981',
-                          fontWeight: 800,
-                          fontSize: 11.5,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        💬 Remind
-                      </button>
+                  <div>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 6 }}>
+                      Paid Through
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                      {PAYMENT_MODES.map((mode) => {
+                        const active = payThroughDraft === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setPayThroughDraft(mode)}
+                            style={{
+                              padding: '8px',
+                              borderRadius: 10,
+                              border: active ? '1.5px solid #10b981' : `1px solid ${palette.border}`,
+                              background: active ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
+                              color: active ? '#10b981' : palette.text,
+                              fontSize: 12,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {mode}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
+                        When did he pay?
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {[
+                          { label: 'Today', iso: getTodayIso() },
+                          { label: 'Yesterday', iso: getRelativeDateIso(1) },
+                        ].map((c) => (
+                          <button
+                            key={c.label}
+                            type="button"
+                            onClick={() => setPayDateDraft(c.iso)}
+                            style={{
+                              padding: '3px 9px',
+                              borderRadius: 999,
+                              border: payDateDraft === c.iso ? '1px solid #10b981' : `1px solid ${palette.border}`,
+                              background: payDateDraft === c.iso ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
+                              color: payDateDraft === c.iso ? '#10b981' : palette.textMuted,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
+                      <input
+                        type="date"
+                        value={payDateDraft}
+                        onChange={(e) => setPayDateDraft(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '10px',
+                          borderRadius: 12,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surfaceAlt,
+                          color: palette.text,
+                          fontSize: 13,
+                          fontWeight: 800,
+                        }}
+                      />
+                      <input
+                        type="time"
+                        value={payTimeDraft}
+                        onChange={(e) => setPayTimeDraft(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '10px',
+                          borderRadius: 12,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surfaceAlt,
+                          color: palette.text,
+                          fontSize: 13,
+                          fontWeight: 800,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '12px',
+                      borderRadius: 12,
+                      border: 'none',
+                      background: '#10b981',
+                      color: '#ffffff',
+                      fontWeight: 900,
+                      fontSize: 14,
+                      cursor: 'pointer',
+                      marginTop: 4,
+                    }}
+                  >
+                    ✅ Save Payment (₹{formatINR(payAmountDraft || 0)} via {payThroughDraft})
+                  </button>
+                </>
+              );
+            })()}
+          </form>
+        </div>
       )}
 
-      {/* SIMPLE CLEAN EDIT POPUP */}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 3: CLEAN "EDIT UDHAAR" POPUP
+         ═══════════════════════════════════════════════════════════════════════ */}
       {editItem && (
         <div
           onClick={() => setEditItem(null)}
@@ -2631,7 +3023,7 @@ export default function UdhaarStandaloneApp({
             position: 'fixed',
             inset: 0,
             zIndex: 99999,
-            background: 'rgba(2, 6, 23, 0.75)',
+            background: 'rgba(2, 6, 23, 0.78)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2644,10 +3036,10 @@ export default function UdhaarStandaloneApp({
             style={{
               width: '100%',
               maxWidth: 380,
-              borderRadius: 20,
+              borderRadius: 22,
               background: palette.surface,
               border: `1px solid ${palette.border}`,
-              padding: 18,
+              padding: 20,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
@@ -2718,7 +3110,7 @@ export default function UdhaarStandaloneApp({
 
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                  Sheet / Group Name
+                  Sheet / Group
                 </div>
                 <input
                   type="text"
@@ -2808,257 +3200,62 @@ export default function UdhaarStandaloneApp({
               />
             </div>
 
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                WhatsApp Phone (optional)
-              </div>
-              <input
-                type="tel"
-                value={editItem.phone || ''}
-                onChange={(e) => setEditItem((p) => ({ ...p, phone: e.target.value }))}
-                placeholder="10-digit mobile number"
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '10px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}
-              />
-            </div>
-
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button
                 type="button"
                 onClick={() => deleteEntry(editItem.id)}
                 style={{
-                  padding: '10px 14px',
+                  padding: '10px 12px',
                   borderRadius: 10,
                   border: '1px solid rgba(239, 68, 68, 0.4)',
                   background: 'rgba(239, 68, 68, 0.12)',
                   color: '#ef4444',
                   fontWeight: 900,
-                  fontSize: 12.5,
+                  fontSize: 12,
                   cursor: 'pointer',
                 }}
               >
                 🗑️ Delete
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={() => {
+                  toggleStatus(editItem.id);
+                  setEditItem(null);
+                }}
                 style={{
-                  flex: 1,
-                  padding: '10px 14px',
+                  padding: '10px 12px',
                   borderRadius: 10,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                  color: '#ffffff',
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: '#10b981',
                   fontWeight: 900,
-                  fontSize: 13,
+                  fontSize: 12,
                   cursor: 'pointer',
                 }}
               >
-                ✓ Save Changes
+                ✅ Full Paid
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Save
               </button>
             </div>
           </form>
         </div>
       )}
-    </div>
-  );
-
-  if (embedded) {
-    return cardContent;
-  }
-
-  // Standalone APK wrapper for friend (Uses separate ota-udhaar server)
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: palette.bg,
-        color: palette.text,
-        padding: '14px 12px 48px',
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-        boxSizing: 'border-box',
-      }}
-    >
-      <div style={{ maxWidth: 460, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {/* Clean Standalone Top Bar with Top-Right "Created by Pattan Yasin" Badge & Dedicated Udhaar OTA Button */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            padding: '10px 14px',
-            borderRadius: 16,
-            background: palette.surface,
-            border: `1px solid ${palette.border}`,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 900 }}>🤝 Udhaar Tracker</div>
-              <div style={{ fontSize: 10.5, color: palette.textMuted, fontWeight: 700 }}>
-                v{udhaarOtaVersion} · Udhaar OTA
-              </div>
-            </div>
-
-            {/* Top-Right Corner "Created by Pattan Yasin" Badge */}
-            <div
-              style={{
-                padding: '4px 10px',
-                borderRadius: 999,
-                background: isLight
-                  ? 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)'
-                  : 'linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(16, 185, 129, 0.22) 100%)',
-                border: '1px solid rgba(99, 102, 241, 0.45)',
-                color: isLight ? '#3730a3' : '#a5b4fc',
-                fontSize: 11,
-                fontWeight: 900,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              ✨ Created by Pattan Yasin
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={toggleBiometricLockSetting}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  border: biometricLockEnabled ? '1px solid #10b981' : `1px solid ${palette.border}`,
-                  background: biometricLockEnabled ? 'rgba(16, 185, 129, 0.16)' : palette.surfaceAlt,
-                  color: biometricLockEnabled ? '#10b981' : palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                {biometricLockEnabled ? '🔒 Lock: ON' : '🔓 Lock: OFF'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-                title="Upload Screenshot / Excel / CSV / PDF / Word / TXT"
-              >
-                📷 Upload File / Screenshot
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={applyUdhaarOtaUpdate}
-                disabled={udhaarOtaBusy}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  border: availableUdhaarOta ? 'none' : `1px solid ${palette.border}`,
-                  background: availableUdhaarOta ? '#10b981' : palette.surfaceAlt,
-                  color: availableUdhaarOta ? '#ffffff' : palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                  cursor: udhaarOtaBusy ? 'wait' : 'pointer',
-                }}
-              >
-                {udhaarOtaBusy ? '⏳...' : availableUdhaarOta ? `🚀 Update v${availableUdhaarOta.version}` : '🔄 Update'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setThemeLight((v) => !v)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                {isLight ? '🌙' : '☀️'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Dedicated Udhaar OTA Update Banner */}
-        {availableUdhaarOta && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 14,
-              background: 'rgba(16, 185, 129, 0.15)',
-              border: '1px solid #10b981',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 800 }}>
-              🚀 New Udhaar Update v{availableUdhaarOta.version}: {availableUdhaarOta.notes}
-            </div>
-            <button
-              type="button"
-              onClick={applyUdhaarOtaUpdate}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                border: 'none',
-                background: '#10b981',
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: 11.5,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Update Now
-            </button>
-          </div>
-        )}
-
-        {toastMsg && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 12,
-              background: '#10b981',
-              color: '#ffffff',
-              fontSize: 12.5,
-              fontWeight: 800,
-              textAlign: 'center',
-            }}
-          >
-            {toastMsg}
-          </div>
-        )}
-
-        {cardContent}
-      </div>
     </div>
   );
 }

@@ -2181,9 +2181,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.28';
+      return localStorage.getItem('pattan.ota.version') || '8.2.29';
     } catch (_) {
-      return '8.2.28';
+      return '8.2.29';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2192,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_28_udhaar_payments_file_screenshot_biometric_lock';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_29_separate_udhaar_apk_download_only';
     } catch (_) {
-      return 'ota_8_2_28_udhaar_payments_file_screenshot_biometric_lock';
+      return 'ota_8_2_29_separate_udhaar_apk_download_only';
     }
   });
 
