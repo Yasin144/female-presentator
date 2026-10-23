@@ -224,15 +224,31 @@ function isCountdownCurrentlySpeakingMilestone(milestoneHour, includeAlreadyPass
   return false;
 }
 
+function stopCountdownAudioStreamOnly() {
+  if (countdownAudioEl) {
+    try {
+      countdownAudioEl.pause();
+      countdownAudioEl.removeAttribute('src');
+      countdownAudioEl.load();
+    } catch (_) {}
+  }
+  if (countdownBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+    try {
+      URL.revokeObjectURL(countdownBlobUrl);
+    } catch (_) {}
+    countdownBlobUrl = '';
+  }
+}
+
 function syncAndCheckScheduledMilestones() {
   if (!activeScheduledMilestones.length || scheduleStartWallMs <= 0) return;
   const nowMs = Date.now();
   const elapsedWallSec = Math.max(0, (nowMs - scheduleStartWallMs) / 1000);
 
-  // If countdownAudioEl drifted by more than 2.5s (e.g. due to a brief notification/call),
-  // seek it back to exact wall-clock alignment so the baked voice plays at the exact second.
-  // Never seek while countdownAudioEl is actively inside a voice milestone window.
-  if (countdownAudioEl && !countdownAudioEl.paused) {
+  // Only keep countdownAudioEl playing during an explicit 6-second Lock-Screen Voice Test.
+  // NEVER play a continuous HTML5 <audio> element during normal shift/OT tracking, because
+  // HTML5 <audio>.play() requests Android AUDIOFOCUS_GAIN and pauses Spotify / YouTube Music!
+  if (isLockTestRunning && countdownAudioEl && !countdownAudioEl.paused) {
     const audioSec = Number(countdownAudioEl.currentTime) || 0;
     const duration = Number(countdownAudioEl.duration) || 0;
     const speakingNow = isCountdownCurrentlySpeakingMilestone(undefined, false);
@@ -241,7 +257,7 @@ function syncAndCheckScheduledMilestones() {
         countdownAudioEl.currentTime = elapsedWallSec;
       } catch (_) {}
     }
-  } else if (countdownAudioEl && countdownAudioEl.paused && activeScheduledMilestones.some((m) => !m.fired)) {
+  } else if (isLockTestRunning && countdownAudioEl && countdownAudioEl.paused && activeScheduledMilestones.some((m) => m.isLockTest && !m.fired)) {
     try {
       if (elapsedWallSec > 0.5) {
         countdownAudioEl.currentTime = elapsedWallSec;
@@ -259,20 +275,17 @@ function syncAndCheckScheduledMilestones() {
     if (nowMs >= m.epochMs) {
       m.fired = true;
       forceRaisePhoneSpeakerVolume();
-      const alreadyHandledByContinuousStream = isCountdownCurrentlySpeakingMilestone(m.hour, true);
+      const alreadyHandledByContinuousStream = isLockTestRunning && isCountdownCurrentlySpeakingMilestone(m.hour, true);
       if (!alreadyHandledByContinuousStream) {
-        // Advance countdownAudioEl past this milestone so it can never play a second time later
-        if (countdownAudioEl) {
-          try {
-            countdownAudioEl.currentTime = Math.max(Number(countdownAudioEl.currentTime) || 0, m.wavEndSec + 0.25);
-          } catch (_) {}
-        }
         speakOtMilestoneOutLoud(m.hour, { fromScheduleFallback: true });
       } else {
         lastSpokenWallMs = nowMs;
       }
       if (m.isLockTest) {
         isLockTestRunning = false;
+        setTimeout(() => {
+          stopCountdownAudioStreamOnly();
+        }, 2400);
         if (typeof m.onLockTestTrigger === 'function') {
           try {
             m.onLockTestTrigger();
@@ -456,11 +469,7 @@ export function armShiftAndOtMilestonesSchedule({
   const spokenSet = new Set(Array.isArray(alreadySpokenHours) ? alreadySpokenHours.map((h) => Number(h)) : []);
   const shiftSignature = `${dateKey}@${baseEpochMs}`;
 
-  // CRITICAL FOR MULTI-HOUR SCREEN-OFF PLAYBACK:
-  // Once the continuous multi-hour WAV stream is playing for this shift, NEVER rebuild or replace
-  // countdownAudioEl.src when a milestone (e.g. 0h or 1h) finishes and enters alreadySpokenHours.
-  // Replacing audio.src while the screen is off causes Android WebView to drop background audio focus.
-  if (shiftSignature === activeScheduleSignature && countdownAudioEl && !countdownAudioEl.paused && !countdownAudioEl.ended) {
+  if (shiftSignature === activeScheduleSignature && activeScheduledMilestones.length > 0) {
     activeOnMilestoneCallback = typeof onMilestoneTrigger === 'function' ? onMilestoneTrigger : null;
     for (const m of activeScheduledMilestones) {
       if (spokenSet.has(m.hour)) {
@@ -494,7 +503,19 @@ export function armShiftAndOtMilestonesSchedule({
     return;
   }
 
-  startBakedScheduleWav(upcoming, shiftSignature, onMilestoneTrigger);
+  // Track milestones silently via the background Web Worker + native Android AlarmManager
+  // WITHOUT starting a continuous HTML5 <audio> stream, so background music (Spotify / YouTube Music)
+  // is NEVER paused when opening or using the Salary & OT app!
+  stopCountdownAudioStreamOnly();
+  scheduleStartWallMs = nowMs;
+  activeScheduleSignature = shiftSignature;
+  activeScheduledMilestones = upcoming.map((m) => ({
+    ...m,
+    wavStartSec: Math.max(1, Math.round((m.epochMs - nowMs) / 1000)),
+    wavEndSec: Math.max(1, Math.round((m.epochMs - nowMs) / 1000)) + MILESTONE_BLOCK_SECONDS,
+    fired: false,
+  }));
+  activeOnMilestoneCallback = typeof onMilestoneTrigger === 'function' ? onMilestoneTrigger : null;
 }
 
 // Legacy single-alarm wrapper (delegates to armShiftAndOtMilestonesSchedule)
@@ -534,7 +555,13 @@ export function speakOtMilestoneOutLoud(milestoneHour = 0, options = {}) {
   }
   lastSpokenWallMs = nowMs;
 
-  // Primary: Play 1x 16-bit WAV via dedicated HTML5 <audio> element
+  // Primary: Play 1x 16-bit PCM via Web Audio API (AudioContext) first so it mixes with
+  // Spotify / YouTube Music without stealing Android MediaSession audio focus!
+  if (playViaWebAudioFallback(cleanHour)) {
+    return true;
+  }
+
+  // Fallback: HTML5 <audio> element only if Web Audio API is unavailable
   if (typeof Audio !== 'undefined') {
     try {
       if (!directVoiceAudioEl) {
@@ -559,16 +586,14 @@ export function speakOtMilestoneOutLoud(milestoneHour = 0, options = {}) {
         directVoiceAudioEl.volume = 1.0;
         const playPromise = directVoiceAudioEl.play();
         if (playPromise && typeof playPromise.catch === 'function') {
-          playPromise.catch(() => {
-            playViaWebAudioFallback(cleanHour);
-          });
+          playPromise.catch(() => {});
         }
         return true;
       }
     } catch (_) {}
   }
 
-  return playViaWebAudioFallback(cleanHour);
+  return false;
 }
 
 function playViaWebAudioFallback(cleanHour = 0) {
@@ -591,6 +616,13 @@ function playViaWebAudioFallback(cleanHour = 0) {
     gain.gain.value = 1.35;
     src.connect(gain);
     gain.connect(ctx.destination);
+    src.onended = () => {
+      try {
+        if (ctx && ctx.state === 'running') {
+          ctx.suspend().catch(() => {});
+        }
+      } catch (_) {}
+    };
     src.start(0);
     return true;
   } catch (_) {
@@ -612,10 +644,7 @@ export function ensureVoiceAudioUnlocked() {
   const onUserInteractionOrVisibility = () => {
     try {
       ensureBackgroundWorkerRunning();
-      if (sharedVoiceCtx && sharedVoiceCtx.state === 'suspended') {
-        sharedVoiceCtx.resume().catch(() => {});
-      }
-      if (countdownAudioEl && countdownAudioEl.paused && activeScheduledMilestones.some((m) => !m.fired)) {
+      if (isLockTestRunning && countdownAudioEl && countdownAudioEl.paused && activeScheduledMilestones.some((m) => m.isLockTest && !m.fired)) {
         const elapsedSec = Math.max(0, (Date.now() - scheduleStartWallMs) / 1000);
         if (elapsedSec > 0.5) {
           try {

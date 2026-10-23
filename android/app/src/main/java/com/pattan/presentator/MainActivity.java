@@ -49,7 +49,7 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
-    private static final String BUILTIN_OTA_VERSION = "8.2.30";
+    private static final String BUILTIN_OTA_VERSION = "8.2.31";
 
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
