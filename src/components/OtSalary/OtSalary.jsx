@@ -1254,6 +1254,69 @@ function TouchIdSvg({ variant = 'in', size = 62, verified = false, scanning = fa
   );
 }
 
+function SalaryOtAppMainAvatar({ size = 44 }) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.round(size * 0.28),
+        background: 'linear-gradient(135deg, #312e81 0%, #1e1b4b 50%, #065f46 100%)',
+        boxShadow: '0 4px 14px rgba(56, 189, 248, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3)',
+        border: '1.5px solid rgba(56, 189, 248, 0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+      title="Yasin Salary & OT Official App Main Avatar"
+    >
+      <svg
+        width={Math.round(size * 0.88)}
+        height={Math.round(size * 0.88)}
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Outer Shield / Card Frame */}
+        <rect x="6" y="7" width="52" height="50" rx="14" fill="#0F172A" stroke="#38BDF8" strokeWidth="2.2" />
+        {/* Left Emerald OT Clock Dial */}
+        <circle cx="23" cy="26" r="10.5" fill="#064E3B" stroke="#34D399" strokeWidth="2.4" />
+        <path d="M23 19.5V26L27.5 29" stroke="#6EE7B7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Right Gold Rupee Coin Emblem */}
+        <circle cx="44" cy="26" r="9.5" fill="#1E1B4B" stroke="#FDE047" strokeWidth="2" />
+        <text
+          x="44"
+          y="31.5"
+          textAnchor="middle"
+          fill="#FDE047"
+          fontSize="15.5"
+          fontWeight="900"
+          fontFamily="system-ui, sans-serif"
+        >
+          ₹
+        </text>
+        {/* Bottom SALARY OT Ribbon */}
+        <rect x="9" y="42" width="46" height="11" rx="5.5" fill="#0284C7" stroke="#7DD3FC" strokeWidth="1" />
+        <text
+          x="32"
+          y="49.8"
+          textAnchor="middle"
+          fill="#FFFFFF"
+          fontSize="7.4"
+          fontWeight="900"
+          letterSpacing="0.5"
+          fontFamily="system-ui, sans-serif"
+        >
+          SALARY OT
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 function RealAnalogClock({ now = new Date(), size = 136 }) {
   const dt = now instanceof Date ? now : new Date();
   const seconds = dt.getSeconds();
@@ -2181,9 +2244,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.version) return st.version;
       }
-      return localStorage.getItem('pattan.ota.version') || '8.2.32';
+      return localStorage.getItem('pattan.ota.version') || '8.2.33';
     } catch (_) {
-      return '8.2.32';
+      return '8.2.33';
     }
   });
   const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
@@ -2192,9 +2255,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
         if (st.buildId) return st.buildId;
       }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_32_distinct_salary_and_udhaar_logos';
+      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_33_app_main_avatar_both_apps';
     } catch (_) {
-      return 'ota_8_2_32_distinct_salary_and_udhaar_logos';
+      return 'ota_8_2_33_app_main_avatar_both_apps';
     }
   });
 
@@ -5544,42 +5607,26 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 title="Tap to Edit Profile & Change Name"
                 style={{
                   position: 'relative',
-                  width: 42,
-                  height: 42,
-                  borderRadius: 14,
-                  background: ui.accentGrad,
-                  border: `1px solid ${ui.border}`,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 15,
+                  gap: 6,
                   cursor: 'pointer',
                   flexShrink: 0,
-                  boxShadow: '0 6px 16px rgba(79, 70, 229, 0.28)',
                 }}
               >
-                {profileAvatarDataUrl ? (
+                <SalaryOtAppMainAvatar size={42} />
+                {profileAvatarDataUrl && (
                   <img
                     src={profileAvatarDataUrl}
                     alt={displayProfileName}
                     style={{
-                      width: '100%',
-                      height: '100%',
+                      width: 34,
+                      height: 34,
                       objectFit: 'cover',
-                      borderRadius: 13,
+                      borderRadius: 11,
+                      border: `1.5px solid ${ui.border}`,
                     }}
                   />
-                ) : (
-                  <svg width="34" height="34" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="6" y="8" width="52" height="48" rx="14" fill="#1E1B4B" stroke="#38BDF8" strokeWidth="2.5" />
-                    <circle cx="24" cy="28" r="10" fill="#0F172A" stroke="#34D399" strokeWidth="2.5" />
-                    <path d="M24 22V28L28 31" stroke="#34D399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                    <text x="44" y="34" textAnchor="middle" fill="#FDE047" fontSize="18" fontWeight="900" fontFamily="system-ui, sans-serif">₹</text>
-                    <rect x="10" y="42" width="44" height="10" rx="5" fill="#0284C7" />
-                    <text x="32" y="49.5" textAnchor="middle" fill="#FFFFFF" fontSize="7.2" fontWeight="900" letterSpacing="0.5" fontFamily="system-ui, sans-serif">SALARY OT</text>
-                  </svg>
                 )}
                 <span
                   style={{
@@ -7496,18 +7543,41 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   gap: 14,
                 }}
               >
-                <div style={{
-                  width: 68,
-                  height: 68,
-                  borderRadius: '50%',
-                  background: ui.accentGrad,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 32,
-                  boxShadow: '0 10px 25px rgba(99, 102, 241, 0.35)',
-                }}>
-                  🔐
+                <div
+                  onClick={() => unlockExpensesWithBiometric()}
+                  style={{
+                    position: 'relative',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 6,
+                    borderRadius: 26,
+                    background: 'rgba(56, 189, 248, 0.14)',
+                    border: '2px solid rgba(56, 189, 248, 0.55)',
+                    boxShadow: '0 10px 25px rgba(56, 189, 248, 0.3)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <SalaryOtAppMainAvatar size={76} />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: -6,
+                      bottom: -6,
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: '#10b981',
+                      border: '2px solid #ffffff',
+                      color: '#ffffff',
+                      fontSize: 14,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    🔐
+                  </span>
                 </div>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 950, color: ui.textPrimary }}>
@@ -10117,7 +10187,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (
-                    getEmployeeInitials(displayProfileName)
+                    <SalaryOtAppMainAvatar size={48} />
                   )}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -11681,7 +11751,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 ) : (
-                  getEmployeeInitials(profileNameInput || displayProfileName)
+                  <SalaryOtAppMainAvatar size={64} />
                 )}
               </div>
 

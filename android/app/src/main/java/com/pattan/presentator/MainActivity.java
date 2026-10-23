@@ -49,12 +49,12 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
-    private static final String BUILTIN_OTA_VERSION = "8.2.32";
+    private static final String BUILTIN_OTA_VERSION = "8.2.33";
 
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "udhaar_standalone_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.9";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.10";
 
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;

@@ -1,8 +1,8 @@
 {
-  "version": "8.2.32",
-  "buildId": "ota_8_2_32_distinct_app_logos",
-  "releasedAt": "2026-10-23T03:30:18Z",
+  "version": "8.2.33",
+  "buildId": "ota_8_2_33_app_main_avatar_both_apps",
+  "releasedAt": "2026-10-23T05:45:43Z",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.32: Custom Indigo-Emerald SALARY & OT Clock+Rupee header logo badge + background music never pauses when opening the app."
+  "notes": "v8.2.33: Official App Main Avatar for both Yasin Salary Pro (Indigo-Emerald Clock + ₹) and Udhaar Book (Amber-Gold Ledger + ₹) across Home Screen App Icons, Top Headers, and Biometric Lock Screens."
 }

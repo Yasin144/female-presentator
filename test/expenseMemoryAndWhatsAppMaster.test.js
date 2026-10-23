@@ -1405,7 +1405,7 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
         path.join(process.cwd(), 'src/components/AndroidLauncher.jsx'),
         'utf8'
       );
-      assert.equal(udhaarSrc.includes("BUILTIN_UDHAAR_OTA_VERSION = '1.0.9'"), true);
+      assert.equal(udhaarSrc.includes("BUILTIN_UDHAAR_OTA_VERSION = '1.0.10'"), true);
       assert.equal(udhaarSrc.includes('function UdhaarBookLogoBadge'), true);
       assert.equal(udhaarSrc.includes('handleHardwareBackPress'), true);
       assert.equal(udhaarSrc.includes('window.__handlePattanHardwareBack = handleHardwareBackPress'), true);

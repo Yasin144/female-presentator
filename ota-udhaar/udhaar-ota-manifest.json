@@ -1,9 +1,9 @@
 {
   "appType": "udhaar-only",
-  "version": "1.0.9",
-  "buildId": "udhaar-1.0.9-icon-back-requestpay-20261023",
-  "updatedAt": "2026-10-23T03:27:53Z",
+  "version": "1.0.10",
+  "buildId": "udhaar_ota_1_0_10_app_main_avatar_both_apps",
+  "updatedAt": "2026-10-23T05:45:43Z",
   "jsFile": "udhaar-bundle.js",
   "cssFile": "udhaar-bundle.css",
-  "notes": "v1.0.9: Custom Amber-Gold Udhaar Book Logo & Home Screen App Icon, smart Android Back Button (closes modals/details first, double-press to exit), and automatic Request to Pay in WhatsApp shared details."
+  "notes": "v1.0.10: Official Udhaar Book App Main Avatar on Home Screen App Icon, Biometric Unlock Screen, and Top Header + smart Back navigation + Request to Pay."
 }

@@ -5,8 +5,8 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.9';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_9_distinct_udhaar_book_logo_and_launcher_icon';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.10';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_10_app_main_avatar_both_apps';
 
 function UdhaarBookLogoBadge({ size = 44 }) {
   return (
@@ -93,6 +93,10 @@ const UDHAAR_OTA_BASES = [
 // Direct Download URL for the Standalone Udhaar APK (Play-Protect Safe Signed Release APK)
 const STANDALONE_UDHAAR_APK_URL =
   'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota-udhaar/Udhaar-Tracker-Pro-Friend.apk';
+
+// Direct Download URL for the Yasin Salary & OT APK (with New Home-Screen App Main Avatar)
+const SALARY_OT_APK_URL =
+  'https://raw.githubusercontent.com/Yasin144/female-presentator/main/ota/OT-Salary-Mobile.apk';
 
 const PAYMENT_MODES = ['PhonePe', 'GPay', 'Paytm', 'Cash', 'UPI', 'Bank'];
 
@@ -1400,12 +1404,29 @@ export default function UdhaarStandaloneApp({
         typeof window.PattanBiometric.launchUpiUri === 'function'
       ) {
         window.PattanBiometric.launchUpiUri(downloadUrl);
-        notify('⬇️ Downloading Standalone Udhaar APK (Latest Update)...');
+        notify('⬇️ Downloading Standalone Udhaar APK (With New Udhaar App Icon)...');
         return;
       }
     } catch (_) {}
     window.open(downloadUrl, '_blank', 'noopener,noreferrer');
-    notify('⬇️ Downloading Standalone Udhaar APK (Latest Update)...');
+    notify('⬇️ Downloading Standalone Udhaar APK (With New Udhaar App Icon)...');
+  };
+
+  const handleDownloadSalaryApk = () => {
+    const downloadUrl = `${SALARY_OT_APK_URL}?t=${Date.now()}`;
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        window.PattanBiometric &&
+        typeof window.PattanBiometric.launchUpiUri === 'function'
+      ) {
+        window.PattanBiometric.launchUpiUri(downloadUrl);
+        notify('⬇️ Downloading Yasin Salary Pro APK (With New Salary App Icon)...');
+        return;
+      }
+    } catch (_) {}
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+    notify('⬇️ Downloading Yasin Salary Pro APK (With New Salary App Icon)...');
   };
 
   const handleShareApkOnWhatsApp = () => {
@@ -1549,8 +1570,32 @@ export default function UdhaarStandaloneApp({
                   gap: 6,
                 }}
               >
-                <span>⬇️</span>
-                <span>Download Udhaar APK</span>
+                <span>📙</span>
+                <span>Udhaar App Icon APK</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadSalaryApk}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 10px',
+                  borderRadius: 11,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #059669 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>⏱️</span>
+                <span>Salary App Icon APK</span>
               </button>
 
               <button
@@ -2181,21 +2226,40 @@ export default function UdhaarStandaloneApp({
             <div
               onClick={() => requestBiometricAuth('unlock')}
               style={{
-                width: 78,
-                height: 78,
-                borderRadius: '50%',
-                background: 'rgba(16, 185, 129, 0.14)',
-                border: '2px solid #10b981',
-                boxShadow: '0 0 24px rgba(16, 185, 129, 0.35)',
-                display: 'flex',
+                position: 'relative',
+                cursor: 'pointer',
+                display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 38,
-                cursor: 'pointer',
+                padding: 6,
+                borderRadius: 28,
+                background: 'rgba(245, 158, 11, 0.14)',
+                border: '2px solid rgba(245, 158, 11, 0.65)',
+                boxShadow: '0 0 28px rgba(245, 158, 11, 0.35)',
               }}
               title="Tap to Scan Fingerprint"
             >
-              🫆
+              <UdhaarBookLogoBadge size={82} />
+              <span
+                style={{
+                  position: 'absolute',
+                  right: -6,
+                  bottom: -6,
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  border: '2px solid #ffffff',
+                  color: '#ffffff',
+                  fontSize: 15,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 10px rgba(16, 185, 129, 0.45)',
+                }}
+              >
+                🔒
+              </span>
             </div>
             <div style={{ fontSize: 19, fontWeight: 900, color: palette.text }}>
               Unlock Udhaar Book

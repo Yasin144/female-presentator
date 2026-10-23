@@ -144,7 +144,7 @@ public class MainActivity extends BridgeActivity {
     private static final String UDHAAR_OTA_PREF_NAME = "pattan_udhaar_live_ota_prefs_v1";
     private static final String UDHAAR_OTA_JS_FILE = "pattan_udhaar_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "pattan_udhaar_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.9";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.10";
     private String pendingBioActionType = "unlock";
     private long lastRootBackPressMs = 0L;
 
@@ -566,7 +566,7 @@ public class MainActivity extends BridgeActivity {
 
     # 4. Configure build.gradle, strings.xml, and custom Amber-Gold Udhaar Book Launcher Icons for com.pattan.udhaar v1.0.9
     $ksPath = $ksFile.Replace("\", "/")
-    $udhaarGradle = $origGradle.Replace('applicationId "com.pattan.presentator"', 'applicationId "com.pattan.udhaar"').Replace('versionCode 24', 'versionCode 9').Replace('versionName "7.8"', 'versionName "1.0.9"')
+    $udhaarGradle = $origGradle.Replace('applicationId "com.pattan.presentator"', 'applicationId "com.pattan.udhaar"').Replace('versionCode 24', 'versionCode 10').Replace('versionName "7.8"', 'versionName "1.0.10"')
     $signingBlock = @"
     signingConfigs {
         release {
