@@ -81,12 +81,13 @@ export function sanitizeBrandFreeAppLabel(raw) {
   const s = String(raw || '').trim();
   if (!s) return 'UPI Transfer';
   const lower = s.toLowerCase();
-  if (lower.includes('bank') || lower.includes('neft') || lower.includes('imps') || lower.includes('rtgs')) {
-    return 'Bank Transfer';
-  }
+  if (lower.includes('cred')) return 'UPI Transfer';
+  if (lower === 'upi' || lower === 'upi app' || lower === 'mobile payment') return 'UPI Transfer';
+  if (lower === 'bank' || lower === 'bank notice' || lower === 'bank sms') return 'Bank Transfer';
+  if (lower.includes('neft') || lower.includes('imps') || lower.includes('rtgs')) return 'Bank Transfer';
   if (lower.includes('cash')) return 'Cash';
   if (lower.includes('card')) return 'Card';
-  return 'UPI Transfer';
+  return s;
 }
 
 // Flutter Material 3 Squircle Icon Avatar (Zero third-party brand logos)
@@ -266,6 +267,7 @@ export default function ExpensesModule({
   const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Methods' | 'Trends'
   const [missingFilterWindow, setMissingFilterWindow] = useState('all'); // 'all' | 'today' | 'week'
   const [inlineNoteDrafts, setInlineNoteDrafts] = useState({});
+  const [inlineMerchantDrafts, setInlineMerchantDrafts] = useState({});
 
   // Detailed Transaction Viewer (Screen 9)
   const [selectedTxId, setSelectedTxId] = useState(null);
@@ -2495,28 +2497,82 @@ export default function ExpensesModule({
     const existing = baseMap[txId] || (effectiveExpensesSource || {})[txId];
     if (!existing) return;
     const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const clean = String(newPersonalNote || '').trim();
+    const resolvedMerchant =
+      newMerchant !== null && String(newMerchant).trim() ? String(newMerchant).trim() : existing.merchant;
     const updated = migrateAndNormalizeExpenseRecord({
       ...existing,
-      merchant: newMerchant !== null && String(newMerchant).trim() ? String(newMerchant).trim() : existing.merchant,
+      merchant: resolvedMerchant,
       personalNote: clean,
+      paymentRemark: clean || existing.paymentRemark || existing.originalRemark || '',
+      originalRemark: clean || existing.originalRemark || existing.paymentRemark || '',
       note: clean || existing.paymentRemark || '',
+      detectionStatus: 'user_confirmed',
       noteReviewed: markReviewed || Boolean(clean),
-      updatedAt: new Date(nowMs).toISOString(),
+      updatedAt: nowIso,
       updatedAtMs: nowMs,
     });
     delete updated._demoPreview;
     delete updated.isDemoPreview;
     delete updated._deleted;
+
     const nextMap = { ...baseMap, [txId]: updated };
+    // Auto-sync purpose across matching payment-app / bank transactions for the same person/merchant
+    if (clean && resolvedMerchant) {
+      const mLower = String(resolvedMerchant).trim().toLowerCase();
+      for (const [otherId, otherTx] of Object.entries(nextMap)) {
+        if (otherId === txId || !otherTx || otherTx._deleted) continue;
+        const sameRef = updated.refId && otherTx.refId && updated.refId === otherTx.refId;
+        const sameMerchantWithoutPurpose =
+          String(otherTx.merchant || '').trim().toLowerCase() === mLower &&
+          !String(otherTx.personalNote || otherTx.note || '').trim();
+        if (sameRef || sameMerchantWithoutPurpose) {
+          nextMap[otherId] = {
+            ...otherTx,
+            merchant: resolvedMerchant,
+            personalNote: clean,
+            paymentRemark: clean,
+            note: clean,
+            noteReviewed: true,
+            updatedAt: nowIso,
+            updatedAtMs: nowMs,
+          };
+        }
+      }
+    }
+
     setInlineNoteDrafts((prev) => {
       const next = { ...prev };
       delete next[txId];
       return next;
     });
+    setInlineMerchantDrafts((prev) => {
+      const next = { ...prev };
+      delete next[txId];
+      return next;
+    });
     if (typeof onUpdateExpenses === 'function') {
-      onUpdateExpenses(nextMap, clean ? `📝 Saved note: "${clean}"` : '✓ Marked transaction reviewed');
+      onUpdateExpenses(
+        nextMap,
+        clean
+          ? `🎯 Synced Purpose "${clean}" for ${resolvedMerchant || 'Payment'}`
+          : `✓ Updated ${resolvedMerchant || 'Transaction'}`
+      );
     }
+  };
+
+  const handleSyncPurposeToUpiApp = (tx, draftPurpose, draftMerchant) => {
+    if (!tx) return;
+    const cleanPurpose = String(draftPurpose ?? tx.personalNote ?? tx.note ?? tx.paymentRemark ?? '').trim() || 'Payment';
+    const cleanPayee = String(draftMerchant ?? tx.merchant ?? '').trim() || 'Payee';
+    handleUpdatePersonalNote(tx.id, cleanPurpose, true, cleanPayee);
+    launchUpiPayment({
+      payeeVpa: tx.payeeVpa || tx.vpa || '',
+      payeeName: cleanPayee,
+      amount: Number(tx.amount) || 0,
+      note: cleanPurpose,
+    });
   };
 
   // 1-Tap toggle between Paid (-₹ Debit) and Received (+₹ Credit)
@@ -4986,13 +5042,15 @@ export default function ExpensesModule({
                         </div>
                       </div>
 
-                    {/* Clean, Simple, Dynamic Transaction Cards */}
+                    {/* Clean, Simple, Dynamic Transaction Cards — Explicitly Shows Whom Paid & Syncs Purpose */}
                     {dayGroup.items.map((tx) => {
                       const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                      const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                      const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || tx.originalRemark || '').trim();
                       const hasNote = Boolean(noteText);
                       const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                      const inlineMerch = inlineMerchantDrafts[tx.id] ?? (tx.merchant || '');
                       const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                      const appLabel = sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod);
                       return (
                         <div
                           key={tx.id}
@@ -5027,8 +5085,26 @@ export default function ExpensesModule({
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 5,
                                 }}>
-                                  {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
+                                  <span
+                                    style={{
+                                      fontSize: 10.5,
+                                      fontWeight: 900,
+                                      padding: '1px 6px',
+                                      borderRadius: 5,
+                                      background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.14)',
+                                      color: isCredit ? '#10b981' : '#fb7185',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {isCredit ? '↙️ From' : '↗️ Paid to'}
+                                  </span>
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
+                                  </span>
                                 </div>
                                 <div style={{
                                   fontSize: 11,
@@ -5042,34 +5118,56 @@ export default function ExpensesModule({
                                 }}>
                                   <span>{formatTime12h(tx.time)}</span>
                                   <span>·</span>
-                                  <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
+                                  <span style={{ color: '#818cf8', fontWeight: 800 }}>via {appLabel}</span>
                                   <span>·</span>
                                   <span>{tx.category || 'Payment'}</span>
                                 </div>
 
-                                {/* Compact Dynamic Note Chip (Only opens input when tapped!) */}
+                                {/* Compact Purpose & Payee Sync Chip */}
                                 {!isEditingInline && (
                                   <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
-                                    }}
                                     style={{
                                       marginTop: 4,
-                                      display: 'inline-flex',
+                                      display: 'flex',
+                                      flexWrap: 'wrap',
                                       alignItems: 'center',
-                                      gap: 4,
-                                      padding: '2px 8px',
-                                      borderRadius: 6,
-                                      background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                                      border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
-                                      color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
+                                      gap: 6,
                                     }}
                                   >
-                                    {hasNote ? `📝 ${noteText}` : '+ Add note'}
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
+                                        setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: tx.merchant || '' }));
+                                      }}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        padding: '2px 8px',
+                                        borderRadius: 6,
+                                        background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                                        border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
+                                        color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                      }}
+                                      title="Tap to edit Whom I Paid & Purpose (Syncs across Payment Apps)"
+                                    >
+                                      {hasNote ? `🎯 Purpose: ${noteText}` : '+ Add Purpose / Whom I Paid'}
+                                    </div>
+                                    {hasNote && (
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 800,
+                                          color: '#10b981',
+                                        }}
+                                      >
+                                        ✓ Synced
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -5169,71 +5267,117 @@ export default function ExpensesModule({
                             </div>
                           </div>
 
-                          {/* Dynamic Inline Note Input (Only visible when editing a note!) */}
+                          {/* Dynamic Inline "Whom I Paid" + "Purpose I Paid" Editor (With Payment App Sync!) */}
                           {isEditingInline && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                              style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}
                             >
-                              <input
-                                type="text"
-                                autoFocus
-                                value={inlineDraft}
-                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted');
-                                }}
-                                placeholder="What was this for? (e.g. Tea, Petrol, Lunch)..."
-                                style={{
-                                  flex: 1,
-                                  padding: '6px 10px',
-                                  borderRadius: 8,
-                                  border: `1px solid #3b82f6`,
-                                  background: palette.surface,
-                                  color: palette.text,
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  outline: 'none',
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                                style={{
-                                  padding: '6px 11px',
-                                  borderRadius: 8,
-                                  border: 'none',
-                                  background: '#2563eb',
-                                  color: '#fff',
-                                  fontWeight: 800,
-                                  fontSize: 11.5,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setInlineNoteDrafts((prev) => {
-                                    const next = { ...prev };
-                                    delete next[tx.id];
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  padding: '6px 8px',
-                                  borderRadius: 8,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.textMuted,
-                                  fontWeight: 800,
-                                  fontSize: 11.5,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ✕
-                              </button>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 6 }}>
+                                <input
+                                  type="text"
+                                  value={inlineMerch}
+                                  onChange={(e) => setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                  placeholder={isCredit ? '👤 Received from whom?' : '👤 Paid to whom?'}
+                                  style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    padding: '6px 9px',
+                                    borderRadius: 8,
+                                    border: `1px solid ${palette.border}`,
+                                    background: palette.surface,
+                                    color: palette.text,
+                                    fontSize: 11.5,
+                                    fontWeight: 800,
+                                    outline: 'none',
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={inlineDraft}
+                                  onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch);
+                                  }}
+                                  placeholder="🎯 Purpose paid (Tea, Petrol, Lunch)..."
+                                  style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    padding: '6px 9px',
+                                    borderRadius: 8,
+                                    border: `1px solid #3b82f6`,
+                                    background: palette.surface,
+                                    color: palette.text,
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    outline: 'none',
+                                  }}
+                                />
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch)}
+                                  style={{
+                                    padding: '6px 11px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: '#2563eb',
+                                    color: '#fff',
+                                    fontWeight: 800,
+                                    fontSize: 11,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ✓ Save &amp; Sync Purpose
+                                </button>
+                                {!isCredit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSyncPurposeToUpiApp(tx, inlineDraft, inlineMerch)}
+                                    style={{
+                                      padding: '6px 10px',
+                                      borderRadius: 8,
+                                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                                      background: 'rgba(16, 185, 129, 0.14)',
+                                      color: '#10b981',
+                                      fontWeight: 800,
+                                      fontSize: 11,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    📲 Sync to UPI App
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setInlineNoteDrafts((prev) => {
+                                      const next = { ...prev };
+                                      delete next[tx.id];
+                                      return next;
+                                    });
+                                    setInlineMerchantDrafts((prev) => {
+                                      const next = { ...prev };
+                                      delete next[tx.id];
+                                      return next;
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '6px 8px',
+                                    borderRadius: 8,
+                                    border: `1px solid ${palette.border}`,
+                                    background: palette.surface,
+                                    color: palette.textMuted,
+                                    fontWeight: 800,
+                                    fontSize: 11,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -5984,10 +6128,12 @@ export default function ExpensesModule({
                   </div>
                   {group.items.map((tx) => {
                     const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                    const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || '').trim();
+                    const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || tx.originalRemark || '').trim();
                     const hasNote = Boolean(noteText);
                     const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
+                    const inlineMerch = inlineMerchantDrafts[tx.id] ?? (tx.merchant || '');
                     const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
+                    const appLabel = sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod);
                     return (
                       <div
                         key={tx.id}
@@ -6015,8 +6161,33 @@ export default function ExpensesModule({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                             <BrandPaymentAvatar tx={tx} size={38} />
                             <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontSize: 13.5, fontWeight: 800, color: palette.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
+                              <div style={{
+                                fontSize: 13.5,
+                                fontWeight: 800,
+                                color: palette.text,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                              }}>
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    fontWeight: 900,
+                                    padding: '1px 6px',
+                                    borderRadius: 5,
+                                    background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.14)',
+                                    color: isCredit ? '#10b981' : '#fb7185',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {isCredit ? '↙️ From' : '↗️ Paid to'}
+                                </span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
+                                </span>
                               </div>
                               <div style={{
                                 fontSize: 11,
@@ -6030,32 +6201,47 @@ export default function ExpensesModule({
                               }}>
                                 <span>{formatTime12h(tx.time)}</span>
                                 <span>·</span>
-                                <span style={{ color: '#818cf8', fontWeight: 700 }}>{sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod)}</span>
+                                <span style={{ color: '#818cf8', fontWeight: 800 }}>via {appLabel}</span>
                                 <span>·</span>
                                 <span>{tx.category || 'Payment'}</span>
                               </div>
                               {!isEditingInline && (
                                 <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
-                                  }}
                                   style={{
                                     marginTop: 4,
-                                    display: 'inline-flex',
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
                                     alignItems: 'center',
-                                    gap: 4,
-                                    padding: '2px 8px',
-                                    borderRadius: 6,
-                                    background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                                    border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
-                                    color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
+                                    gap: 6,
                                   }}
                                 >
-                                  {hasNote ? `📝 ${noteText}` : '+ Add note'}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
+                                      setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: tx.merchant || '' }));
+                                    }}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      padding: '2px 8px',
+                                      borderRadius: 6,
+                                      background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                                      border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
+                                      color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {hasNote ? `🎯 Purpose: ${noteText}` : '+ Add Purpose / Whom I Paid'}
+                                  </div>
+                                  {hasNote && (
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#10b981' }}>
+                                      ✓ Synced
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -6157,67 +6343,113 @@ export default function ExpensesModule({
                         {isEditingInline && (
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}
                           >
-                            <input
-                              type="text"
-                              autoFocus
-                              value={inlineDraft}
-                              onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted');
-                              }}
-                              placeholder="What was this for? (e.g. Tea, Petrol, Lunch)..."
-                              style={{
-                                flex: 1,
-                                padding: '6px 10px',
-                                borderRadius: 8,
-                                border: `1px solid #3b82f6`,
-                                background: palette.surface,
-                                color: palette.text,
-                                fontSize: 11.5,
-                                fontWeight: 700,
-                                outline: 'none',
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted')}
-                              style={{
-                                padding: '6px 12px',
-                                borderRadius: 8,
-                                border: 'none',
-                                background: '#2563eb',
-                                color: '#fff',
-                                fontWeight: 800,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setInlineNoteDrafts((prev) => {
-                                  const next = { ...prev };
-                                  delete next[tx.id];
-                                  return next;
-                                });
-                              }}
-                              style={{
-                                padding: '6px 8px',
-                                borderRadius: 8,
-                                border: `1px solid ${palette.border}`,
-                                background: palette.surface,
-                                color: palette.textMuted,
-                                fontWeight: 800,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              ✕
-                            </button>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 6 }}>
+                              <input
+                                type="text"
+                                value={inlineMerch}
+                                onChange={(e) => setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                placeholder={isCredit ? '👤 Received from whom?' : '👤 Paid to whom?'}
+                                style={{
+                                  width: '100%',
+                                  boxSizing: 'border-box',
+                                  padding: '6px 9px',
+                                  borderRadius: 8,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.text,
+                                  fontSize: 11.5,
+                                  fontWeight: 800,
+                                  outline: 'none',
+                                }}
+                              />
+                              <input
+                                type="text"
+                                autoFocus
+                                value={inlineDraft}
+                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch);
+                                }}
+                                placeholder="🎯 Purpose paid (Tea, Petrol, Lunch)..."
+                                style={{
+                                  width: '100%',
+                                  boxSizing: 'border-box',
+                                  padding: '6px 9px',
+                                  borderRadius: 8,
+                                  border: `1px solid #3b82f6`,
+                                  background: palette.surface,
+                                  color: palette.text,
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  outline: 'none',
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch)}
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: 8,
+                                  border: 'none',
+                                  background: '#2563eb',
+                                  color: '#fff',
+                                  fontWeight: 800,
+                                  fontSize: 11,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✓ Save &amp; Sync Purpose
+                              </button>
+                              {!isCredit && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSyncPurposeToUpiApp(tx, inlineDraft, inlineMerch)}
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                                    background: 'rgba(16, 185, 129, 0.14)',
+                                    color: '#10b981',
+                                    fontWeight: 800,
+                                    fontSize: 11,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  📲 Sync to UPI App
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInlineNoteDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[tx.id];
+                                    return next;
+                                  });
+                                  setInlineMerchantDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[tx.id];
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  padding: '6px 8px',
+                                  borderRadius: 8,
+                                  border: `1px solid ${palette.border}`,
+                                  background: palette.surface,
+                                  color: palette.textMuted,
+                                  fontWeight: 800,
+                                  fontSize: 11,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

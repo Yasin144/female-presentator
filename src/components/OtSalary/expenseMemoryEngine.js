@@ -628,13 +628,22 @@ export function parseSmsOrUpiTextJs(rawText, fallbackTimestampMs = Date.now(), s
     else merchant = app && app !== 'Bank SMS' ? `${app} Payment` : 'UPI Payment';
   }
 
-  // 7. Original Payment Remark (only if genuinely present in message; never fabricated)
+  // 7. Original Payment Remark / Purpose (from payment app note, UPI slash remark, or inline "for <purpose>")
   let originalRemark = '';
   const mNote = /(?:note|remarks?|purpose|for|comment|message|description)\s*[:\-]\s*([^\n\r.;]{2,80})/i.exec(textWithoutBalance);
   if (mNote) {
     originalRemark = mNote[1].trim();
   } else if (slashNote && !/^(upi|na|nil|payment|[0-9]+)$/i.test(slashNote.trim())) {
     originalRemark = slashNote.trim();
+  }
+  if (!originalRemark) {
+    const inlinePurposeMatch = /\b(?:for|towards|purpose)\s+([A-Za-z][A-Za-z0-9\s,&\-]{2,42}?)(?=\s+(?:using\s+upi|via\s+upi|via\s+phonepe|via\s+gpay|via\s+paytm|on\s+\d|upi\s+ref|ref\s+no|utr|from\s+a\/c|in\s+your|\.|·|\n|$))/i.exec(textWithoutBalance);
+    if (
+      inlinePurposeMatch &&
+      !/^(your\s+a\/c|a\/c|account|upi|bank|rs\b|inr\b|payment|transfer|processing)/i.test(inlinePurposeMatch[1].trim())
+    ) {
+      originalRemark = inlinePurposeMatch[1].trim();
+    }
   }
 
   // 8. Category
@@ -1024,9 +1033,30 @@ export function reconcileAndMergeTransactions(existingMap = {}, incomingList = [
       continue;
     }
 
-    // 3. Brand new distinct transaction
+    // 3. Brand new distinct transaction — auto-sync remembered purpose & category from previous payments to the same person/merchant
+    let syncedNote = incoming.note || incoming.personalNote || incoming.originalRemark || '';
+    let syncedCategory = incoming.category;
+    if (!syncedNote && incoming.merchant && !isGenericBankOrUpiMerchantName(incoming.merchant)) {
+      const mLower = String(incoming.merchant).trim().toLowerCase();
+      for (const ex of activeEntries) {
+        if (String(ex.merchant || '').trim().toLowerCase() === mLower) {
+          const exPurpose = ex.personalNote || ex.note || ex.originalRemark || '';
+          if (exPurpose) {
+            syncedNote = exPurpose;
+          }
+          if (ex.category && ex.category !== 'transfer' && (!syncedCategory || syncedCategory === 'transfer')) {
+            syncedCategory = ex.category;
+          }
+          if (syncedNote) break;
+        }
+      }
+    }
     nextMap[incoming.id] = {
       ...incoming,
+      category: syncedCategory || incoming.category,
+      note: syncedNote || incoming.note || '',
+      personalNote: incoming.personalNote || syncedNote || '',
+      paymentRemark: incoming.paymentRemark || incoming.originalRemark || syncedNote || '',
       updatedAt: nowIso,
       updatedAtMs: Number(incoming.updatedAtMs || nowMs),
     };

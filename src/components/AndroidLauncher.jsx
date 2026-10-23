@@ -571,6 +571,28 @@ export default function AndroidLauncher() {
       const params = new URLSearchParams(window.location.search);
       if (params.get('app') === 'udhaar') return true;
     } catch (_) {}
+    try {
+      if (typeof window.PattanBiometric?.isUdhaarOnlyApp === 'function' && window.PattanBiometric.isUdhaarOnlyApp()) {
+        window.__UDHAAR_ONLY_APK__ = true;
+        return true;
+      }
+    } catch (_) {}
+    try {
+      if (typeof window.PattanBiometric?.getLiveOtaStatusJson === 'function') {
+        const raw = window.PattanBiometric.getLiveOtaStatusJson();
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && parsed.appType === 'udhaar-only') {
+          window.__UDHAAR_ONLY_APK__ = true;
+          return true;
+        }
+      }
+    } catch (_) {}
+    try {
+      if (typeof document !== 'undefined' && /Udhaar\s+Tracker/i.test(document.title || '')) {
+        window.__UDHAAR_ONLY_APK__ = true;
+        return true;
+      }
+    } catch (_) {}
     return false;
   }, []);
   const staleLink = useMemo(() => new URLSearchParams(window.location.search).get('staleMobileLink') === '1', []);

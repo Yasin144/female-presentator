@@ -1,8 +1,8 @@
 {
-  "version": "8.2.29",
-  "buildId": "ota_8_2_29_separate_udhaar_apk_download_only",
-  "releasedAt": "2026-10-23T06:35:00+05:30",
+  "version": "8.2.30",
+  "buildId": "ota_8_2_30_expense_payee_purpose_sync_udhaar_v106",
+  "releasedAt": "2026-10-23T07:26:00+05:30",
   "jsFile": "app-bundle.js",
   "cssFile": "app-bundle.css",
-  "notes": "v8.2.29: Kept Salary & OT App 100% clean with only the Standalone Udhaar APK Download Card — all Udhaar updates are delivered strictly inside the downloaded Standalone Udhaar APK and its separate ota-udhaar server."
+  "notes": "v8.2.30: Expenses Tab shows Paid To / Received From + Payment App, auto-syncs Payment Purpose across UPI apps, and makes the Udhaar APK Download Card 100% responsive."
 }

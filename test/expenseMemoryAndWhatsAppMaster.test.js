@@ -1359,6 +1359,60 @@ describe('Master Task QA — Expense Memory, After-OUT WhatsApp Statement & Secu
       assert.equal(otSalarySrc.includes('hours completed'), true);
       assert.equal(otSalarySrc.includes('stopScheduledVoiceAlarms()'), true);
     });
+
+    it('syncs Expense payee & purpose across payment apps and enforces Udhaar v1.0.6 standalone biometric, 50+ directory, WhatsApp & inside scroller (v8.2.30)', () => {
+      // 1. Parse inline purpose from UPI payment notification & auto-sync across same merchant
+      const txWithPurpose = parseFinancialSmsOrNotification({
+        senderOrPkg: 'com.google.android.apps.nbu.paisa.user',
+        title: 'Google Pay',
+        body: 'Paid ₹250.00 to Ramesh Kirana for Milk and Bread using UPI. Ref 629500112233.',
+        timestampMs: Date.now() - 60000,
+      });
+      assert.ok(txWithPurpose);
+      assert.equal(txWithPurpose.merchant, 'Ramesh Kirana');
+      assert.equal(txWithPurpose.note, 'Milk and Bread');
+
+      const txFollowUp = parseFinancialSmsOrNotification({
+        senderOrPkg: 'net.one97.paytm',
+        title: 'Paytm',
+        body: 'Paid ₹120.00 to Ramesh Kirana via UPI. Ref 629500998877.',
+        timestampMs: Date.now(),
+      });
+      assert.ok(txFollowUp);
+      const { nextMap } = reconcileAndMergeTransactions(
+        { [txWithPurpose.id]: txWithPurpose },
+        [txFollowUp]
+      );
+      const syncedFollowUp = Object.values(nextMap).find((t) => Math.abs(t.amount - 120) < 0.01);
+      assert.ok(syncedFollowUp);
+      assert.equal(syncedFollowUp.note, 'Milk and Bread', 'Purpose should auto-sync from remembered payee purpose');
+
+      // 2. Expenses UI shows Paid to / From + Purpose + Sync to UPI App & responsive Udhaar APK card
+      const expensesSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/ExpensesModule.jsx'),
+        'utf8'
+      );
+      assert.equal(expensesSrc.includes('Paid to'), true);
+      assert.equal(expensesSrc.includes('Purpose:'), true);
+      assert.equal(expensesSrc.includes('Sync to UPI App'), true);
+
+      // 3. Udhaar Standalone App v1.0.6 features
+      const udhaarSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/OtSalary/UdhaarStandaloneApp.jsx'),
+        'utf8'
+      );
+      const launcherSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/AndroidLauncher.jsx'),
+        'utf8'
+      );
+      assert.equal(udhaarSrc.includes("BUILTIN_UDHAAR_OTA_VERSION = '1.0.6'"), true);
+      assert.equal(udhaarSrc.includes("requestBiometricAuth('unlock')"), true);
+      assert.equal(udhaarSrc.includes('All Members ('), true);
+      assert.equal(udhaarSrc.includes('Tap Name to Open Detail'), true);
+      assert.equal(udhaarSrc.includes('buildPersonWhatsAppStatement'), true);
+      assert.equal(udhaarSrc.includes('maxHeight: 124'), true);
+      assert.equal(launcherSrc.includes('isUdhaarOnlyApp'), true);
+    });
   });
 });
 

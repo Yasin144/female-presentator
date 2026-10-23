@@ -49,12 +49,12 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
-    private static final String BUILTIN_OTA_VERSION = "7.8.0";
+    private static final String BUILTIN_OTA_VERSION = "8.2.30";
 
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "udhaar_standalone_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.5";
+    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.6";
 
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
@@ -142,7 +142,14 @@ public class MainActivity extends BridgeActivity {
             wv.addJavascriptInterface(bioBridge, "PattanBiometric");
             wv.addJavascriptInterface(bioBridge, "PattanBiometricBridge");
             wv.addJavascriptInterface(new PattanSecureWhatsAppBridge(), "PattanSecureWhatsApp");
-            wv.reload();
+            if (isUdhaarStandalonePackage()) {
+                try {
+                    wv.evaluateJavascript("window.__UDHAAR_ONLY_APK__ = true;", null);
+                } catch (Exception ignored) {}
+                wv.loadUrl(bridge.getLocalUrl() + "/?app=udhaar");
+            } else {
+                wv.reload();
+            }
         }
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -619,6 +626,11 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public boolean isUdhaarOnlyApp() {
+            return isUdhaarStandalonePackage();
+        }
+
+        @JavascriptInterface
         public String getLiveOtaStatusJson() {
             try {
                 String builtinVer = getActiveBuiltinOtaVersion();
@@ -998,19 +1010,27 @@ public class MainActivity extends BridgeActivity {
 
     private boolean launchDirectWhatsAppMessage(final String phoneE164, final String messageText) {
         try {
-            final String digits = (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
-            final String targetPhone = digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits);
+            final boolean isContactPicker = phoneE164 != null && "PICK_CONTACT".equalsIgnoreCase(phoneE164.trim());
+            final String digits = isContactPicker ? "" : (phoneE164 != null ? phoneE164 : "917386726193").replaceAll("[^0-9]", "");
+            final String targetPhone = isContactPicker ? "" : (digits.isEmpty() ? "917386726193" : (digits.length() == 10 ? "91" + digits : digits));
             final String msg = messageText != null ? messageText : "";
             final String encodedMsg = Uri.encode(msg);
+            final String schemeUrl = targetPhone.isEmpty()
+                ? ("whatsapp://send?text=" + encodedMsg)
+                : ("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+            final String webUrl = targetPhone.isEmpty()
+                ? ("https://api.whatsapp.com/send?text=" + encodedMsg)
+                : ("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
 
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 try {
-                    Toast.makeText(getApplicationContext(), "Opening WhatsApp chat (+91 7386726193)...", Toast.LENGTH_SHORT).show();
+                    String toastLabel = targetPhone.isEmpty() ? "Opening WhatsApp..." : "Opening WhatsApp chat (+" + targetPhone + ")...";
+                    Toast.makeText(getApplicationContext(), toastLabel, Toast.LENGTH_SHORT).show();
                 } catch (Exception ignored) {}
 
                 // 1. Direct WhatsApp native deep-link (com.whatsapp)
                 try {
-                    Uri directUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Uri directUri = Uri.parse(schemeUrl);
                     Intent directIntent = new Intent(Intent.ACTION_VIEW, directUri);
                     directIntent.setPackage("com.whatsapp");
                     directIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -1020,7 +1040,7 @@ public class MainActivity extends BridgeActivity {
 
                 // 2. Direct WhatsApp Business native deep-link (com.whatsapp.w4b)
                 try {
-                    Uri bizDirectUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Uri bizDirectUri = Uri.parse(schemeUrl);
                     Intent bizDirectIntent = new Intent(Intent.ACTION_VIEW, bizDirectUri);
                     bizDirectIntent.setPackage("com.whatsapp.w4b");
                     bizDirectIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -1030,7 +1050,7 @@ public class MainActivity extends BridgeActivity {
 
                 // 3. Unpackaged whatsapp://send scheme (for dual/cloned WhatsApp apps)
                 try {
-                    Uri schemeUri = Uri.parse("whatsapp://send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Uri schemeUri = Uri.parse(schemeUrl);
                     Intent schemeIntent = new Intent(Intent.ACTION_VIEW, schemeUri);
                     schemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(schemeIntent);
@@ -1039,7 +1059,7 @@ public class MainActivity extends BridgeActivity {
 
                 // 4. Fallback to api.whatsapp.com / wa.me
                 try {
-                    Uri webUri = Uri.parse("https://api.whatsapp.com/send?phone=" + targetPhone + "&text=" + encodedMsg);
+                    Uri webUri = Uri.parse(webUrl);
                     Intent webIntent = new Intent(Intent.ACTION_VIEW, webUri);
                     webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(webIntent);
@@ -1055,6 +1075,26 @@ public class MainActivity extends BridgeActivity {
     private final class RecoveringWebViewClient extends BridgeWebViewClient {
         RecoveringWebViewClient() {
             super(bridge);
+        }
+
+        @Override
+        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            if (isUdhaarStandalonePackage() && view != null) {
+                try {
+                    view.evaluateJavascript("window.__UDHAAR_ONLY_APK__ = true;", null);
+                } catch (Exception ignored) {}
+            }
+            super.onPageStarted(view, url, favicon);
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            if (isUdhaarStandalonePackage() && view != null) {
+                try {
+                    view.evaluateJavascript("window.__UDHAAR_ONLY_APK__ = true;", null);
+                } catch (Exception ignored) {}
+            }
+            super.onPageFinished(view, url);
         }
 
         @Override

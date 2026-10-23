@@ -1,10 +1,10 @@
 {
   "appType": "udhaar-only",
-  "version": "1.0.5",
-  "buildId": "udhaar_ota_1_0_5_separate_apk_download_and_clean_ui",
-  "releasedAt": "2026-10-23T06:35:00+05:30",
+  "version": "1.0.6",
+  "buildId": "udhaar_ota_1_0_6_auto_biometric_50_members_whatsapp_scroller",
+  "releasedAt": "2026-10-23T07:26:00+05:30",
   "jsFile": "udhaar-bundle.js",
   "cssFile": "udhaar-bundle.css",
   "apkFile": "Udhaar-Tracker-Pro-Friend.apk",
-  "notes": "v1.0.5: Super-clean zero-confusion Udhaar Book layout with 3-column financial breakdown (Total Taken | Paid Nx | Balance Left), Payment Installment History, Universal File/Sheet/Screenshot Reader, Optional Biometric Lock, and Created by Pattan Yasin badge."
+  "notes": "v1.0.6: Strict Standalone Udhaar App launch (never opens Yasin Salary OT app), Auto Biometric Lock on App Open (optional enable/disable), 50+ Members Numbered Directory & Search with Tap-Name-to-Maximize Details, Mobile Number for Direct WhatsApp Statement Sharing, and Inside Scroller for Payment History."
 }

@@ -5,8 +5,8 @@ const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
 const UDHAAR_OTA_VERSION_KEY = 'udhaar_standalone_ota_version_v1';
 const UDHAAR_OTA_BUILD_ID_KEY = 'udhaar_standalone_ota_build_id_v1';
-const BUILTIN_UDHAAR_OTA_VERSION = '1.0.5';
-const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_5_separate_apk_download_and_clean_ui';
+const BUILTIN_UDHAAR_OTA_VERSION = '1.0.6';
+const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_6_auto_biometric_50_members_whatsapp_scroller';
 
 // Separate Dedicated Udhaar OTA Server Endpoints (Strictly isolated from Salary & OT OTA server)
 const UDHAAR_OTA_BASES = [
@@ -1018,6 +1018,33 @@ export default function UdhaarStandaloneApp({
   });
   const [summaryCollapsed, setSummaryCollapsed] = useState(false);
   const [listCollapsed, setListCollapsed] = useState(false);
+  const [expandedPersonIds, setExpandedPersonIds] = useState(() => ({}));
+  const [allPersonsExpanded, setAllPersonsExpanded] = useState(false);
+  const [whatsAppPhonePromptItem, setWhatsAppPhonePromptItem] = useState(null);
+  const [whatsAppPhoneDraft, setWhatsAppPhoneDraft] = useState('');
+  const [inlinePhoneDrafts, setInlinePhoneDrafts] = useState(() => ({}));
+
+  const togglePersonExpanded = useCallback((personId) => {
+    setExpandedPersonIds((prev) => ({
+      ...prev,
+      [personId]: !prev[personId],
+    }));
+  }, []);
+
+  const focusAndExpandPerson = useCallback((personId) => {
+    setExpandedPersonIds((prev) => ({
+      ...prev,
+      [personId]: !prev[personId],
+    }));
+    setTimeout(() => {
+      try {
+        const el = document.getElementById(`udhaar-member-card-${personId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      } catch (_) {}
+    }, 80);
+  }, []);
 
   const toggleMinimized = () => {
     setMinimized((prev) => {
@@ -1079,22 +1106,29 @@ export default function UdhaarStandaloneApp({
   const [lastImportSummary, setLastImportSummary] = useState(null);
   const [uploadedScreenshotPreview, setUploadedScreenshotPreview] = useState(null);
 
-  // Optional Biometric Lock State
+  // Biometric Lock State (Enabled by default on Android hardware unless user explicitly disabled with '0')
   const [biometricLockEnabled, setBiometricLockEnabled] = useState(() => {
     try {
-      return localStorage.getItem(UDHAAR_BIOMETRIC_LOCK_KEY) === '1';
+      const saved = localStorage.getItem(UDHAAR_BIOMETRIC_LOCK_KEY);
+      if (saved === '0') return false;
+      if (saved === '1') return true;
+      return typeof window !== 'undefined' && Boolean(window.PattanBiometric);
     } catch (_) {
       return false;
     }
   });
   const [isVaultLocked, setIsVaultLocked] = useState(() => {
     try {
-      return localStorage.getItem(UDHAAR_BIOMETRIC_LOCK_KEY) === '1';
+      const saved = localStorage.getItem(UDHAAR_BIOMETRIC_LOCK_KEY);
+      if (saved === '0') return false;
+      if (saved === '1') return true;
+      return typeof window !== 'undefined' && Boolean(window.PattanBiometric);
     } catch (_) {
       return false;
     }
   });
   const pendingBioIntentRef = useRef('unlock');
+  const autoPromptTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (embedded) return undefined;
@@ -1125,7 +1159,10 @@ export default function UdhaarStandaloneApp({
     if (embedded || !biometricLockEnabled) return undefined;
     const onVisChange = () => {
       if (document.visibilityState === 'hidden') {
+        autoPromptTriggeredRef.current = false;
         setIsVaultLocked(true);
+      } else if (document.visibilityState === 'visible') {
+        autoPromptTriggeredRef.current = false;
       }
     };
     document.addEventListener('visibilitychange', onVisChange);
@@ -1142,8 +1179,8 @@ export default function UdhaarStandaloneApp({
       ) {
         window.PattanBiometric.authenticate(
           'udhaar-unlock',
-          intent === 'disable' ? 'Disable Udhaar Biometric Lock' : 'Unlock Udhaar Tracker',
-          'Use your fingerprint, face, or phone screen lock'
+          intent === 'disable' ? 'Disable Udhaar Biometric Lock' : 'Unlock Udhaar Book',
+          'Scan fingerprint, face, or phone screen lock to open Udhaar Book'
         );
         return;
       }
@@ -1161,6 +1198,23 @@ export default function UdhaarStandaloneApp({
     },
     [notify]
   );
+
+  // Automatically ask for biometric authentication when opening the Udhaar app (same as Yasin Salary OT App)
+  useEffect(() => {
+    if (embedded || !biometricLockEnabled || !isVaultLocked) return undefined;
+    if (autoPromptTriggeredRef.current) return undefined;
+    autoPromptTriggeredRef.current = true;
+    const timer = setTimeout(() => {
+      if (
+        typeof window !== 'undefined' &&
+        window.PattanBiometric &&
+        typeof window.PattanBiometric.authenticate === 'function'
+      ) {
+        requestBiometricAuth('unlock');
+      }
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [embedded, biometricLockEnabled, isVaultLocked, requestBiometricAuth]);
 
   const toggleBiometricLockSetting = useCallback(() => {
     if (!biometricLockEnabled) {
@@ -1218,84 +1272,115 @@ export default function UdhaarStandaloneApp({
 
   // ═══════════════════════════════════════════════════════════════════════════
   // WHEN EMBEDDED INSIDE SALARY & OT APP:
-  // Render ONLY a super-clean APK Download Card!
+  // Render a 100% Mobile-Responsive APK Download Card!
   // All Udhaar updates go strictly to the downloaded Standalone Udhaar APK & ota-udhaar/ server!
   // ═══════════════════════════════════════════════════════════════════════════
   if (embedded) {
     return (
       <div
         style={{
-          borderRadius: 20,
+          width: '100%',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          overflow: 'hidden',
+          borderRadius: 18,
           background: palette.surface,
           border: `1px solid ${palette.border}`,
-          padding: '14px 16px',
+          padding: '12px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          gap: 10,
         }}
       >
         <div
           onClick={toggleMinimized}
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
             justifyContent: 'space-between',
             alignItems: 'center',
             gap: 10,
             cursor: 'pointer',
             userSelect: 'none',
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 180px' }}>
             <div
               style={{
-                width: 38,
-                height: 38,
-                borderRadius: 12,
+                width: 36,
+                height: 36,
+                borderRadius: 11,
                 background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
                 border: '1px solid rgba(245, 158, 11, 0.35)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 18,
+                fontSize: 17,
                 flexShrink: 0,
               }}
             >
               🤝
             </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 900, color: palette.text }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 14.5,
+                  fontWeight: 900,
+                  color: palette.text,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 Udhaar Tracker App {minimized ? '▸' : '▾'}
               </div>
-              <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 1 }}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: palette.textMuted,
+                  fontWeight: 700,
+                  marginTop: 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 Separate Standalone APK · Created by Pattan Yasin
               </div>
             </div>
           </div>
 
-          <div
+          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               handleDownloadStandaloneApk();
             }}
             style={{
-              padding: '7px 12px',
+              padding: '7px 11px',
               borderRadius: 10,
+              border: 'none',
               background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
               color: '#ffffff',
-              fontSize: 12,
+              fontSize: 11.5,
               fontWeight: 900,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
             ⬇️ Download APK
-          </div>
+          </button>
         </div>
 
         {!minimized && (
           <div
             style={{
-              padding: '12px',
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '11px',
               borderRadius: 14,
               background: palette.surfaceAlt,
               border: `1px solid ${palette.border}`,
@@ -1304,22 +1389,31 @@ export default function UdhaarStandaloneApp({
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 700, color: palette.textSub, lineHeight: 1.45 }}>
-              All Udhaar Book updates (Clean Layout, Payment Installments, File/Screenshot Reader &amp; Biometric Lock) are delivered strictly inside the <b>Standalone Udhaar APK</b> so your Salary &amp; OT app stays 100% clean.
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: palette.textSub, lineHeight: 1.45, wordBreak: 'break-word' }}>
+              All Udhaar Book updates (Biometric Lock on Open, 50+ Members Directory, Direct WhatsApp Share &amp; Inside Scroller) are delivered strictly inside the <b>Standalone Udhaar APK</b>.
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 8 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+                gap: 8,
+                width: '100%',
+              }}
+            >
               <button
                 type="button"
                 onClick={handleDownloadStandaloneApk}
                 style={{
-                  padding: '11px 12px',
-                  borderRadius: 12,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 10px',
+                  borderRadius: 11,
                   border: 'none',
                   background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
                   color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: 12.5,
+                  fontSize: 12,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1335,8 +1429,10 @@ export default function UdhaarStandaloneApp({
                 type="button"
                 onClick={handleShareApkOnWhatsApp}
                 style={{
-                  padding: '11px 10px',
-                  borderRadius: 12,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 10px',
+                  borderRadius: 11,
                   border: `1px solid ${palette.border}`,
                   background: palette.surface,
                   color: '#10b981',
@@ -1350,7 +1446,7 @@ export default function UdhaarStandaloneApp({
                 }}
               >
                 <span>💬</span>
-                <span>Share APK</span>
+                <span>Share APK on WhatsApp</span>
               </button>
             </div>
           </div>
@@ -1637,21 +1733,83 @@ export default function UdhaarStandaloneApp({
     notify(`Updated ${cleanName}`);
   };
 
-  const sendWhatsAppReminder = (item) => {
+  const savePersonPhone = useCallback(
+    (itemId, rawPhone) => {
+      const cleanPhone = String(rawPhone || '').replace(/[^0-9+]/g, '');
+      saveItems((prev) =>
+        prev.map((entry) => (entry.id === itemId ? { ...entry, phone: cleanPhone } : entry))
+      );
+      return cleanPhone;
+    },
+    [saveItems]
+  );
+
+  const buildPersonWhatsAppStatement = useCallback((item) => {
     const stats = getPaymentStats(item);
     const dateLabel = `${formatShortDate(item.date)}${item.time ? ` at ${formatTime12h(item.time)}` : ''}`;
-    const paidHistoryText =
-      stats.paidCount > 0
-        ? ` (Paid ₹${formatINR(stats.totalPaid)} in ${stats.paidCount} time${stats.paidCount > 1 ? 's' : ''})`
-        : '';
-    const msg = `Hi ${item.person}, friendly reminder for Udhaar balance ₹${formatINR(stats.remaining)} to pay (Total ₹${formatINR(stats.totalAmount)} taken on ${dateLabel}${paidHistoryText})${item.note ? ` - ${item.note}` : ''}.`;
-    const digits = String(item.phone || '').replace(/[^0-9]/g, '');
-    const phoneParam = digits.length === 10 ? `91${digits}` : digits;
+    const lines = [
+      `🤝 *Udhaar Details — ${item.person}*`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `💰 *Total Taken:* ₹${formatINR(stats.totalAmount)}`,
+      `📅 *When Taken:* ${dateLabel}`,
+    ];
+    if (item.note) {
+      lines.push(`📝 *Reason / Note:* ${item.note}`);
+    }
+    if (stats.paidList.length > 0) {
+      lines.push(``);
+      lines.push(`✅ *Payment History (${stats.paidList.length}x Paid — ₹${formatINR(stats.totalPaid)}):*`);
+      stats.paidList.forEach((p, idx) => {
+        lines.push(
+          `  ${idx + 1}. ₹${formatINR(p.amount)} via ${p.paidThrough || 'UPI'} (${formatShortDate(p.paidDate)}${
+            p.paidTime ? ` ${formatTime12h(p.paidTime)}` : ''
+          })`
+        );
+      });
+    }
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    if (stats.isReturned || stats.remaining <= 0) {
+      lines.push(`🎉 *Balance Left:* ₹0 (Fully Settled ✅)`);
+    } else {
+      lines.push(`⏳ *Balance Left to Pay:* *₹${formatINR(stats.remaining)}*`);
+    }
+    return lines.join('\n');
+  }, []);
+
+  const launchWhatsAppWithTextAndPhone = useCallback((rawPhone, msg) => {
+    const digits = String(rawPhone || '').replace(/[^0-9]/g, '');
+    const phoneParam = digits.length === 10 ? `91${digits}` : digits.length > 10 ? digits : '';
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        window.PattanBiometric &&
+        typeof window.PattanBiometric.sendWhatsAppMessageToNumber === 'function'
+      ) {
+        window.PattanBiometric.sendWhatsAppMessageToNumber(phoneParam || 'PICK_CONTACT', msg);
+        return;
+      }
+    } catch (_) {}
     const url = phoneParam
       ? `https://wa.me/${phoneParam}?text=${encodeURIComponent(msg)}`
       : `https://wa.me/?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
-  };
+  }, []);
+
+  const sendWhatsAppReminder = useCallback(
+    (item, overridePhone) => {
+      if (!item) return;
+      const candidatePhone = overridePhone !== undefined ? overridePhone : item.phone;
+      const digits = String(candidatePhone || '').replace(/[^0-9]/g, '');
+      if (digits.length < 10 && overridePhone === undefined) {
+        setWhatsAppPhonePromptItem(item);
+        setWhatsAppPhoneDraft(item.phone || '');
+        return;
+      }
+      const msg = buildPersonWhatsAppStatement(item);
+      launchWhatsAppWithTextAndPhone(digits, msg);
+    },
+    [buildPersonWhatsAppStatement, launchWhatsAppWithTextAndPhone]
+  );
 
   const allSheetNames = useMemo(() => {
     const set = new Set();
@@ -1684,14 +1842,16 @@ export default function UdhaarStandaloneApp({
 
   const visibleItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return items.filter((i) => {
+    const qNum = q.replace(/^#/, '');
+    return items.filter((i, idx) => {
       if (!i) return false;
       if (selectedSheetFilter !== 'ALL' && i.sheetName !== selectedSheetFilter) return false;
       const stats = getPaymentStats(i);
       const matchesTab = tab === 'pending' ? !stats.isReturned : stats.isReturned;
       if (!matchesTab) return false;
       if (!q) return true;
-      return `${i.person || ''} ${i.note || ''} ${i.sheetName || ''}`.toLowerCase().includes(q);
+      const haystack = `${idx + 1} #${idx + 1} ${i.person || ''} ${i.phone || ''} ${i.note || ''} ${i.sheetName || ''}`.toLowerCase();
+      return haystack.includes(q) || (qNum && String(idx + 1) === qNum);
     });
   }, [items, tab, selectedSheetFilter, searchQuery]);
 
@@ -1862,8 +2022,8 @@ export default function UdhaarStandaloneApp({
               </div>
               <div style={{ fontSize: 10.5, fontWeight: 600, color: palette.textMuted }}>
                 {biometricLockEnabled
-                  ? 'Only you can view Udhaar data with fingerprint/PIN'
-                  : 'Turn on if you want to hide data with fingerprint lock'}
+                  ? 'Asks for fingerprint/PIN on app open (tap Disable to turn off)'
+                  : 'Turn on if you want fingerprint lock when opening the app'}
               </div>
             </div>
           </div>
@@ -1872,7 +2032,10 @@ export default function UdhaarStandaloneApp({
             {biometricLockEnabled && !isVaultLocked && (
               <button
                 type="button"
-                onClick={() => setIsVaultLocked(true)}
+                onClick={() => {
+                  autoPromptTriggeredRef.current = true;
+                  setIsVaultLocked(true);
+                }}
                 style={{
                   padding: '6px 10px',
                   borderRadius: 9,
@@ -1906,51 +2069,71 @@ export default function UdhaarStandaloneApp({
           </div>
         </div>
 
-        {/* IF LOCKED: Show Clean Biometric Lock Screen */}
+        {/* IF LOCKED: Show Biometric Scanner Lock Screen (Auto-triggers Android Biometric Prompt on Open) */}
         {biometricLockEnabled && isVaultLocked ? (
           <div
             style={{
-              padding: '36px 20px',
-              borderRadius: 20,
+              padding: '38px 20px',
+              borderRadius: 22,
               background: palette.surface,
-              border: '1.5px solid rgba(16, 185, 129, 0.4)',
+              border: '1.5px solid rgba(16, 185, 129, 0.45)',
+              boxShadow: '0 12px 32px rgba(16, 185, 129, 0.12)',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               textAlign: 'center',
-              gap: 12,
+              gap: 14,
             }}
           >
-            <div style={{ fontSize: 42 }}>🔒</div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: palette.text }}>
-              Udhaar Book is Locked
+            <div
+              onClick={() => requestBiometricAuth('unlock')}
+              style={{
+                width: 78,
+                height: 78,
+                borderRadius: '50%',
+                background: 'rgba(16, 185, 129, 0.14)',
+                border: '2px solid #10b981',
+                boxShadow: '0 0 24px rgba(16, 185, 129, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 38,
+                cursor: 'pointer',
+              }}
+              title="Tap to Scan Fingerprint"
+            >
+              🫆
             </div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: palette.textMuted, maxWidth: 260 }}>
-              Verify your fingerprint, face, or phone screen lock to view your Udhaar records.
+            <div style={{ fontSize: 19, fontWeight: 900, color: palette.text }}>
+              Unlock Udhaar Book
             </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: palette.textMuted, maxWidth: 280, lineHeight: 1.45 }}>
+              Scan your fingerprint, face, or phone screen lock to view your private Udhaar records.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
               <button
                 type="button"
                 onClick={() => requestBiometricAuth('unlock')}
                 style={{
-                  padding: '11px 20px',
-                  borderRadius: 12,
+                  padding: '12px 22px',
+                  borderRadius: 13,
                   border: 'none',
-                  background: '#10b981',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: 13.5,
+                  fontSize: 14,
                   cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                 }}
               >
-                👆 Unlock Now
+                👆 Scan Fingerprint / Unlock
               </button>
               <button
                 type="button"
                 onClick={() => requestBiometricAuth('disable')}
                 style={{
-                  padding: '11px 14px',
-                  borderRadius: 12,
+                  padding: '12px 15px',
+                  borderRadius: 13,
                   border: `1px solid ${palette.border}`,
                   background: palette.surfaceAlt,
                   color: palette.textSub,
@@ -2125,7 +2308,7 @@ export default function UdhaarStandaloneApp({
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
-                4. PEOPLE LEDGER SECTION (Tap Header to Minimize / Maximize)
+                4. PEOPLE LEDGER SECTION (50+ Members Directory + Search + Tap Name to Maximize)
                ═══════════════════════════════════════════════════════════════ */}
             <div
               style={{
@@ -2152,7 +2335,7 @@ export default function UdhaarStandaloneApp({
                   👥 People Udhaar List ({items.length}) {listCollapsed ? '▸' : '▾'}
                 </span>
                 <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
-                  {listCollapsed ? 'Tap to expand' : 'Tap to minimize'}
+                  {listCollapsed ? 'Tap to show all names' : 'Tap to minimize'}
                 </span>
               </div>
 
@@ -2205,28 +2388,6 @@ export default function UdhaarStandaloneApp({
                     </div>
                   )}
 
-                  {/* Search Input (when 2+ items exist) */}
-                  {items.length >= 2 && (
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="🔍 Search friend name or note..."
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '9px 12px',
-                        borderRadius: 12,
-                        border: `1px solid ${palette.border}`,
-                        background: palette.surfaceAlt,
-                        color: palette.text,
-                        fontSize: 12.5,
-                        fontWeight: 700,
-                        outline: 'none',
-                      }}
-                    />
-                  )}
-
                   {/* Clean 2-Tab Switch: Pending vs Settled */}
                   <div
                     style={{
@@ -2275,7 +2436,163 @@ export default function UdhaarStandaloneApp({
                     </button>
                   </div>
 
-                  {/* People Cards */}
+                  {/* Search Input (Always visible when 1+ items exist so user can search across 50+ members) */}
+                  {items.length >= 1 && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={`🔍 Search name, #number (1-${items.length}), mobile, or note...`}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          boxSizing: 'border-box',
+                          padding: '9px 12px',
+                          borderRadius: 12,
+                          border: `1px solid ${palette.border}`,
+                          background: palette.surfaceAlt,
+                          color: palette.text,
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          outline: 'none',
+                        }}
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surfaceAlt,
+                            color: palette.textMuted,
+                            fontSize: 11.5,
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ALL MEMBERS NUMBERED DIRECTORY (With Inside Scroller for 50+ Members — Tap any Name to Maximize Detail) */}
+                  {visibleItems.length > 0 && (
+                    <div
+                      style={{
+                        padding: '10px',
+                        borderRadius: 14,
+                        background: palette.surfaceAlt,
+                        border: `1px solid ${palette.border}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: palette.textMuted, textTransform: 'uppercase' }}>
+                          🔢 All Members ({visibleItems.length}) · Tap Name to Open Detail
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextAll = !allPersonsExpanded;
+                            setAllPersonsExpanded(nextAll);
+                            const nextMap = {};
+                            if (nextAll) {
+                              visibleItems.forEach((it) => {
+                                nextMap[it.id] = true;
+                              });
+                            }
+                            setExpandedPersonIds(nextMap);
+                          }}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 7,
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surface,
+                            color: palette.textSub,
+                            fontSize: 10.5,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {allPersonsExpanded ? 'Minimize All ▴' : 'Expand All ▾'}
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          maxHeight: 150,
+                          overflowY: 'auto',
+                          WebkitOverflowScrolling: 'touch',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 6,
+                          paddingRight: 2,
+                        }}
+                      >
+                        {visibleItems.map((item, idx) => {
+                          const stats = getPaymentStats(item);
+                          const isExpanded = Boolean(allPersonsExpanded || expandedPersonIds[item.id]);
+                          return (
+                            <button
+                              key={`dir_${item.id}`}
+                              type="button"
+                              onClick={() => {
+                                if (allPersonsExpanded) setAllPersonsExpanded(false);
+                                focusAndExpandPerson(item.id);
+                              }}
+                              style={{
+                                padding: '5px 10px',
+                                borderRadius: 999,
+                                border: isExpanded
+                                  ? '1.5px solid #f59e0b'
+                                  : `1px solid ${palette.border}`,
+                                background: isExpanded
+                                  ? isLight
+                                    ? '#fffbeb'
+                                    : 'rgba(245, 158, 11, 0.18)'
+                                  : palette.surface,
+                                color: isExpanded
+                                  ? isLight
+                                    ? '#b45309'
+                                    : '#fbbf24'
+                                  : palette.text,
+                                fontSize: 11.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                maxWidth: '100%',
+                              }}
+                            >
+                              <span style={{ opacity: 0.7, fontWeight: 900 }}>{idx + 1}.</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                                {item.person}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 10.5,
+                                  fontWeight: 900,
+                                  color: stats.isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
+                                }}
+                              >
+                                ₹{formatINR(stats.isReturned ? stats.totalAmount : stats.remaining)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* People Cards (Tap Person Name Row to Maximize / Minimize Full Details) */}
                   {visibleItems.length === 0 ? (
                     <div
                       style={{
@@ -2296,36 +2613,52 @@ export default function UdhaarStandaloneApp({
                         : 'No settled entries yet.'}
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {visibleItems.map((item) => {
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {visibleItems.map((item, idx) => {
                         const stats = getPaymentStats(item);
                         const isReturned = stats.isReturned;
-                        const initial = String(item.person || 'F')
-                          .trim()
-                          .charAt(0)
-                          .toUpperCase();
+                        const isPersonExpanded = Boolean(allPersonsExpanded || expandedPersonIds[item.id]);
+                        const hasPhone = String(item.phone || '').replace(/[^0-9]/g, '').length >= 10;
 
                         return (
                           <div
+                            id={`udhaar-member-card-${item.id}`}
                             key={item.id}
                             style={{
-                              padding: '14px',
+                              padding: isPersonExpanded ? '14px' : '11px 12px',
                               borderRadius: 16,
                               background: palette.surfaceAlt,
-                              border: `1px solid ${palette.border}`,
+                              border: isPersonExpanded
+                                ? '1.5px solid rgba(245, 158, 11, 0.45)'
+                                : `1px solid ${palette.border}`,
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 10,
+                              transition: 'all 0.15s ease',
                             }}
                           >
-                            {/* Top Row: Person Name & Date Taken */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                            {/* Top Row: Tap Name Header to Maximize / Minimize Person Details */}
+                            <div
+                              onClick={() => {
+                                if (allPersonsExpanded) setAllPersonsExpanded(false);
+                                togglePersonExpanded(item.id);
+                              }}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 10,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                                 <div
                                   style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
+                                    minWidth: 36,
+                                    height: 36,
+                                    padding: '0 6px',
+                                    borderRadius: 10,
                                     background: isReturned
                                       ? 'rgba(16, 185, 129, 0.16)'
                                       : 'rgba(245, 158, 11, 0.16)',
@@ -2333,19 +2666,33 @@ export default function UdhaarStandaloneApp({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    fontSize: 16,
+                                    fontSize: 13,
                                     fontWeight: 900,
                                     flexShrink: 0,
                                   }}
                                 >
-                                  {initial}
+                                  #{idx + 1}
                                 </div>
 
                                 <div style={{ minWidth: 0, flex: 1 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 16, fontWeight: 900, color: palette.text }}>
+                                    <span style={{ fontSize: 15.5, fontWeight: 900, color: palette.text }}>
                                       {item.person}
                                     </span>
+                                    {hasPhone && (
+                                      <span
+                                        style={{
+                                          padding: '1px 6px',
+                                          borderRadius: 6,
+                                          background: 'rgba(16, 185, 129, 0.14)',
+                                          color: '#10b981',
+                                          fontSize: 10,
+                                          fontWeight: 800,
+                                        }}
+                                      >
+                                        📱 {item.phone}
+                                      </span>
+                                    )}
                                     {item.sheetName && (
                                       <span
                                         style={{
@@ -2361,187 +2708,345 @@ export default function UdhaarStandaloneApp({
                                       </span>
                                     )}
                                   </div>
-                                  <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
+                                  <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
                                     📅 Took on {formatShortDate(item.date)}
                                     {item.time ? ` at ${formatTime12h(item.time)}` : ''}
+                                    {stats.paidCount > 0 ? ` · Paid ${stats.paidCount}x` : ''}
                                   </div>
-                                  {item.note && (
-                                    <div style={{ fontSize: 11.5, color: palette.textSub, fontWeight: 700, marginTop: 2 }}>
-                                      📝 {item.note}
-                                    </div>
-                                  )}
                                 </div>
                               </div>
 
-                              <span
-                                style={{
-                                  padding: '4px 9px',
-                                  borderRadius: 999,
-                                  background: isReturned ? 'rgba(16, 185, 129, 0.16)' : 'rgba(245, 158, 11, 0.16)',
-                                  color: isReturned ? '#10b981' : isLight ? '#b45309' : '#fbbf24',
-                                  fontSize: 10.5,
-                                  fontWeight: 900,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {isReturned ? '✅ SETTLED' : '⏳ PENDING'}
-                              </span>
-                            </div>
-
-                            {/* Middle Row: Crystal-Clear 3-Column Financial Breakdown Box */}
-                            <div
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr 1.1fr',
-                                gap: 6,
-                                padding: '10px',
-                                borderRadius: 12,
-                                background: palette.surface,
-                                border: `1px solid ${palette.border}`,
-                                textAlign: 'center',
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
-                                  Total Taken
-                                </div>
-                                <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text, marginTop: 2 }}>
-                                  ₹{formatINR(stats.totalAmount)}
-                                </div>
-                              </div>
-
-                              <div style={{ borderLeft: `1px solid ${palette.border}`, borderRight: `1px solid ${palette.border}` }}>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
-                                  Paid ({stats.paidCount}x)
-                                </div>
-                                <div style={{ fontSize: 14.5, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
-                                  ₹{formatINR(stats.totalPaid)}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
-                                  Balance Left
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: 15.5,
-                                    fontWeight: 900,
-                                    color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  ₹{formatINR(stats.remaining)}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Payment Installment History (When 1+ payments recorded) */}
-                            {stats.paidList.length > 0 && (
-                              <div
-                                style={{
-                                  padding: '8px 10px',
-                                  borderRadius: 10,
-                                  background: palette.surface,
-                                  border: `1px solid ${palette.border}`,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: 4,
-                                }}
-                              >
-                                <div style={{ fontSize: 10.5, fontWeight: 900, color: '#10b981', textTransform: 'uppercase' }}>
-                                  Payment History ({stats.paidList.length} {stats.paidList.length === 1 ? 'Time' : 'Times'} Paid)
-                                </div>
-                                {stats.paidList.map((p, idx) => (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                <div style={{ textAlign: 'right' }}>
                                   <div
-                                    key={p.id || idx}
                                     style={{
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      fontSize: 11.5,
-                                      fontWeight: 700,
-                                      color: palette.textSub,
+                                      fontSize: 15,
+                                      fontWeight: 900,
+                                      color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
                                     }}
                                   >
-                                    <span>
-                                      #{idx + 1} · <b style={{ color: '#10b981' }}>₹{formatINR(p.amount)}</b> via{' '}
-                                      <b>{p.paidThrough || 'UPI'}</b> · {formatShortDate(p.paidDate)}
-                                      {p.paidTime ? ` ${formatTime12h(p.paidTime)}` : ''}
-                                    </span>
+                                    ₹{formatINR(isReturned ? stats.totalAmount : stats.remaining)}
+                                  </div>
+                                  <div style={{ fontSize: 9.5, fontWeight: 800, color: palette.textMuted }}>
+                                    {isReturned ? 'SETTLED' : 'BALANCE'}
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: 8,
+                                    background: palette.surface,
+                                    border: `1px solid ${palette.border}`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 12,
+                                    fontWeight: 900,
+                                    color: palette.textSub,
+                                  }}
+                                >
+                                  {isPersonExpanded ? '▾' : '▸'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* MAXIMIZED DETAIL VIEW WHEN PERSON NAME IS TAPPED */}
+                            {isPersonExpanded && (
+                              <>
+                                {item.note && (
+                                  <div
+                                    style={{
+                                      padding: '7px 10px',
+                                      borderRadius: 9,
+                                      background: palette.surface,
+                                      border: `1px solid ${palette.border}`,
+                                      fontSize: 11.5,
+                                      color: palette.textSub,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    📝 Reason / Note: <b>{item.note}</b>
+                                  </div>
+                                )}
+
+                                {/* Mobile Number & Direct WhatsApp Row */}
+                                <div
+                                  style={{
+                                    padding: '8px 10px',
+                                    borderRadius: 10,
+                                    background: palette.surface,
+                                    border: `1px solid ${palette.border}`,
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 170px', minWidth: 0 }}>
+                                    <span style={{ fontSize: 14 }}>📱</span>
+                                    <input
+                                      type="tel"
+                                      inputMode="numeric"
+                                      value={
+                                        inlinePhoneDrafts[item.id] !== undefined
+                                          ? inlinePhoneDrafts[item.id]
+                                          : item.phone || ''
+                                      }
+                                      onChange={(e) =>
+                                        setInlinePhoneDrafts((prev) => ({
+                                          ...prev,
+                                          [item.id]: e.target.value,
+                                        }))
+                                      }
+                                      placeholder="Add mobile number for WhatsApp..."
+                                      style={{
+                                        width: '100%',
+                                        minWidth: 0,
+                                        boxSizing: 'border-box',
+                                        padding: '6px 9px',
+                                        borderRadius: 8,
+                                        border: `1px solid ${palette.border}`,
+                                        background: palette.surfaceAlt,
+                                        color: palette.text,
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        outline: 'none',
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    {inlinePhoneDrafts[item.id] !== undefined &&
+                                      inlinePhoneDrafts[item.id] !== (item.phone || '') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const saved = savePersonPhone(item.id, inlinePhoneDrafts[item.id]);
+                                            notify(saved ? `📱 Saved mobile ${saved}` : '📱 Mobile number cleared');
+                                          }}
+                                          style={{
+                                            padding: '6px 10px',
+                                            borderRadius: 8,
+                                            border: 'none',
+                                            background: '#2563eb',
+                                            color: '#ffffff',
+                                            fontSize: 11,
+                                            fontWeight: 900,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Save No.
+                                        </button>
+                                      )}
                                     <button
                                       type="button"
-                                      onClick={() => handleRemovePaymentRecord(item.id, p.id)}
-                                      style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: palette.textMuted,
-                                        fontSize: 11,
-                                        cursor: 'pointer',
-                                        padding: '0 4px',
+                                      onClick={() => {
+                                        const draftVal =
+                                          inlinePhoneDrafts[item.id] !== undefined
+                                            ? inlinePhoneDrafts[item.id]
+                                            : item.phone || '';
+                                        if (draftVal && draftVal !== item.phone) {
+                                          savePersonPhone(item.id, draftVal);
+                                        }
+                                        sendWhatsAppReminder({ ...item, phone: draftVal });
                                       }}
-                                      title="Remove payment entry"
+                                      style={{
+                                        padding: '6px 10px',
+                                        borderRadius: 8,
+                                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                                        background: 'rgba(16, 185, 129, 0.14)',
+                                        color: '#10b981',
+                                        fontSize: 11,
+                                        fontWeight: 900,
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                      }}
                                     >
-                                      ✕
+                                      💬 Share on WhatsApp
                                     </button>
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+
+                                {/* Middle Row: Crystal-Clear 3-Column Financial Breakdown Box */}
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr 1.1fr',
+                                    gap: 6,
+                                    padding: '10px',
+                                    borderRadius: 12,
+                                    background: palette.surface,
+                                    border: `1px solid ${palette.border}`,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                      Total Taken
+                                    </div>
+                                    <div style={{ fontSize: 14.5, fontWeight: 900, color: palette.text, marginTop: 2 }}>
+                                      ₹{formatINR(stats.totalAmount)}
+                                    </div>
+                                  </div>
+
+                                  <div style={{ borderLeft: `1px solid ${palette.border}`, borderRight: `1px solid ${palette.border}` }}>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                      Paid ({stats.paidCount}x)
+                                    </div>
+                                    <div style={{ fontSize: 14.5, fontWeight: 900, color: '#10b981', marginTop: 2 }}>
+                                      ₹{formatINR(stats.totalPaid)}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase' }}>
+                                      Balance Left
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 15.5,
+                                        fontWeight: 900,
+                                        color: isReturned ? '#10b981' : isLight ? '#d97706' : '#fbbf24',
+                                        marginTop: 2,
+                                      }}
+                                    >
+                                      ₹{formatINR(stats.remaining)}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Payment Installment History with INSIDE SCROLLER (Never makes the page full down!) */}
+                                {stats.paidList.length > 0 && (
+                                  <div
+                                    style={{
+                                      padding: '8px 10px',
+                                      borderRadius: 10,
+                                      background: palette.surface,
+                                      border: `1px solid ${palette.border}`,
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span style={{ fontSize: 10.5, fontWeight: 900, color: '#10b981', textTransform: 'uppercase' }}>
+                                        Payment History ({stats.paidList.length} {stats.paidList.length === 1 ? 'Time' : 'Times'} Paid)
+                                      </span>
+                                      {stats.paidList.length > 3 && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted }}>
+                                          ↕ Scroll inside
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div
+                                      style={{
+                                        maxHeight: 124,
+                                        overflowY: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 5,
+                                        paddingRight: 4,
+                                      }}
+                                    >
+                                      {stats.paidList.map((p, pIdx) => (
+                                        <div
+                                          key={p.id || pIdx}
+                                          style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            fontSize: 11.5,
+                                            fontWeight: 700,
+                                            color: palette.textSub,
+                                            padding: '4px 6px',
+                                            borderRadius: 7,
+                                            background: palette.surfaceAlt,
+                                          }}
+                                        >
+                                          <span>
+                                            #{pIdx + 1} · <b style={{ color: '#10b981' }}>₹{formatINR(p.amount)}</b> via{' '}
+                                            <b>{p.paidThrough || 'UPI'}</b> · {formatShortDate(p.paidDate)}
+                                            {p.paidTime ? ` ${formatTime12h(p.paidTime)}` : ''}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemovePaymentRecord(item.id, p.id)}
+                                            style={{
+                                              border: 'none',
+                                              background: 'transparent',
+                                              color: palette.textMuted,
+                                              fontSize: 11,
+                                              cursor: 'pointer',
+                                              padding: '0 4px',
+                                            }}
+                                            title="Remove payment entry"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Bottom 3-Button Action Row */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr 0.85fr', gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openRecordPaymentModal(item)}
+                                    style={{
+                                      padding: '9px 10px',
+                                      borderRadius: 10,
+                                      border: 'none',
+                                      background: '#10b981',
+                                      color: '#ffffff',
+                                      fontWeight: 900,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    💵 Record Paid
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => sendWhatsAppReminder(item)}
+                                    style={{
+                                      padding: '9px 10px',
+                                      borderRadius: 10,
+                                      border: `1px solid ${palette.border}`,
+                                      background: palette.surface,
+                                      color: '#10b981',
+                                      fontWeight: 800,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    💬 WhatsApp
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditItem({ ...item })}
+                                    style={{
+                                      padding: '9px 10px',
+                                      borderRadius: 10,
+                                      border: `1px solid ${palette.border}`,
+                                      background: palette.surface,
+                                      color: palette.textSub,
+                                      fontWeight: 800,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                </div>
+                              </>
                             )}
-
-                            {/* Bottom 3-Button Action Row */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr 0.85fr', gap: 8 }}>
-                              <button
-                                type="button"
-                                onClick={() => openRecordPaymentModal(item)}
-                                style={{
-                                  padding: '9px 10px',
-                                  borderRadius: 10,
-                                  border: 'none',
-                                  background: '#10b981',
-                                  color: '#ffffff',
-                                  fontWeight: 900,
-                                  fontSize: 12,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                💵 Record Paid
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => sendWhatsAppReminder(item)}
-                                style={{
-                                  padding: '9px 10px',
-                                  borderRadius: 10,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: '#10b981',
-                                  fontWeight: 800,
-                                  fontSize: 12,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                💬 WhatsApp
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setEditItem({ ...item })}
-                                style={{
-                                  padding: '9px 10px',
-                                  borderRadius: 10,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.textSub,
-                                  fontWeight: 800,
-                                  fontSize: 12,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ✏️ Edit
-                              </button>
-                            </div>
                           </div>
                         );
                       })}
@@ -2555,7 +3060,7 @@ export default function UdhaarStandaloneApp({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          MODAL 1: CLEAN "ADD UDHAAR" POPUP
+          MODAL 1: CLEAN "ADD UDHAAR" POPUP (With Mobile Number for WhatsApp)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showAddModal && (
         <div
@@ -2583,7 +3088,7 @@ export default function UdhaarStandaloneApp({
               padding: 20,
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
+              gap: 11,
               color: palette.text,
             }}
           >
@@ -2640,7 +3145,7 @@ export default function UdhaarStandaloneApp({
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
-                  padding: '11px 12px',
+                  padding: '10px 12px',
                   borderRadius: 12,
                   border: `1px solid ${palette.border}`,
                   background: palette.surfaceAlt,
@@ -2652,29 +3157,56 @@ export default function UdhaarStandaloneApp({
               />
             </div>
 
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                Amount Given (₹)
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.15fr', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Amount Given (₹)
+                </div>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="₹ 0"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 15.5,
+                    fontWeight: 900,
+                    outline: 'none',
+                  }}
+                />
               </div>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="₹ 0"
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '11px 12px',
-                  borderRadius: 12,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 16,
-                  fontWeight: 900,
-                  outline: 'none',
-                }}
-              />
+
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  📱 Mobile No. (WhatsApp)
+                </div>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="10-digit mobile"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    outline: 'none',
+                  }}
+                />
+              </div>
             </div>
 
             <div>
@@ -3014,7 +3546,7 @@ export default function UdhaarStandaloneApp({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          MODAL 3: CLEAN "EDIT UDHAAR" POPUP
+          MODAL 3: CLEAN "EDIT UDHAAR" POPUP (With Mobile Number)
          ═══════════════════════════════════════════════════════════════════════ */}
       {editItem && (
         <div
@@ -3085,7 +3617,7 @@ export default function UdhaarStandaloneApp({
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.15fr', gap: 8 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
                   Total Amount (₹)
@@ -3110,13 +3642,14 @@ export default function UdhaarStandaloneApp({
 
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                  Sheet / Group
+                  📱 Mobile No. (WhatsApp)
                 </div>
                 <input
-                  type="text"
-                  value={editItem.sheetName || ''}
-                  onChange={(e) => setEditItem((p) => ({ ...p, sheetName: e.target.value }))}
-                  placeholder="Optional"
+                  type="tel"
+                  inputMode="numeric"
+                  value={editItem.phone || ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, phone: e.target.value }))}
+                  placeholder="10-digit mobile"
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
@@ -3125,7 +3658,7 @@ export default function UdhaarStandaloneApp({
                     border: `1px solid ${palette.border}`,
                     background: palette.surfaceAlt,
                     color: palette.text,
-                    fontSize: 13,
+                    fontSize: 13.5,
                     fontWeight: 800,
                   }}
                 />
@@ -3177,27 +3710,51 @@ export default function UdhaarStandaloneApp({
               </div>
             </div>
 
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
-                Note / Reason
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Note / Reason
+                </div>
+                <input
+                  type="text"
+                  value={editItem.note || ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
+                  placeholder="For what?"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                />
               </div>
-              <input
-                type="text"
-                value={editItem.note || ''}
-                onChange={(e) => setEditItem((p) => ({ ...p, note: e.target.value }))}
-                placeholder="For what?"
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '10px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}
-              />
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: palette.textMuted, marginBottom: 4 }}>
+                  Sheet / Group
+                </div>
+                <input
+                  type="text"
+                  value={editItem.sheetName || ''}
+                  onChange={(e) => setEditItem((p) => ({ ...p, sheetName: e.target.value }))}
+                  placeholder="Optional"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px',
+                    borderRadius: 10,
+                    border: `1px solid ${palette.border}`,
+                    background: palette.surfaceAlt,
+                    color: palette.text,
+                    fontSize: 13,
+                    fontWeight: 800,
+                  }}
+                />
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -3251,6 +3808,136 @@ export default function UdhaarStandaloneApp({
                 }}
               >
                 ✓ Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 4: DIRECT WHATSAPP MOBILE NUMBER PROMPT
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {whatsAppPhonePromptItem && (
+        <div
+          onClick={() => setWhatsAppPhonePromptItem(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(2, 6, 23, 0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const cleanDigits = String(whatsAppPhoneDraft || '').replace(/[^0-9]/g, '');
+              if (cleanDigits.length < 10) {
+                notify('Enter valid 10-digit mobile number');
+                return;
+              }
+              savePersonPhone(whatsAppPhonePromptItem.id, cleanDigits);
+              const updatedItem = { ...whatsAppPhonePromptItem, phone: cleanDigits };
+              setWhatsAppPhonePromptItem(null);
+              sendWhatsAppReminder(updatedItem, cleanDigits);
+            }}
+            style={{
+              width: '100%',
+              maxWidth: 370,
+              borderRadius: 22,
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              color: palette.text,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>
+                💬 Share to {whatsAppPhonePromptItem.person}
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsAppPhonePromptItem(null)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: palette.textMuted,
+                  fontSize: 18,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: palette.textSub, lineHeight: 1.45 }}>
+              Enter <b>{whatsAppPhonePromptItem.person}&apos;s</b> mobile number to save it and send their full Udhaar details directly on WhatsApp:
+            </div>
+
+            <input
+              type="tel"
+              inputMode="numeric"
+              autoFocus
+              value={whatsAppPhoneDraft}
+              onChange={(e) => setWhatsAppPhoneDraft(e.target.value)}
+              placeholder="📱 Enter 10-digit WhatsApp Number"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '11px 12px',
+                borderRadius: 12,
+                border: `1px solid ${palette.border}`,
+                background: palette.surfaceAlt,
+                color: palette.text,
+                fontSize: 15,
+                fontWeight: 900,
+                outline: 'none',
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const itemToSend = whatsAppPhonePromptItem;
+                  setWhatsAppPhonePromptItem(null);
+                  sendWhatsAppReminder(itemToSend, '');
+                }}
+                style={{
+                  padding: '11px 12px',
+                  borderRadius: 12,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.surfaceAlt,
+                  color: palette.textSub,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Pick Contact
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1,
+                  padding: '11px 12px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: '#10b981',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                💬 Save &amp; Send WhatsApp
               </button>
             </div>
           </form>
