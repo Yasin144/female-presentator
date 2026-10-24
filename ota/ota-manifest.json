@@ -1,8 +1,10 @@
 {
-  "version": "8.2.33",
-  "buildId": "ota_8_2_33_app_main_avatar_both_apps",
-  "releasedAt": "2026-10-23T05:45:43Z",
-  "jsFile": "app-bundle.js",
-  "cssFile": "app-bundle.css",
-  "notes": "v8.2.33: Official App Main Avatar for both Yasin Salary Pro (Indigo-Emerald Clock + ₹) and Udhaar Book (Amber-Gold Ledger + ₹) across Home Screen App Icons, Top Headers, and Biometric Lock Screens."
+  "version": "8.2.34",
+  "buildId": "ota_8_2_34_time_is_money_silent_expenses",
+  "releasedAt": "2026-10-24T11:18:36.188Z",
+  "jsFile": "app-bundle-8.2.34.js",
+  "cssFile": "app-bundle-8.2.34.css",
+  "notes": "v8.2.34: Updated Time Is Money interface and private transaction views. Opening Expenses no longer plays the app confirmation beep. Existing biometric protection and records are preserved. Screen-off reminder and background update controls require a compatible Android APK.",
+  "jsSha256": "cc496d5be937b3e9fb1bc28ef510a5744d2e691371126159e4e5738eecb1fb82",
+  "cssSha256": "63c679a7db42c1ebf9d9084a54ece01fd2f72fc4237a8a914db14628a1bdeea9"
 }

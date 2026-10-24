@@ -1,9 +1,11 @@
 {
   "appType": "udhaar-only",
-  "version": "1.0.10",
-  "buildId": "udhaar_ota_1_0_10_app_main_avatar_both_apps",
-  "updatedAt": "2026-10-23T05:45:43Z",
-  "jsFile": "udhaar-bundle.js",
-  "cssFile": "udhaar-bundle.css",
-  "notes": "v1.0.10: Official Udhaar Book App Main Avatar on Home Screen App Icon, Biometric Unlock Screen, and Top Header + smart Back navigation + Request to Pay."
+  "version": "1.0.11",
+  "buildId": "udhaar_ota_1_0_11_time_is_money_transactions",
+  "updatedAt": "2026-10-24T11:18:36.188Z",
+  "jsFile": "udhaar-bundle-1.0.11.js",
+  "cssFile": "udhaar-bundle-1.0.11.css",
+  "notes": "v1.0.11: Updated Udhaar Book interface and transaction details with existing biometric protection and records preserved. Background update controls require a compatible Android APK.",
+  "jsSha256": "b179069621adad2685761b0e3e0e7fcc39d10249f1241c419a20bd2817da275a",
+  "cssSha256": "a69d874326ebdc4cb61dc176ac0bc9eaa6a86a07680b14b3621f50e2caf06c68"
 }
