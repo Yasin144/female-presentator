@@ -1,10 +1,10 @@
 {
-  "version": "8.2.34",
-  "buildId": "ota_8_2_34_time_is_money_silent_expenses",
-  "releasedAt": "2026-10-24T11:18:36.188Z",
-  "jsFile": "app-bundle-8.2.34.js",
-  "cssFile": "app-bundle-8.2.34.css",
-  "notes": "v8.2.34: Updated Time Is Money interface and private transaction views. Opening Expenses no longer plays the app confirmation beep. Existing biometric protection and records are preserved. Screen-off reminder and background update controls require a compatible Android APK.",
-  "jsSha256": "cc496d5be937b3e9fb1bc28ef510a5744d2e691371126159e4e5738eecb1fb82",
-  "cssSha256": "63c679a7db42c1ebf9d9084a54ece01fd2f72fc4237a8a914db14628a1bdeea9"
+  "version": "8.2.35",
+  "buildId": "ota_8_2_35_bounded_transactions_live_ot",
+  "releasedAt": "2026-10-24T11:59:35.359Z",
+  "jsFile": "app-bundle-8.2.35.js",
+  "cssFile": "app-bundle-8.2.35.css",
+  "notes": "v8.2.35: Transactions stay in a bounded scroll panel and preserve your reading position. Today attendance and the live OT timer have a refreshed layout, and calendar overtime values show time digits without the OT label. Existing records, calculations and biometric protection are preserved.",
+  "jsSha256": "077a868d6cd79c40a8af3d66801f7ca98b0879b3e22a5e7a1cec04e54f009a12",
+  "cssSha256": "a836f262886742181e9ab47d9361cfc160d6df8b8f2156c75678e6fd0ebbc5ac"
 }
