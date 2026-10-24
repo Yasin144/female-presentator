@@ -1,0 +1,291 @@
+.salary-expenses-root {
+  --expense-page: var(--salary-page, #f5f7f6);
+  --expense-surface: var(--salary-surface, #ffffff);
+  --expense-subtle: var(--salary-subtle, #edf1ef);
+  --expense-ink: var(--salary-ink, #182820);
+  --expense-muted: var(--salary-muted, #66736d);
+  --expense-line: var(--salary-line, #dce3df);
+  --expense-accent: var(--salary-green, #087f5b);
+  --expense-accent-soft: var(--salary-green-soft, #e5f4ec);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  overflow-anchor: none;
+  color: var(--expense-ink);
+}
+
+.salary-expenses-root[data-color-mode='dark'] {
+  --expense-page: var(--salary-page, #121715);
+  --expense-surface: var(--salary-surface, #1b221e);
+  --expense-subtle: var(--salary-subtle, #252e29);
+  --expense-ink: var(--salary-ink, #f1f5f2);
+  --expense-muted: var(--salary-muted, #a8b5ac);
+  --expense-line: var(--salary-line, #344039);
+  --expense-accent: var(--salary-green, #69cba1);
+  --expense-accent-soft: var(--salary-green-soft, #203c30);
+}
+
+.salary-expenses-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--expense-line);
+}
+
+.salary-expenses-tabs > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--expense-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.salary-expenses-tabs > button[aria-pressed='true'] {
+  background: var(--expense-accent-soft);
+  color: var(--expense-accent);
+  border-color: var(--expense-line);
+}
+
+.salary-expenses-tabs > button:hover:not([aria-pressed='true']) {
+  background: var(--expense-subtle);
+  color: var(--expense-ink);
+}
+
+.salary-expenses-tabs svg {
+  flex-shrink: 0;
+}
+
+.salary-expense-tab-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.salary-expense-account {
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--expense-line);
+  color: var(--expense-muted);
+}
+
+.salary-expense-account > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.salary-expense-account > summary::-webkit-details-marker {
+  display: none;
+}
+
+.salary-expense-account > summary svg:last-child {
+  margin-left: auto;
+}
+
+.salary-expense-account[open] > summary svg:last-child {
+  transform: rotate(180deg);
+}
+
+.salary-expense-account-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.salary-expense-email-field {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 220px;
+  gap: 6px;
+  min-width: 0;
+  color: var(--expense-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.salary-expense-email-field > input {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--expense-line);
+  border-radius: 6px;
+  background: var(--expense-surface);
+  color: var(--expense-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.salary-expense-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.salary-expense-primary-button,
+.salary-expense-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 10px 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.salary-expense-primary-button {
+  background: var(--expense-accent);
+  color: var(--expense-surface);
+}
+
+.salary-expense-secondary-button {
+  background: var(--expense-subtle);
+  color: var(--expense-ink);
+  border-color: var(--expense-line);
+}
+
+.salary-expense-primary-button svg,
+.salary-expense-secondary-button svg {
+  flex-shrink: 0;
+}
+
+.salary-expense-balance {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 24px;
+  border-bottom: 1px solid var(--expense-line);
+  background: transparent;
+  color: var(--expense-ink);
+}
+
+.salary-expense-balance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.salary-expense-balance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--expense-ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.salary-expense-balance-toggle[aria-expanded='false'] svg:last-child {
+  transform: rotate(-90deg);
+}
+
+.salary-expense-ledger-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--expense-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.salary-expense-ledger-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.salary-expense-bank-name,
+.salary-expense-balance-source {
+  color: var(--expense-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.salary-expense-balance-body {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.salary-expense-balance-figure {
+  min-width: 0;
+}
+
+.salary-expense-balance-amount {
+  margin: 0 0 4px;
+  color: var(--expense-ink);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .salary-expenses-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .salary-expenses-tabs > button {
+    min-height: 40px;
+    padding: 8px 5px;
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .salary-expense-tab-count {
+    display: none;
+  }
+
+  .salary-expense-account-actions {
+    width: 100%;
+  }
+
+  .salary-expense-account-actions > button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 359px) {
+  .salary-expenses-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .salary-expenses-root * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

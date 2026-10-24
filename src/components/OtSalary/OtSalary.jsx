@@ -1,4 +1,29 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  ArrowLeft as SalaryArrowLeft,
+  Bell as SalaryBell,
+  CalendarDays as SalaryCalendarDays,
+  Check as SalaryCheck,
+  ChevronDown as SalaryChevronDown,
+  ChevronLeft as SalaryChevronLeft,
+  ChevronRight as SalaryChevronRight,
+  Clock3 as SalaryClock3,
+  Fingerprint as SalaryFingerprint,
+  LoaderCircle as SalaryLoaderCircle,
+  Lightbulb as SalaryLightbulb,
+  LockKeyhole as SalaryLockKeyhole,
+  Moon as SalaryMoon,
+  MoreHorizontal as SalaryMoreHorizontal,
+  Palette as SalaryPalette,
+  ReceiptText as SalaryReceiptText,
+  RefreshCw as SalaryRefreshCw,
+  Settings2 as SalarySettings2,
+  ShieldCheck as SalaryShieldCheck,
+  Smartphone as SalarySmartphone,
+  Sun as SalarySun,
+  UserRound as SalaryUserRound,
+  WalletCards as SalaryWalletCards,
+} from 'lucide-react';
 import { buildStandaloneOtMobileAppHtml } from './otMobileAppGenerator';
 import ExpensesModule from './ExpensesModule.jsx';
 import {
@@ -12,6 +37,13 @@ import {
   scheduleLockScreenVoiceTestInSeconds,
 } from './timeCompletedVoice.js';
 import './OtSalary.css';
+import './SalaryPro.css';
+import TimeIsMoneyIdentity from './TimeIsMoneyIdentity.jsx';
+import UpdateAlertsPanel from './UpdateAlertsPanel.jsx';
+import OtVoiceStatusPanel from './OtVoiceStatusPanel.jsx';
+import { formatOtClock } from './otDisplay.js';
+import { previousView, shouldRearmBrowserGuard, visitView } from './navigationHistory.js';
+import { isOtaUpdateAvailable, isValidOtaBuild, isValidOtaVersion, resolveInstalledOtaStatus } from './otaUpdatePolicy.js';
 import {
   loadEncryptedExpenseStore,
   saveEncryptedExpenseStore,
@@ -282,6 +314,8 @@ function triggerBiometricHaptic(durationMs = 85) {
 function playBiometricBeep(direction = 'in') {
   try {
     if (typeof window === 'undefined') return;
+    // Native biometric confirmation uses haptics; WebAudio can seize music focus.
+    if (window.PattanBiometric || window.PattanBiometricBridge) return;
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
@@ -1113,208 +1147,18 @@ function Time12hPicker({ label, badgeText, value, onChange, accentColor = '#38bd
   );
 }
 
-function TouchIdSvg({ variant = 'in', size = 62, verified = false, scanning = false }) {
-  const uid = `tid_${variant}_${size}`;
-  const c1 = variant === 'out' ? '#34d399' : variant === 'gold' ? '#facc15' : '#38bdf8';
-  const c2 = variant === 'out' ? '#10b981' : variant === 'gold' ? '#f59e0b' : '#818cf8';
-  const glow = variant === 'out'
-    ? 'rgba(16, 185, 129, 0.55)'
-    : variant === 'gold'
-      ? 'rgba(250, 204, 21, 0.55)'
-      : 'rgba(56, 189, 248, 0.55)';
+function TouchIdSvg({ size = 62, verified = false, scanning = false }) {
   return (
-    <div style={{
-      position: 'relative',
-      width: size,
-      height: size,
-      margin: '0 auto',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}>
-      {/* Outer Glowing Aura Ring */}
-      <div style={{
-        position: 'absolute',
-        inset: -4,
-        borderRadius: '50%',
-        background: `radial-gradient(circle, ${glow} 0%, transparent 72%)`,
-        filter: 'blur(6px)',
-        opacity: scanning ? 1 : 0.78,
-        pointerEvents: 'none',
-      }} />
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        style={{
-          position: 'relative',
-          zIndex: 2,
-          filter: `drop-shadow(0 0 10px ${glow})`,
-        }}
-      >
-        <defs>
-          <linearGradient id={uid} x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="38%" stopColor={c1} />
-            <stop offset="100%" stopColor={c2} />
-          </linearGradient>
-        </defs>
-        {/* Outer Tech Bezel */}
-        <circle
-          cx="32"
-          cy="32"
-          r="29"
-          stroke={`url(#${uid})`}
-          strokeWidth="1.6"
-          strokeDasharray="6 4"
-          opacity="0.65"
-        />
-        <circle
-          cx="32"
-          cy="32"
-          r="25.5"
-          fill="rgba(7, 11, 22, 0.78)"
-          stroke={`url(#${uid})`}
-          strokeWidth="1.8"
-        />
-        {/* Concentric Biometric Touch ID Ridges */}
-        <path
-          d="M21 24.5C23.5 19.2 27.4 16.5 32 16.5C36.6 16.5 40.5 19.2 43 24.5"
-          stroke={`url(#${uid})`}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M18.5 31.5C18.5 23.8 24.3 20.2 32 20.2C39.7 20.2 45.5 23.8 45.5 31.5C45.5 36.2 44.2 40.4 41.8 43.8"
-          stroke={`url(#${uid})`}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M22.2 39.8C21.1 36.8 20.8 33.8 21.4 30.2C22.3 25.4 26.6 23.8 32 23.8C37.4 23.8 41.5 26.2 41.8 31.8C42.1 36.2 40.4 41.2 37.5 45.5"
-          stroke={`url(#${uid})`}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M25.5 44.5C24.4 40.8 24.5 36.2 25.2 32.2C25.9 28.5 28.6 27.4 32 27.4C35.4 27.4 38 29.2 38 33C38 37.5 36.4 42.2 33.2 46.8"
-          stroke={`url(#${uid})`}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M29.2 47.2C28.8 42.5 28.8 37.8 29.5 33.8C30 31.4 31 30.8 32.3 30.8C33.8 30.8 34.5 32.1 34.3 34.5C34 38.6 32.6 43.1 30.4 47.4"
-          stroke={`url(#${uid})`}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M32 34.5V41.5"
-          stroke="#ffffff"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-        />
-        {/* Glowing Scan Line */}
-        <line
-          x1="14"
-          y1="32"
-          x2="50"
-          y2="32"
-          stroke="#ffffff"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          opacity={scanning ? '0.95' : '0.35'}
-        />
-      </svg>
-      {verified && (
-        <span style={{
-          position: 'absolute',
-          right: -2,
-          bottom: -2,
-          zIndex: 3,
-          width: 22,
-          height: 22,
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #10b981, #059669)',
-          border: '2px solid #070b14',
-          color: '#fff',
-          fontSize: 12,
-          fontWeight: 900,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 4px 10px rgba(16,185,129,0.6)',
-        }}>
-          ✓
-        </span>
-      )}
-    </div>
+    <span className="salary-biometric-mark" style={{ width: size, height: size }} aria-hidden="true">
+      {scanning ? <SalaryLoaderCircle size={size * 0.58} strokeWidth={1.7} /> : <SalaryFingerprint size={size * 0.68} strokeWidth={1.7} />}
+      {verified && <SalaryCheck className="salary-biometric-verified" size={19} strokeWidth={3} />}
+    </span>
   );
 }
 
+
 function SalaryOtAppMainAvatar({ size = 44 }) {
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.28),
-        background: 'linear-gradient(135deg, #312e81 0%, #1e1b4b 50%, #065f46 100%)',
-        boxShadow: '0 4px 14px rgba(56, 189, 248, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3)',
-        border: '1.5px solid rgba(56, 189, 248, 0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-      title="Yasin Salary & OT Official App Main Avatar"
-    >
-      <svg
-        width={Math.round(size * 0.88)}
-        height={Math.round(size * 0.88)}
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Outer Shield / Card Frame */}
-        <rect x="6" y="7" width="52" height="50" rx="14" fill="#0F172A" stroke="#38BDF8" strokeWidth="2.2" />
-        {/* Left Emerald OT Clock Dial */}
-        <circle cx="23" cy="26" r="10.5" fill="#064E3B" stroke="#34D399" strokeWidth="2.4" />
-        <path d="M23 19.5V26L27.5 29" stroke="#6EE7B7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        {/* Right Gold Rupee Coin Emblem */}
-        <circle cx="44" cy="26" r="9.5" fill="#1E1B4B" stroke="#FDE047" strokeWidth="2" />
-        <text
-          x="44"
-          y="31.5"
-          textAnchor="middle"
-          fill="#FDE047"
-          fontSize="15.5"
-          fontWeight="900"
-          fontFamily="system-ui, sans-serif"
-        >
-          ₹
-        </text>
-        {/* Bottom SALARY OT Ribbon */}
-        <rect x="9" y="42" width="46" height="11" rx="5.5" fill="#0284C7" stroke="#7DD3FC" strokeWidth="1" />
-        <text
-          x="32"
-          y="49.8"
-          textAnchor="middle"
-          fill="#FFFFFF"
-          fontSize="7.4"
-          fontWeight="900"
-          letterSpacing="0.5"
-          fontFamily="system-ui, sans-serif"
-        >
-          SALARY OT
-        </text>
-      </svg>
-    </div>
-  );
+  return <TimeIsMoneyIdentity size={size} />;
 }
 
 function RealAnalogClock({ now = new Date(), size = 136 }) {
@@ -1409,6 +1253,21 @@ function RealAnalogClock({ now = new Date(), size = 136 }) {
       <circle cx="60" cy="60" r="4.2" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
     </svg>
   );
+}
+
+function readInstalledSalaryOtaStatus() {
+  let nativeStatus = null;
+  let storedVersion = '';
+  let storedBuild = '';
+  try {
+    const bridge = typeof window === 'undefined' ? null : window.PattanBiometric;
+    if (typeof bridge?.getLiveOtaStatusJson === 'function') nativeStatus = JSON.parse(bridge.getLiveOtaStatusJson() || '{}');
+  } catch (_) {}
+  try {
+    storedVersion = localStorage.getItem('pattan.ota.version') || '';
+    storedBuild = localStorage.getItem('pattan.ota.buildId') || '';
+  } catch (_) {}
+  return resolveInstalledOtaStatus({ nativeStatus, storedVersion, storedBuild, builtinVersion: '8.2.33' });
 }
 
 export default function OtSalary({ onClose, standaloneMobile = false, initialTab = 'today' }) {
@@ -1623,14 +1482,19 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   });
   const [liveClockHHMM, setLiveClockHHMM] = useState(getCurrentTime24h);
   const [liveNow, setLiveNow] = useState(() => new Date());
-  const tabHistoryRef = useRef(['today']);
+  const tabHistoryRef = useRef([mobileTab]);
+  const activeTabRef = useRef(mobileTab);
+  const closeTopOverlayRef = useRef(() => false);
+  const latestBackStepRef = useRef(() => 'root');
+  const expenseNavigationRef = useRef({ history: ['transactions'], insightHistory: ['Overview'] });
+  activeTabRef.current = mobileTab;
   const touchStartRef = useRef(null);
 
   const toggleSalaryVisibilityWithBiometric = useCallback(async () => {
     if (salaryBiometricVisible) {
       triggerBiometricHaptic(30);
       setSalaryBiometricVisible(false);
-      setSaveNotice('🙈 Salary numbers hidden');
+      setSaveNotice('Salary numbers locked');
       setTimeout(() => setSaveNotice(''), 2000);
       return false;
     }
@@ -1647,7 +1511,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       playBiometricBeep('in');
       triggerBiometricHaptic(95);
       setSalaryBiometricVisible(true);
-      setSaveNotice('👁️ Biometric Verified — Salary numbers visible');
+      setSaveNotice('Biometric verified — salary numbers unlocked');
       setTimeout(() => setSaveNotice(''), 2500);
       return true;
     }
@@ -1672,7 +1536,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         toggleSalaryVisibilityWithBiometric();
       }}
       disabled={salaryUnlockBusy}
-      title={salaryBiometricVisible ? 'Hide Salary Numbers' : 'Click Eye & Verify Biometric to Show Salary'}
+      title={salaryBiometricVisible ? 'Lock salary numbers' : 'Verify fingerprint or face to show salary'}
       aria-label={salaryBiometricVisible ? 'Hide Salary' : 'Unhide Salary with Biometric'}
       style={{
         padding: compact ? '2px 7px' : '5px 10px',
@@ -1694,7 +1558,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         flexShrink: 0,
       }}
     >
-      <span>{salaryUnlockBusy ? '⏳' : salaryBiometricVisible ? '🙈' : '👁️'}</span>
+      {salaryUnlockBusy ? <SalaryLoaderCircle size={compact ? 14 : 17} aria-hidden="true" /> : salaryBiometricVisible ? <SalaryLockKeyhole size={compact ? 14 : 17} aria-hidden="true" /> : <SalaryFingerprint size={compact ? 14 : 17} aria-hidden="true" />}
       {!compact && (
         <span>
           {customLabel || (salaryBiometricVisible ? 'Hide Salary' : 'Show Salary')}
@@ -1714,7 +1578,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     );
     setExpensesUnlockBusy(false);
     if (hwRes && hwRes.ok) {
-      playBiometricBeep('in');
       triggerBiometricHaptic(95);
       setExpensesBiometricUnlocked(true);
       setExpensesUnlockError('');
@@ -1729,6 +1592,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   useEffect(() => {
     if (initialTab && ['today', 'expenses', 'month', 'summary', 'rules'].includes(initialTab)) {
+      tabHistoryRef.current = visitView(tabHistoryRef.current, initialTab);
+      activeTabRef.current = initialTab;
       setMobileTab(initialTab);
       if (initialTab === 'expenses') {
         setExpensesBiometricUnlocked(false);
@@ -1738,6 +1603,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [initialTab, unlockExpensesWithBiometric]);
 
   const navigateTab = useCallback((nextTab) => {
+    if (!['today', 'expenses', 'month', 'summary', 'rules'].includes(nextTab)) return;
     if (nextTab === 'expenses') {
       setExpensesBiometricUnlocked(false);
       unlockExpensesWithBiometric();
@@ -1745,104 +1611,54 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       setExpensesBiometricUnlocked(false);
       setExpensesUnlockError('');
     }
-    setMobileTab((prev) => {
-      if (prev === nextTab) return prev;
-      tabHistoryRef.current = [...tabHistoryRef.current.slice(-8), nextTab];
-      try {
-        window.history.pushState({ otSalaryGuard: true, tab: nextTab }, '');
-      } catch (_) {}
-      return nextTab;
-    });
+    if (activeTabRef.current === nextTab) return;
+    tabHistoryRef.current = visitView(tabHistoryRef.current, nextTab);
+    activeTabRef.current = nextTab;
+    setMobileTab(nextTab);
   }, [unlockExpensesWithBiometric]);
 
   const goBackStep = useCallback(() => {
-    if (showLiveOtRunnerModal) {
-      setShowLiveOtRunnerModal(false);
-      return 'handled';
+    if (closeTopOverlayRef.current()) return 'handled';
+    if (activeTabRef.current === 'expenses' && typeof window !== 'undefined') {
+      try {
+        if (window.__handleExpenseHardwareBack?.() === 'handled') return 'handled';
+      } catch (_) {}
     }
-    if (showProfileModal) {
-      setShowProfileModal(false);
-      return 'handled';
-    }
-    if (showChangeMobileModal) {
-      setShowChangeMobileModal(false);
-      return 'handled';
-    }
-    if (showNotificationsModal) {
-      setShowNotificationsModal(false);
-      return 'handled';
-    }
-    if (showWaConsentModal) {
-      setShowWaConsentModal(false);
-      return 'handled';
-    }
-    if (showMobileAppModal) {
-      setShowMobileAppModal(false);
-      return 'handled';
-    }
-    if (biometricScanState.active) {
-      setBiometricScanState((s) => ({ ...s, active: false }));
-      return 'handled';
-    }
-    if (tabHistoryRef.current.length > 1) {
-      const nextStack = tabHistoryRef.current.slice(0, -1);
-      const prevTab = nextStack[nextStack.length - 1] || 'today';
-      tabHistoryRef.current = nextStack;
-      if (prevTab !== 'expenses') setExpensesBiometricUnlocked(false);
-      setMobileTab(prevTab);
-      return 'handled';
-    }
-    if (mobileTab !== 'today') {
-      tabHistoryRef.current = ['today'];
-      setExpensesBiometricUnlocked(false);
-      setMobileTab('today');
-      return 'handled';
-    }
-    const todayIso = getTodayIsoDate();
-    if (selectedDate !== todayIso) {
-      setSelectedDate(todayIso);
-      setSaveNotice('Returned to Today');
-      setTimeout(() => setSaveNotice(''), 1800);
-      return 'handled';
-    }
-    if (onClose && !standaloneMobile) {
-      onClose();
-      return 'handled';
-    }
-    return '';
-  }, [showLiveOtRunnerModal, showProfileModal, showChangeMobileModal, showNotificationsModal, showWaConsentModal, showMobileAppModal, biometricScanState.active, mobileTab, selectedDate, onClose, standaloneMobile]);
+    const previous = previousView(tabHistoryRef.current);
+    if (previous.type === 'root') return 'root';
+    tabHistoryRef.current = previous.history;
+    activeTabRef.current = previous.view;
+    setExpensesBiometricUnlocked(false);
+    setExpensesUnlockError('');
+    setMobileTab(previous.view);
+    return 'handled';
+  }, []);
+  latestBackStepRef.current = goBackStep;
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    window.__handlePattanHardwareBack = goBackStep;
-    return () => {
-      if (window.__handlePattanHardwareBack === goBackStep) {
-        delete window.__handlePattanHardwareBack;
-      }
-    };
-  }, [goBackStep]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    const handleHardwareBack = () => latestBackStepRef.current();
+    window.__handlePattanHardwareBack = handleHardwareBack;
     try {
-      window.history.replaceState({ otSalaryBase: true, tab: 'today' }, '');
-      window.history.pushState({ otSalaryGuard: true, tab: 'today' }, '');
+      if (!window.history.state?.otSalaryGuard) {
+        window.history.replaceState({ ...(window.history.state || {}), otSalaryBase: true, tab: activeTabRef.current }, '');
+        window.history.pushState({ otSalaryGuard: true, tab: activeTabRef.current }, '');
+      }
     } catch (_) {}
     const onPopState = () => {
-      const res = goBackStep();
-      if (res === 'handled') {
+      const result = latestBackStepRef.current();
+      if (shouldRearmBrowserGuard(result)) {
         try {
-          window.history.pushState({ otSalaryGuard: true, tab: mobileTab }, '');
-        } catch (_) {}
-      } else {
-        try {
-          window.history.pushState({ otSalaryGuard: true, tab: 'today' }, '');
+          window.history.pushState({ otSalaryGuard: true, tab: activeTabRef.current }, '');
         } catch (_) {}
       }
     };
     window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [goBackStep, mobileTab]);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      if (window.__handlePattanHardwareBack === handleHardwareBack) delete window.__handlePattanHardwareBack;
+    };
+  }, []);
 
   const handleTouchStart = useCallback((e) => {
     const tag = String(e.target?.tagName || '').toLowerCase();
@@ -1868,10 +1684,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const order = ['today', 'expenses', 'month', 'summary', 'rules'];
     const idx = order.indexOf(mobileTab);
     if (dx > 0) {
-      // Swipe right -> Go Back
-      if (start.x <= 48 || idx > 0) {
-        if (idx > 0) navigateTab(order[idx - 1]);
-        else goBackStep();
+      // Back follows the visited screens, not the fixed tab ordering.
+      if (start.x <= 48 || tabHistoryRef.current.length > 1) {
+        goBackStep();
       }
     } else if (dx < 0 && idx >= 0 && idx < order.length - 1) {
       // Swipe left -> Next Tab
@@ -2238,28 +2053,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [globalSuggestionScreenshotName, setGlobalSuggestionScreenshotName] = useState('');
   const globalSuggestionScreenshotInputRef = useRef(null);
   const [globalSuggestionSending, setGlobalSuggestionSending] = useState(false);
-  const [liveOtaVersion, setLiveOtaVersion] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
-        const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
-        if (st.version) return st.version;
-      }
-      return localStorage.getItem('pattan.ota.version') || '8.2.33';
-    } catch (_) {
-      return '8.2.33';
-    }
-  });
-  const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
-        const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
-        if (st.buildId) return st.buildId;
-      }
-      return localStorage.getItem('pattan.ota.buildId') || 'ota_8_2_33_app_main_avatar_both_apps';
-    } catch (_) {
-      return 'ota_8_2_33_app_main_avatar_both_apps';
-    }
-  });
+  const [liveOtaVersion, setLiveOtaVersion] = useState(() => readInstalledSalaryOtaStatus().version);
+  const [liveOtaBuildId, setLiveOtaBuildId] = useState(() => readInstalledSalaryOtaStatus().buildId);
 
   // 🔽 Accordion Minimize / Maximize State for Every Section in OT & Salary
   const [collapsedOtSections, setCollapsedOtSections] = useState(() => {
@@ -2821,7 +2616,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   );
 
   // Show visual notification + subtle chime when a new OTA update becomes ready (NEVER speaks "Your time is completed" and NEVER speaks on app open!)
-  const speakOtaUpdateNotification = useCallback((versionStr = '7.8.8', notesStr = '', mode = 'available') => {
+  const speakOtaUpdateNotification = useCallback((versionStr = '7.8.8', notesStr = '', mode = 'available', buildId = '') => {
     const cleanVer = String(versionStr || '7.8.8').trim();
     const notifTitle =
       mode === 'applying'
@@ -2834,9 +2629,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           ? String(notesStr)
           : `Tap Update Now to install v${cleanVer}.`;
 
+    setSaveNotice(`${notifTitle} — Tap Update Now`);
+
+    if (mode === 'available' && typeof window.PattanBiometric?.notifyUpdateAvailable === 'function') {
+      try { window.PattanBiometric.notifyUpdateAvailable(cleanVer, String(buildId || cleanVer), notifBody); } catch (_) {}
+      return;
+    }
     playBiometricBeep('in');
     triggerBiometricHaptic(90);
-    setSaveNotice(`${notifTitle} — Tap Update Now`);
 
     if (typeof window !== 'undefined') {
       // IMPORTANT: Do NOT call nativeBridge.triggerOfficeEndOtStartNotification here because that native alarm method speaks "Your time is completed"!
@@ -2844,10 +2644,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         if (typeof Notification !== 'undefined') {
           if (Notification.permission === 'granted') {
             new Notification(notifTitle, { body: notifBody });
-          } else if (Notification.permission !== 'denied') {
-            Notification.requestPermission().then((perm) => {
-              if (perm === 'granted') new Notification(notifTitle, { body: notifBody });
-            }).catch(() => {});
           }
         }
       } catch (_) {}
@@ -2877,28 +2673,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       }
       if (!manifest || !manifest.buildId) return null;
 
-      let currentBuildId = '';
-      let currentStoredVersion = '';
-      try {
-        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
-          const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
-          currentBuildId = st.buildId || '';
-          currentStoredVersion = st.version || '';
-        }
-        if (!currentBuildId) {
-          currentBuildId = localStorage.getItem('pattan.ota.buildId') || '';
-        }
-        if (!currentStoredVersion) {
-          currentStoredVersion = localStorage.getItem('pattan.ota.version') || '';
-        }
-      } catch (_) {}
-
       const remoteBuildId = String(manifest.buildId || '').trim();
-      const remoteVersion = String(manifest.version || '7.8.8').trim();
-      const hasNewBuild =
-        Boolean(remoteBuildId) &&
-        (String(remoteBuildId) !== String(currentBuildId) ||
-          (currentStoredVersion && String(remoteVersion) !== String(currentStoredVersion)));
+      const remoteVersion = String(manifest.version || '').trim();
+      const hasNewBuild = isOtaUpdateAvailable(remoteVersion, remoteBuildId, readInstalledSalaryOtaStatus());
 
       if (hasNewBuild) {
         const updateNotes = String(
@@ -2928,7 +2705,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             localStorage.setItem('pattan.ota.lastNotifiedBuildId', remoteBuildId);
           } catch (_) {}
           setOtaPromptDismissedBuildId('');
-          speakOtaUpdateNotification(remoteVersion, updateNotes, 'available');
+          speakOtaUpdateNotification(remoteVersion, updateNotes, 'available', remoteBuildId);
         }
         return updateInfo;
       } else {
@@ -2979,19 +2756,21 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         return;
       }
 
-      let currentBuildId = '';
-      try {
-        if (typeof window !== 'undefined' && window.PattanBiometric && typeof window.PattanBiometric.getLiveOtaStatusJson === 'function') {
-          const st = JSON.parse(window.PattanBiometric.getLiveOtaStatusJson() || '{}');
-          currentBuildId = st.buildId || '';
+      const candidateVersion = String(manifest.version || '').trim();
+      const candidateBuild = String(manifest.buildId || '').trim();
+      if (!isValidOtaVersion(candidateVersion) || !isValidOtaBuild(candidateBuild)) {
+        if (isManualTap) {
+          setOtaBusy(false);
+          setSaveNotice('Update information is unavailable. Please retry later.');
         }
-        if (!currentBuildId) {
-          currentBuildId = localStorage.getItem('pattan.ota.buildId') || '';
+        return;
+      }
+      const hasNewBuild = isOtaUpdateAvailable(candidateVersion, candidateBuild, readInstalledSalaryOtaStatus());
+      if (!hasNewBuild) {
+        if (isManualTap) {
+          setOtaBusy(false);
+          setSaveNotice('✅ App synced & up to date (v' + liveOtaVersion + ')');
         }
-      } catch (_) {}
-
-      const hasNewBuild = String(manifest.buildId) !== String(currentBuildId);
-      if (!hasNewBuild && !isManualTap) {
         return;
       }
 
@@ -3014,7 +2793,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         if (lastNotifiedOtaBuildRef.current !== remoteBuildId) {
           lastNotifiedOtaBuildRef.current = remoteBuildId;
           setOtaPromptDismissedBuildId('');
-          speakOtaUpdateNotification(remoteVersion, updateNotes, 'available');
+          speakOtaUpdateNotification(remoteVersion, updateNotes, 'available', remoteBuildId);
         }
         return;
       }
@@ -4519,8 +4298,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
 
-    // Stop all scheduled voice alarms immediately if user has logged out (punched OUT) or is on leave
-    if (todayRec?.status === 'leave' || (todayRec?.outTime && String(todayRec.outTime).trim())) {
+    // Only a saved punch-in arms reminders. Editor defaults are not attendance.
+    if (!todayRec.inTime || todayRec?.status === 'leave' || (todayRec?.outTime && String(todayRec.outTime).trim())) {
       stopScheduledVoiceAlarms();
       return;
     }
@@ -4580,22 +4359,6 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       } catch (_) {}
     }
 
-    // Disarm the legacy APK's 2x robotic TTS alarm for today by pushing its PendingIntent 23h58m into the future
-    // (2 minutes in the past -> tomorrow) so only our studio-clear 1x 16-bit WAV schedule speaks every hour.
-    if (typeof window !== 'undefined') {
-      try {
-        const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
-        if (nativeBridge && typeof nativeBridge.scheduleOfficeEndOtAlarm === 'function') {
-          const pastTotalMins = (now.getHours() * 60 + now.getMinutes() - 2 + 1440) % 1440;
-          nativeBridge.scheduleOfficeEndOtAlarm(
-            Math.floor(pastTotalMins / 60),
-            pastTotalMins % 60,
-            normalizeEmployeeName(settings.employeeName)
-          );
-        }
-      } catch (_) {}
-    }
-
     armShiftAndOtMilestonesSchedule({
       shiftEndEpochMs,
       dateKey: shiftAlarmKey,
@@ -4624,12 +4387,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   }, [daysMap, selectedDate, entryInTime, entryStatus, settings.officeStartTime, settings.employeeName, rates.shiftMins, triggerOtVoiceMilestoneNotification]);
 
   useEffect(() => {
+    const nativeBridge = window.PattanBiometric || window.PattanBiometricBridge;
+    if (typeof nativeBridge?.scheduleOtMilestones === 'function') return;
     const nowMins = parseTimeToMinutes(liveClockHHMM, -1);
     if (nowMins < 0) return;
 
     const todayIso = getTodayIsoDate();
     const todayRec = daysMap[todayIso] || {};
-    if (todayRec?.status === 'leave') return;
+    if (!todayRec.inTime || todayRec?.status === 'leave') return;
     if (todayRec?.outTime && String(todayRec.outTime).trim()) return; // Already punched OUT (logged out)
 
     const inTimeUsed = todayRec.inTime || (selectedDate === todayIso ? entryInTime : '') || '08:23';
@@ -5208,68 +4973,49 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const showMonthSection = mobileTab === 'month';
   const showSummarySection = mobileTab === 'summary';
 
+  closeTopOverlayRef.current = () => {
+    if (showStealthDecoy) { setShowStealthDecoy(false); return true; }
+    if (showWaConsentModal) { setShowWaConsentModal(false); return true; }
+    if (availableOtaUpdate && otaPromptDismissedBuildId !== availableOtaUpdate.buildId) {
+      setOtaPromptDismissedBuildId(availableOtaUpdate.buildId);
+      return true;
+    }
+    if (showGlobalSuggestionModal) { setShowGlobalSuggestionModal(false); return true; }
+    if (showLiveOtRunnerModal) { setShowLiveOtRunnerModal(false); return true; }
+    if (showProfileModal) { setShowProfileModal(false); return true; }
+    if (showChangeMobileModal) { setShowChangeMobileModal(false); return true; }
+    if (showNotificationsModal) { setShowNotificationsModal(false); return true; }
+    if (showMobileAppModal) { setShowMobileAppModal(false); return true; }
+    if (showSplash) { setShowSplash(false); return true; }
+    if (showManualEditor) { setShowManualEditor(false); return true; }
+    if (biometricScanState.active) { setBiometricScanState((state) => ({ ...state, active: false })); return true; }
+    const openMenu = typeof document !== 'undefined' ? [...document.querySelectorAll('.salary-tools details[open]')].pop() : null;
+    if (openMenu) { openMenu.open = false; return true; }
+    if (mobileTab === 'today' && showCreditCycleEditor) { setShowCreditCycleEditor(false); return true; }
+    return false;
+  };
+
   const isLight = themeMode === 'light' || stitchPreset === 'stitch-alabaster-pro';
   const isEmeraldPreset = !isLight && stitchPreset === 'stitch-cyber-emerald';
   const isAmethystPreset = !isLight && stitchPreset === 'stitch-royal-amethyst';
+  const accent = isAmethystPreset ? '#b55670' : isEmeraldPreset ? '#168a79' : '#148566';
+  const salaryShellRef = useRef(null);
+  useEffect(() => {
+    salaryShellRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+  }, [mobileTab]);
   const ui = {
-    pageBg: isLight
-      ? '#f4f7fb'
-      : isEmeraldPreset
-        ? '#040d0a'
-        : isAmethystPreset
-          ? '#0b0716'
-          : '#060a14',
-    pageMesh: isLight
-      ? 'radial-gradient(circle at 12% 6%, rgba(99, 102, 241, 0.08) 0%, transparent 45%), radial-gradient(circle at 88% 12%, rgba(16, 185, 129, 0.07) 0%, transparent 45%), #f4f7fb'
-      : isEmeraldPreset
-        ? 'radial-gradient(circle at 14% 8%, rgba(16, 185, 129, 0.16) 0%, transparent 45%), radial-gradient(circle at 88% 16%, rgba(6, 182, 212, 0.13) 0%, transparent 48%), #040d0a'
-        : isAmethystPreset
-          ? 'radial-gradient(circle at 14% 8%, rgba(168, 85, 247, 0.18) 0%, transparent 45%), radial-gradient(circle at 88% 16%, rgba(236, 72, 153, 0.14) 0%, transparent 48%), #0b0716'
-          : 'radial-gradient(circle at 14% 8%, rgba(99, 102, 241, 0.18) 0%, transparent 46%), radial-gradient(circle at 88% 14%, rgba(14, 165, 233, 0.14) 0%, transparent 48%), radial-gradient(circle at 50% 92%, rgba(16, 185, 129, 0.10) 0%, transparent 55%), #060a14',
-    cardBg: isLight
-      ? 'rgba(255, 255, 255, 0.94)'
-      : isEmeraldPreset
-        ? 'rgba(7, 24, 19, 0.84)'
-        : isAmethystPreset
-          ? 'rgba(20, 12, 38, 0.84)'
-          : 'rgba(13, 20, 36, 0.84)',
-    cardSubBg: isLight
-      ? '#f8fafc'
-      : isEmeraldPreset
-        ? 'rgba(13, 38, 30, 0.82)'
-        : isAmethystPreset
-          ? 'rgba(32, 19, 58, 0.82)'
-          : 'rgba(22, 32, 54, 0.82)',
-    border: isLight
-      ? 'rgba(203, 213, 225, 0.85)'
-      : isEmeraldPreset
-        ? 'rgba(52, 211, 153, 0.22)'
-        : isAmethystPreset
-          ? 'rgba(192, 132, 252, 0.22)'
-          : 'rgba(148, 163, 184, 0.18)',
-    textPrimary: isLight ? '#0f172a' : '#f8fafc',
-    textSecondary: isLight ? '#475569' : '#94a3b8',
-    textMuted: isLight ? '#64748b' : '#64748b',
-    accentColor: isEmeraldPreset
-      ? '#10b981'
-      : isAmethystPreset
-        ? '#a855f7'
-        : '#6366f1',
-    accentGrad: isEmeraldPreset
-      ? 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)'
-      : isAmethystPreset
-        ? 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)'
-        : 'linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%)',
-    heroCardBg: isLight
-      ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%)'
-      : isEmeraldPreset
-        ? 'linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(7, 24, 19, 0.94) 58%, rgba(14, 116, 144, 0.52) 100%)'
-        : isAmethystPreset
-          ? 'linear-gradient(135deg, rgba(88, 28, 135, 0.72) 0%, rgba(20, 12, 38, 0.94) 58%, rgba(157, 23, 77, 0.52) 100%)'
-          : 'linear-gradient(135deg, rgba(30, 58, 138, 0.65) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.58) 100%)',
-    shadow: isLight
-      ? '0 8px 24px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9)'
-      : '0 14px 34px rgba(2, 6, 23, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.07)',
+    pageBg: isLight ? '#f5f7f6' : '#101513',
+    pageMesh: isLight ? '#f5f7f6' : '#101513',
+    cardBg: isLight ? '#ffffff' : '#19201c',
+    cardSubBg: isLight ? '#f0f4f2' : '#242d27',
+    border: isLight ? '#dce5df' : '#344038',
+    textPrimary: isLight ? '#172b22' : '#edf3ef',
+    textSecondary: isLight ? '#52675c' : '#b3c3b9',
+    textMuted: isLight ? '#6c8175' : '#8b9f93',
+    accentColor: accent,
+    accentGrad: accent,
+    heroCardBg: isLight ? '#ffffff' : '#19201c',
+    shadow: 'none',
   };
 
   const formattedMonthLabel = (() => {
@@ -5310,7 +5056,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   return (
     <div
-      className="ot-pro-shell"
+      className="ot-pro-shell salary-pro"
+      ref={salaryShellRef}
+      data-color-mode={isLight ? 'light' : 'dark'}
+      data-active-tab={mobileTab}
       data-stitch-preset={stitchPreset}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
@@ -5516,7 +5265,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               fontWeight: 900,
               color: ui.textPrimary,
             }}>
-              Work &amp; Money Workspace
+              Time Is Money
             </div>
             <div style={{
               fontSize: 13,
@@ -5549,273 +5298,175 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         </div>
       )}
 
-      <div style={{ maxWidth: 500, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="salary-workspace">
 
-        {/* V8.2 SPACIOUS WORKSPACE HEADER + 1-TAP ICON THEME BAR */}
-        <div
-          className="ot-no-print stitch-screen-card"
-          style={{
-            padding: '14px 16px',
-            borderRadius: 22,
-            background: ui.cardBg,
-            border: `1px solid ${ui.border}`,
-            boxShadow: ui.shadow,
-            color: ui.textPrimary,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          {/* Header Row 1: Avatar + Full Unobstructed Title + Right Icon Buttons */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, flex: 1 }}>
+        {/* Salary workspace header */}
+        <header className="ot-no-print salary-header">
+          <div className="salary-header-main">
+            <div className="salary-brand">
+              <button
+                type="button"
+                className="salary-brand-avatar"
+                onClick={openProfileModal}
+                title="My profile and name"
+                aria-label="My profile and name"
+              >
+                <SalaryOtAppMainAvatar size={44} />
+              </button>
+              <div className="salary-brand-copy">
+                <div className="salary-app-name">Time Is Money</div>
+                <button
+                  type="button"
+                  className="salary-profile-link"
+                  onClick={openProfileModal}
+                  title="Edit profile and name"
+                >
+                  {profileAvatarDataUrl && (
+                    <img className="salary-profile-photo" src={profileAvatarDataUrl} alt="" />
+                  )}
+                  <span className="salary-profile-name">{displayProfileName}</span>
+                  <SalaryChevronDown size={13} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <div className="salary-tools">
+              <button
+                type="button"
+                className="salary-icon-button"
+                onClick={() => setShowNotificationsModal(true)}
+                title="Notifications and activity"
+                aria-label="Notifications and activity"
+              >
+                <SalaryBell size={19} aria-hidden="true" />
+              </button>
+              <details className="salary-tool-menu">
+                <summary
+                  className="salary-icon-button"
+                  title="More tools"
+                  aria-label="More tools"
+                >
+                  <SalaryMoreHorizontal size={20} aria-hidden="true" />
+                  {(availableOtaUpdate || globalSuggestionSending || activePendingSuggestions.length > 0) && (
+                    <span className="salary-notification-dot" aria-label="An update or feature request is pending" />
+                  )}
+                </summary>
+                <div className="salary-tool-popover">
+                  <button type="button" className="salary-menu-action" onClick={openProfileModal}>
+                    <SalaryUserRound size={17} aria-hidden="true" />
+                    <span>My profile</span>
+                  </button>
+                  {mobileTab === 'expenses' && expensesBiometricUnlocked && (
+                    <button
+                      type="button"
+                      className="salary-menu-action salary-menu-action-danger"
+                      onClick={() => setExpensesBiometricUnlocked(false)}
+                    >
+                      <SalaryLockKeyhole size={17} aria-hidden="true" />
+                      <span>Lock expense vault</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="salary-menu-action"
+                    onClick={() => setShowChangeMobileModal(true)}
+                  >
+                    <SalarySmartphone size={17} aria-hidden="true" />
+                    <span>Account and mobile sync</span>
+                  </button>
+                  <button type="button" className="salary-menu-action" onClick={() => navigateTab('rules')}>
+                    <SalaryBell size={17} aria-hidden="true" /><span>Updates &amp; alerts</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="salary-menu-action"
+                    onClick={() => checkAndApplyLiveOtaUpdate(true)}
+                    disabled={otaBusy}
+                    aria-busy={otaBusy}
+                  >
+                    <SalaryRefreshCw size={17} aria-hidden="true" className={otaBusy ? 'salary-spinning' : undefined} />
+                    <span>{otaBusy ? 'Checking update' : availableOtaUpdate ? `Update to v${availableOtaUpdate.version}` : 'Check for updates'}</span>
+                  </button>
+                  <details className="salary-theme-picker">
+                    <summary className="salary-menu-action">
+                      <SalaryPalette size={17} aria-hidden="true" />
+                      <span>Appearance</span>
+                      <SalaryChevronDown size={14} aria-hidden="true" />
+                    </summary>
+                    <div className="salary-theme-options">
+                      <button
+                        type="button"
+                        className="salary-menu-action salary-theme-mode"
+                        onClick={toggleThemeMode}
+                        title={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
+                      >
+                        {isLight ? <SalaryMoon size={17} aria-hidden="true" /> : <SalarySun size={17} aria-hidden="true" />}
+                        <span>{isLight ? 'Dark mode' : 'Light mode'}</span>
+                      </button>
+                      {[
+                        { id: 'stitch-aurora', title: 'Midnight Aurora' },
+                        { id: 'stitch-cyber-emerald', title: 'Emerald Vault' },
+                        { id: 'stitch-royal-amethyst', title: 'Royal Amethyst' },
+                        { id: 'stitch-alabaster-pro', title: 'Daylight Mode' },
+                      ].map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className="salary-theme-swatch"
+                          data-theme={preset.id}
+                          title={preset.title}
+                          aria-label={preset.title}
+                          aria-pressed={stitchPreset === preset.id}
+                          onClick={() => selectStitchPreset(preset.id)}
+                        >
+                          <span className="salary-swatch-color" aria-hidden="true" />
+                          <span>{preset.title}</span>
+                          {stitchPreset === preset.id && <SalaryCheck size={14} aria-hidden="true" />}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              </details>
+            </div>
+          </div>
+          <div className="salary-header-context">
+            <div className="salary-section-context">
               {(mobileTab !== 'today' || selectedDate !== getTodayIsoDate() || onClose) && (
                 <button
                   type="button"
+                  className="salary-icon-button salary-back-button"
                   onClick={() => {
                     const res = goBackStep();
-                    if (res !== 'handled' && onClose) onClose();
+                    if (res === 'root' && onClose && !standaloneMobile) onClose();
                   }}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 12,
-                    border: `1px solid ${ui.border}`,
-                    background: ui.cardSubBg,
-                    color: ui.textPrimary,
-                    fontWeight: 800,
-                    fontSize: 15,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                  title="Go Back"
+                  title="Go back"
+                  aria-label="Go back"
                 >
-                  ←
+                  <SalaryArrowLeft size={18} aria-hidden="true" />
                 </button>
               )}
-
-              <div
-                onClick={openProfileModal}
-                title="Tap to Edit Profile & Change Name"
-                style={{
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                <SalaryOtAppMainAvatar size={42} />
-                {profileAvatarDataUrl && (
-                  <img
-                    src={profileAvatarDataUrl}
-                    alt={displayProfileName}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      objectFit: 'cover',
-                      borderRadius: 11,
-                      border: `1.5px solid ${ui.border}`,
-                    }}
-                  />
-                )}
-                <span
-                  style={{
-                    position: 'absolute',
-                    right: -4,
-                    bottom: -4,
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    background: isLight ? '#ffffff' : '#0f172a',
-                    border: `1px solid ${ui.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 9,
-                  }}
-                >
-                  ✏️
-                </span>
-              </div>
-
-              <div
-                onClick={openProfileModal}
-                title="Tap to Edit Profile & Change Name"
-                style={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
-              >
-                <div style={{
-                  fontSize: 16,
-                  fontWeight: 900,
-                  color: ui.textPrimary,
-                  lineHeight: 1.25,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {displayProfileName}
-                  </span>
-                  <span
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      background: 'rgba(14, 165, 233, 0.16)',
-                      border: '1px solid rgba(56, 189, 248, 0.45)',
-                      color: isLight ? '#0369a1' : '#38bdf8',
-                      fontSize: 9,
-                      fontWeight: 900,
-                      letterSpacing: '0.04em',
-                      flexShrink: 0,
-                    }}
-                  >
-                    SALARY &amp; OT
-                  </span>
-                  <span style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }}>✏️</span>
+              <div className="salary-section-copy">
+                <div className="salary-context-title">
+                  {mobileTab === 'today' ? 'Today' : mobileTab === 'expenses' ? 'Expenses' : mobileTab === 'month' ? 'Attendance' : mobileTab === 'summary' ? 'Pay slip' : 'Settings'}
                 </div>
-                <div style={{
-                  fontSize: 11.5,
-                  color: ui.textSecondary,
-                  fontWeight: 600,
-                  marginTop: 2,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {profileRoleText
-                    ? `${profileRoleText} · v${liveOtaVersion}`
-                    : `${
-                        mobileTab === 'today'
-                          ? 'Today Attendance & Salary'
-                          : mobileTab === 'expenses'
-                            ? 'Expense Memory & Passbook'
-                            : mobileTab === 'month'
-                              ? 'Monthly Attendance Sheet'
-                              : mobileTab === 'summary'
-                                ? 'Monthly Salary Slip'
-                                : 'Shift Rules & Account Sync'
-                      } · v${liveOtaVersion}`}
+                <div className="salary-version">
+                  {profileRoleText ? `${profileRoleText} · ` : ''}v{liveOtaVersion}
                 </div>
               </div>
             </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <div className="salary-month-control" role="group" aria-label="Selected month">
               <button
                 type="button"
-                onClick={openProfileModal}
-                title="My Profile & Change Name"
-                aria-label="My Profile & Change Name"
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                👤
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowNotificationsModal(true)}
-                title="Notifications & Activity Center"
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                🔔
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleThemeMode}
-                title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {isLight ? '🌙' : '☀️'}
-              </button>
-            </div>
-          </div>
-
-          {/* Header Row 2: Dedicated Month Picker & Icon-Only Action Buttons */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 6,
-            paddingTop: 10,
-            borderTop: `1px solid ${ui.border}`,
-            flexWrap: 'nowrap',
-          }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '4px 8px',
-              borderRadius: 10,
-              background: ui.cardSubBg,
-              border: `1px solid ${ui.border}`,
-              minWidth: 0,
-              flexShrink: 1,
-            }}>
-              <button
-                type="button"
+                className="salary-icon-button"
                 onClick={() => shiftSelectedMonth(-1)}
-                style={{
-                  padding: '0 4px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: ui.textSecondary,
-                  fontWeight: 900,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
+                title="Previous month"
+                aria-label="Previous month"
               >
-                ‹
+                <SalaryChevronLeft size={17} aria-hidden="true" />
               </button>
-              <span style={{ fontSize: 11.5, fontWeight: 800, color: ui.textPrimary, whiteSpace: 'nowrap' }}>
-                📅 {(() => {
+              <span className="salary-month-label">
+                <SalaryCalendarDays size={15} aria-hidden="true" />
+                {(() => {
                   const [yr, mo] = String(selectedMonth || '2026-10').split('-').map(Number);
                   if (!yr || !mo) return selectedMonth;
                   return new Date(yr, mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -5823,208 +5474,16 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </span>
               <button
                 type="button"
+                className="salary-icon-button"
                 onClick={() => shiftSelectedMonth(1)}
-                style={{
-                  padding: '0 4px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: ui.textSecondary,
-                  fontWeight: 900,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
+                title="Next month"
+                aria-label="Next month"
               >
-                ›
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={activateStealthDecoy}
-                title="1-Tap Stealth Calculator Mode (Instantly hides app & locks salary/expenses)"
-                aria-label="Stealth Calculator Mode"
-                style={{
-                  width: 34,
-                  height: 34,
-                  padding: 0,
-                  borderRadius: 11,
-                  border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(16, 185, 129, 0.45)',
-                  background: isLight ? '#f1f5f9' : 'rgba(16, 185, 129, 0.14)',
-                  color: isLight ? '#0f172a' : '#34d399',
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <span>🛡️</span>
-                <span style={{ display: 'none' }}>Stealth</span>
-              </button>
-
-              {mobileTab === 'expenses' && expensesBiometricUnlocked && (
-                <button
-                  type="button"
-                  onClick={() => setExpensesBiometricUnlocked(false)}
-                  title="Lock Private Expense Vault"
-                  aria-label="Lock Private Expense Vault"
-                  style={{
-                    width: 34,
-                    height: 34,
-                    padding: 0,
-                    borderRadius: 11,
-                    border: isLight ? '1px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
-                    background: isLight ? '#fef2f2' : 'rgba(239, 68, 68, 0.14)',
-                    color: isLight ? '#dc2626' : '#fca5a5',
-                    fontSize: 15,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <span>🔒</span>
-                  <span style={{ display: 'none' }}>Lock</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setShowChangeMobileModal(true)}
-                title="Account & Mobile Sync"
-                aria-label="Account & Mobile Sync"
-                style={{
-                  width: 34,
-                  height: 34,
-                  padding: 0,
-                  borderRadius: 11,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <span>📱</span>
-                <span style={{ display: 'none' }}>Sync</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowGlobalSuggestionModal(true)}
-                title={
-                  globalSuggestionSending || activePendingSuggestions.length > 0
-                    ? 'Feature Processing in Progress — Tap to view or add suggestion'
-                    : 'Drop a Suggestion or Request a New Feature'
-                }
-                aria-label="Suggest a Feature"
-                style={{
-                  width: 34,
-                  height: 34,
-                  padding: 0,
-                  borderRadius: 11,
-                  border: isLight ? '1px solid #fde68a' : '1px solid rgba(245, 158, 11, 0.4)',
-                  background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.16)',
-                  color: isLight ? '#b45309' : '#fcd34d',
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {globalSuggestionSending || activePendingSuggestions.length > 0 ? (
-                  <span className="ot-feature-spinner-sm" />
-                ) : (
-                  <span>💡</span>
-                )}
-                <span style={{ display: 'none' }}>Suggest</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => checkAndApplyLiveOtaUpdate(true)}
-                disabled={otaBusy}
-                title={
-                  availableOtaUpdate
-                    ? `New Update v${availableOtaUpdate.version} Available`
-                    : `Check Live Update (v${liveOtaVersion})`
-                }
-                aria-label="Check Live Update"
-                style={{
-                  width: 34,
-                  height: 34,
-                  padding: 0,
-                  borderRadius: 11,
-                  border: availableOtaUpdate ? 'none' : `1px solid ${ui.border}`,
-                  background: availableOtaUpdate ? ui.accentGrad : ui.cardSubBg,
-                  color: availableOtaUpdate ? '#ffffff' : ui.textPrimary,
-                  fontSize: 15,
-                  cursor: otaBusy ? 'wait' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <span>{otaBusy ? '⏳' : availableOtaUpdate ? '🚀' : '🔄'}</span>
-                <span style={{ display: 'none' }}>{otaBusy ? 'Updating' : availableOtaUpdate ? `Update v${availableOtaUpdate.version}` : 'Update'}</span>
+                <SalaryChevronRight size={17} aria-hidden="true" />
               </button>
             </div>
           </div>
-
-          {/* Header Row 3: 1-Tap Icon-Only Theme Switcher */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 8,
-            paddingTop: 8,
-            borderTop: `1px dashed ${ui.border}`,
-          }}>
-            {[
-              { id: 'stitch-aurora', icon: '🌌', title: 'Midnight Aurora', mode: 'dark' },
-              { id: 'stitch-cyber-emerald', icon: '💎', title: 'Emerald Vault', mode: 'dark' },
-              { id: 'stitch-royal-amethyst', icon: '🔮', title: 'Royal Amethyst', mode: 'dark' },
-              { id: 'stitch-alabaster-pro', icon: '☀️', title: 'Daylight Mode', mode: 'light' },
-            ].map((p) => {
-              const active = stitchPreset === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  title={p.title}
-                  aria-label={p.title}
-                  onClick={() => selectStitchPreset(p.id)}
-                  style={{
-                    height: 34,
-                    padding: 0,
-                    borderRadius: 11,
-                    border: active ? `1.5px solid ${ui.accentColor}` : `1px solid ${ui.border}`,
-                    background: active ? ui.accentGrad : ui.cardSubBg,
-                    color: active ? '#ffffff' : ui.textSecondary,
-                    fontSize: 16,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: active ? '0 4px 12px rgba(79, 70, 229, 0.25)' : 'none',
-                  }}
-                >
-                  <span>{p.icon}</span>
-                  <span style={{ display: 'none' }}>{p.title}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        </header>
 
         {/* ⏳ LIVE FEATURE PROCESSING LOADING INDICATOR BANNER ON MOBILE (Visible until feature processing completes) */}
         {(globalSuggestionSending || activePendingSuggestions.length > 0) && !availableOtaUpdate && (
@@ -6225,7 +5684,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                     <button
                       type="button"
-                      onClick={() => speakOtaUpdateNotification(availableOtaUpdate.version, availableOtaUpdate.notes, 'available')}
+                      onClick={() => speakOtaUpdateNotification(availableOtaUpdate.version, availableOtaUpdate.notes, 'available', availableOtaUpdate.buildId)}
                       style={{
                         padding: '11px 12px',
                         borderRadius: 12,
@@ -7449,38 +6908,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
         {/* FLUTTER M3 ONBOARDING CARD (ONLY VISIBLE WHEN EMAIL IS NOT LINKED YET) */}
         {!isEmailLinked && (
-          <div
-            className="flutter-m3-card"
-            style={{
-              padding: '12px 14px',
-              borderRadius: 18,
-              background: isLight
-                ? '#ffffff'
-                : 'linear-gradient(180deg, #151e32 0%, #101726 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.35)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: isLight ? '#0f172a' : '#e2e8f0' }}>
-                📧 Link Email to Sync Attendance &amp; Expenses
-              </span>
-              <span style={{
-                padding: '2px 8px',
-                borderRadius: 999,
-                background: 'rgba(99, 102, 241, 0.16)',
-                color: '#818cf8',
-                fontSize: 10,
-                fontWeight: 800,
-              }}>
-                Empty Until Synced
-              </span>
-            </div>
+          <details className="salary-account-prompt">
+            <summary><SalarySmartphone size={16} aria-hidden="true" /><span>Connect your account</span><SalaryChevronDown size={16} aria-hidden="true" /></summary>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input
                 type="email"
+                aria-label="Account email"
                 value={changeMobileEmailInput}
                 onChange={(e) => setChangeMobileEmailInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -7488,7 +6921,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     switchAccountEmail(changeMobileEmailInput);
                   }
                 }}
-                placeholder="Enter email (e.g. patanyasin144@gmail.com)"
+                placeholder="Email address"
                 style={{
                   flex: '1 1 190px',
                   padding: '9px 12px',
@@ -7516,10 +6949,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                   whiteSpace: 'nowrap',
                 }}
               >
-                Sync Mail
+                Connect
               </button>
             </div>
-          </div>
+          </details>
         )}
 
         {/* ===================================================================
@@ -7658,6 +7091,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <ExpensesModule
+                  navigationHistoryRef={expenseNavigationRef}
                   expensesMap={expensesMap}
                   onUpdateExpenses={handleUpdateExpenses}
                   selectedMonth={selectedMonth}
@@ -7694,10 +7128,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             SCREEN 2 & SCREEN 12: HOME DASHBOARD (TODAY TAB)
            =================================================================== */}
         {showTodaySection && (
-          <>
+          <section className="salary-content" aria-label="Today overview">
+            <div className="salary-page-heading">
+              <div>
+                <p className="salary-eyebrow">YOUR WORKDAY</p>
+                <h1>Workday overview</h1>
+                <p>{liveNow.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+              </div>
+              <button className="salary-text-action" type="button" title="View attendance" aria-label="View attendance" onClick={() => navigateTab('month')}><SalaryCalendarDays size={19} aria-hidden="true" /></button>
+            </div>
             {/* SECTION 1: CLEAN TODAY PUNCH & SHIFT HERO (TOP PRIORITY) */}
             <div
-              className="stitch-screen-card stitch-bank-hero-card"
+              className="stitch-screen-card salary-attendance"
               style={{
                 padding: '16px',
                 borderRadius: 24,
@@ -7780,7 +7222,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {!collapsedOtSections.sec_today_punch && (
                 <>
               {/* Side-by-Side Clean Biometric Punch Buttons */}
-              <div style={{
+              <div className="salary-action-grid" style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
                 gap: 10,
@@ -7885,13 +7327,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
 
               {/* Quick OT Presets + 1-Tap WhatsApp Row */}
-              <div style={{
+              <details className="time-money-shortcuts" style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
                 paddingTop: 10,
                 borderTop: `1px solid ${ui.border}`,
               }}>
+                <summary>Attendance shortcuts <SalaryChevronDown size={16} aria-hidden="true" /></summary>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: ui.textSecondary }}>
                     Quick Exit / OT:
@@ -8003,13 +7446,13 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     🔴 Send OUT + Payments
                   </button>
                 </div>
-              </div>
+              </details>
                 </>
               )}
             </div>
 
             {/* SECTION 2: 2x2 GOOGLE STITCH BENTO SUMMARY GRID (Salary · OT · Today · Expenses) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="salary-overview" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div
                 onClick={() => toggleOtSection('sec_today_bento')}
                 style={{
@@ -8022,8 +7465,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 }}
                 title="Tap to minimize or maximize Summary Tiles"
               >
-                <span style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  📊 Salary, OT &amp; Today Summary
+                <span className="salary-overview-heading" style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>
+                  {formattedMonthLabel} overview
                 </span>
                 <span style={{ fontSize: 11.5, fontWeight: 900, color: ui.textSecondary }}>
                   {collapsedOtSections.sec_today_bento ? '▸ Show' : '▾ Hide'}
@@ -8031,14 +7474,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
 
               {!collapsedOtSections.sec_today_bento && (
-            <div style={{
+            <div className="salary-overview-stats" style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               gap: 10,
             }}>
               {/* Bento Tile 1: Net Salary */}
               <div
-                className="stitch-bento-card"
+                className="stitch-bento-card salary-balance"
                 style={{
                   position: 'relative',
                   overflow: 'hidden',
@@ -8065,7 +7508,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Net Salary
+                    Net salary receivable
                   </span>
                   {renderSalaryEyeButton(true)}
                 </div>
@@ -8096,7 +7539,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               {/* Bento Tile 2: Overtime Earned */}
               <div
-                className="stitch-bento-card"
+                className="stitch-bento-card salary-overtime-stat"
                 style={{
                   position: 'relative',
                   overflow: 'hidden',
@@ -8163,7 +7606,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               {/* Bento Tile 3: Today's Shift & Pay */}
               <div
-                className="stitch-bento-card"
+                className="stitch-bento-card salary-today-stat"
                 onClick={() => setShowManualEditor(true)}
                 style={{
                   position: 'relative',
@@ -8209,7 +7652,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
               {/* Bento Tile 4: Expense Memory Shortcut */}
               <div
-                className="stitch-bento-card"
+                className="stitch-bento-card salary-expense-stat"
                 onClick={() => navigateTab('expenses')}
                 style={{
                   position: 'relative',
@@ -8257,7 +7700,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
             {/* 🏦 Quick Add Date: Salary & OT Payment Credit Cycle Card on Today Tab */}
             <div
-              className="stitch-screen-card"
+              className="stitch-screen-card salary-credit-cycle"
+              data-open={showCreditCycleEditor}
               style={{
                 padding: '12px 14px',
                 borderRadius: 20,
@@ -8588,7 +8032,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 </div>
               )}
             </div>
-          </>
+          </section>
         )}
 
         {/* ===================================================================
@@ -9026,18 +8470,24 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         return <div key={`empty_${idx}`} style={{ height: 38 }} />;
                       }
                       const isSel = cell.iso === selectedDate;
-                      const hasOt = cell.earnings.otMins > 0;
-                      const otHrsShort = hasOt ? `${(cell.earnings.otMins / 60).toFixed(1).replace(/\.0$/, '')}h` : '';
+                      const runningToday = cell.iso === todayIso && cell.isSaved && cell.record.inTime
+                        && !cell.record.outTime && cell.record.status !== 'leave';
+                      const otMinutes = runningToday ? liveOtTicker.totalOtMinutes : cell.earnings.otMins;
+                      const hasOt = otMinutes > 0;
+                      const otClock = formatOtClock(otMinutes);
                       return (
                         <button
                           key={cell.iso}
                           type="button"
+                          aria-label={`${cell.iso}, ${cell.isSaved ? `OT ${otClock} hours and minutes` : 'no saved attendance'}`}
+                          title={`${cell.iso} · ${cell.isSaved ? `OT ${otClock} (hours:minutes)` : 'No saved attendance'}`}
+                          className="salary-calendar-day"
                           onClick={() => {
                             setSelectedDate(cell.iso);
                             setShowManualEditor(true);
                           }}
                           style={{
-                            height: 38,
+                            height: 48,
                             padding: '2px 0',
                             minWidth: 0,
                             borderRadius: 10,
@@ -9080,7 +8530,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                               color: isSel ? '#ffffff' : hasOt ? '#34d399' : '#60a5fa',
                               lineHeight: 1,
                             }}>
-                              {hasOt ? `+${otHrsShort}` : '✓'}
+                              {`OT ${otClock}`}
                             </span>
                           )}
                         </button>
@@ -9093,7 +8543,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
             {/* Filter Pills Row: All | Present | Half | Off | Leave | OT + Cards/Table View Toggle */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, maxWidth: '100%' }}>
+              <div className="salary-attendance-filter" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, maxWidth: '100%' }}>
                 {[
                   { id: 'all', label: 'All' },
                   { id: 'present', label: 'Present' },
@@ -9607,8 +9057,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                               {r.outTime ? formatTime12h(r.outTime) : '--:-- (Pending OUT)'}
                             </span>
                           </span>
-                          {r.biometricIn && <span style={{ fontSize: 10, color: '#38bdf8' }}>🫆IN</span>}
-                          {r.biometricOut && <span style={{ fontSize: 10, color: '#10b981' }}>🫆OUT</span>}
+                          {r.biometricIn && <span style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 2, color: '#38bdf8' }}><SalaryFingerprint size={12} aria-hidden="true" />IN</span>}
+                          {r.biometricOut && <span style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 2, color: '#10b981' }}><SalaryFingerprint size={12} aria-hidden="true" />OUT</span>}
                         </div>
                         <div style={{
                           fontSize: 12,
@@ -10145,6 +9595,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
            =================================================================== */}
         {showRulesSection && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <OtVoiceStatusPanel />
+            <UpdateAlertsPanel />
             {/* 👤 MY PROFILE & CHANGE NAME HERO CARD */}
             <div
               className="stitch-screen-card stitch-bank-hero-card"
@@ -10332,7 +9784,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     >
                       <span>₹••••••</span>
                       <span style={{ fontSize: 11.5, color: '#10b981', fontWeight: 800 }}>
-                        👁️ Tap to Unlock Salary with Biometric
+                        <SalaryFingerprint size={16} aria-hidden="true" /> Unlock with biometric
                       </span>
                     </button>
                   )}
@@ -11574,80 +11026,40 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
         )}
       </div>
 
-      {/* V8.2 GOOGLE STITCH FLOATING FROSTED GLASS BOTTOM NAVIGATION DOCK */}
-      <div
-        className="ot-no-print"
-        style={{
-          position: 'fixed',
-          left: 12,
-          right: 12,
-          bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
-          zIndex: 900,
-          display: 'flex',
-          justifyContent: 'center',
-          pointerEvents: 'none',
-        }}
-      >
-        <div style={{
-          width: '100%',
-          maxWidth: 460,
-          pointerEvents: 'auto',
-          padding: '6px',
-          borderRadius: 24,
-          background: isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(11, 17, 30, 0.88)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: `1px solid ${ui.border}`,
-          boxShadow: isLight ? '0 12px 32px rgba(15, 23, 42, 0.12)' : '0 18px 42px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: 5,
-        }}>
+      {/* Salary workspace navigation */}
+      <nav className="ot-no-print salary-nav" aria-label="Salary workspace">
+        <div className="salary-nav-inner">
+          <div className="salary-nav-brand" aria-hidden="true">
+            <SalaryOtAppMainAvatar size={40} />
+            <div><strong>Time Is</strong><span>Money</span></div>
+          </div>
           {[
-            { id: 'today', icon: '🕒', label: 'Today', title: 'Today Punch' },
-            { id: 'expenses', icon: '💳', label: 'Expenses', title: 'Expenses' },
-            { id: 'month', icon: '📅', label: 'Month', title: 'Month Days' },
-            { id: 'summary', icon: '🧾', label: 'Slip', title: 'Salary Slip' },
-            { id: 'rules', icon: '⚙️', label: 'Rules', title: 'Rules & App' },
+            { id: 'today', icon: SalaryClock3, label: 'Today', title: 'Today attendance' },
+            { id: 'expenses', icon: SalaryWalletCards, label: 'Expenses', title: 'Expenses' },
+            { id: 'month', icon: SalaryCalendarDays, label: 'Calendar', title: 'Attendance calendar' },
+            { id: 'summary', icon: SalaryReceiptText, label: 'Pay slip', title: 'Monthly salary slip' },
+            { id: 'rules', icon: SalarySettings2, label: 'Settings', title: 'Shift rules and settings' },
           ].map((nav) => {
+            const NavIcon = nav.icon;
             const active = mobileTab === nav.id;
             return (
               <button
                 key={nav.id}
                 type="button"
+                className="salary-nav-item"
                 title={nav.title}
+                aria-label={nav.title}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => navigateTab(nav.id)}
-                style={{
-                  position: 'relative',
-                  padding: '8px 2px',
-                  borderRadius: 18,
-                  border: 'none',
-                  background: active
-                    ? ui.accentGrad
-                    : 'transparent',
-                  color: active ? '#ffffff' : (isLight ? '#64748b' : '#94a3b8'),
-                  fontWeight: active ? 800 : 600,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 2,
-                  boxShadow: active ? '0 6px 16px rgba(37, 99, 235, 0.35)' : 'none',
-                  transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
-                }}
               >
-                <span style={{ fontSize: 15, lineHeight: 1 }}>
-                  {nav.icon}
-                </span>
-                <span style={{ whiteSpace: 'nowrap', fontSize: 10.5 }}>{nav.label}</span>
-                <span style={{ display: 'none' }}>{nav.title}</span>
+                <NavIcon size={21} strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" />
+                <span>{nav.label}</span>
               </button>
             );
           })}
+          <div className="salary-nav-footnote">v{liveOtaVersion}</div>
         </div>
-      </div>
+      </nav>
 
       {/* 👤 MY PROFILE & CHANGE NAME MODAL */}
       {showProfileModal && (

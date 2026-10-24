@@ -1,0 +1,14 @@
+.salary-pro .tim-ot-voice-panel {
+  border: 1px solid var(--salary-border, #d8e2dc);
+  border-radius: 18px;
+  padding: 18px;
+  background: var(--salary-card, transparent);
+  color: inherit;
+}
+.salary-pro .tim-ot-voice-panel h3 { display: flex; gap: 9px; align-items: center; margin: 0 0 10px; font-size: 17px; }
+.salary-pro .tim-ot-voice-panel p { font-size: 13px; line-height: 1.6; margin: 8px 0; }
+.salary-pro .tim-ot-voice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.salary-pro .tim-ot-voice-actions button { display: inline-flex; gap: 7px; align-items: center; min-height: 42px; padding: 9px 12px; border: 1px solid currentColor; border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.salary-pro .salary-biometric-mark { position: relative; display: grid; place-items: center; margin: 0 auto; border-radius: 22%; background: var(--salary-surface, #edf6f1); color: var(--salary-action, #087f5b); }
+.salary-pro .salary-biometric-verified { position: absolute; right: -3px; bottom: -3px; padding: 3px; border-radius: 50%; background: #087f5b; color: white; }
+.salary-pro .salary-calendar-day { font-variant-numeric: tabular-nums; }

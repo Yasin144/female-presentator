@@ -48,29 +48,7 @@ public class OfficeEndAlarmReceiver extends BroadcastReceiver {
     }
 
     public static void forceRaiseSpeakerVolume(final Context context) {
-        if (context == null) return;
-        try {
-            AudioManager am = (AudioManager) context.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
-            if (am == null) return;
-            int[] streams = new int[]{
-                AudioManager.STREAM_MUSIC,
-                AudioManager.STREAM_ALARM,
-                AudioManager.STREAM_NOTIFICATION
-            };
-            for (int stream : streams) {
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0);
-                    }
-                    int maxVol = am.getStreamMaxVolume(stream);
-                    int curVol = am.getStreamVolume(stream);
-                    int targetVol = Math.max(1, (int) Math.ceil(maxVol * 0.90));
-                    if (curVol < targetVol) {
-                        am.setStreamVolume(stream, targetVol, 0);
-                    }
-                } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
+        // Legacy API retained without changing music, alarm, notification volume or mute state.
     }
 
     public static void speakAnnouncement(final Context context, final String speechText) {

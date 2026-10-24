@@ -1,0 +1,96 @@
+.expense-passbook, .expense-transaction-detail { color: var(--expense-ink); min-width: 0; }
+.expense-passbook { display: flex; flex-direction: column; gap: 12px; }
+.expense-passbook-heading, .expense-detail-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.expense-passbook-heading h2, .expense-detail-hero h2 { margin: 4px 0; font-size: 25px; line-height: 1.25; font-weight: 800; }
+.expense-passbook-heading p:not(.expense-kicker), .expense-memory-form > p { margin: 6px 0 0; color: var(--expense-muted); font-size: 12px; line-height: 1.6; }
+.expense-kicker { margin: 0; color: var(--expense-muted); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.expense-passbook button, .expense-transaction-detail button, .expense-passbook input, .expense-passbook select, .expense-transaction-detail input, .expense-transaction-detail textarea { font: inherit; }
+.expense-main-action, .expense-quiet-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; border-radius: 10px; padding: 10px 13px; border: 1px solid var(--expense-line); font-size: 12px !important; font-weight: 750 !important; cursor: pointer; flex-shrink: 0; }
+.expense-main-action { background: var(--salary-action, #087f5b); border-color: transparent; color: white; }
+.expense-quiet-action { background: var(--expense-surface); color: var(--expense-ink); }
+.expense-quiet-action:disabled { opacity: .65; cursor: wait; }
+.expense-money-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--expense-line); border-radius: 15px; background: var(--expense-surface); }
+.expense-money-summary > div { padding: 15px; min-width: 0; }
+.expense-money-summary > div + div { border-left: 1px solid var(--expense-line); }
+.expense-money-summary span { display: flex; gap: 5px; align-items: center; color: var(--expense-muted); font-size: 11px; }
+.expense-money-summary strong { display: block; margin-top: 6px; font-size: clamp(16px, 2.8vw, 25px); font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.expense-money-summary > div:last-child strong { color: var(--expense-accent); }
+.expense-memory-summary { display: flex; align-items: center; gap: 8px; color: var(--expense-muted); font-size: 12px; min-height: 36px; }
+.expense-memory-summary svg { flex-shrink: 0; }
+.expense-search { display: flex; align-items: center; gap: 9px; min-height: 48px; border: 1px solid var(--expense-line); border-radius: 12px; padding: 0 12px; background: var(--expense-surface); color: var(--expense-muted); }
+.expense-search input { border: 0; background: transparent; color: var(--expense-ink); min-width: 0; width: 100%; padding: 13px 0; font-size: 13px; outline: 0; }
+.expense-search:focus-within { outline: 2px solid var(--expense-accent); outline-offset: 2px; }
+.expense-search button { display: grid; place-items: center; border: 0; padding: 5px; background: transparent; color: inherit; cursor: pointer; }
+.expense-passbook-controls, .expense-period-controls, .expense-passbook-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.expense-direction-filters { display: flex; gap: 3px; border-radius: 10px; background: var(--expense-subtle); padding: 3px; }
+.expense-direction-filters button { min-height: 36px; padding: 8px 13px; border: 0; border-radius: 8px; background: transparent; color: var(--expense-muted); font-size: 12px; font-weight: 750; cursor: pointer; }
+.expense-direction-filters button[aria-pressed='true'] { background: var(--expense-surface); color: var(--expense-ink); box-shadow: 0 1px 3px #00000012; }
+.expense-period-controls { min-height: 42px; flex-wrap: wrap; }
+.expense-period-controls > label { display: flex; gap: 5px; align-items: center; color: var(--expense-muted); }
+.expense-period-controls select, .expense-period-controls > input { min-height: 38px; padding: 7px; border: 1px solid var(--expense-line); border-radius: 8px; background: var(--expense-surface); color: var(--expense-ink); max-width: 100%; font-size: 12px; }
+.expense-period-controls > span { color: var(--expense-muted); font-size: 11px; white-space: nowrap; }
+.expense-period-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; min-height: 20px; color: var(--expense-muted); }
+.expense-period-filter { grid-column: 1 / -1; }
+.expense-filter-sheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border: 1px solid var(--expense-line); border-radius: 12px; padding: 14px; background: var(--expense-subtle); }
+.expense-filter-sheet label, .expense-memory-form label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 700; min-width: 0; }
+.expense-filter-sheet input, .expense-filter-sheet select, .expense-memory-form input, .expense-memory-form textarea { min-width: 0; width: 100%; min-height: 42px; border: 1px solid var(--expense-line); border-radius: 8px; padding: 10px; background: var(--expense-surface); color: var(--expense-ink); font-size: 13px; }
+.expense-live-slot { height: 40px; display: flex; align-items: center; min-width: 0; }
+.expense-live-slot > span, .expense-live-slot > button { display: flex; align-items: center; gap: 7px; font-size: 11px; line-height: 1.35; }
+.expense-live-slot > span { color: var(--expense-muted); }
+.expense-live-slot > button { min-height: 38px; background: var(--expense-accent-soft); color: var(--expense-accent); border: 1px solid var(--expense-line); border-radius: 9px; padding: 8px 12px; cursor: pointer; }
+.expense-live-slot svg { flex-shrink: 0; }
+.expense-passbook-list { min-height: 180px; overflow-anchor: auto; }
+.expense-day-group { margin-bottom: 22px; }
+.expense-day-group h3 { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: var(--expense-ink); padding: 10px 0; margin: 0; min-height: 40px; }
+.expense-day-group h3 > span { color: var(--expense-muted); font-size: 10px; font-weight: 500; }
+.expense-memory-row { width: 100%; height: 132px; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; grid-template-rows: 43px 27px 18px; column-gap: 10px; row-gap: 5px; align-items: center; padding: 13px 12px; text-align: left; border: 1px solid var(--expense-line); background: var(--expense-surface); color: var(--expense-ink); cursor: pointer; border-radius: 12px; margin: 0 0 8px; overflow: hidden; }
+.expense-memory-row:hover { border-color: var(--expense-accent); }
+.expense-person-avatar { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: var(--expense-subtle); color: var(--expense-ink); font-size: 12px; font-weight: 800; flex-shrink: 0; }
+.expense-person-avatar.is-incoming { background: var(--expense-accent-soft); color: var(--expense-accent); }
+.expense-row-person { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.expense-row-direction { color: var(--expense-muted); font-size: 10px; }
+.expense-row-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 800; }
+.expense-row-amount { text-align: right; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.expense-row-amount.is-incoming, .expense-detail-amount.is-incoming { color: var(--expense-accent); }
+.expense-row-memory { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; color: var(--expense-ink); font-size: 13px; min-width: 0; }
+.expense-row-memory > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.expense-row-memory svg { flex-shrink: 0; color: var(--expense-muted); }
+.expense-row-memory.needs-memory { color: var(--expense-accent); }
+.expense-row-meta { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--expense-muted); font-size: 11px; }
+.expense-passbook-footer { flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--expense-line); }
+.expense-passbook-empty { display: flex; align-items: center; flex-direction: column; text-align: center; gap: 12px; padding: 25px; color: var(--expense-muted); }
+.expense-passbook-empty h3, .expense-passbook-empty p { margin: 0; font-size: 13px; }
+.expense-detail-hero { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 12px; row-gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--expense-line); }
+.expense-detail-hero h2 { font-size: 22px; overflow-wrap: anywhere; }
+.expense-detail-amount { grid-column: 1 / -1; font-size: 32px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.expense-detail-date { grid-column: 1 / -1; margin: 0; color: var(--expense-muted); font-size: 12px; }
+.expense-memory-form { display: flex; flex-direction: column; gap: 16px; border: 1px solid var(--expense-line); padding: 18px; border-radius: 14px; background: var(--expense-surface); }
+.expense-memory-form h3 { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 17px; }
+.expense-memory-form textarea { resize: vertical; line-height: 1.6; }
+.expense-captured-remark { display: flex; gap: 10px; padding: 14px; border-radius: 12px; background: var(--expense-subtle); font-size: 12px; }
+.expense-captured-remark svg { flex-shrink: 0; }
+.expense-captured-remark p { margin: 6px 0 0; line-height: 1.6; overflow-wrap: anywhere; }
+.expense-review-notice { border-left: 3px solid #bb8a25; padding: 10px 14px; font-size: 12px; line-height: 1.6; }
+.expense-record-details { border: 1px solid var(--expense-line); border-radius: 12px; padding: 14px; font-size: 12px; }
+.expense-record-details summary { cursor: pointer; font-weight: 750; min-height: 28px; }
+.expense-record-details dl { display: flex; flex-direction: column; gap: 12px; margin: 12px 0 0; }
+.expense-record-details dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; }
+.expense-record-details dt { color: var(--expense-muted); }
+.expense-record-details dd { text-align: right; margin: 0; overflow-wrap: anywhere; }
+.expense-record-actions { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 12px; }
+.expense-remove-action { color: #b44940; }
+.expense-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.expense-sync-toast { position: fixed; bottom: calc(90px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); z-index: 1400; }
+@media (max-width: 430px) {
+  .expense-passbook-heading h2 { font-size: 22px; }
+  .expense-passbook-heading > div { min-width: 0; }
+  .expense-passbook-heading p:not(.expense-kicker) { max-width: 210px; }
+  .expense-direction-filters button { padding: 8px 10px; font-size: 11px; }
+  .expense-passbook-controls { gap: 6px; }
+  .expense-memory-row { grid-template-columns: 32px minmax(0, 1fr) auto; column-gap: 7px; padding: 13px 10px; }
+  .expense-person-avatar { width: 32px; height: 32px; border-radius: 9px; font-size: 11px; }
+  .expense-row-amount { font-size: 14px; }
+  .expense-row-person strong { font-size: 13px; }
+  .expense-detail-toolbar { align-items: stretch; }
+  .expense-detail-toolbar > button { padding: 8px; font-size: 10px !important; }
+}

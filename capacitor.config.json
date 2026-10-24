@@ -1,7 +1,7 @@
 {
   "appId": "com.pattan.presentator",
-  "appName": "Yasin Salary Pro",
-  "webDir": "renderer-dist",
+  "appName": "Time Is Money",
+  "webDir": "mobile-dist",
   "server": {
     "androidScheme": "https",
     "cleartext": false,

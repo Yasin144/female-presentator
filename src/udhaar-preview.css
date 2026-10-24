@@ -1,0 +1,3 @@
+html, body, #root { min-height: 100%; margin: 0; }
+body { background: #f5f7f6; font-family: 'Segoe UI', sans-serif; }
+button, input, textarea, select { font: inherit; }

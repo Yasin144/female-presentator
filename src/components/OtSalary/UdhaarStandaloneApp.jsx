@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
+import { ArrowLeft, BellRing, BookOpen, ChevronDown, Download, FileUp, IndianRupee, LockKeyhole, MoreHorizontal, Moon, Plus, RefreshCw, ShieldCheck, Sun, UsersRound, WalletCards, X } from 'lucide-react';
+import UpdateAlertsPanel from './UpdateAlertsPanel';
+import './UdhaarPro.css';
 
 const UDHAAR_STORAGE_KEY = 'yasin_udhaar_returnable_ledger_v1';
 const UDHAAR_BIOMETRIC_LOCK_KEY = 'yasin_udhaar_biometric_lock_enabled_v1';
@@ -10,76 +13,9 @@ const BUILTIN_UDHAAR_OTA_BUILD_ID = 'udhaar_ota_1_0_10_app_main_avatar_both_apps
 
 function UdhaarBookLogoBadge({ size = 44 }) {
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.28),
-        background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 55%, #b45309 100%)',
-        boxShadow: '0 4px 12px rgba(234, 88, 12, 0.38), inset 0 1px 1px rgba(255, 255, 255, 0.35)',
-        border: '1.5px solid rgba(253, 224, 71, 0.65)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-      title="Udhaar Book Official Logo"
-    >
-      <svg
-        width={Math.round(size * 0.86)}
-        height={Math.round(size * 0.86)}
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Open Ledger Book Pages */}
-        <path
-          d="M10 14C10 11.7909 11.7909 10 14 10H28C30.2091 10 32 11.7909 32 14V46C32 44.3431 30.6569 43 29 43H14C11.7909 43 10 41.2091 10 39V14Z"
-          fill="#FFFBEB"
-          stroke="#FDE68A"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M54 14C54 11.7909 52.2091 10 50 10H36C33.7909 10 32 11.7909 32 14V46C32 44.3431 33.3431 43 35 43H50C52.2091 43 54 41.2091 54 39V14Z"
-          fill="#FEF3C7"
-          stroke="#FDE68A"
-          strokeWidth="1.5"
-        />
-        {/* Ledger Lines */}
-        <line x1="15" y1="18" x2="27" y2="18" stroke="#D97706" strokeWidth="2" strokeLinecap="round" />
-        <line x1="15" y1="24" x2="25" y2="24" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
-        <line x1="37" y1="18" x2="49" y2="18" stroke="#D97706" strokeWidth="2" strokeLinecap="round" />
-        <line x1="39" y1="24" x2="49" y2="24" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
-        {/* Center Royal Gold Rupee Emblem */}
-        <circle cx="32" cy="30" r="11.5" fill="#B45309" stroke="#FEF08A" strokeWidth="2" />
-        <text
-          x="32"
-          y="35.5"
-          textAnchor="middle"
-          fill="#FFFBEB"
-          fontSize="16"
-          fontWeight="900"
-          fontFamily="system-ui, sans-serif"
-        >
-          ₹
-        </text>
-        {/* Bottom UDHAAR Pill Banner */}
-        <rect x="8" y="47" width="48" height="12" rx="6" fill="#78350F" stroke="#FDE047" strokeWidth="1.2" />
-        <text
-          x="32"
-          y="55.5"
-          textAnchor="middle"
-          fill="#FEF08A"
-          fontSize="8.2"
-          fontWeight="900"
-          letterSpacing="0.6"
-          fontFamily="system-ui, sans-serif"
-        >
-          UDHAAR
-        </text>
-      </svg>
+    <div className="udhaar-logo-mark time-money-mark" role="img" aria-label="Udhaar Book" style={{ width: size, height: size }}>
+      <BookOpen size={Math.round(size * 0.62)} strokeWidth={1.8} aria-hidden="true" />
+      <span className="time-money-coin"><IndianRupee size={Math.round(size * 0.27)} strokeWidth={2} aria-hidden="true" /></span>
     </div>
   );
 }
@@ -926,22 +862,22 @@ export default function UdhaarStandaloneApp({
     if (embedded && propPalette) return propPalette;
     return isLight
       ? {
-          bg: '#f1f5f9',
+          bg: '#f5f7f6',
           surface: '#ffffff',
-          surfaceAlt: '#f8fafc',
-          border: '#e2e8f0',
-          text: '#0f172a',
-          textSub: '#334155',
-          textMuted: '#64748b',
+          surfaceAlt: '#edf1ef',
+          border: '#dce3df',
+          text: '#182820',
+          textSub: '#42574b',
+          textMuted: '#66736d',
         }
       : {
-          bg: '#090d16',
-          surface: '#111827',
-          surfaceAlt: '#1e293b',
-          border: 'rgba(148, 163, 184, 0.18)',
-          text: '#f8fafc',
-          textSub: '#cbd5e1',
-          textMuted: '#94a3b8',
+          bg: '#121715',
+          surface: '#1b221e',
+          surfaceAlt: '#252e29',
+          border: '#344039',
+          text: '#f1f5f2',
+          textSub: '#c5d2c9',
+          textMuted: '#a8b5ac',
         };
   }, [embedded, propPalette, isLight]);
 
@@ -1311,12 +1247,34 @@ export default function UdhaarStandaloneApp({
 
   // Edit Modal State
   const [editItem, setEditItem] = useState(null);
+  const [showUpdateAlerts, setShowUpdateAlerts] = useState(false);
+  const toolsMenuRef = useRef(null);
+  const previousLedgerViewRef = useRef(null);
+  const ledgerViewHistoryRef = useRef([]);
+  const restoringLedgerViewRef = useRef(false);
+  const ledgerView = useMemo(() => ({ tab, searchQuery, selectedSheetFilter, expandedPersonIds, allPersonsExpanded }), [tab, searchQuery, selectedSheetFilter, expandedPersonIds, allPersonsExpanded]);
+
+  useEffect(() => {
+    if (restoringLedgerViewRef.current) {
+      restoringLedgerViewRef.current = false;
+    } else if (previousLedgerViewRef.current) {
+      const previous = previousLedgerViewRef.current;
+      const viewKey = value => JSON.stringify({ ...value, searchQuery: Boolean(value.searchQuery.trim()) });
+      if (viewKey(previous) !== viewKey(ledgerView)) {
+        ledgerViewHistoryRef.current = [...ledgerViewHistoryRef.current.slice(-19), previous];
+      }
+    }
+    previousLedgerViewRef.current = ledgerView;
+  }, [ledgerView]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ANDROID HARDWARE BACK BUTTON HANDLER (Never exit unexpectedly!)
-  // Closes open modals -> collapses expanded member details -> clears search
+  // Back closes the top layer, then restores the actual previous ledger view.
   // ═══════════════════════════════════════════════════════════════════════════
   const handleHardwareBackPress = useCallback(() => {
+    if (showUpdateAlerts) {
+      setShowUpdateAlerts(false);
+      return 'handled';
+    }
     if (whatsAppPhonePromptItem) {
       setWhatsAppPhonePromptItem(null);
       return 'handled';
@@ -1333,27 +1291,23 @@ export default function UdhaarStandaloneApp({
       setShowAddModal(false);
       return 'handled';
     }
-    const hasExpandedPerson =
-      allPersonsExpanded || Object.values(expandedPersonIds || {}).some(Boolean);
-    if (hasExpandedPerson) {
-      setAllPersonsExpanded(false);
-      setExpandedPersonIds({});
+    if (toolsMenuRef.current?.open) {
+      toolsMenuRef.current.open = false;
       return 'handled';
     }
-    if (searchQuery && searchQuery.trim().length > 0) {
-      setSearchQuery('');
+    const previous = ledgerViewHistoryRef.current.pop();
+    if (previous) {
+      restoringLedgerViewRef.current = true;
+      setTab(previous.tab);
+      setSearchQuery(previous.searchQuery);
+      setSelectedSheetFilter(previous.selectedSheetFilter);
+      setExpandedPersonIds(previous.expandedPersonIds);
+      setAllPersonsExpanded(previous.allPersonsExpanded);
       return 'handled';
     }
-    if (selectedSheetFilter !== 'ALL') {
-      setSelectedSheetFilter('ALL');
-      return 'handled';
-    }
-    if (tab !== 'pending') {
-      setTab('pending');
-      return 'handled';
-    }
-    return '';
+    return 'root';
   }, [
+    showUpdateAlerts,
     whatsAppPhonePromptItem,
     paymentModalItem,
     editItem,
@@ -1378,6 +1332,33 @@ export default function UdhaarStandaloneApp({
       }
     };
   }, [embedded, handleHardwareBackPress]);
+
+  const activeDialog = showUpdateAlerts || whatsAppPhonePromptItem || paymentModalItem || editItem || showAddModal;
+  useEffect(() => {
+    if (embedded || !activeDialog) return undefined;
+    const onDialogKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleHardwareBackPress();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = document.querySelector('.udhaar-modal-backdrop [role="dialog"]');
+      const focusable = dialog?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]');
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onDialogKeyDown);
+    return () => document.removeEventListener('keydown', onDialogKeyDown);
+  }, [embedded, activeDialog, handleHardwareBackPress]);
 
   const activeExternalDraft = externalDraft || externalDraftRequest;
   useEffect(() => {
@@ -2039,6 +2020,8 @@ export default function UdhaarStandaloneApp({
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div
+      className="udhaar-pro"
+      data-color-mode={isLight ? 'light' : 'dark'}
       style={{
         minHeight: '100vh',
         background: palette.bg,
@@ -2057,142 +2040,39 @@ export default function UdhaarStandaloneApp({
         style={{ display: 'none' }}
       />
 
-      <div style={{ maxWidth: 460, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* ═══════════════════════════════════════════════════════════════════
-            1. TOP APP BAR — "Created by Pattan Yasin" on Top-Right Corner
-           ═══════════════════════════════════════════════════════════════════ */}
-        <div
-          style={{
-            padding: '12px 14px',
-            borderRadius: 18,
-            background: palette.surface,
-            border: `1px solid ${palette.border}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <UdhaarBookLogoBadge size={44} />
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 16.5, fontWeight: 900, color: palette.text, lineHeight: 1.15 }}>
-                  Udhaar Book
-                </span>
-                <span
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: 6,
-                    background: 'rgba(245, 158, 11, 0.18)',
-                    border: '1px solid rgba(245, 158, 11, 0.45)',
-                    color: isLight ? '#b45309' : '#fbbf24',
-                    fontSize: 9.5,
-                    fontWeight: 900,
-                    letterSpacing: '0.04em',
-                  }}
-                >
-                  LEDGER
-                </span>
-              </div>
-              <div style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-                v{udhaarOtaVersion} · Standalone App
-              </div>
-            </div>
+      <div className="udhaar-workspace">
+        <header className="udhaar-header">
+          <div className="udhaar-brand">
+            <UdhaarBookLogoBadge size={42} />
+            <div><h1>Udhaar Book</h1><p>v{udhaarOtaVersion} <span aria-hidden="true">·</span> Pattan Yasin</p></div>
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-            <div
-              style={{
-                padding: '3px 9px',
-                borderRadius: 999,
-                background: isLight ? '#eef2ff' : 'rgba(99, 102, 241, 0.16)',
-                border: '1px solid rgba(99, 102, 241, 0.35)',
-                color: isLight ? '#4338ca' : '#a5b4fc',
-                fontSize: 10.5,
-                fontWeight: 900,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              ✨ Created by Pattan Yasin
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={applyUdhaarOtaUpdate}
-                disabled={udhaarOtaBusy}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  border: availableUdhaarOta ? 'none' : `1px solid ${palette.border}`,
-                  background: availableUdhaarOta ? '#10b981' : palette.surfaceAlt,
-                  color: availableUdhaarOta ? '#ffffff' : palette.textSub,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: udhaarOtaBusy ? 'wait' : 'pointer',
-                }}
-              >
-                {udhaarOtaBusy
-                  ? '⏳...'
-                  : availableUdhaarOta
-                  ? `🚀 Update v${availableUdhaarOta.version}`
-                  : '🔄 Check Update'}
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleBiometricLockSetting}
-                style={{
-                  padding: '5px 9px',
-                  borderRadius: 8,
-                  border: biometricLockEnabled
-                    ? '1px solid rgba(16, 185, 129, 0.55)'
-                    : `1px solid ${palette.border}`,
-                  background: biometricLockEnabled
-                    ? 'rgba(16, 185, 129, 0.16)'
-                    : palette.surfaceAlt,
-                  color: biometricLockEnabled ? '#10b981' : palette.textMuted,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                title={
-                  biometricLockEnabled
-                    ? 'Biometric App Lock ON (Tap to Disable)'
-                    : 'Biometric App Lock OFF (Tap to Enable)'
-                }
-              >
-                {biometricLockEnabled ? '🔒' : '🔓'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setThemeLight((v) => !v)}
-                style={{
-                  padding: '5px 9px',
-                  borderRadius: 8,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontSize: 11.5,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-                title="Switch Light / Dark Mode"
-              >
-                {isLight ? '🌙' : '☀️'}
-              </button>
-            </div>
+          <div className="udhaar-toolbar">
+            <button type="button" className="udhaar-icon-button" title={isLight ? 'Dark mode' : 'Light mode'} aria-label={isLight ? 'Dark mode' : 'Light mode'} onClick={() => setThemeLight((v) => !v)}>
+              {isLight ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+            <details ref={toolsMenuRef} className="udhaar-tools-menu">
+              <summary title="More tools" aria-label="More tools"><MoreHorizontal size={20} /></summary>
+              <div className="udhaar-tools-popover">
+                <button type="button" disabled={udhaarOtaBusy} onClick={applyUdhaarOtaUpdate}><RefreshCw size={17} /><span>{udhaarOtaBusy ? 'Checking update…' : availableUdhaarOta ? `Update v${availableUdhaarOta.version}` : 'Check for updates'}</span></button>
+                <button type="button" onClick={() => { toolsMenuRef.current.open = false; setShowUpdateAlerts(true); }}><BellRing size={17} /><span>Update alerts</span></button>
+                <button type="button" onClick={toggleBiometricLockSetting}><LockKeyhole size={17} /><span>{biometricLockEnabled ? 'Biometric lock on' : 'Biometric lock off'}</span></button>
+                <button type="button" onClick={handleDownloadStandaloneApk}><Download size={17} /><span>Udhaar APK</span></button>
+                <button type="button" onClick={handleDownloadSalaryApk}><WalletCards size={17} /><span>Time Is Money APK</span></button>
+              </div>
+            </details>
           </div>
+        </header>
+        <div className="udhaar-page-heading">
+          <button type="button" className="udhaar-icon-button" title="Go back" aria-label="Go back" onClick={() => { if (handleHardwareBackPress() === 'root') notify('You are at the start of Udhaar Book.'); }}><ArrowLeft size={19} /></button>
+          <div><h2>Your ledger</h2><p>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div>
+          <span className="udhaar-secure-label"><ShieldCheck size={15} /> {biometricLockEnabled ? 'Protected' : 'On this device'}</span>
         </div>
 
         {/* Toast Notification Banner */}
         {toastMsg && (
           <div
+            role="status"
+            className="udhaar-toast"
             style={{
               padding: '10px 14px',
               borderRadius: 12,
@@ -2210,6 +2090,7 @@ export default function UdhaarStandaloneApp({
         {/* IF LOCKED: Show Biometric Scanner Lock Screen (Auto-triggers Android Biometric Prompt on Open) */}
         {biometricLockEnabled && isVaultLocked ? (
           <div
+            className="udhaar-lock-panel"
             style={{
               padding: '38px 20px',
               borderRadius: 22,
@@ -2305,169 +2186,31 @@ export default function UdhaarStandaloneApp({
           </div>
         ) : (
           <>
-            {/* ═══════════════════════════════════════════════════════════════
-                3. SUMMARY TOTALS SECTION (Tap Header to Minimize / Maximize)
-               ═══════════════════════════════════════════════════════════════ */}
-            <div
-              style={{
-                borderRadius: 18,
-                background: palette.surface,
-                border: `1px solid ${palette.border}`,
-                padding: '14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-              }}
-            >
-              <div
-                onClick={() => setSummaryCollapsed((v) => !v)}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  📊 Total Summary {summaryCollapsed ? '▸' : '▾'}
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 900, color: isLight ? '#d97706' : '#fbbf24' }}>
-                  Pending: ₹{formatINR(summary.pendingTotal)}
-                </span>
+            <section className="udhaar-summary" aria-label="Ledger summary">
+              <div className="udhaar-section-heading">
+                <h3>Outstanding balance</h3>
+                <button type="button" className="udhaar-icon-button" aria-label={summaryCollapsed ? 'Expand ledger summary' : 'Collapse ledger summary'} aria-expanded={!summaryCollapsed} onClick={() => setSummaryCollapsed(v => !v)}><ChevronDown size={17} /></button>
               </div>
-
+              <div className="udhaar-outstanding">₹{formatINR(summary.pendingTotal)}</div>
+              <p className="udhaar-summary-caption">{summary.pendingCount} {summary.pendingCount === 1 ? 'person' : 'people'} to receive from</p>
               {!summaryCollapsed && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div
-                    style={{
-                      padding: '14px 12px',
-                      borderRadius: 14,
-                      background: isLight ? '#fffbeb' : 'rgba(245, 158, 11, 0.12)',
-                      border: '1px solid rgba(245, 158, 11, 0.35)',
-                    }}
-                  >
-                    <div style={{ fontSize: 10.5, fontWeight: 900, color: isLight ? '#b45309' : '#fbbf24', textTransform: 'uppercase' }}>
-                      ⏳ You Will Get
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: isLight ? '#d97706' : '#fbbf24', marginTop: 4 }}>
-                      ₹{formatINR(summary.pendingTotal)}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, marginTop: 2 }}>
-                      {summary.pendingCount} {summary.pendingCount === 1 ? 'Person' : 'People'} Pending
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      padding: '14px 12px',
-                      borderRadius: 14,
-                      background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.12)',
-                      border: '1px solid rgba(16, 185, 129, 0.35)',
-                    }}
-                  >
-                    <div style={{ fontSize: 10.5, fontWeight: 900, color: '#10b981', textTransform: 'uppercase' }}>
-                      ✅ Received Back
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', marginTop: 4 }}>
-                      ₹{formatINR(summary.returnedTotal)}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, marginTop: 2 }}>
-                      {summary.returnedCount} Fully Settled
-                    </div>
-                  </div>
+                <div className="udhaar-summary-stats">
+                  <div><span>Received back</span><strong>₹{formatINR(summary.returnedTotal)}</strong></div>
+                  <div><span>Fully settled</span><strong>{summary.returnedCount}</strong></div>
                 </div>
               )}
-
-              {/* 2 Primary Action Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 1fr', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(true)}
-                  style={{
-                    padding: '13px 12px',
-                    borderRadius: 14,
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-                    color: '#ffffff',
-                    fontWeight: 900,
-                    fontSize: 13.5,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <span>➕</span>
-                  <span>Add Udhaar</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isImportingFile}
-                  style={{
-                    padding: '13px 10px',
-                    borderRadius: 14,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: palette.text,
-                    fontWeight: 800,
-                    fontSize: 12.5,
-                    cursor: isImportingFile ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <span>📂</span>
-                  <span>{isImportingFile ? 'Reading...' : 'Upload File / Photo'}</span>
-                </button>
+              <div className="udhaar-primary-actions">
+                <button type="button" className="udhaar-primary-button" onClick={() => setShowAddModal(true)}><Plus size={18} />Add Udhaar</button>
+                <button type="button" className="udhaar-secondary-button" onClick={() => fileInputRef.current?.click()} disabled={isImportingFile}><FileUp size={18} />{isImportingFile ? 'Reading…' : 'Import'}</button>
               </div>
-
-              {lastImportSummary && (
-                <div
-                  style={{
-                    padding: '9px 12px',
-                    borderRadius: 12,
-                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.14)',
-                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: isLight ? '#065f46' : '#6ee7b7' }}>
-                    ✅ Imported {lastImportSummary.count} person(s) from <b>{lastImportSummary.fileName}</b> (₹
-                    {formatINR(lastImportSummary.totalToPay)})
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleUndoLastImport}
-                    style={{
-                      padding: '4px 9px',
-                      borderRadius: 8,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.textSub,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Undo
-                  </button>
-                </div>
-              )}
-            </div>
+              {lastImportSummary && <div className="udhaar-import-notice" role="status"><span>{lastImportSummary.count} imported from {lastImportSummary.fileName}</span><button type="button" onClick={handleUndoLastImport}>Undo</button></div>}
+            </section>
 
             {/* ═══════════════════════════════════════════════════════════════
                 4. PEOPLE LEDGER SECTION (50+ Members Directory + Search + Tap Name to Maximize)
                ═══════════════════════════════════════════════════════════════ */}
             <div
+              className="udhaar-people"
               style={{
                 borderRadius: 18,
                 background: palette.surface,
@@ -2489,10 +2232,10 @@ export default function UdhaarStandaloneApp({
                 }}
               >
                 <span style={{ fontSize: 13.5, fontWeight: 900, color: palette.text }}>
-                  👥 People Udhaar List ({items.length}) {listCollapsed ? '▸' : '▾'}
+                  People ({items.length}) {listCollapsed ? '▸' : '▾'}
                 </span>
                 <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
-                  {listCollapsed ? 'Tap to show all names' : 'Tap to minimize'}
+                  {listCollapsed ? 'Show' : 'Hide'}
                 </span>
               </div>
 
@@ -2547,6 +2290,7 @@ export default function UdhaarStandaloneApp({
 
                   {/* Clean 2-Tab Switch: Pending vs Settled */}
                   <div
+                    className="udhaar-ledger-tabs"
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '1fr 1fr',
@@ -2560,6 +2304,7 @@ export default function UdhaarStandaloneApp({
                     <button
                       type="button"
                       onClick={() => setTab('pending')}
+                      aria-pressed={tab === 'pending'}
                       style={{
                         padding: '9px',
                         borderRadius: 9,
@@ -2572,11 +2317,12 @@ export default function UdhaarStandaloneApp({
                         boxShadow: tab === 'pending' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                       }}
                     >
-                      ⏳ Pending ({summary.pendingCount})
+                      Pending ({summary.pendingCount})
                     </button>
                     <button
                       type="button"
                       onClick={() => setTab('returned')}
+                      aria-pressed={tab === 'returned'}
                       style={{
                         padding: '9px',
                         borderRadius: 9,
@@ -2589,7 +2335,7 @@ export default function UdhaarStandaloneApp({
                         boxShadow: tab === 'returned' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                       }}
                     >
-                      ✅ Settled ({summary.returnedCount})
+                      Settled ({summary.returnedCount})
                     </button>
                   </div>
 
@@ -2600,7 +2346,8 @@ export default function UdhaarStandaloneApp({
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={`🔍 Search name, #number (1-${items.length}), mobile, or note...`}
+                        placeholder="Search people, phone or note"
+                        aria-label="Search Udhaar people"
                         style={{
                           flex: 1,
                           minWidth: 0,
@@ -2638,6 +2385,8 @@ export default function UdhaarStandaloneApp({
 
                   {/* ALL MEMBERS NUMBERED DIRECTORY (With Inside Scroller for 50+ Members — Tap any Name to Maximize Detail) */}
                   {visibleItems.length > 0 && (
+                    <details className="udhaar-directory">
+                      <summary><UsersRound size={16} />Member directory ({visibleItems.length})<ChevronDown size={15} /></summary>
                     <div
                       style={{
                         padding: '10px',
@@ -2651,7 +2400,7 @@ export default function UdhaarStandaloneApp({
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 11, fontWeight: 900, color: palette.textMuted, textTransform: 'uppercase' }}>
-                          🔢 All Members ({visibleItems.length}) · Tap Name to Open Detail
+                          All members ({visibleItems.length})
                         </span>
                         <button
                           type="button"
@@ -2747,6 +2496,7 @@ export default function UdhaarStandaloneApp({
                         })}
                       </div>
                     </div>
+                    </details>
                   )}
 
                   {/* People Cards (Tap Person Name Row to Maximize / Minimize Full Details) */}
@@ -2764,7 +2514,7 @@ export default function UdhaarStandaloneApp({
                       }}
                     >
                       {items.length === 0
-                        ? 'No Udhaar entries yet. Tap "➕ Add Udhaar" or "📂 Upload File / Photo" above.'
+                        ? 'Your ledger is clear. No entries yet.'
                         : tab === 'pending'
                         ? '🎉 All Udhaar entries are settled!'
                         : 'No settled entries yet.'}
@@ -2780,6 +2530,7 @@ export default function UdhaarStandaloneApp({
                         return (
                           <div
                             id={`udhaar-member-card-${item.id}`}
+                            className="udhaar-member-card"
                             key={item.id}
                             style={{
                               padding: isPersonExpanded ? '14px' : '11px 12px',
@@ -2800,6 +2551,17 @@ export default function UdhaarStandaloneApp({
                                 if (allPersonsExpanded) setAllPersonsExpanded(false);
                                 togglePersonExpanded(item.id);
                               }}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Details for ${item.person}`}
+                              aria-expanded={isPersonExpanded}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  if (allPersonsExpanded) setAllPersonsExpanded(false);
+                                  togglePersonExpanded(item.id);
+                                }
+                              }}
                               style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
@@ -2811,6 +2573,7 @@ export default function UdhaarStandaloneApp({
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                                 <div
+                                  className="udhaar-member-avatar"
                                   style={{
                                     minWidth: 36,
                                     height: 36,
@@ -2828,7 +2591,7 @@ export default function UdhaarStandaloneApp({
                                     flexShrink: 0,
                                   }}
                                 >
-                                  #{idx + 1}
+                                  {String(item.person || '?').trim().slice(0, 1).toUpperCase()}
                                 </div>
 
                                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -3216,11 +2979,21 @@ export default function UdhaarStandaloneApp({
         )}
       </div>
 
+      {showUpdateAlerts && (
+        <div className="udhaar-modal-backdrop" onClick={() => setShowUpdateAlerts(false)} style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(2,6,23,.64)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div role="dialog" aria-modal="true" aria-label="Udhaar update alerts" onClick={(event) => event.stopPropagation()} style={{ background: palette.surface, border: `1px solid ${palette.border}` }}>
+            <div className="udhaar-dialog-heading"><h3>Update alerts</h3><button autoFocus type="button" className="udhaar-icon-button" aria-label="Close update alerts" onClick={() => setShowUpdateAlerts(false)}><X size={18} /></button></div>
+            <UpdateAlertsPanel appName="Udhaar Book" />
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════════════════════════════════════
           MODAL 1: CLEAN "ADD UDHAAR" POPUP (With Mobile Number for WhatsApp)
          ═══════════════════════════════════════════════════════════════════════ */}
       {showAddModal && (
         <div
+          className="udhaar-modal-backdrop"
           onClick={() => setShowAddModal(false)}
           style={{
             position: 'fixed',
@@ -3234,6 +3007,9 @@ export default function UdhaarStandaloneApp({
           }}
         >
           <form
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add Udhaar"
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleAdd}
             style={{
@@ -3250,9 +3026,10 @@ export default function UdhaarStandaloneApp({
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 17, fontWeight: 900 }}>➕ Add New Udhaar</div>
+              <div style={{ fontSize: 19, fontWeight: 800 }}>Add Udhaar</div>
               <button
                 type="button"
+                aria-label="Close Add Udhaar"
                 onClick={() => setShowAddModal(false)}
                 style={{
                   border: 'none',
@@ -3262,7 +3039,7 @@ export default function UdhaarStandaloneApp({
                   cursor: 'pointer',
                 }}
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -3295,6 +3072,7 @@ export default function UdhaarStandaloneApp({
               </div>
               <input
                 type="text"
+                aria-label="Person name"
                 autoFocus
                 value={person}
                 onChange={(e) => setPerson(e.target.value)}
@@ -3321,6 +3099,7 @@ export default function UdhaarStandaloneApp({
                 </div>
                 <input
                   type="number"
+                  aria-label="Amount given in rupees"
                   inputMode="decimal"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -3346,6 +3125,7 @@ export default function UdhaarStandaloneApp({
                 </div>
                 <input
                   type="tel"
+                  aria-label="WhatsApp mobile number"
                   inputMode="numeric"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -3369,7 +3149,7 @@ export default function UdhaarStandaloneApp({
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                 <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
-                  When did he take?
+                  Date given
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {[
@@ -3399,6 +3179,7 @@ export default function UdhaarStandaloneApp({
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
                 <input
                   type="date"
+                  aria-label="Date given"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   style={{
@@ -3415,6 +3196,7 @@ export default function UdhaarStandaloneApp({
                 />
                 <input
                   type="time"
+                  aria-label="Time given"
                   value={time}
                   onChange={(e) => setTime(e.target.value)}
                   style={{
@@ -3438,6 +3220,7 @@ export default function UdhaarStandaloneApp({
               </div>
               <input
                 type="text"
+                aria-label="Note or reason"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. Lunch, Petrol, Emergency"
@@ -3480,6 +3263,7 @@ export default function UdhaarStandaloneApp({
          ═══════════════════════════════════════════════════════════════════════ */}
       {paymentModalItem && (
         <div
+          className="udhaar-modal-backdrop"
           onClick={() => setPaymentModalItem(null)}
           style={{
             position: 'fixed',
@@ -3495,6 +3279,9 @@ export default function UdhaarStandaloneApp({
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSavePayment}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Record payment for ${paymentModalItem.person}`}
             style={{
               width: '100%',
               maxWidth: 390,
@@ -3515,7 +3302,7 @@ export default function UdhaarStandaloneApp({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: 16.5, fontWeight: 900 }}>
-                        💵 Record Payment · {paymentModalItem.person}
+                        Record payment · {paymentModalItem.person}
                       </div>
                       <div style={{ fontSize: 11.5, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
                         Total ₹{formatINR(stats.totalAmount)} · Paid {stats.paidCount}x (₹{formatINR(stats.totalPaid)}) ·{' '}
@@ -3524,6 +3311,7 @@ export default function UdhaarStandaloneApp({
                     </div>
                     <button
                       type="button"
+                      aria-label="Close Record payment"
                       onClick={() => setPaymentModalItem(null)}
                       style={{
                         border: 'none',
@@ -3533,14 +3321,14 @@ export default function UdhaarStandaloneApp({
                         cursor: 'pointer',
                       }}
                     >
-                      ✕
+                      <X size={18} />
                     </button>
                   </div>
 
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
-                        How much did he pay? (₹)
+                        Amount received (₹)
                       </span>
                       {stats.remaining > 0 && (
                         <button
@@ -3565,6 +3353,7 @@ export default function UdhaarStandaloneApp({
                       type="number"
                       inputMode="decimal"
                       autoFocus
+                      aria-label="Payment amount in rupees"
                       value={payAmountDraft}
                       onChange={(e) => setPayAmountDraft(e.target.value)}
                       placeholder="₹ Enter amount paid"
@@ -3616,7 +3405,7 @@ export default function UdhaarStandaloneApp({
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 800, color: palette.textMuted }}>
-                        When did he pay?
+                        Date received
                       </span>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {[
@@ -3646,6 +3435,7 @@ export default function UdhaarStandaloneApp({
                     <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 8 }}>
                       <input
                         type="date"
+                        aria-label="Date received"
                         value={payDateDraft}
                         onChange={(e) => setPayDateDraft(e.target.value)}
                         style={{
@@ -3662,6 +3452,7 @@ export default function UdhaarStandaloneApp({
                       />
                       <input
                         type="time"
+                        aria-label="Time received"
                         value={payTimeDraft}
                         onChange={(e) => setPayTimeDraft(e.target.value)}
                         style={{
@@ -3693,7 +3484,7 @@ export default function UdhaarStandaloneApp({
                       marginTop: 4,
                     }}
                   >
-                    ✅ Save Payment (₹{formatINR(payAmountDraft || 0)} via {payThroughDraft})
+                    Save payment · ₹{formatINR(payAmountDraft || 0)} via {payThroughDraft}
                   </button>
                 </>
               );
@@ -3707,6 +3498,7 @@ export default function UdhaarStandaloneApp({
          ═══════════════════════════════════════════════════════════════════════ */}
       {editItem && (
         <div
+          className="udhaar-modal-backdrop"
           onClick={() => setEditItem(null)}
           style={{
             position: 'fixed',
@@ -3722,6 +3514,9 @@ export default function UdhaarStandaloneApp({
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={saveEdit}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit Udhaar"
             style={{
               width: '100%',
               maxWidth: 380,
@@ -3736,9 +3531,10 @@ export default function UdhaarStandaloneApp({
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 900 }}>✏️ Edit Udhaar</div>
+              <div style={{ fontSize: 19, fontWeight: 800 }}>Edit Udhaar</div>
               <button
                 type="button"
+                aria-label="Close Edit Udhaar"
                 onClick={() => setEditItem(null)}
                 style={{
                   border: 'none',
@@ -3748,7 +3544,7 @@ export default function UdhaarStandaloneApp({
                   cursor: 'pointer',
                 }}
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -3758,6 +3554,7 @@ export default function UdhaarStandaloneApp({
               </div>
               <input
                 type="text"
+                aria-label="Person name"
                 value={editItem.person || ''}
                 onChange={(e) => setEditItem((p) => ({ ...p, person: e.target.value }))}
                 style={{
@@ -3976,6 +3773,7 @@ export default function UdhaarStandaloneApp({
          ═══════════════════════════════════════════════════════════════════════ */}
       {whatsAppPhonePromptItem && (
         <div
+          className="udhaar-modal-backdrop"
           onClick={() => setWhatsAppPhonePromptItem(null)}
           style={{
             position: 'fixed',
@@ -3990,6 +3788,9 @@ export default function UdhaarStandaloneApp({
         >
           <form
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Share Udhaar details with ${whatsAppPhonePromptItem.person}`}
             onSubmit={(e) => {
               e.preventDefault();
               const cleanDigits = String(whatsAppPhoneDraft || '').replace(/[^0-9]/g, '');
@@ -4017,10 +3818,11 @@ export default function UdhaarStandaloneApp({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: 16, fontWeight: 900 }}>
-                💬 Share to {whatsAppPhonePromptItem.person}
+                Share to {whatsAppPhonePromptItem.person}
               </div>
               <button
                 type="button"
+                aria-label="Close WhatsApp sharing"
                 onClick={() => setWhatsAppPhonePromptItem(null)}
                 style={{
                   border: 'none',
@@ -4030,7 +3832,7 @@ export default function UdhaarStandaloneApp({
                   cursor: 'pointer',
                 }}
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -4042,9 +3844,10 @@ export default function UdhaarStandaloneApp({
               type="tel"
               inputMode="numeric"
               autoFocus
+              aria-label="WhatsApp mobile number"
               value={whatsAppPhoneDraft}
               onChange={(e) => setWhatsAppPhoneDraft(e.target.value)}
-              placeholder="📱 Enter 10-digit WhatsApp Number"
+              placeholder="10-digit WhatsApp number"
               style={{
                 width: '100%',
                 boxSizing: 'border-box',

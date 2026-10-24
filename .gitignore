@@ -96,3 +96,13 @@ frame_test.jpg
 **/whatsapp-session-outbox.json*
 
 /output/
+
+# Local Salary Pro design review outputs
+/mobile-dist/
+/salary-ui-dist/
+/salary-preview*.log
+/review/
+/udhaar-ui-dist/
+/udhaar-preview*.log
+!/android/app/src/main/res/raw/update_available_voice.wav
+!/android/app/src/main/res/raw/ot_milestone_*.wav

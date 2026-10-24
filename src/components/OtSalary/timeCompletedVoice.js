@@ -1,8 +1,6 @@
 // Studio-clear 12,000 Hz 16-bit signed mono PCM voice clips synthesized via Microsoft Zira Desktop.
-// Plays ONCE per milestone (zero 3x repetition) and works while the phone screen is OFF / locked
-// by streaming a single pre-baked WAV Blob whose lead-in is a 16 Hz infrasound wave (-29.5 dBFS,
-// 750 samples/cycle exact integer period = 0 phase click, 100% inaudible on phone speakers,
-// yet above Chromium SilentSinkSuspender's -60 dBFS threshold so Android AudioTrack stays alive).
+// Android delivers packaged voice notifications through native alarms while locked.
+// Browser timers are a foreground fallback; no audio starts merely by opening the app.
 
 const SAMPLE_RATE = 12000;
 const BYTES_PER_SAMPLE = 2;
@@ -181,30 +179,15 @@ function getOrInitAudioContext() {
   return sharedVoiceCtx;
 }
 
+function nativeOtBridge() {
+  if (typeof window === 'undefined') return null;
+  const bridge = window.PattanBiometric || window.PattanBiometricBridge;
+  return bridge && typeof bridge.scheduleOtMilestones === 'function' ? bridge : null;
+}
+
 export function forceRaisePhoneSpeakerVolume() {
-  if (typeof window === 'undefined') return false;
-  try {
-    const bridge = window.PattanBiometric || window.PattanBiometricBridge;
-    if (bridge) {
-      if (typeof bridge.forceMaxSpeakerVolume === 'function') {
-        bridge.forceMaxSpeakerVolume();
-      }
-      if (typeof bridge.vibrate === 'function') {
-        bridge.vibrate(161);
-      }
-    }
-  } catch (_) {}
-  try {
-    if (countdownAudioEl) {
-      countdownAudioEl.muted = false;
-      countdownAudioEl.volume = 1.0;
-    }
-    if (directVoiceAudioEl) {
-      directVoiceAudioEl.muted = false;
-      directVoiceAudioEl.volume = 1.0;
-    }
-  } catch (_) {}
-  return true;
+  // Compatibility export. Reminders respect the phone owner's volume and DND settings.
+  return false;
 }
 
 function isCountdownCurrentlySpeakingMilestone(milestoneHour, includeAlreadyPassedOnStream = false) {
@@ -335,6 +318,7 @@ export function subscribeBackgroundClockTick(listener) {
 }
 
 export function stopScheduledVoiceAlarms() {
+  try { nativeOtBridge()?.cancelOtMilestones?.(); } catch (_) {}
   activeScheduleSignature = '';
   activeScheduledMilestones = [];
   activeOnMilestoneCallback = null;
@@ -456,6 +440,16 @@ export function armShiftAndOtMilestonesSchedule({
     return;
   }
 
+  const native = nativeOtBridge();
+  if (native) {
+    // Native alarms own delivery and deduplication. Do not run a second audio timer.
+    activeScheduledMilestones = [];
+    stopCountdownAudioStreamOnly();
+    return native.scheduleOtMilestones(JSON.stringify({
+      shiftEndEpochMs: baseEpochMs, dateKey, alreadySpokenHours,
+    }));
+  }
+
   lastShiftScheduleParams = {
     shiftEndEpochMs: baseEpochMs,
     dateKey,
@@ -535,6 +529,8 @@ export function armShiftEndVoiceAlarm({ targetEpochMs = 0, dateKey = '', onTrigg
 // Speaks a specific milestone ONCE (0 = "Your time has completed.", 1 = "1 hour completed.", 2 = "2 hours completed.", etc.)
 export function speakOtMilestoneOutLoud(milestoneHour = 0, options = {}) {
   if (typeof window === 'undefined') return false;
+  const native = nativeOtBridge();
+  if (native) return native.speakOtMilestone(Math.max(0, Math.min(8, Math.round(Number(milestoneHour) || 0))));
   ensureVoiceAudioUnlocked();
   forceRaisePhoneSpeakerVolume();
 
@@ -672,6 +668,8 @@ export function ensureVoiceAudioUnlocked() {
 // so that even if the user leaves their phone locked after the test, every hour still announces!
 export function scheduleLockScreenVoiceTestInSeconds(seconds = 6, onTrigger = null) {
   if (typeof window === 'undefined') return;
+  const native = nativeOtBridge();
+  if (native) return native.testOtMilestoneInSeconds(Math.max(2, Math.round(Number(seconds) || 6)));
   ensureVoiceAudioUnlocked();
   const delaySec = Math.max(2, Math.round(Number(seconds) || 6));
   const targetEpochMs = Date.now() + delaySec * 1000;

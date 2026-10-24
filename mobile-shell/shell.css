@@ -1,0 +1,3 @@
+html,body,#root { min-height: 100%; margin: 0; }
+body { background: #121715; }
+button,input,select,textarea { font: inherit; }

@@ -49,12 +49,12 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
-    private static final String BUILTIN_OTA_VERSION = "8.2.33";
+    static final String BUILTIN_OTA_VERSION = "8.2.33";
 
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
     private static final String UDHAAR_OTA_CSS_FILE = "udhaar_standalone_ota_bundle.css";
-    private static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.10";
+    static final String BUILTIN_UDHAAR_OTA_VERSION = "1.0.10";
 
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
@@ -136,7 +136,7 @@ public class MainActivity extends BridgeActivity {
                 wv.setBackgroundColor(android.graphics.Color.parseColor("#070C18"));
             } catch (Exception ignored) {}
             wv.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
-            wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
+            wv.getSettings().setMediaPlaybackRequiresUserGesture(true);
             wv.clearCache(true);
             PattanBiometricBridge bioBridge = new PattanBiometricBridge();
             wv.addJavascriptInterface(bioBridge, "PattanBiometric");
@@ -157,6 +157,10 @@ public class MainActivity extends BridgeActivity {
                 handleSmartBackGesture();
             }
         });
+        try {
+            UpdateAlertManager.schedule(getApplicationContext());
+            UpdateAlertManager.checkNow(getApplicationContext());
+        } catch (Exception ignored) {}
         if (!isUdhaarStandalonePackage()) {
             try {
                 IntentFilter filter = new IntentFilter(PaymentNotificationService.ACTION_MOBILE_TXN);
@@ -170,8 +174,7 @@ public class MainActivity extends BridgeActivity {
                 }
             } catch (Exception ignored) {}
             try {
-                OfficeEndAlarmReceiver.ensureChannel(getApplicationContext());
-                OfficeEndAlarmReceiver.scheduleFromSavedPrefs(getApplicationContext());
+                OtMilestoneAlarmReceiver.restore(getApplicationContext());
             } catch (Exception ignored) {}
             handleIncomingSharedReceiptIntent(getIntent());
         }
@@ -189,6 +192,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        // Returning from notification settings should retry an available, unannounced update.
+        try { UpdateAlertManager.checkNow(getApplicationContext()); } catch (Exception ignored) {}
         if (bridge != null && bridge.getWebView() != null) {
             bridge.getWebView().resumeTimers();
         }
@@ -335,7 +340,7 @@ public class MainActivity extends BridgeActivity {
                 lastRootBackPressMs = 0L;
                 return;
             }
-            if (!isUdhaarStandalonePackage() && webView.canGoBack()) {
+            if (!"root".equalsIgnoreCase(clean) && !isUdhaarStandalonePackage() && webView.canGoBack()) {
                 webView.goBack();
                 triggerNativeVibrate(25);
                 lastRootBackPressMs = 0L;
@@ -652,6 +657,68 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String getUpdateAlertStatusJson() {
+            return UpdateAlertManager.status(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public String configureUpdateAlerts(final boolean enabled, final boolean spoken, final boolean silentSpeech) {
+            return UpdateAlertManager.configure(getApplicationContext(), enabled, spoken, silentSpeech);
+        }
+
+        @JavascriptInterface
+        public boolean checkUpdateAlertsNow() {
+            return UpdateAlertManager.checkNow(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public boolean notifyUpdateAvailable(final String version, final String buildId, final String notes) {
+            return UpdateAlertManager.notifyAvailable(getApplicationContext(), version, buildId, notes);
+        }
+
+        @JavascriptInterface
+        public boolean requestUpdateNotificationPermission() {
+            if (Build.VERSION.SDK_INT < 33 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED) return true;
+            runOnUiThread(() -> requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 9520));
+            return true;
+        }
+
+        @JavascriptInterface
+        public boolean openUpdateNotificationSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent settings;
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        settings = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                            .putExtra(Settings.EXTRA_CHANNEL_ID, UpdateAlertManager.selectedChannel(getApplicationContext()));
+                    } else {
+                        settings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                    }
+                    startActivity(settings);
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Open Android Settings > Apps > Notifications", Toast.LENGTH_LONG).show();
+                }
+            });
+            return true;
+        }
+
+        @JavascriptInterface
+        public boolean openOtNotificationSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent settings = Build.VERSION.SDK_INT >= 26
+                        ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                        : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                    startActivity(settings);
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Open Android Settings > Apps > Notifications", Toast.LENGTH_LONG).show();
+                }
+            });
+            return true;
+        }
+
+        @JavascriptInterface
         public boolean saveLiveOtaBundle(final String version, final String buildId, final String jsContent, final String cssContent) {
             try {
                 if (jsContent == null || jsContent.length() < 1024) return false;
@@ -678,6 +745,7 @@ public class MainActivity extends BridgeActivity {
                     .putString("ota_build_id", buildId != null ? buildId : "")
                     .putString("ota_updated_at", String.valueOf(System.currentTimeMillis()))
                     .apply();
+                UpdateAlertManager.reconcileInstalledUpdate(getApplicationContext());
                 return true;
             } catch (Exception ignored) {
                 return false;
@@ -757,20 +825,51 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public void vibrate(final int durationMs) {
-            if (durationMs >= 150) {
-                OfficeEndAlarmReceiver.forceRaiseSpeakerVolume(getApplicationContext());
-            }
             triggerNativeVibrate(durationMs);
         }
 
         @JavascriptInterface
         public boolean forceMaxSpeakerVolume() {
-            try {
-                OfficeEndAlarmReceiver.forceRaiseSpeakerVolume(getApplicationContext());
-                return true;
-            } catch (Exception ignored) {
-                return false;
-            }
+            // Legacy bridge retained; app actions must never change the owner's audio volume.
+            return false;
+        }
+
+        @JavascriptInterface
+        public boolean scheduleOtMilestones(final String json) {
+            return OtMilestoneAlarmReceiver.configure(getApplicationContext(), json);
+        }
+
+        @JavascriptInterface
+        public void cancelOtMilestones() {
+            OtMilestoneAlarmReceiver.cancel(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public boolean speakOtMilestone(final int hour) {
+            return OtMilestoneAlarmReceiver.notifyHour(getApplicationContext(), hour);
+        }
+
+        @JavascriptInterface
+        public boolean testOtMilestoneInSeconds(final int seconds) {
+            return OtMilestoneAlarmReceiver.test(getApplicationContext(), seconds);
+        }
+
+        @JavascriptInterface
+        public String getOtMilestoneStatusJson() {
+            return OtMilestoneAlarmReceiver.status(getApplicationContext());
+        }
+
+        @JavascriptInterface
+        public void openOtAlarmSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent settings = new Intent(Build.VERSION.SDK_INT >= 31
+                        ? android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
+                        : android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                    startActivity(settings);
+                } catch (Exception ignored) {}
+            });
         }
 
         @JavascriptInterface

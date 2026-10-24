@@ -1,0 +1,42 @@
+@font-face { font-family: 'TimeMoneySans'; src: url('/caption-fonts/Nunito-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'TimeMoneySans'; src: url('/caption-fonts/Nunito-Black.ttf') format('truetype'); font-weight: 800; font-display: swap; }
+
+.time-money-mark { display: inline-flex; position: relative; align-items: center; justify-content: center; flex: none; border-radius: 8px; background: #125e49; color: #fff; box-shadow: none; }
+.time-money-coin { position: absolute; bottom: 3px; right: 2px; display: grid; place-items: center; width: 40%; height: 40%; background: #f1c96b; border: 2px solid #125e49; border-radius: 50%; color: #172b22; }
+.time-money-alerts { background: var(--salary-surface, #fff); color: var(--salary-ink, #182820); border-top: 1px solid var(--salary-line, #dce3df); padding: 20px 0; display: flex; flex-direction: column; gap: 14px; min-width: 0; font-family: 'TimeMoneySans', system-ui, sans-serif; }
+.time-money-section-title, .time-money-section-title > div { display: flex; align-items: center; gap: 9px; }
+.time-money-section-title { justify-content: space-between; flex-wrap: wrap; }
+.time-money-section-title h2 { font-size: 17px; line-height: 1.4; font-weight: 800; margin: 0; }
+.time-money-status { font-size: 11px; color: var(--salary-muted, #52675c); }
+.time-money-setting-row { display: flex; gap: 18px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--salary-line, #dce3df); font-size: 14px; cursor: pointer; }
+.time-money-setting-row > span { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.time-money-setting-row > span > svg { flex: none; color: var(--salary-muted, #52675c); }
+.time-money-setting-row input[type='checkbox'] { appearance: none; width: 42px !important; height: 25px; min-height: 25px; flex: 0 0 42px; border: 1px solid var(--salary-line, #dce3df); border-radius: 20px; background: var(--salary-subtle, #e9eeeb); cursor: pointer; position: relative; margin: 0; }
+.time-money-setting-row input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 17px; height: 17px; border-radius: 50%; background: var(--salary-muted, #52675c); transition: transform 150ms ease; }
+.time-money-setting-row input:checked { background: #125e49; border-color: #125e49; }
+.time-money-setting-row input:checked::after { transform: translateX(17px); background: white; }
+.time-money-setting-row input:disabled { cursor: not-allowed; opacity: .45; }
+.time-money-muted { color: var(--salary-muted, #52675c); font-size: 12px; margin: 0; line-height: 1.6; }
+.time-money-alert-status { margin: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.time-money-alert-status div { min-width: 0; }
+.time-money-alert-status dt { color: var(--salary-muted, #52675c); font-size: 11px; }
+.time-money-alert-status dd { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.time-money-alert-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.time-money-alert-actions button, .time-money-primary { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-height: 42px; padding: 9px 13px; border: 1px solid var(--salary-line, #dce3df); border-radius: 6px; background: var(--salary-subtle, #edf1ef); color: var(--salary-ink, #182820); font-size: 12px; cursor: pointer; }
+.time-money-alert-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.time-money-primary { background: #125e49; color: #fff; }
+.time-money-alert-notice { font-size: 12px; line-height: 1.6; margin: 0; padding: 10px; border-left: 3px solid #c48724; background: var(--salary-subtle, #edf1ef); }
+.time-money-data-note { display: flex; gap: 7px; align-items: flex-start; color: var(--salary-muted, #52675c); font-size: 11px; }
+.time-money-data-note svg { flex: none; }
+.salary-pro, .salary-pro button, .salary-pro input, .salary-pro select, .salary-pro textarea { font-family: 'TimeMoneySans', 'Segoe UI', sans-serif !important; }
+.salary-pro .salary-icon-button { min-width: 40px; min-height: 40px; }
+.salary-pro .salary-header { padding-top: 20px; }
+.salary-pro .salary-page-heading p.salary-eyebrow { color: var(--salary-green); font-weight: 800; }
+.time-money-shortcuts summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; list-style: none; cursor: pointer; font-size: 12px; color: var(--salary-muted); padding: 7px 0; }
+.time-money-shortcuts summary::-webkit-details-marker { display: none; }
+.time-money-shortcuts[open] summary { margin-bottom: 12px; }
+.time-money-shortcuts[open] > div + div { margin-top: 10px; }
+.salary-credit-cycle[data-open='false'] { display: none !important; }
+.udhaar-pro { --salary-surface: var(--udhaar-surface); --salary-ink: var(--udhaar-ink); --salary-muted: var(--udhaar-muted); --salary-line: var(--udhaar-line); --salary-subtle: var(--udhaar-subtle); }
+@media (min-width: 1000px) { .salary-content:not(:has(> .salary-credit-cycle[data-open='true'])) > .salary-attendance { grid-column: 1 / -1; } }
+@media (max-width: 380px) { .time-money-alert-status { grid-template-columns: minmax(0,1fr); } }

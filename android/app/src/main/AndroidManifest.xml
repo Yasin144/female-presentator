@@ -26,27 +26,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
-
         </activity>
 
-        <service
-            android:name=".PaymentNotificationService"
-            android:label="OT &amp; Expenses Live Payment Listener"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
+        <provider android:name=".OtMilestoneSoundProvider"
+            android:authorities="${applicationId}.ot-sounds"
+            android:exported="true" android:grantUriPermissions="false" />
 
-        <receiver
-            android:name=".OfficeEndAlarmReceiver"
-            android:exported="false" />
+        <!-- The OS ringtone service needs a stable read URI after process death.
+             This provider exposes only one packaged announcement, never app data. -->
+        <provider
+            android:name=".UpdateSoundProvider"
+            android:authorities="${applicationId}.update-sounds"
+            android:exported="true"
+            android:grantUriPermissions="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -62,19 +54,9 @@
     <queries>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
-        <package android:name="com.google.android.apps.nbu.paisa.user" />
-        <package android:name="com.phonepe.app" />
-        <package android:name="net.one97.paytm" />
-        <package android:name="in.org.npci.upiapp" />
-        <package android:name="money.super.payments" />
-        <package android:name="com.dreamplug.androidapp" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="whatsapp" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="upi" />
         </intent>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
@@ -83,10 +65,11 @@
 
     <!-- Permissions (No READ_SMS or RECEIVE_SMS; payment capture uses explicit NotificationListener consent only) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

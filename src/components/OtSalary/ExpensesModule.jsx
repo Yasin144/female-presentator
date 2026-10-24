@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
+  ChartNoAxesCombined as ExpenseChartNoAxesCombined,
+  ChevronDown as ExpenseChevronDown,
+  Landmark as ExpenseLandmark,
+  LayoutDashboard as ExpenseLayoutDashboard,
+  Link2 as ExpenseLink2,
+  ListOrdered as ExpenseListOrdered,
+  NotebookPen as ExpenseNotebookPen,
+  RefreshCw as ExpenseRefreshCw,
+  Smartphone as ExpenseSmartphone,
+} from 'lucide-react';
+import './SalaryExpenses.css';
+import ExpenseTransactions from './ExpenseTransactions.jsx';
+import ExpenseTransactionDetails from './ExpenseTransactionDetails.jsx';
+import { saveTransactionMemoryRecord } from './transactionPresentation.js';
+import { expenseViewFromKey, expenseViewKey, previousView, visitView } from './navigationHistory.js';
+import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
   QUICK_NOTE_TEMPLATES,
@@ -249,6 +265,7 @@ export default function ExpensesModule({
   isEmailLinked = false,
   onSyncEmail,
   onOpenChangeMobileModal,
+  navigationHistoryRef,
 }) {
   const todayIso = getTodayIso();
   const effectiveMonthlySalary = Number(monthlyNetSalary || netMonthlySalary || 0);
@@ -263,8 +280,35 @@ export default function ExpensesModule({
 
   // Sub-screens matching Screens 7, 8, 9, 10, 11:
   // 'overview' (Screen 7) | 'transactions' (Screen 8) | 'insights' (Screen 10) | 'missing-notes' (Screen 11) | 'settings'
-  const [subTab, setSubTab] = useState('overview');
-  const [insightSubView, setInsightSubView] = useState('Overview'); // 'Overview' | 'Categories' | 'Methods' | 'Trends'
+  const subTabHistoryRef = useRef(navigationHistoryRef?.current?.history || ['transactions']);
+  const insightHistoryRef = useRef(navigationHistoryRef?.current?.insightHistory || ['Overview']);
+  const expenseBackRef = useRef(() => 'root');
+  const [subTab, setSubTabState] = useState(() => expenseViewFromKey(subTabHistoryRef.current[subTabHistoryRef.current.length - 1]).tab);
+  const [insightSubView, setInsightSubViewState] = useState(() => insightHistoryRef.current[insightHistoryRef.current.length - 1] || 'Overview');
+  const rememberNavigation = useCallback(() => {
+    if (navigationHistoryRef) {
+      navigationHistoryRef.current = { history: subTabHistoryRef.current, insightHistory: insightHistoryRef.current };
+    }
+  }, [navigationHistoryRef]);
+  const setSubTab = useCallback((nextTab) => {
+    setSubTabState((previous) => {
+      const next = typeof nextTab === 'function' ? nextTab(previous) : nextTab;
+      if (!['overview', 'transactions', 'insights', 'missing-notes', 'settings'].includes(next)) return previous;
+      subTabHistoryRef.current = visitView(subTabHistoryRef.current, expenseViewKey(next, insightHistoryRef.current[insightHistoryRef.current.length - 1]));
+      rememberNavigation();
+      return next;
+    });
+  }, [rememberNavigation]);
+  const setInsightSubView = useCallback((nextView) => {
+    setInsightSubViewState((previous) => {
+      const next = typeof nextView === 'function' ? nextView(previous) : nextView;
+      if (!['Overview', 'Categories', 'Methods', 'Trends'].includes(next)) return previous;
+      insightHistoryRef.current = [next];
+      subTabHistoryRef.current = visitView(subTabHistoryRef.current, expenseViewKey('insights', next));
+      rememberNavigation();
+      return next;
+    });
+  }, [rememberNavigation]);
   const [missingFilterWindow, setMissingFilterWindow] = useState('all'); // 'all' | 'today' | 'week'
   const [inlineNoteDrafts, setInlineNoteDrafts] = useState({});
   const [inlineMerchantDrafts, setInlineMerchantDrafts] = useState({});
@@ -273,6 +317,8 @@ export default function ExpensesModule({
   const [selectedTxId, setSelectedTxId] = useState(null);
   const [detailNoteDraft, setDetailNoteDraft] = useState('');
   const [detailMerchantDraft, setDetailMerchantDraft] = useState('');
+  const detailDraftTransactionRef = useRef(null);
+  const transactionReadingStateRef = useRef(null);
 
   // Quick-Add / Edit Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -1325,78 +1371,22 @@ export default function ExpensesModule({
   const storageStatus = useMemo(() => getExpenseStorageStatus(), [notifGranted, expensesMap]);
 
   const isLight = themeMode === 'light' || stitchPreset === 'stitch-alabaster-pro';
-  const palette = useMemo(() => {
-    if (isLight) {
-      return {
-        bg: '#f1f5f9',
-        surface: 'rgba(255, 255, 255, 0.94)',
-        surfaceAlt: '#f8fafc',
-        border: '#e2e8f0',
-        borderStrong: '#cbd5e1',
-        text: '#0f172a',
-        textSub: '#334155',
-        textMuted: '#64748b',
-        pillBg: '#e2e8f0',
-        activeBlue: '#4f46e5',
-        activeGrad: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0ea5e9 100%)',
-        heroBg: 'linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%)',
-        debit: '#e11d48',
-        credit: '#059669',
-      };
-    }
-    if (stitchPreset === 'stitch-cyber-emerald') {
-      return {
-        bg: '#040d0a',
-        surface: 'rgba(8, 24, 19, 0.88)',
-        surfaceAlt: 'rgba(13, 36, 28, 0.92)',
-        border: 'rgba(52, 211, 153, 0.22)',
-        borderStrong: 'rgba(52, 211, 153, 0.38)',
-        text: '#f0fdf4',
-        textSub: '#a7f3d0',
-        textMuted: '#6ee7b7',
-        pillBg: 'rgba(16, 185, 129, 0.16)',
-        activeBlue: '#10b981',
-        activeGrad: 'linear-gradient(135deg, #059669 0%, #0d9488 55%, #0284c7 100%)',
-        heroBg: 'linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(7, 24, 19, 0.94) 58%, rgba(14, 116, 144, 0.52) 100%)',
-        debit: '#fb7185',
-        credit: '#34d399',
-      };
-    }
-    if (stitchPreset === 'stitch-royal-amethyst') {
-      return {
-        bg: '#080512',
-        surface: 'rgba(19, 13, 38, 0.88)',
-        surfaceAlt: 'rgba(30, 21, 56, 0.92)',
-        border: 'rgba(167, 139, 250, 0.24)',
-        borderStrong: 'rgba(167, 139, 250, 0.42)',
-        text: '#faf5ff',
-        textSub: '#ddd6fe',
-        textMuted: '#a78bfa',
-        pillBg: 'rgba(139, 92, 246, 0.18)',
-        activeBlue: '#8b5cf6',
-        activeGrad: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 55%, #e11d48 100%)',
-        heroBg: 'linear-gradient(135deg, rgba(88, 28, 135, 0.72) 0%, rgba(20, 12, 38, 0.94) 58%, rgba(157, 23, 77, 0.52) 100%)',
-        debit: '#fb7185',
-        credit: '#34d399',
-      };
-    }
-    return {
-      bg: '#060a14',
-      surface: 'rgba(15, 23, 42, 0.86)',
-      surfaceAlt: 'rgba(30, 41, 59, 0.82)',
-      border: 'rgba(148, 163, 184, 0.18)',
-      borderStrong: 'rgba(99, 102, 241, 0.36)',
-      text: '#f8fafc',
-      textSub: '#cbd5e1',
-      textMuted: '#94a3b8',
-      pillBg: 'rgba(30, 41, 59, 0.9)',
-      activeBlue: '#6366f1',
-      activeGrad: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0ea5e9 100%)',
-      heroBg: 'linear-gradient(135deg, rgba(30, 58, 138, 0.65) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.58) 100%)',
-      debit: '#fb7185',
-      credit: '#34d399',
-    };
-  }, [isLight, stitchPreset]);
+  const palette = useMemo(() => ({
+    bg: `var(--salary-page, ${isLight ? '#f5f7f6' : '#121715'})`,
+    surface: `var(--salary-surface, ${isLight ? '#ffffff' : '#1b221e'})`,
+    surfaceAlt: `var(--salary-subtle, ${isLight ? '#edf1ef' : '#252e29'})`,
+    border: `var(--salary-line, ${isLight ? '#dce3df' : '#344039'})`,
+    borderStrong: `var(--salary-line, ${isLight ? '#c6d2cb' : '#526158'})`,
+    text: `var(--salary-ink, ${isLight ? '#182820' : '#f1f5f2'})`,
+    textSub: `var(--salary-muted, ${isLight ? '#52645a' : '#bdc9c1'})`,
+    textMuted: `var(--salary-muted, ${isLight ? '#66736d' : '#a8b5ac'})`,
+    pillBg: `var(--salary-green-soft, ${isLight ? '#e5f4ec' : '#203c30'})`,
+    activeBlue: `var(--salary-green, ${isLight ? '#087f5b' : '#69cba1'})`,
+    activeGrad: 'var(--salary-action, #087f5b)',
+    heroBg: `var(--salary-surface, ${isLight ? '#ffffff' : '#1b221e'})`,
+    debit: `var(--salary-coral, ${isLight ? '#c65a51' : '#e59c91'})`,
+    credit: `var(--salary-green, ${isLight ? '#087f5b' : '#69cba1'})`,
+  }), [isLight, stitchPreset]);
 
   const checkNativePermissions = useCallback(() => {
     try {
@@ -1472,14 +1462,14 @@ export default function ExpensesModule({
         const added = mergeDetectedTransactions(txList, 'android-notif');
         if (added > 0) {
           setScanStatus(`✅ Synced ${added} new transaction${added === 1 ? '' : 's'} into your ledger.`);
-        } else {
+        } else if (isScanning) {
           setScanStatus(`✅ Synced ${txList.length} saved transaction${txList.length === 1 ? '' : 's'}.`);
         }
       }
     };
     window.addEventListener('pattan-mobile-transactions', onMobileTxEvent);
     return () => window.removeEventListener('pattan-mobile-transactions', onMobileTxEvent);
-  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative]);
+  }, [mergeDetectedTransactions, syncSavedBankBalanceFromNative, isScanning]);
 
   // Continuous zero-fetch auto-sync of encrypted notification captures & bank balance (every 2.5s + focus)
   useEffect(() => {
@@ -2039,11 +2029,15 @@ export default function ExpensesModule({
   }, [selectedTxId, effectiveExpensesSource]);
 
   useEffect(() => {
-    if (selectedTx) {
+    // Live captures may replace the transaction object while the user is typing.
+    // Initialise once per opened record; never erase an unsaved memory note.
+    if (selectedTx && detailDraftTransactionRef.current !== selectedTx.id) {
+      detailDraftTransactionRef.current = selectedTx.id;
       setDetailNoteDraft(selectedTx.personalNote || selectedTx.note || '');
       setDetailMerchantDraft(selectedTx.merchant || '');
     }
-  }, [selectedTx]);
+    if (!selectedTxId) detailDraftTransactionRef.current = null;
+  }, [selectedTx, selectedTxId]);
 
   // Top 4 Category summary cards for Screen 7 (Food, Transport, Shopping, Others)
   const screen7CategoryCards = useMemo(() => {
@@ -3080,398 +3074,161 @@ export default function ExpensesModule({
     }
   };
 
+  expenseBackRef.current = () => {
+    if (showSuggestionModal) { setShowSuggestionModal(false); return 'handled'; }
+    if (showAddModal) { setShowAddModal(false); return 'handled'; }
+    if (showSmsPasteModal) { setShowSmsPasteModal(false); return 'handled'; }
+    if (showCheckBalanceModal) { setShowCheckBalanceModal(false); return 'handled'; }
+    if (showAddUdhaarForm) { setShowAddUdhaarForm(false); return 'handled'; }
+    if (selectedTxId) { setSelectedTxId(null); return 'handled'; }
+    if (showAdvancedFilters) { setShowAdvancedFilters(false); return 'handled'; }
+    const openDisclosure = typeof document !== 'undefined' ? [...document.querySelectorAll('.salary-expenses-root details[open]')].pop() : null;
+    if (openDisclosure) { openDisclosure.open = false; return 'handled'; }
+    const previous = previousView(subTabHistoryRef.current);
+    if (previous.type === 'root') return 'root';
+    subTabHistoryRef.current = previous.history;
+    const view = expenseViewFromKey(previous.view);
+    insightHistoryRef.current = [view.insight];
+    setSubTabState(view.tab);
+    setInsightSubViewState(view.insight);
+    rememberNavigation();
+    return 'handled';
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleExpenseBack = () => expenseBackRef.current();
+    window.__handleExpenseHardwareBack = handleExpenseBack;
+    return () => {
+      if (window.__handleExpenseHardwareBack === handleExpenseBack) delete window.__handleExpenseHardwareBack;
+    };
+  }, []);
+
+  const handleSaveTransactionMemory = (txId, merchant, note) => {
+    const current = getMaterializedBaseMap();
+    const record = current[txId] || effectiveExpensesSource?.[txId];
+    if (!record) return;
+    const next = { ...current, [txId]: saveTransactionMemoryRecord(record, merchant, note) };
+    onUpdateExpenses?.(next, `Saved memory for ${next[txId].merchant || 'this payment'}`);
+  };
+
+  const transactionMemoryView = (
+<ExpenseTransactions
+          transactions={filteredTransactions} today={todayIso}
+          readingStateRef={transactionReadingStateRef}
+          filters={{ search: searchQuery, direction: methodPillFilter, period: periodFilterMode,
+            date: filterSpecificDate, month: filterMonthPart, year: filterYearPart,
+            note: filterNoteStatus, review: filterReviewStatus, category: filterCategory,
+            min: filterMinAmount, max: filterMaxAmount, from: filterDateFrom, to: filterDateTo }}
+          onFilter={(name, value) => {
+            const setters = { search: setSearchQuery, direction: setMethodPillFilter, period: setPeriodFilterMode,
+              note: setFilterNoteStatus, review: setFilterReviewStatus, category: setFilterCategory,
+              min: setFilterMinAmount, max: setFilterMaxAmount, from: setFilterDateFrom, to: setFilterDateTo, year: setFilterYearPart };
+            if (name === 'date') selectExactDate(value);
+            else if (name === 'month') { setFilterYearPart(value.slice(0, 4)); setFilterMonthPart(value.slice(5, 7)); }
+            else setters[name]?.(value);
+          }}
+          onReset={() => {
+            setSearchQuery(''); setMethodPillFilter('All'); setPeriodFilterMode('all');
+            setFilterNoteStatus('all'); setFilterReviewStatus('all'); setFilterCategory('all');
+            setFilterMinAmount(''); setFilterMaxAmount(''); setFilterDateFrom(''); setFilterDateTo('');
+          }}
+          onAdd={() => openQuickAddModal(null)} onSync={() => triggerMobileTransactionScan(3650)}
+          scanning={isScanning} onOpen={setSelectedTxId} onExport={handleExportExpensesCsv}
+          expandedFilters={showAdvancedFilters} onToggleFilters={() => setShowAdvancedFilters(value => !value)}
+        />
+  );
+
   // ── SCREEN 9: DETAILED TRANSACTION VIEWER ─────────────────────────────────
   if (selectedTx) {
-    const isCredit = selectedTx.type === 'credit' || selectedTx.type === 'refund';
-    const upiHandle =
-      selectedTx.vpa ||
-      `${String(selectedTx.merchant || 'merchant').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'merchant'}@okaxis`;
-    const txRefDisplay = selectedTx.refId || `T${String(selectedTx.timestampMs || Date.now()).slice(-12)}`;
-
-    return (
-      <div
-        className="stitch-screen-card"
-        style={{
-          background: palette.surface,
-          borderRadius: 24,
-          border: `1px solid ${palette.border}`,
-          padding: mobileMode ? '16px 14px 22px' : '22px 24px 28px',
-          color: palette.text,
-          boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
-        }}
-      >
-        {/* Top Bar: < Back & Delete/Edit */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <button
-            type="button"
-            onClick={() => setSelectedTxId(null)}
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              border: `1px solid ${palette.border}`,
-              background: palette.surfaceAlt,
-              color: palette.text,
-              fontSize: 18,
-              fontWeight: 900,
-              cursor: 'pointer',
-            }}
-            title="Back"
-          >
-            ‹
-          </button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => {
-                const tx = selectedTx;
-                setSelectedTxId(null);
-                openQuickAddModal(tx);
-              }}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 10,
-                border: `1px solid ${palette.border}`,
-                background: palette.surfaceAlt,
-                color: palette.textSub,
-                fontSize: 11.5,
-                fontWeight: 800,
-                cursor: 'pointer',
-              }}
-            >
-              ✏️ Edit Full
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeleteTransaction(selectedTx.id)}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 10,
-                border: '1px solid rgba(244, 63, 94, 0.45)',
-                background: 'rgba(244, 63, 94, 0.14)',
-                color: '#fb7185',
-                fontSize: 11.5,
-                fontWeight: 800,
-                cursor: 'pointer',
-              }}
-              title="Remove this transaction if entered by mistake"
-            >
-              🗑️ Remove
-            </button>
-          </div>
-        </div>
-
-        {/* Centered Avatar & Amount Hero (Screen 9) */}
-        <div
-          className="stitch-bank-hero-card"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            textAlign: 'center',
-            marginBottom: 18,
-            padding: '18px 16px',
-            borderRadius: 22,
-            background: palette.heroBg,
-            border: `1px solid ${palette.border}`,
-          }}
-        >
-          <BrandPaymentAvatar tx={selectedTx} size={64} />
-          <div style={{ fontSize: 18, fontWeight: 900, color: palette.text, marginTop: 10 }}>
-            {selectedTx.merchant || sanitizeBrandFreeAppLabel(selectedTx.app)}
-          </div>
-          <div style={{ fontSize: 12, color: palette.textMuted, fontWeight: 700, marginTop: 2 }}>
-            {sanitizeBrandFreeAppLabel(selectedTx.app || selectedTx.paymentMethod)}
-          </div>
-          <div style={{
-            fontSize: 34,
-            fontWeight: 950,
-            color: isCredit ? palette.credit : '#f43f5e',
-            letterSpacing: '-0.02em',
-            marginTop: 8,
-          }}>
-            {isCredit ? `+ ₹${formatINR(selectedTx.amount)}` : `- ₹${formatINR(selectedTx.amount)}`}
-          </div>
-          <div style={{ fontSize: 12, color: palette.textMuted, fontWeight: 700, marginTop: 4 }}>
-            {formatShortDate(selectedTx.date)}, {formatTime12h(selectedTx.time)}
-          </div>
-        </div>
-
-        {/* Structured Details Card (Screen 9) */}
-        <div
-          className="stitch-bento-card"
-          style={{
-            background: palette.surfaceAlt,
-            borderRadius: 18,
-            border: `1px solid ${palette.border}`,
-            padding: '14px 16px',
-            marginBottom: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 11,
-          }}
-        >
-          {[
-            { label: 'Statement Entry', value: isCredit ? '💰 CREDIT / DEPOSIT (+₹)' : '💸 DEBIT / PAYMENT (-₹)' },
-            { label: 'Type', value: selectedTx.paymentMethod === 'UPI' ? 'UPI Payment' : (selectedTx.paymentMethod || 'Payment') },
-            { label: 'From / Account', value: selectedTx.accountMask ? `Bank Account (${selectedTx.accountMask})` : (bankBalanceInfo?.accountMask ? `Bank Account (${bankBalanceInfo.accountMask})` : 'Linked Bank Account') },
-            { label: isCredit ? 'Received From' : 'Paid To', value: (selectedTx.merchant || 'Merchant').toUpperCase() },
-            { label: 'Category', value: selectedTx.category || (isCredit ? 'Salary / Income' : 'Food & Dining') },
-            { label: 'UPI ID', value: upiHandle },
-            { label: 'UTR / Ref ID', value: txRefDisplay },
-            {
-              label: 'Balance After Txn',
-              value:
-                Number.isFinite(Number(selectedTx.runningBalance))
-                  ? `₹${formatINR(selectedTx.runningBalance)}`
-                  : Number.isFinite(Number(selectedTx.accountBalance))
-                    ? `₹${formatINR(selectedTx.accountBalance)}`
-                    : `₹${formatINR(analytics.realAccountBalance)}`,
-            },
-            { label: 'Ledger Security', value: '🔒 Permanent Record (Never Deleted)' },
-          ].map((row) => (
-            <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 12.5, color: palette.textMuted, fontWeight: 700 }}>{row.label}</span>
-              <span style={{ fontSize: 12.5, color: palette.text, fontWeight: 800, textAlign: 'right' }}>{row.value}</span>
-            </div>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4, borderTop: `1px solid ${palette.border}` }}>
-            <span style={{ fontSize: 12.5, color: palette.textMuted, fontWeight: 700 }}>Status</span>
-            <span style={{
-              padding: '3px 10px',
-              borderRadius: 999,
-              background: 'rgba(16, 185, 129, 0.16)',
-              border: '1px solid rgba(16, 185, 129, 0.4)',
-              color: '#34d399',
-              fontSize: 11.5,
-              fontWeight: 900,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-            }}>
-              ● {selectedTx.reconciliationStatus === 'needs_review' ? 'Needs Review' : 'Completed'}
-            </span>
-          </div>
-        </div>
-
-        {/* Note (Personal Memory) Card (Screen 9) */}
-        <div style={{
-          background: palette.surface,
-          borderRadius: 18,
-          border: '1.5px solid rgba(59, 130, 246, 0.4)',
-          padding: '14px 16px',
-          marginBottom: 16,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa' }}>
-              📌 Note (Personal Memory)
-            </span>
-            <span style={{ fontSize: 12, color: palette.textMuted }}>✏️</span>
-          </div>
-          <input
-            type="text"
-            value={detailNoteDraft}
-            onChange={(e) => setDetailNoteDraft(e.target.value)}
-            placeholder="What was this payment for? (e.g. Office lunch with team)"
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: '10px 12px',
-              borderRadius: 12,
-              border: `1px solid ${palette.border}`,
-              background: palette.surfaceAlt,
-              color: palette.text,
-              fontSize: 14,
-              fontWeight: 800,
-              outline: 'none',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-            {QUICK_NOTE_TEMPLATES.slice(0, 5).map((tpl) => (
-              <button
-                key={tpl.label}
-                type="button"
-                onClick={() => setDetailNoteDraft(tpl.label)}
-                style={{
-                  padding: '4px 9px',
-                  borderRadius: 999,
-                  border: `1px solid ${palette.border}`,
-                  background: detailNoteDraft === tpl.label ? 'rgba(37,99,235,0.22)' : palette.surfaceAlt,
-                  color: detailNoteDraft === tpl.label ? '#60a5fa' : palette.textSub,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {tpl.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Save Note Primary Stitch Gradient Button (Screen 9) */}
-        <button
-          type="button"
-          onClick={() => {
-            handleUpdatePersonalNote(selectedTx.id, detailNoteDraft, true, detailMerchantDraft);
-            setSelectedTxId(null);
-          }}
-          style={{
-            width: '100%',
-            padding: '15px 18px',
-            borderRadius: 16,
-            border: 'none',
-            background: palette.activeGrad,
-            color: '#ffffff',
-            fontWeight: 900,
-            fontSize: 15,
-            cursor: 'pointer',
-            boxShadow: '0 10px 25px rgba(79, 70, 229, 0.35)',
-          }}
-        >
-          Save Note
-        </button>
-      </div>
-    );
+    return <ExpenseTransactionDetails
+      tx={selectedTx}
+      merchantDraft={detailMerchantDraft} noteDraft={detailNoteDraft}
+      onMerchant={setDetailMerchantDraft} onNote={setDetailNoteDraft}
+      onBack={() => setSelectedTxId(null)}
+      onSave={() => { handleSaveTransactionMemory(selectedTx.id, detailMerchantDraft, detailNoteDraft); setSelectedTxId(null); }}
+      onEdit={() => { const tx = selectedTx; setSelectedTxId(null); openQuickAddModal(tx); }}
+      onUdhaar={() => { const tx = selectedTx; setSelectedTxId(null); handleToggleTxUdhaar(tx); }}
+      udhaar={udhaarMap[selectedTx.id]}
+      onChangeDirection={() => handleToggleTransactionDirection(selectedTx)}
+      onRemove={() => handleDeleteTransaction(selectedTx.id)}
+      themeMode={isLight ? 'light' : 'dark'}
+    />;
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, color: palette.text, overflowAnchor: 'none' }}>
-      {/* V8.2 Google Stitch Signature Pill Segmented Sub-Navigation Bar */}
-      <div
-        className="stitch-screen-card"
-        style={{
-          display: 'flex',
-          gap: 6,
-          overflowX: 'auto',
-          padding: '6px',
-          borderRadius: 18,
-          background: palette.surface,
-          border: `1px solid ${palette.border}`,
-          backdropFilter: 'blur(16px)',
-          boxShadow: isLight ? '0 4px 14px rgba(15, 23, 42, 0.04)' : '0 8px 22px rgba(2, 6, 23, 0.45)',
-        }}
-      >
+    <div className="salary-expenses-root" data-expense-view={subTab} data-color-mode={isLight ? 'light' : 'dark'} style={{ color: palette.text }}>
+      <div className="salary-expenses-tabs" role="group" aria-label="Expense views">
         {[
-          { id: 'overview', label: '✨ Overview' },
-          { id: 'transactions', label: `📜 Passbook (${analytics.allTimeCount || analytics.totalCount || 0})` },
-          { id: 'insights', label: '📊 Insights' },
-          { id: 'missing-notes', label: `📝 Notes (${analytics.missingNotesCount})` },
-          { id: 'settings', label: '⚡ Sync & CSV' },
+          { id: 'overview', label: 'Overview', icon: ExpenseLayoutDashboard },
+          { id: 'transactions', label: 'Transactions', icon: ExpenseListOrdered, count: analytics.allTimeCount || analytics.totalCount || 0 },
+          { id: 'insights', label: 'Insights', icon: ExpenseChartNoAxesCombined },
+          { id: 'missing-notes', label: 'Notes', icon: ExpenseNotebookPen, count: analytics.missingNotesCount },
+          { id: 'settings', label: 'Sync & CSV', icon: ExpenseRefreshCw },
         ].map((tab) => {
-          const active = subTab === tab.id;
+          const TabIcon = tab.icon;
           return (
             <button
               key={tab.id}
               type="button"
+              aria-pressed={subTab === tab.id}
               onClick={() => setSubTab(tab.id)}
-              style={{
-                flex: '1 0 auto',
-                padding: '8px 13px',
-                borderRadius: 13,
-                border: active ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid transparent',
-                background: active
-                  ? palette.activeGrad
-                  : 'transparent',
-                color: active ? '#ffffff' : palette.textMuted,
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                boxShadow: active ? '0 4px 12px rgba(99, 102, 241, 0.35)' : 'none',
-              }}
             >
-              {tab.label}
+              <TabIcon size={16} aria-hidden="true" />
+              <span>{tab.label}</span>
+              {tab.count !== undefined && <span className="salary-expense-tab-count">{tab.count}</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Empty-First Onboarding Prompt (Hidden once email is linked so there is zero duplicate clutter) */}
-      {!hasLinkedEmail && (
-        <div
-          className="flutter-m3-card"
-          style={{
-            padding: '12px 14px',
-            borderRadius: 16,
-            background: isLight ? '#ffffff' : '#131b2e',
-            border: '1px solid rgba(99, 102, 241, 0.35)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: isLight ? '#0f172a' : '#e2e8f0' }}>
-              🔒 Enter your email to sync your real transactions &amp; bank balance
-            </div>
-            {typeof onOpenChangeMobile === 'function' && (
+      {!hasLinkedEmail && subTab === 'settings' && (
+        <details className="salary-expense-account">
+          <summary>
+            <ExpenseLink2 size={16} aria-hidden="true" />
+            <span>Connect expense account</span>
+            <ExpenseChevronDown size={16} aria-hidden="true" />
+          </summary>
+          <div className="salary-expense-account-form">
+            <label className="salary-expense-email-field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={emailDraftInput}
+                onChange={(e) => setEmailDraftInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
+                    onQuickLinkEmail(emailDraftInput.trim());
+                  }
+                }}
+                placeholder="Email address"
+                autoComplete="email"
+              />
+            </label>
+            <div className="salary-expense-account-actions">
               <button
                 type="button"
-                onClick={onOpenChangeMobile}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(99, 102, 241, 0.4)',
-                  background: 'rgba(99, 102, 241, 0.14)',
-                  color: '#818cf8',
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  cursor: 'pointer',
+                className="salary-expense-primary-button"
+                onClick={() => {
+                  if (emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
+                    onQuickLinkEmail(emailDraftInput.trim());
+                  } else if (typeof onOpenChangeMobile === 'function') {
+                    onOpenChangeMobile();
+                  }
                 }}
               >
-                📱 Account Sync
+                <ExpenseLink2 size={16} aria-hidden="true" />
+                <span>Sync account</span>
               </button>
-            )}
+              {typeof onOpenChangeMobile === 'function' && (
+                <button type="button" className="salary-expense-secondary-button" onClick={onOpenChangeMobile}>
+                  <ExpenseSmartphone size={16} aria-hidden="true" />
+                  <span>Account sync</span>
+                </button>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <input
-              type="email"
-              value={emailDraftInput}
-              onChange={(e) => setEmailDraftInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
-                  onQuickLinkEmail(emailDraftInput.trim());
-                }
-              }}
-              placeholder="Enter patanyasin144@gmail.com to sync..."
-              style={{
-                flex: '1 1 200px',
-                padding: '9px 12px',
-                borderRadius: 11,
-                border: `1px solid ${palette.border}`,
-                background: palette.surfaceAlt,
-                color: palette.text,
-                fontSize: 12,
-                fontWeight: 700,
-                outline: 'none',
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (emailDraftInput.trim() && typeof onQuickLinkEmail === 'function') {
-                  onQuickLinkEmail(emailDraftInput.trim());
-                } else if (typeof onOpenChangeMobile === 'function') {
-                  onOpenChangeMobile();
-                }
-              }}
-              style={{
-                padding: '9px 15px',
-                borderRadius: 11,
-                border: 'none',
-                background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-                color: '#ffffff',
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Sync Account
-            </button>
-          </div>
-        </div>
+        </details>
       )}
 
       {/* 1-Tap Auto UPI Payment Capture Prompt when Notification Access is off */}
@@ -3558,7 +3315,7 @@ export default function ExpensesModule({
 
       {/* Status / Undo Toast Banner */}
       {(scanStatus || undoBanner) && (
-        <div style={{
+        <div className="expense-sync-toast" role="status" style={{
           padding: '10px 14px',
           borderRadius: 14,
           background: isLight ? '#eef2ff' : 'rgba(30, 41, 59, 0.95)',
@@ -3626,132 +3383,51 @@ export default function ExpensesModule({
           SECTION 1: SPACIOUS 2-ROW DATE & FILTER HERO CARD + 2x2 BENTO SUMMARY GRID
           (Zero Crowded Titles — Matches Today Attendance & Salary Bento Layout!)
          ═══════════════════════════════════════════════════════════════════════ */}
-      {(subTab === 'overview' || subTab === 'transactions') && (
+      {subTab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* GOOGLE STITCH SIGNATURE VIRTUAL METALLIC / GLASS BANK BALANCE CARD */}
-          <div
-            className="flutter-m3-card stitch-bank-hero-card"
-            style={{
-              padding: mobileMode ? '16px 18px' : '18px 22px',
-              borderRadius: 24,
-              background: isLight
-                ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 55%, #ecfdf5 100%)'
-                : stitchPreset === 'stitch-cyber-emerald'
-                  ? 'linear-gradient(135deg, rgba(6, 78, 59, 0.72) 0%, rgba(15, 23, 42, 0.9) 60%, rgba(4, 120, 87, 0.5) 100%)'
-                  : stitchPreset === 'stitch-royal-amethyst'
-                    ? 'linear-gradient(135deg, rgba(76, 29, 149, 0.68) 0%, rgba(17, 24, 39, 0.92) 58%, rgba(6, 95, 70, 0.48) 100%)'
-                    : 'linear-gradient(135deg, rgba(30, 58, 138, 0.65) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(6, 78, 59, 0.6) 100%)',
-              border: isLight ? '1.5px solid #93c5fd' : '1.5px solid rgba(99, 102, 241, 0.45)',
-              color: palette.text,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            <div
-              onClick={() => toggleExpSection('sec_bank_hero')}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 10,
-                flexWrap: 'wrap',
-                cursor: 'pointer',
-                userSelect: 'none',
-              }}
-              title="Tap header to minimize or maximize"
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{
-                  fontSize: 11.5,
-                  fontWeight: 900,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: isLight ? '#1d4ed8' : '#a5b4fc',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                  <span>{collapsedExpSections.sec_bank_hero ? '▸' : '▾'} 🏦 Main Account Balance</span>
-                </span>
-                <span style={{
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                  background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.18)',
-                  border: '1px solid rgba(16, 185, 129, 0.42)',
-                  fontSize: 10,
-                  fontWeight: 900,
-                  color: isLight ? '#059669' : '#34d399',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}>
-                  <span className="ot-live-dot" style={{ width: 6, height: 6 }} />
-                  <span>REAL BANK LEDGER</span>
-                </span>
-              </div>
-
-              <span style={{
-                padding: '3px 10px',
-                borderRadius: 999,
-                background: isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.68)',
-                border: `1px solid ${palette.border}`,
-                fontSize: 10.5,
-                fontWeight: 800,
-                color: palette.textSub,
-              }}>
-                {analytics.latestBankName || effectiveBankBalanceInfo?.bankName || 'Primary Bank A/c'}
-                {(analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask)
-                  ? ` · ${analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask}`
-                  : ''}
+          <section className="salary-expense-balance" aria-label="Main account balance">
+            <div className="salary-expense-balance-header">
+              <button
+                type="button"
+                className="salary-expense-balance-toggle"
+                onClick={() => toggleExpSection('sec_bank_hero')}
+                aria-expanded={!collapsedExpSections.sec_bank_hero}
+                title={collapsedExpSections.sec_bank_hero ? 'Expand account balance' : 'Collapse account balance'}
+              >
+                <ExpenseLandmark size={18} aria-hidden="true" />
+                <span>Main Account Balance</span>
+                <ExpenseChevronDown size={15} aria-hidden="true" />
+              </button>
+              <span className="salary-expense-ledger-status">
+                <span className="salary-expense-ledger-dot" aria-hidden="true" />
+                Bank ledger
               </span>
             </div>
-
+            <div className="salary-expense-bank-name">
+              {analytics.latestBankName || effectiveBankBalanceInfo?.bankName || 'Primary Bank A/c'}
+              {(analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask)
+                ? ` · ${analytics.latestAccountMask || effectiveBankBalanceInfo?.accountMask}`
+                : ''}
+            </div>
             {!collapsedExpSections.sec_bank_hero && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <div
-                    className="ot-tabular-nums"
-                    style={{
-                      fontSize: mobileMode ? 28 : 30,
-                      fontWeight: 900,
-                      color: isLight ? '#0f172a' : '#ffffff',
-                      letterSpacing: '-0.03em',
-                      lineHeight: 1.1,
-                    }}
-                  >
+              <div className="salary-expense-balance-body">
+                <div className="salary-expense-balance-figure">
+                  <div className="ot-tabular-nums salary-expense-balance-amount">
                     ₹{formatINR(analytics.realAccountBalance || 0)}
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: palette.textMuted, marginTop: 5 }}>
-                    🛡️ Verified Bank &amp; UPI Only · WhatsApp messages strictly blocked
-                  </div>
+                  <span className="salary-expense-balance-source">Bank &amp; UPI</span>
                 </div>
-
                 <button
                   type="button"
+                  className="salary-expense-primary-button"
                   onClick={() => openCheckBalanceModal(effectiveBankBalanceInfo)}
-                  style={{
-                    padding: '10px 15px',
-                    borderRadius: 14,
-                    border: '1px solid rgba(255, 255, 255, 0.22)',
-                    background: `linear-gradient(135deg, ${palette.activeBlue} 0%, #2563eb 100%)`,
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    flexShrink: 0,
-                    boxShadow: '0 6px 16px rgba(37, 99, 235, 0.35)',
-                  }}
                 >
-                  <span>🏦</span>
+                  <ExpenseLandmark size={16} aria-hidden="true" />
                   <span>Check / Set Balance</span>
                 </button>
               </div>
             )}
-          </div>
+          </section>
 
           <div
             className="flutter-m3-card stitch-screen-card"
@@ -4802,595 +4478,7 @@ export default function ExpensesModule({
          ═══════════════════════════════════════════════════════════════════════ */}
       {subTab === 'overview' && (
         <>
-          <div
-            className="stitch-screen-card"
-            style={{
-              background: palette.surface,
-              borderRadius: 22,
-              border: `1px solid ${palette.border}`,
-              padding: mobileMode ? '14px 12px' : '16px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            {/* Clean Section Header (Tap to Minimize / Maximize) */}
-            <div
-              onClick={() => toggleExpSection('sec_recent_tx')}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, cursor: 'pointer', userSelect: 'none' }}
-              title="Tap to minimize or maximize Recent Transactions"
-            >
-              <div style={{ fontSize: 14, fontWeight: 900, color: palette.text }}>
-                Transactions · {periodSummary.label} {collapsedExpSections.sec_recent_tx ? '▸' : '▾'}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  onClick={() => setShowSmsPasteModal(true)}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 999,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surfaceAlt,
-                    color: palette.textSub,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📋 Paste SMS
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSubTab('transactions')}
-                  style={{
-                    background: 'rgba(99, 102, 241, 0.14)',
-                    border: '1px solid rgba(99, 102, 241, 0.32)',
-                    borderRadius: 999,
-                    padding: '5px 11px',
-                    color: isLight ? '#4f46e5' : '#818cf8',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Search &amp; Filter ›
-                </button>
-                <span style={{ fontSize: 12, fontWeight: 900, color: palette.textMuted, paddingLeft: 2 }}>
-                  {collapsedExpSections.sec_recent_tx ? '▸' : '▾'}
-                </span>
-              </div>
-            </div>
-
-            {!collapsedExpSections.sec_recent_tx && (
-              <>
-            {recentPaymentsList.length === 0 && (
-              <div style={{
-                padding: '16px 12px',
-                textAlign: 'center',
-                color: palette.textMuted,
-                fontSize: 12.5,
-                borderRadius: 14,
-                background: palette.surfaceAlt,
-                border: `1px dashed ${palette.border}`,
-              }}>
-                <div style={{ fontWeight: 800, color: palette.text }}>
-                  No transactions recorded on {periodSummary.label}.
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                  {periodFilterMode !== 'all' && (analytics.allTimeCount || 0) > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setPeriodFilterMode('all')}
-                      style={{
-                        padding: '7px 12px',
-                        borderRadius: 10,
-                        border: 'none',
-                        background: '#10b981',
-                        color: '#ffffff',
-                        fontWeight: 800,
-                        fontSize: 11.5,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Show All Dates ({analytics.allTimeCount})
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openQuickAddModal(null, 'debit')}
-                    style={{
-                      padding: '7px 12px',
-                      borderRadius: 10,
-                      border: 'none',
-                      background: '#6366f1',
-                      color: '#ffffff',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    + Add Transaction
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {overviewDisplayGroups.length > 0 && (
-              <>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  padding: '6px 10px',
-                  borderRadius: 12,
-                  background: palette.surfaceAlt,
-                  border: `1px solid ${palette.border}`,
-                }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
-                    {txScrollMode === 'inside' ? '📜 Inside Scroller' : '📄 Full Page View'} · {recentPaymentsList.length} Transaction{recentPaymentsList.length === 1 ? '' : 's'}
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={toggleTxScrollMode}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 999,
-                        border: '1px solid rgba(52, 211, 153, 0.45)',
-                        background: 'rgba(16, 185, 129, 0.14)',
-                        color: '#34d399',
-                        fontSize: 11,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {txScrollMode === 'inside' ? '⇄ Full Page' : '⇄ Inside Scroller'}
-                    </button>
-                    {txScrollMode === 'inside' && recentPaymentsList.length > 3 && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => recentScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                          style={{
-                            padding: '4px 9px',
-                            borderRadius: 999,
-                            border: `1px solid ${palette.border}`,
-                            background: palette.surface,
-                            color: palette.textSub,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ↑ Top
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => recentScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                          style={{
-                            padding: '4px 9px',
-                            borderRadius: 999,
-                            border: `1px solid ${palette.border}`,
-                            background: palette.surface,
-                            color: palette.textSub,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ↓ Bottom
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div
-                  ref={recentScrollerRef}
-                  onTouchStart={(e) => {
-                    if (txScrollMode === 'inside') e.stopPropagation();
-                  }}
-                  onTouchEnd={(e) => {
-                    if (txScrollMode === 'inside') e.stopPropagation();
-                  }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    maxHeight: txScrollMode === 'inside' ? (mobileMode ? 420 : 520) : 'none',
-                    overflowY: txScrollMode === 'inside' ? 'auto' : 'visible',
-                    overscrollBehavior: txScrollMode === 'inside' ? 'contain' : 'auto',
-                    WebkitOverflowScrolling: 'touch',
-                    paddingRight: txScrollMode === 'inside' ? 4 : 0,
-                    scrollBehavior: 'smooth',
-                  }}
-                >
-                  {overviewDisplayGroups.map((dayGroup) => (
-                    <div
-                      key={dayGroup.date}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
-                    >
-                      {/* Clean Sticky Day Header Bar Inside Scroller */}
-                      <div
-                        style={{
-                          position: 'sticky',
-                          top: 0,
-                          zIndex: 2,
-                          padding: '6px 10px',
-                          borderRadius: 10,
-                          background: palette.surfaceAlt,
-                          borderBottom: `1px solid ${palette.border}`,
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          fontSize: 12,
-                          fontWeight: 800,
-                          color: palette.textSub,
-                        }}
-                      >
-                        <span>{dayGroup.label} ({dayGroup.items.length})</span>
-                        <div style={{ display: 'flex', gap: 10, fontWeight: 900 }}>
-                          {dayGroup.daySpent > 0 && <span style={{ color: '#fb7185' }}>-₹{formatINR(dayGroup.daySpent)}</span>}
-                          {dayGroup.dayReceived > 0 && <span style={{ color: '#34d399' }}>+₹{formatINR(dayGroup.dayReceived)}</span>}
-                        </div>
-                      </div>
-
-                    {/* Clean, Simple, Dynamic Transaction Cards — Explicitly Shows Whom Paid & Syncs Purpose */}
-                    {dayGroup.items.map((tx) => {
-                      const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                      const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || tx.originalRemark || '').trim();
-                      const hasNote = Boolean(noteText);
-                      const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
-                      const inlineMerch = inlineMerchantDrafts[tx.id] ?? (tx.merchant || '');
-                      const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                      const appLabel = sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod);
-                      return (
-                        <div
-                          key={tx.id}
-                          className="flutter-m3-list-tile"
-                          style={{
-                            padding: '11px 12px',
-                            borderRadius: 14,
-                            background: palette.surfaceAlt,
-                            border: `1px solid ${palette.border}`,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 8,
-                          }}
-                        >
-                          <div
-                            onClick={() => setSelectedTxId(tx.id)}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: 10,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                              <BrandPaymentAvatar tx={tx} size={38} />
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{
-                                  fontSize: 13.5,
-                                  fontWeight: 800,
-                                  color: palette.text,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                }}>
-                                  <span
-                                    style={{
-                                      fontSize: 10.5,
-                                      fontWeight: 900,
-                                      padding: '1px 6px',
-                                      borderRadius: 5,
-                                      background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.14)',
-                                      color: isCredit ? '#10b981' : '#fb7185',
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {isCredit ? '↙️ From' : '↗️ Paid to'}
-                                  </span>
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
-                                  </span>
-                                </div>
-                                <div style={{
-                                  fontSize: 11,
-                                  color: palette.textMuted,
-                                  fontWeight: 600,
-                                  marginTop: 2,
-                                  display: 'flex',
-                                  flexWrap: 'wrap',
-                                  gap: 5,
-                                  alignItems: 'center',
-                                }}>
-                                  <span>{formatTime12h(tx.time)}</span>
-                                  <span>·</span>
-                                  <span style={{ color: '#818cf8', fontWeight: 800 }}>via {appLabel}</span>
-                                  <span>·</span>
-                                  <span>{tx.category || 'Payment'}</span>
-                                </div>
-
-                                {/* Compact Purpose & Payee Sync Chip */}
-                                {!isEditingInline && (
-                                  <div
-                                    style={{
-                                      marginTop: 4,
-                                      display: 'flex',
-                                      flexWrap: 'wrap',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                    }}
-                                  >
-                                    <div
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
-                                        setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: tx.merchant || '' }));
-                                      }}
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        padding: '2px 8px',
-                                        borderRadius: 6,
-                                        background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                                        border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
-                                        color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                      }}
-                                      title="Tap to edit Whom I Paid & Purpose (Syncs across Payment Apps)"
-                                    >
-                                      {hasNote ? `🎯 Purpose: ${noteText}` : '+ Add Purpose / Whom I Paid'}
-                                    </div>
-                                    {hasNote && (
-                                      <span
-                                        style={{
-                                          fontSize: 10,
-                                          fontWeight: 800,
-                                          color: '#10b981',
-                                        }}
-                                      >
-                                        ✓ Synced
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                              <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                                {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
-                              </div>
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleTxUdhaar(tx)}
-                                  style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 6,
-                                    border: udhaarMap[tx.id]
-                                      ? udhaarMap[tx.id].status === 'returned'
-                                        ? '1px solid rgba(16, 185, 129, 0.45)'
-                                        : '1px solid rgba(245, 158, 11, 0.5)'
-                                      : `1px solid ${palette.border}`,
-                                    background: udhaarMap[tx.id]
-                                      ? udhaarMap[tx.id].status === 'returned'
-                                        ? 'rgba(16, 185, 129, 0.16)'
-                                        : 'rgba(245, 158, 11, 0.18)'
-                                      : palette.surface,
-                                    color: udhaarMap[tx.id]
-                                      ? udhaarMap[tx.id].status === 'returned'
-                                        ? '#34d399'
-                                        : '#fbbf24'
-                                      : palette.textSub,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Mark as Udhaar / Returnable Money (Tap again when returned)"
-                                >
-                                  {udhaarMap[tx.id]
-                                    ? udhaarMap[tx.id].status === 'returned'
-                                      ? '✅ Paid'
-                                      : '⏳ Udhaar'
-                                    : '🤝'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleTransactionDirection(tx)}
-                                  style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 6,
-                                    border: `1px solid ${palette.border}`,
-                                    background: palette.surface,
-                                    color: isCredit ? '#34d399' : '#fb7185',
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Switch Paid (-₹) / Received (+₹)"
-                                >
-                                  ⇄
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openQuickAddModal(tx)}
-                                  style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 6,
-                                    border: `1px solid ${palette.border}`,
-                                    background: palette.surface,
-                                    color: palette.textMuted,
-                                    fontSize: 10,
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Edit"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteTransaction(tx.id)}
-                                  style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 6,
-                                    border: '1px solid rgba(244, 63, 94, 0.25)',
-                                    background: 'rgba(244, 63, 94, 0.08)',
-                                    color: '#fb7185',
-                                    fontSize: 10,
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Delete"
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Dynamic Inline "Whom I Paid" + "Purpose I Paid" Editor (With Payment App Sync!) */}
-                          {isEditingInline && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}
-                            >
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 6 }}>
-                                <input
-                                  type="text"
-                                  value={inlineMerch}
-                                  onChange={(e) => setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                  placeholder={isCredit ? '👤 Received from whom?' : '👤 Paid to whom?'}
-                                  style={{
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    padding: '6px 9px',
-                                    borderRadius: 8,
-                                    border: `1px solid ${palette.border}`,
-                                    background: palette.surface,
-                                    color: palette.text,
-                                    fontSize: 11.5,
-                                    fontWeight: 800,
-                                    outline: 'none',
-                                  }}
-                                />
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={inlineDraft}
-                                  onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch);
-                                  }}
-                                  placeholder="🎯 Purpose paid (Tea, Petrol, Lunch)..."
-                                  style={{
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    padding: '6px 9px',
-                                    borderRadius: 8,
-                                    border: `1px solid #3b82f6`,
-                                    background: palette.surface,
-                                    color: palette.text,
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    outline: 'none',
-                                  }}
-                                />
-                              </div>
-                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch)}
-                                  style={{
-                                    padding: '6px 11px',
-                                    borderRadius: 8,
-                                    border: 'none',
-                                    background: '#2563eb',
-                                    color: '#fff',
-                                    fontWeight: 800,
-                                    fontSize: 11,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  ✓ Save &amp; Sync Purpose
-                                </button>
-                                {!isCredit && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSyncPurposeToUpiApp(tx, inlineDraft, inlineMerch)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      borderRadius: 8,
-                                      border: '1px solid rgba(16, 185, 129, 0.4)',
-                                      background: 'rgba(16, 185, 129, 0.14)',
-                                      color: '#10b981',
-                                      fontWeight: 800,
-                                      fontSize: 11,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    📲 Sync to UPI App
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setInlineNoteDrafts((prev) => {
-                                      const next = { ...prev };
-                                      delete next[tx.id];
-                                      return next;
-                                    });
-                                    setInlineMerchantDrafts((prev) => {
-                                      const next = { ...prev };
-                                      delete next[tx.id];
-                                      return next;
-                                    });
-                                  }}
-                                  style={{
-                                    padding: '6px 8px',
-                                    borderRadius: 8,
-                                    border: `1px solid ${palette.border}`,
-                                    background: palette.surface,
-                                    color: palette.textMuted,
-                                    fontWeight: 800,
-                                    fontSize: 11,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-              </>
-            )}
-            </>
-            )}
-          </div>
+          {transactionMemoryView}
 
           {/* Clean 4-Category Bento Strip (Tap header to Minimize / Maximize) */}
           <div
@@ -5684,785 +4772,7 @@ export default function ExpensesModule({
       {/* ═══════════════════════════════════════════════════════════════════════
           SCREEN 8: TRANSACTIONS (AUTO SAVED)
          ═══════════════════════════════════════════════════════════════════════ */}
-      {subTab === 'transactions' && (
-        <div
-          className="stitch-screen-card"
-          style={{
-            background: palette.surface,
-            borderRadius: 24,
-            border: `1px solid ${palette.border}`,
-            padding: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <div
-            onClick={() => toggleExpSection('sec_passbook_tx')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
-            title="Tap to minimize or maximize Transactions Passbook"
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSubTab('overview');
-                }}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceAlt,
-                  color: palette.text,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                }}
-              >
-                ←
-              </button>
-              <span style={{ fontSize: 17, fontWeight: 950, color: palette.text }}>
-                Transactions ({filteredTransactions.length}) {collapsedExpSections.sec_passbook_tx ? '▸' : '▾'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={() => setShowAdvancedFilters((prev) => !prev)}
-                style={{
-                  padding: '7px 11px',
-                  borderRadius: 10,
-                  border: `1px solid ${palette.border}`,
-                  background: showAdvancedFilters ? 'rgba(37, 99, 235, 0.2)' : palette.surfaceAlt,
-                  color: showAdvancedFilters ? '#60a5fa' : palette.textSub,
-                  fontWeight: 800,
-                  fontSize: 11.5,
-                  cursor: 'pointer',
-                }}
-              >
-                ⚙️ Filters
-              </button>
-              <button
-                type="button"
-                onClick={() => openQuickAddModal(null)}
-                style={{
-                  padding: '7px 12px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: palette.activeGrad,
-                  color: '#fff',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                + Add
-              </button>
-            </div>
-          </div>
-
-          {!collapsedExpSections.sec_passbook_tx && (
-            <>
-          {/* Search Bar (Screen 8) */}
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 Search transactions, notes, merchants, ref ID..."
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: '11px 14px',
-              borderRadius: 14,
-              border: `1px solid ${palette.border}`,
-              background: palette.surfaceAlt,
-              color: palette.text,
-              fontSize: 13,
-              fontWeight: 700,
-              outline: 'none',
-            }}
-          />
-
-          {/* Filter Pills: All | Money Out | Money In | UPI | Bank | Card | Wallet (Screen 8) */}
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {['All', 'Money Out', 'Money In', 'UPI', 'Bank', 'Card', 'Wallet'].map((pill) => {
-              const active = methodPillFilter === pill;
-              return (
-                <button
-                  key={pill}
-                  type="button"
-                  onClick={() => setMethodPillFilter(pill)}
-                  style={{
-                    padding: '7px 16px',
-                    borderRadius: 999,
-                    border: active ? 'none' : `1px solid ${palette.border}`,
-                    background: active ? palette.activeGrad : palette.surfaceAlt,
-                    color: active ? '#ffffff' : palette.textSub,
-                    fontWeight: 800,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {pill}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Collapsible Advanced Filters Panel */}
-          {showAdvancedFilters && (
-            <div style={{
-              padding: '12px',
-              borderRadius: 14,
-              background: palette.surfaceAlt,
-              border: `1px solid ${palette.border}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Category</label>
-                  <select
-                    value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                    style={{
-                      width: '100%',
-                      marginTop: 3,
-                      padding: '8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    <option value="all">All Categories</option>
-                    {EXPENSE_CATEGORIES.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.icon} {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Memory Note Status</label>
-                  <select
-                    value={filterNoteStatus}
-                    onChange={(e) => setFilterNoteStatus(e.target.value)}
-                    style={{
-                      width: '100%',
-                      marginTop: 3,
-                      padding: '8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    <option value="all">All Notes</option>
-                    <option value="has_note">Has Personal Note</option>
-                    <option value="missing_note">Missing Note</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Min Amount (₹)</label>
-                  <input
-                    type="number"
-                    value={filterMinAmount}
-                    onChange={(e) => setFilterMinAmount(e.target.value)}
-                    placeholder="0"
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      marginTop: 3,
-                      padding: '8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 12,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>Max Amount (₹)</label>
-                  <input
-                    type="number"
-                    value={filterMaxAmount}
-                    onChange={(e) => setFilterMaxAmount(e.target.value)}
-                    placeholder="Any"
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      marginTop: 3,
-                      padding: '8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 12,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>From Date</label>
-                  <input
-                    type="date"
-                    value={filterDateFrom}
-                    onChange={(e) => setFilterDateFrom(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      marginTop: 3,
-                      padding: '7px 8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10.5, fontWeight: 800, color: palette.textMuted }}>To Date</label>
-                  <input
-                    type="date"
-                    value={filterDateTo}
-                    onChange={(e) => setFilterDateTo(e.target.value)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      marginTop: 3,
-                      padding: '7px 8px',
-                      borderRadius: 10,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.text,
-                      fontSize: 11.5,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: palette.textMuted, fontWeight: 700 }}>
-                  Showing {filteredTransactions.length} of {analytics.totalCount} transactions
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilterCategory('all');
-                    setMethodPillFilter('All');
-                    setFilterNoteStatus('all');
-                    setFilterReviewStatus('all');
-                    setFilterMinAmount('');
-                    setFilterMaxAmount('');
-                    setFilterDateFrom('');
-                    setFilterDateTo('');
-                    setSearchQuery('');
-                  }}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 8,
-                    border: `1px solid ${palette.border}`,
-                    background: palette.surface,
-                    color: '#60a5fa',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Reset Filters
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Inner Scroller Control Bar & Grouped Transactions List (Screen 8) */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-            padding: '6px 10px',
-            borderRadius: 12,
-            background: palette.surfaceAlt,
-            border: `1px solid ${palette.border}`,
-          }}>
-            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#34d399' }}>
-              {txScrollMode === 'inside' ? '📜 Passbook Inside Scroller' : '📄 Passbook Full Page View'} · {filteredTransactions.length} Unlimited Transactions
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={handleDownloadMonthlyPassbookCard}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(59, 130, 246, 0.45)',
-                  background: 'rgba(59, 130, 246, 0.14)',
-                  color: '#60a5fa',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                🖼️ Passbook Card
-              </button>
-              <button
-                type="button"
-                onClick={toggleTxScrollMode}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(52, 211, 153, 0.45)',
-                  background: 'rgba(16, 185, 129, 0.14)',
-                  color: '#34d399',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                {txScrollMode === 'inside' ? '⇄ Full Page' : '⇄ Inside Scroller'}
-              </button>
-              {txScrollMode === 'inside' && filteredTransactions.length > 3 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-                    style={{
-                      padding: '4px 9px',
-                      borderRadius: 999,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.textSub,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ↑ Top
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => transactionsScrollerRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })}
-                    style={{
-                      padding: '4px 9px',
-                      borderRadius: 999,
-                      border: `1px solid ${palette.border}`,
-                      background: palette.surface,
-                      color: palette.textSub,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ↓ Bottom
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {groupedByDay.length === 0 ? (
-            <div style={{ padding: '26px 12px', textAlign: 'center', color: palette.textMuted, fontSize: 13 }}>
-              Nothing matched your search. Try a different keyword or filter.
-            </div>
-          ) : (
-            <div
-              ref={transactionsScrollerRef}
-              onTouchStart={(e) => {
-                if (txScrollMode === 'inside') e.stopPropagation();
-              }}
-              onTouchEnd={(e) => {
-                if (txScrollMode === 'inside') e.stopPropagation();
-              }}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                maxHeight: txScrollMode === 'inside' ? (mobileMode ? 460 : 560) : 'none',
-                overflowY: txScrollMode === 'inside' ? 'auto' : 'visible',
-                overscrollBehavior: txScrollMode === 'inside' ? 'contain' : 'auto',
-                WebkitOverflowScrolling: 'touch',
-                paddingRight: txScrollMode === 'inside' ? 4 : 0,
-                scrollBehavior: 'smooth',
-              }}
-            >
-              {groupedByDay.map((group) => (
-                <div key={group.date} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 2,
-                    background: palette.surfaceAlt,
-                    borderBottom: `1px solid ${palette.border}`,
-                    padding: '6px 10px',
-                    borderRadius: 10,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    color: palette.textSub,
-                  }}>
-                    <span>{group.label}</span>
-                    <span>
-                      {group.daySpent > 0 ? `-₹${formatINRShort(group.daySpent)}` : ''}
-                      {group.daySpent > 0 && group.dayReceived > 0 ? ' · ' : ''}
-                      {group.dayReceived > 0 ? `+₹${formatINRShort(group.dayReceived)}` : ''}
-                    </span>
-                  </div>
-                  {group.items.map((tx) => {
-                    const isCredit = tx.type === 'credit' || tx.type === 'refund';
-                    const noteText = String(tx.personalNote || tx.note || tx.paymentRemark || tx.originalRemark || '').trim();
-                    const hasNote = Boolean(noteText);
-                    const inlineDraft = inlineNoteDrafts[tx.id] ?? noteText;
-                    const inlineMerch = inlineMerchantDrafts[tx.id] ?? (tx.merchant || '');
-                    const isEditingInline = Object.prototype.hasOwnProperty.call(inlineNoteDrafts, tx.id);
-                    const appLabel = sanitizeBrandFreeAppLabel(tx.app || tx.paymentMethod);
-                    return (
-                      <div
-                        key={tx.id}
-                        className="stitch-bento-card flutter-m3-list-tile"
-                        style={{
-                          padding: '11px 12px',
-                          borderRadius: 16,
-                          background: palette.surfaceAlt,
-                          border: `1px solid ${palette.border}`,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 8,
-                        }}
-                      >
-                        <div
-                          onClick={() => openQuickAddModal(tx)}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: 10,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                            <BrandPaymentAvatar tx={tx} size={38} />
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{
-                                fontSize: 13.5,
-                                fontWeight: 800,
-                                color: palette.text,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 5,
-                              }}>
-                                <span
-                                  style={{
-                                    fontSize: 10.5,
-                                    fontWeight: 900,
-                                    padding: '1px 6px',
-                                    borderRadius: 5,
-                                    background: isCredit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.14)',
-                                    color: isCredit ? '#10b981' : '#fb7185',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {isCredit ? '↙️ From' : '↗️ Paid to'}
-                                </span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {tx.merchant || (isCredit ? 'Deposit' : 'Payment')}
-                                </span>
-                              </div>
-                              <div style={{
-                                fontSize: 11,
-                                color: palette.textMuted,
-                                fontWeight: 600,
-                                marginTop: 2,
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: 5,
-                                alignItems: 'center',
-                              }}>
-                                <span>{formatTime12h(tx.time)}</span>
-                                <span>·</span>
-                                <span style={{ color: '#818cf8', fontWeight: 800 }}>via {appLabel}</span>
-                                <span>·</span>
-                                <span>{tx.category || 'Payment'}</span>
-                              </div>
-                              {!isEditingInline && (
-                                <div
-                                  style={{
-                                    marginTop: 4,
-                                    display: 'flex',
-                                    flexWrap: 'wrap',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                  }}
-                                >
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: noteText }));
-                                      setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: tx.merchant || '' }));
-                                    }}
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                      padding: '2px 8px',
-                                      borderRadius: 6,
-                                      background: hasNote ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                                      border: hasNote ? '1px solid rgba(59, 130, 246, 0.28)' : `1px dashed ${palette.border}`,
-                                      color: hasNote ? (isLight ? '#1d4ed8' : '#93c5fd') : palette.textMuted,
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    {hasNote ? `🎯 Purpose: ${noteText}` : '+ Add Purpose / Whom I Paid'}
-                                  </div>
-                                  {hasNote && (
-                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#10b981' }}>
-                                      ✓ Synced
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                            <div style={{ fontSize: 15, fontWeight: 950, color: isCredit ? palette.credit : '#f43f5e' }}>
-                              {isCredit ? `+ ₹${formatINR(tx.amount)}` : `- ₹${formatINR(tx.amount)}`}
-                            </div>
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => handleToggleTxUdhaar(tx)}
-                                style={{
-                                  padding: '2px 6px',
-                                  borderRadius: 6,
-                                  border: udhaarMap[tx.id]
-                                    ? udhaarMap[tx.id].status === 'returned'
-                                      ? '1px solid rgba(16, 185, 129, 0.45)'
-                                      : '1px solid rgba(245, 158, 11, 0.5)'
-                                    : `1px solid ${palette.border}`,
-                                  background: udhaarMap[tx.id]
-                                    ? udhaarMap[tx.id].status === 'returned'
-                                      ? 'rgba(16, 185, 129, 0.16)'
-                                      : 'rgba(245, 158, 11, 0.18)'
-                                    : palette.surface,
-                                  color: udhaarMap[tx.id]
-                                    ? udhaarMap[tx.id].status === 'returned'
-                                      ? '#34d399'
-                                      : '#fbbf24'
-                                    : palette.textSub,
-                                  fontSize: 10,
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                }}
-                                title="Mark as Udhaar / Returnable Money (Tap again when returned)"
-                              >
-                                {udhaarMap[tx.id]
-                                  ? udhaarMap[tx.id].status === 'returned'
-                                    ? '✅ Paid'
-                                    : '⏳ Udhaar'
-                                  : '🤝'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleTransactionDirection(tx)}
-                                style={{
-                                  padding: '2px 6px',
-                                  borderRadius: 6,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: isCredit ? '#34d399' : '#fb7185',
-                                  fontSize: 10,
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                }}
-                                title="Switch Paid (-₹) / Received (+₹)"
-                              >
-                                ⇄
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openQuickAddModal(tx)}
-                                style={{
-                                  padding: '2px 6px',
-                                  borderRadius: 6,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.textMuted,
-                                  fontSize: 10,
-                                  cursor: 'pointer',
-                                }}
-                                title="Edit"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTransaction(tx.id)}
-                                style={{
-                                  padding: '2px 6px',
-                                  borderRadius: 6,
-                                  border: '1px solid rgba(244, 63, 94, 0.25)',
-                                  background: 'rgba(244, 63, 94, 0.08)',
-                                  color: '#fb7185',
-                                  fontSize: 10,
-                                  cursor: 'pointer',
-                                }}
-                                title="Delete"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {isEditingInline && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}
-                          >
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 6 }}>
-                              <input
-                                type="text"
-                                value={inlineMerch}
-                                onChange={(e) => setInlineMerchantDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                placeholder={isCredit ? '👤 Received from whom?' : '👤 Paid to whom?'}
-                                style={{
-                                  width: '100%',
-                                  boxSizing: 'border-box',
-                                  padding: '6px 9px',
-                                  borderRadius: 8,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.text,
-                                  fontSize: 11.5,
-                                  fontWeight: 800,
-                                  outline: 'none',
-                                }}
-                              />
-                              <input
-                                type="text"
-                                autoFocus
-                                value={inlineDraft}
-                                onChange={(e) => setInlineNoteDrafts((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch);
-                                }}
-                                placeholder="🎯 Purpose paid (Tea, Petrol, Lunch)..."
-                                style={{
-                                  width: '100%',
-                                  boxSizing: 'border-box',
-                                  padding: '6px 9px',
-                                  borderRadius: 8,
-                                  border: `1px solid #3b82f6`,
-                                  background: palette.surface,
-                                  color: palette.text,
-                                  fontSize: 11.5,
-                                  fontWeight: 700,
-                                  outline: 'none',
-                                }}
-                              />
-                            </div>
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdatePersonalNote(tx.id, inlineDraft || 'Noted', true, inlineMerch)}
-                                style={{
-                                  padding: '6px 12px',
-                                  borderRadius: 8,
-                                  border: 'none',
-                                  background: '#2563eb',
-                                  color: '#fff',
-                                  fontWeight: 800,
-                                  fontSize: 11,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ✓ Save &amp; Sync Purpose
-                              </button>
-                              {!isCredit && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSyncPurposeToUpiApp(tx, inlineDraft, inlineMerch)}
-                                  style={{
-                                    padding: '6px 10px',
-                                    borderRadius: 8,
-                                    border: '1px solid rgba(16, 185, 129, 0.4)',
-                                    background: 'rgba(16, 185, 129, 0.14)',
-                                    color: '#10b981',
-                                    fontWeight: 800,
-                                    fontSize: 11,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  📲 Sync to UPI App
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setInlineNoteDrafts((prev) => {
-                                    const next = { ...prev };
-                                    delete next[tx.id];
-                                    return next;
-                                  });
-                                  setInlineMerchantDrafts((prev) => {
-                                    const next = { ...prev };
-                                    delete next[tx.id];
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  padding: '6px 8px',
-                                  borderRadius: 8,
-                                  border: `1px solid ${palette.border}`,
-                                  background: palette.surface,
-                                  color: palette.textMuted,
-                                  fontWeight: 800,
-                                  fontSize: 11,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-            </>
-          )}
-        </div>
-      )}
+      {subTab === 'transactions' && transactionMemoryView}
 
       {/* ═══════════════════════════════════════════════════════════════════════
           SCREEN 10: EXPENSE INSIGHTS (OVERVIEW | CATEGORIES | METHODS | TRENDS)
