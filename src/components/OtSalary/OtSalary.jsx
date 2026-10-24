@@ -10,6 +10,8 @@ import {
   Clock3 as SalaryClock3,
   Fingerprint as SalaryFingerprint,
   LoaderCircle as SalaryLoaderCircle,
+  LogIn as SalaryLogIn,
+  LogOut as SalaryLogOut,
   Lightbulb as SalaryLightbulb,
   LockKeyhole as SalaryLockKeyhole,
   Moon as SalaryMoon,
@@ -42,6 +44,7 @@ import TimeIsMoneyIdentity from './TimeIsMoneyIdentity.jsx';
 import UpdateAlertsPanel from './UpdateAlertsPanel.jsx';
 import OtVoiceStatusPanel from './OtVoiceStatusPanel.jsx';
 import { formatOtClock } from './otDisplay.js';
+import LiveOtWorkspace, { LiveOtSummary } from './LiveOtWorkspace.jsx';
 import { previousView, shouldRearmBrowserGuard, visitView } from './navigationHistory.js';
 import { isOtaUpdateAvailable, isValidOtaBuild, isValidOtaVersion, resolveInstalledOtaStatus } from './otaUpdatePolicy.js';
 import {
@@ -6051,567 +6054,51 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
           </div>
         )}
 
-        {/* ⏰ LIVE NOTIFICATION BANNER: NORMAL OFFICE TIME ENDS & OT TIME STARTS */}
-        {otTimeStartedBanner && (
-          <div style={{
-            padding: '12px 14px',
-            borderRadius: 16,
-            background: isLight
-              ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
-              : 'linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(16, 185, 129, 0.18) 100%)',
-            border: '1.5px solid rgba(245, 158, 11, 0.65)',
-            boxShadow: ui.shadow,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 10,
-          }}>
-            <div style={{ minWidth: 0, flex: '1 1 160px' }}>
-              <div style={{ fontSize: 13, fontWeight: 950, color: isLight ? '#92400e' : '#fde68a' }}>
-                {otTimeStartedBanner.title}
-              </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: ui.textPrimary, marginTop: 2, lineHeight: 1.35 }}>
-                {otTimeStartedBanner.body}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setShowLiveOtRunnerModal(true)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 9,
-                  border: '1px solid rgba(16, 185, 129, 0.6)',
-                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                ⏱️ Live OT Screen
-              </button>
-              <button
-                type="button"
-                onClick={() => speakTimeCompletedOutLoud()}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 9,
-                  border: '1px solid rgba(245, 158, 11, 0.6)',
-                  background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                🔊 Speak
-              </button>
-              <button
-                type="button"
-                onClick={() => setOtTimeStartedBanner(null)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 9,
-                  border: `1px solid ${ui.border}`,
-                  background: ui.cardSubBg,
-                  color: ui.textPrimary,
-                  fontWeight: 800,
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                Got It ✓
-              </button>
+        {/* Shift-completion notice and live overtime workspace */}
+        {otTimeStartedBanner && Boolean(daysMap[todayIso]?.inTime) && (
+          <div className="tim-shift-notice">
+            <SalaryClock3 size={18} aria-hidden="true" />
+            <div className="tim-shift-notice-copy"><strong>{otTimeStartedBanner.title}</strong><p>{otTimeStartedBanner.body}</p></div>
+            <div className="tim-shift-notice-actions">
+              <button type="button" onClick={() => setShowLiveOtRunnerModal(true)}><SalaryClock3 size={14} aria-hidden="true" />Live OT screen</button>
+              <button type="button" onClick={() => speakTimeCompletedOutLoud()} title="Speak shift-completion alert" aria-label="Speak shift-completion alert"><SalaryBell size={14} aria-hidden="true" /></button>
+              <button type="button" onClick={() => setOtTimeStartedBanner(null)} title="Dismiss shift notice" aria-label="Dismiss shift notice"><SalaryCheck size={14} aria-hidden="true" /></button>
             </div>
           </div>
         )}
 
-        {/* ⏱️ PERSISTENT SECOND-BY-SECOND LIVE OT MINUTES & MONEY TOP CARD (Active whenever normal shift time completed & before OUT punch) */}
-        {liveOtTicker.isActive && (
-          <div
-            className="stitch-screen-card"
-            style={{
-              padding: '12px 14px',
-              borderRadius: 18,
-              background: isLight
-                ? 'linear-gradient(135deg, #ecfdf5 0%, #fef3c7 100%)'
-                : 'linear-gradient(135deg, rgba(6, 78, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 60%, rgba(120, 53, 15, 0.85) 100%)',
-              border: '1.5px solid rgba(16, 185, 129, 0.65)',
-              boxShadow: '0 10px 28px rgba(16, 185, 129, 0.22)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                <span
-                  style={{
-                    width: 9,
-                    height: 9,
-                    borderRadius: 999,
-                    background: '#10b981',
-                    boxShadow: '0 0 10px #10b981',
-                    flexShrink: 0,
-                  }}
-                />
-                <span style={{ fontSize: 11, fontWeight: 950, color: isLight ? '#065f46' : '#6ee7b7', letterSpacing: '0.02em' }}>
-                  IN {liveOtTicker.inTimeFormatted} → DUTY ENDED {liveOtTicker.officeEndFormatted} · LIVE OT
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => speakTimeCompletedOutLoud()}
-                  style={{
-                    padding: '4px 9px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(245, 158, 11, 0.55)',
-                    background: 'rgba(245, 158, 11, 0.2)',
-                    color: isLight ? '#92400e' : '#fcd34d',
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔊 Speak
-                </button>
-                <button
-                  type="button"
-                  onClick={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
-                  title="Hear the hourly OT voice announcement (e.g. '1 hour completed')"
-                  style={{
-                    padding: '4px 9px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(168, 85, 247, 0.55)',
-                    background: 'rgba(168, 85, 247, 0.2)',
-                    color: isLight ? '#6b21a8' : '#d8b4fe',
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔊 {Math.max(1, liveOtTicker.otHoursPart || 1)}h Voice
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTestLockScreenVoiceIn6Sec}
-                  title="Tap, then lock your phone or turn screen off — speaks in 6 seconds while locked"
-                  style={{
-                    padding: '4px 9px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(56, 189, 248, 0.55)',
-                    background: 'rgba(14, 165, 233, 0.2)',
-                    color: isLight ? '#0369a1' : '#7dd3fc',
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔒 Lock Test (6s)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowLiveOtRunnerModal(true)}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(16, 185, 129, 0.6)',
-                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                    color: '#ffffff',
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ⤢ Full Screen OT
-                </button>
-              </div>
-            </div>
-
-            {liveOtTicker.nextMilestoneFormatted && (
-              <div
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 850,
-                  color: isLight ? '#0f172a' : '#cbd5e1',
-                  background: isLight ? 'rgba(255,255,255,0.7)' : 'rgba(15, 23, 42, 0.55)',
-                  border: '1px solid rgba(148, 163, 184, 0.28)',
-                  borderRadius: 10,
-                  padding: '5px 10px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 6,
-                }}
-              >
-                <span>
-                  🔔 Hourly OT Voice: Next <strong>&ldquo;{liveOtTicker.nextMilestonePhrase}&rdquo;</strong> at{' '}
-                  <strong style={{ color: '#38bdf8' }}>{liveOtTicker.nextMilestoneFormatted}</strong>
-                </span>
-                <span style={{ color: '#10b981', fontWeight: 900 }}>Every 1 hr until OUT</span>
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
-              <div
-                onClick={() => setShowLiveOtRunnerModal(true)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 14,
-                  background: isLight ? 'rgba(255,255,255,0.85)' : 'rgba(2, 6, 23, 0.58)',
-                  border: '1px solid rgba(56, 189, 248, 0.4)',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#0369a1' : '#7dd3fc' }}>
-                  ⏱️ LIVE OT TIME (MIN &amp; SEC)
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 950, color: isLight ? '#0f172a' : '#f8fafc', marginTop: 2 }}>
-                  {liveOtTicker.stopwatchStr}
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 11, fontWeight: 800, color: '#38bdf8', marginTop: 2 }}>
-                  {liveOtTicker.minSecLabel} OT
-                </div>
-              </div>
-
-              <div
-                onClick={() => setShowLiveOtRunnerModal(true)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 14,
-                  background: isLight ? 'rgba(255,255,255,0.85)' : 'rgba(2, 6, 23, 0.58)',
-                  border: '1px solid rgba(16, 185, 129, 0.45)',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#047857' : '#6ee7b7' }}>
-                  💰 LIVE OT MONEY EARNED
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 950, color: '#10b981', marginTop: 2 }}>
-                  + ₹{liveOtTicker.liveOtMoney.toFixed(2)}
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 10.5, fontWeight: 800, color: ui.textSecondary, marginTop: 2 }}>
-                  ₹{liveOtTicker.otPerMinute.toFixed(2)}/min · ₹{formatINR(liveOtTicker.otPerHour)}/hr
-                </div>
-              </div>
-            </div>
-          </div>
+        {liveOtTicker.isActive && Boolean(daysMap[todayIso]?.inTime) && (
+          <LiveOtSummary
+            ticker={liveOtTicker}
+            visible={salaryBiometricVisible}
+            formatMoney={formatSalaryMask}
+            onOpen={() => setShowLiveOtRunnerModal(true)}
+            onSpeakShift={() => speakTimeCompletedOutLoud()}
+            onSpeakHour={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
+            onLockTest={handleTestLockScreenVoiceIn6Sec}
+          />
         )}
 
-        {/* ⏱️ FULL-SCREEN LIVE OT RUNNING STOPWATCH & MONEY MODAL (Opens automatically when normal shift time completes) */}
         {showLiveOtRunnerModal && (
-          <div
-            onClick={() => setShowLiveOtRunnerModal(false)}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 10005,
-              background: 'rgba(2, 6, 23, 0.88)',
-              backdropFilter: 'blur(14px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 14,
-              overflowY: 'auto',
+          <LiveOtWorkspace
+            ticker={liveOtTicker}
+            now={liveNow}
+            hasSavedPunchIn={Boolean(daysMap[todayIso]?.inTime)}
+            visible={salaryBiometricVisible}
+            formatMoney={formatSalaryMask}
+            renderPrivacyControl={renderSalaryEyeButton}
+            onClose={() => setShowLiveOtRunnerModal(false)}
+            onSignInChange={updateTodaySignInTimeLive}
+            defaultSignIn={settings.officeStartTime}
+            formatTime={formatTime12h}
+            onSpeakShift={() => speakTimeCompletedOutLoud()}
+            onSpeakHour={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
+            onLockTest={handleTestLockScreenVoiceIn6Sec}
+            onPunchOut={() => {
+              setShowLiveOtRunnerModal(false);
+              performBiometricPunch('out');
             }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                width: '100%',
-                maxWidth: 420,
-                borderRadius: 26,
-                padding: '18px 16px',
-                background: 'linear-gradient(160deg, #022c22 0%, #0f172a 52%, #1e1b4b 100%)',
-                border: '1.5px solid rgba(16, 185, 129, 0.65)',
-                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.75)',
-                color: '#f8fafc',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-              }}
-            >
-              {/* Header Row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.2)', border: '1px solid rgba(16, 185, 129, 0.5)', fontSize: 10.5, fontWeight: 950, color: '#6ee7b7' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
-                    <span>{liveOtTicker.isActive ? 'YOUR TIME HAS COMPLETED · LIVE OT' : 'OT SHIFT TRACKER'}</span>
-                  </div>
-                  <div style={{ fontSize: 15.5, fontWeight: 950, color: '#ffffff', marginTop: 6 }}>
-                    ⏰ Duty Ended at {liveOtTicker.officeEndFormatted} ({liveOtTicker.shiftDurationFormatted} Shift)
-                  </div>
-                  <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', marginTop: 2 }}>
-                    Sign-In: <strong style={{ color: '#38bdf8' }}>{liveOtTicker.inTimeFormatted}</strong> · Now: {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowLiveOtRunnerModal(false)}
-                  style={{
-                    padding: '6px 11px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(148, 163, 184, 0.35)',
-                    background: 'rgba(15, 23, 42, 0.7)',
-                    color: '#e2e8f0',
-                    fontWeight: 800,
-                    fontSize: 11.5,
-                    cursor: 'pointer',
-                  }}
-                >
-                  ⤡ Minimize
-                </button>
-              </div>
-
-              {/* Inline Sign-In Time Control (Calculates exact Duty End Time & Live OT from Sign-In Time) */}
-              <div
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: 14,
-                  background: 'rgba(15, 23, 42, 0.78)',
-                  border: '1px solid rgba(56, 189, 248, 0.35)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#cbd5e1' }}>
-                  🟢 Today Sign-In Time:
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <input
-                    type="time"
-                    value={liveOtTicker.inTime24h || '08:23'}
-                    onChange={(e) => updateTodaySignInTimeLive(e.target.value)}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(56, 189, 248, 0.5)',
-                      background: '#020617',
-                      color: '#38bdf8',
-                      fontWeight: 900,
-                      fontSize: 12,
-                      width: 'auto',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => updateTodaySignInTimeLive('08:23')}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: 8,
-                      border: liveOtTicker.inTime24h === '08:23' ? '1px solid #10b981' : '1px solid rgba(148, 163, 184, 0.3)',
-                      background: liveOtTicker.inTime24h === '08:23' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(30, 41, 59, 0.7)',
-                      color: liveOtTicker.inTime24h === '08:23' ? '#6ee7b7' : '#cbd5e1',
-                      fontSize: 10.5,
-                      fontWeight: 900,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    08:23 AM
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateTodaySignInTimeLive(settings.officeStartTime || '10:00')}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: 8,
-                      border: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? '1px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.3)',
-                      background: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? 'rgba(56, 189, 248, 0.22)' : 'rgba(30, 41, 59, 0.7)',
-                      color: liveOtTicker.inTime24h === (settings.officeStartTime || '10:00') ? '#7dd3fc' : '#cbd5e1',
-                      fontSize: 10.5,
-                      fontWeight: 900,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {formatTime12h(settings.officeStartTime || '10:00')}
-                  </button>
-                </div>
-              </div>
-
-              {/* Centerpiece 1: Live OT Stopwatch (Hours : Minutes : Seconds + Total OT Mins) */}
-              <div
-                style={{
-                  padding: '16px 14px',
-                  borderRadius: 20,
-                  background: 'rgba(2, 6, 23, 0.65)',
-                  border: '1.5px solid rgba(56, 189, 248, 0.45)',
-                  textAlign: 'center',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 900, color: '#7dd3fc', letterSpacing: '0.06em' }}>
-                  ⏱️ LIVE RUNNING OT TIME (HRS : MIN : SEC)
-                </div>
-                <div
-                  className="ot-tabular-nums"
-                  style={{
-                    fontSize: 40,
-                    fontWeight: 950,
-                    color: '#ffffff',
-                    letterSpacing: '0.03em',
-                    lineHeight: 1.1,
-                    textShadow: '0 0 24px rgba(56, 189, 248, 0.45)',
-                  }}
-                >
-                  {liveOtTicker.stopwatchStr}
-                </div>
-                <div
-                  className="ot-tabular-nums"
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 999,
-                    background: 'rgba(56, 189, 248, 0.18)',
-                    border: '1px solid rgba(56, 189, 248, 0.45)',
-                    color: '#38bdf8',
-                    fontSize: 13,
-                    fontWeight: 950,
-                  }}
-                >
-                  🔥 {liveOtTicker.minSecLabel} OT Completed
-                </div>
-              </div>
-
-              {/* Centerpiece 2: Live OT Money Earned (Ticking Every Second) */}
-              <div
-                style={{
-                  padding: '16px 14px',
-                  borderRadius: 20,
-                  background: 'rgba(6, 78, 59, 0.42)',
-                  border: '1.5px solid rgba(16, 185, 129, 0.6)',
-                  textAlign: 'center',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 900, color: '#6ee7b7', letterSpacing: '0.06em' }}>
-                  💰 LIVE OT MONEY EARNED SO FAR
-                </div>
-                <div
-                  className="ot-tabular-nums"
-                  style={{
-                    fontSize: 38,
-                    fontWeight: 950,
-                    color: '#34d399',
-                    letterSpacing: '-0.01em',
-                    lineHeight: 1.1,
-                    textShadow: '0 0 24px rgba(16, 185, 129, 0.45)',
-                  }}
-                >
-                  + ₹{liveOtTicker.liveOtMoney.toFixed(2)}
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 800, color: '#a7f3d0' }}>
-                  + ₹{liveOtTicker.otPerMinute.toFixed(2)} / min · + ₹{formatINR(liveOtTicker.otPerHour)} / hr
-                </div>
-              </div>
-
-              {/* 2-Column Summary Breakdown */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 8 }}>
-                <div style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(148, 163, 184, 0.25)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8' }}>Completed Mins OT</div>
-                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: '#f8fafc', marginTop: 2 }}>
-                    {liveOtTicker.totalOtMinutes} mins → + ₹{formatINR(liveOtTicker.completedMinsOtMoney)}
-                  </div>
-                </div>
-                <div style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(148, 163, 184, 0.25)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Today Base + Live OT</span>
-                    {renderSalaryEyeButton(true)}
-                  </div>
-                  <div className="ot-tabular-nums" style={{ fontSize: 15, fontWeight: 950, color: '#34d399', marginTop: 2 }}>
-                    {salaryBiometricVisible
-                      ? `₹${liveOtTicker.totalTodayPay.toFixed(2)}`
-                      : `Base + ₹${liveOtTicker.liveOtMoney.toFixed(2)}`}
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom Action Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => speakTimeCompletedOutLoud()}
-                  style={{
-                    padding: '12px 10px',
-                    borderRadius: 14,
-                    border: '1px solid rgba(245, 158, 11, 0.6)',
-                    background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
-                    color: '#ffffff',
-                    fontWeight: 950,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔊 Speak Alert
-                </button>
-                <button
-                  type="button"
-                  onClick={() => speakOtMilestoneOutLoud(Math.max(1, liveOtTicker.otHoursPart || 1))}
-                  style={{
-                    padding: '12px 10px',
-                    borderRadius: 14,
-                    border: '1px solid rgba(168, 85, 247, 0.65)',
-                    background: 'linear-gradient(135deg, #7e22ce 0%, #a855f7 100%)',
-                    color: '#ffffff',
-                    fontWeight: 950,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔊 {Math.max(1, liveOtTicker.otHoursPart || 1)} Hr Voice
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTestLockScreenVoiceIn6Sec}
-                  style={{
-                    padding: '12px 10px',
-                    borderRadius: 14,
-                    border: '1px solid rgba(56, 189, 248, 0.65)',
-                    background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
-                    color: '#ffffff',
-                    fontWeight: 950,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔒 Lock Test (6s)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowLiveOtRunnerModal(false);
-                    performBiometricPunch('out');
-                  }}
-                  style={{
-                    padding: '12px 10px',
-                    borderRadius: 14,
-                    border: '1px solid rgba(244, 63, 94, 0.65)',
-                    background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
-                    color: '#ffffff',
-                    fontWeight: 950,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔴 Punch OUT &amp; Save OT
-                </button>
-              </div>
-            </div>
-          </div>
+          />
         )}
 
         {/* 🔔 NOTIFICATIONS & ACTIVITY CENTER MODAL (Attendance + WhatsApp + Payments) */}
@@ -7137,194 +6624,40 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
               <button className="salary-text-action" type="button" title="View attendance" aria-label="View attendance" onClick={() => navigateTab('month')}><SalaryCalendarDays size={19} aria-hidden="true" /></button>
             </div>
-            {/* SECTION 1: CLEAN TODAY PUNCH & SHIFT HERO (TOP PRIORITY) */}
-            <div
-              className="stitch-screen-card salary-attendance"
-              style={{
-                padding: '16px',
-                borderRadius: 24,
-                background: ui.heroCardBg,
-                border: `1px solid ${ui.border}`,
-                boxShadow: ui.shadow,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-              }}
-            >
-              {/* Top Row: Live Digital Time + Date + Edit Button (Tap Header to Minimize / Maximize) */}
-              <div
-                onClick={() => toggleOtSection('sec_today_punch')}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-                title="Tap to minimize or maximize Today Punch Pad"
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                      className="ot-tabular-nums"
-                      style={{
-                        fontSize: 24,
-                        fontWeight: 900,
-                        color: ui.textPrimary,
-                        letterSpacing: '-0.02em',
-                      }}
-                    >
-                      {liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                    </span>
-                    <span style={{
-                      padding: '3px 8px',
-                      borderRadius: 999,
-                      background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.16)',
-                      color: '#059669',
-                      fontSize: 10.5,
-                      fontWeight: 800,
-                    }}>
-                      ● Live {collapsedOtSections.sec_today_punch ? '▸' : '▾'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: ui.textSecondary, fontWeight: 600, marginTop: 2 }}>
-                    {liveNow.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })} · Shift {formatTime12h(settings.officeStartTime)} – {formatTime12h(settings.officeEndTime)}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowManualEditor(true);
-                    }}
-                    style={{
-                      padding: '7px 12px',
-                      borderRadius: 12,
-                      border: `1px solid ${ui.border}`,
-                      background: ui.cardSubBg,
-                      color: ui.textPrimary,
-                      fontSize: 11.5,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✏️ Edit Day
-                  </button>
-                  <span style={{ fontSize: 12, fontWeight: 900, color: ui.textSecondary }}>
-                    {collapsedOtSections.sec_today_punch ? '▸' : '▾'}
-                  </span>
+            {/* Today's attendance uses the existing punch and editing controls. */}
+            <div className="stitch-screen-card salary-attendance tim-today-attendance">
+              <div className="tim-today-heading">
+                <div><h2>Today&apos;s attendance</h2><span className="tim-today-status"><span className="tim-state-dot" aria-hidden="true" />{daysMap[getTodayIsoDate()]?.outTime ? 'Shift saved' : daysMap[getTodayIsoDate()]?.inTime ? 'Signed in' : 'Not checked in'}</span></div>
+                <div className="tim-today-heading-actions">
+                  <button type="button" className="tim-today-edit" onClick={(e) => { e.stopPropagation(); setShowManualEditor(true); }}><SalarySettings2 size={15} aria-hidden="true" />Edit day</button>
+                  <button type="button" className="tim-today-collapse" aria-label={collapsedOtSections.sec_today_punch ? 'Expand attendance' : 'Collapse attendance'} aria-expanded={!collapsedOtSections.sec_today_punch} onClick={() => toggleOtSection('sec_today_punch')} title={collapsedOtSections.sec_today_punch ? 'Expand attendance' : 'Collapse attendance'}><SalaryChevronDown size={17} aria-hidden="true" /></button>
                 </div>
               </div>
-
               {!collapsedOtSections.sec_today_punch && (
                 <>
-              {/* Side-by-Side Clean Biometric Punch Buttons */}
-              <div className="salary-action-grid" style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 10,
-              }}>
-                {/* Punch IN */}
-                <button
-                  type="button"
-                  className="ot-biometric-pad-in"
-                  onClick={() => performBiometricPunch('in')}
-                  title="Touch Sensor — IN (Enter)"
-                  style={{
-                    padding: '14px 12px',
-                    borderRadius: 18,
-                    border: isLight ? '1px solid #a7f3d0' : '1px solid rgba(16, 185, 129, 0.4)',
-                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.15)',
-                    color: isLight ? '#065f46' : '#ecfdf5',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 14,
-                    background: '#10b981',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
-                    <TouchIdSvg
-                      variant="emerald"
-                      size={28}
-                      verified={Boolean(daysMap[getTodayIsoDate()]?.biometricIn)}
-                      scanning={biometricScanState.active && biometricScanState.direction === 'in'}
-                    />
+                  <div className="tim-today-clock-row">
+                    <div><span className="tim-label">Current time</span><time className="ot-tabular-nums">{liveNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</time></div>
+                    <button type="button" className="tim-today-live-link" onClick={() => setShowLiveOtRunnerModal(true)}><SalaryClock3 size={16} aria-hidden="true" /><span>Live OT tracker</span><SalaryChevronRight size={15} aria-hidden="true" /></button>
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 900 }}>
-                      Punch IN
-                    </div>
-                    <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 700, opacity: 0.85, marginTop: 1 }}>
-                      {daysMap[getTodayIsoDate()]?.inTime
-                        ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.inTime)}`
-                        : 'Tap to Enter'}
-                    </div>
+                  <dl className="tim-today-shift-data">
+                    <div><dt>Signed in</dt><dd>{daysMap[getTodayIsoDate()]?.inTime ? formatTime12h(daysMap[getTodayIsoDate()]?.inTime) : 'Not yet'}</dd></div>
+                    <div><dt>{daysMap[getTodayIsoDate()]?.inTime ? liveOtTicker.isCompletedShift ? 'Duty ended' : 'Duty ends' : 'Scheduled end'}</dt><dd>{daysMap[getTodayIsoDate()]?.inTime ? liveOtTicker.officeEndFormatted : formatTime12h(settings.officeEndTime)}</dd></div>
+                    <div><dt>Overtime</dt><dd>{daysMap[getTodayIsoDate()]?.inTime ? liveOtTicker.stopwatchStr : '00:00:00'}</dd></div>
+                  </dl>
+                  <div className="salary-action-grid tim-punch-grid">
+                    <button type="button" className="ot-biometric-pad-in" onClick={() => performBiometricPunch('in')} title="Touch Sensor — IN (Enter)">
+                      <span className="tim-punch-symbol"><TouchIdSvg variant="emerald" size={28} verified={Boolean(daysMap[getTodayIsoDate()]?.biometricIn)} scanning={biometricScanState.active && biometricScanState.direction === 'in'} /></span>
+                      <span className="tim-punch-copy"><strong>Punch IN</strong><span>{daysMap[getTodayIsoDate()]?.inTime ? formatTime12h(daysMap[getTodayIsoDate()]?.inTime) : 'Start your workday'}</span></span>
+                      <SalaryLogIn size={17} className="tim-punch-direction" aria-hidden="true" />
+                      <span style={{ display: 'none' }}>Touch Sensor — IN (Enter)</span>
+                    </button>
+                    <button type="button" className="ot-biometric-pad-out" onClick={() => performBiometricPunch('out')} title="Touch Sensor — OUT (Exit + OT)">
+                      <span className="tim-punch-symbol"><TouchIdSvg variant="gold" size={28} verified={Boolean(daysMap[getTodayIsoDate()]?.biometricOut)} scanning={biometricScanState.active && biometricScanState.direction === 'out'} /></span>
+                      <span className="tim-punch-copy"><strong>Punch OUT</strong><span>{daysMap[getTodayIsoDate()]?.outTime ? formatTime12h(daysMap[getTodayIsoDate()]?.outTime) : 'Finish and save'}</span></span>
+                      <SalaryLogOut size={17} className="tim-punch-direction" aria-hidden="true" />
+                      <span style={{ display: 'none' }}>Touch Sensor — OUT (Exit + OT)</span>
+                    </button>
                   </div>
-                  <span style={{ display: 'none' }}>Touch Sensor — IN (Enter)</span>
-                </button>
-
-                {/* Punch OUT */}
-                <button
-                  type="button"
-                  className="ot-biometric-pad-out"
-                  onClick={() => performBiometricPunch('out')}
-                  title="Touch Sensor — OUT (Exit + OT)"
-                  style={{
-                    padding: '14px 12px',
-                    borderRadius: 18,
-                    border: isLight ? '1px solid #fecdd3' : '1px solid rgba(244, 63, 94, 0.4)',
-                    background: isLight ? '#fff1f2' : 'rgba(244, 63, 94, 0.15)',
-                    color: isLight ? '#9f1239' : '#ffe4e6',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 14,
-                    background: '#f43f5e',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
-                    <TouchIdSvg
-                      variant="gold"
-                      size={28}
-                      verified={Boolean(daysMap[getTodayIsoDate()]?.biometricOut)}
-                      scanning={biometricScanState.active && biometricScanState.direction === 'out'}
-                    />
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 900 }}>
-                      Punch OUT
-                    </div>
-                    <div className="ot-tabular-nums" style={{ fontSize: 11.5, fontWeight: 700, opacity: 0.85, marginTop: 1 }}>
-                      {daysMap[getTodayIsoDate()]?.outTime
-                        ? `✓ ${formatTime12h(daysMap[getTodayIsoDate()]?.outTime)}`
-                        : 'Tap to Exit'}
-                    </div>
-                  </div>
-                  <span style={{ display: 'none' }}>Touch Sensor — OUT (Exit + OT)</span>
-                </button>
-              </div>
 
               {/* Quick OT Presets + 1-Tap WhatsApp Row */}
               <details className="time-money-shortcuts" style={{
@@ -7394,7 +6727,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       cursor: 'pointer',
                     }}
                   >
-                    🟢 Send IN Time Now
+                    <SalarySmartphone size={14} aria-hidden="true" /> Send IN time
                   </button>
                   <button
                     type="button"
@@ -7443,7 +6776,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                       cursor: 'pointer',
                     }}
                   >
-                    🔴 Send OUT + Payments
+                    <SalarySmartphone size={14} aria-hidden="true" /> Send OUT + payments
                   </button>
                 </div>
               </details>
@@ -7451,250 +6784,34 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               )}
             </div>
 
-            {/* SECTION 2: 2x2 GOOGLE STITCH BENTO SUMMARY GRID (Salary · OT · Today · Expenses) */}
-            <div className="salary-overview" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div
-                onClick={() => toggleOtSection('sec_today_bento')}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '2px 6px',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-                title="Tap to minimize or maximize Summary Tiles"
-              >
-                <span className="salary-overview-heading" style={{ fontSize: 11, fontWeight: 900, color: ui.textSecondary }}>
-                  {formattedMonthLabel} overview
-                </span>
-                <span style={{ fontSize: 11.5, fontWeight: 900, color: ui.textSecondary }}>
-                  {collapsedOtSections.sec_today_bento ? '▸ Show' : '▾ Hide'}
-                </span>
+            <div className="salary-overview tim-today-overview">
+              <div className="tim-today-overview-heading">
+                <div><span className="tim-label">Monthly earnings</span><h2>{formattedMonthLabel}</h2></div>
+                <button type="button" className="tim-today-collapse" aria-label={collapsedOtSections.sec_today_bento ? 'Expand earnings overview' : 'Collapse earnings overview'} aria-expanded={!collapsedOtSections.sec_today_bento} onClick={() => toggleOtSection('sec_today_bento')} title={collapsedOtSections.sec_today_bento ? 'Expand earnings overview' : 'Collapse earnings overview'}><SalaryChevronDown size={17} aria-hidden="true" /></button>
               </div>
-
               {!collapsedOtSections.sec_today_bento && (
-            <div className="salary-overview-stats" style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 10,
-            }}>
-              {/* Bento Tile 1: Net Salary */}
-              <div
-                className="stitch-bento-card salary-balance"
-                style={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  padding: '15px 14px',
-                  borderRadius: 22,
-                  background: ui.cardBg,
-                  border: `1px solid ${ui.border}`,
-                  boxShadow: ui.shadow,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 3,
-                    background: 'linear-gradient(90deg, #4f46e5, #0ea5e9)',
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Net salary receivable
-                  </span>
-                  {renderSalaryEyeButton(true)}
+                <div className="salary-overview-stats tim-today-metrics">
+                  <article className="tim-metric salary-balance">
+                    <div className="tim-metric-label"><span>Net salary receivable</span>{renderSalaryEyeButton(true)}</div>
+                    <strong className="ot-tabular-nums">{formatSalaryMask(monthSummary.fullMonthNetPayable)}</strong>
+                    <div className="tim-metric-footer"><span>Base {formatSalaryMask(rates.salary)}</span><button type="button" onClick={() => setShowCreditCycleEditor((v) => !v)} title="Edit salary credit cycle"><SalaryCalendarDays size={12} aria-hidden="true" />{creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}</button></div>
+                  </article>
+                  <article className="tim-metric salary-overtime-stat">
+                    <div className="tim-metric-label"><span>Overtime earned</span><SalaryClock3 size={16} aria-hidden="true" /></div>
+                    <strong className="ot-tabular-nums">{formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}</strong>
+                    <div className="tim-metric-footer"><span>{formatMinutesCompact(monthSummary.totalOtMins)} total OT</span><button type="button" onClick={() => setShowCreditCycleEditor((v) => !v)} title="Edit overtime payment cycle"><SalaryCalendarDays size={12} aria-hidden="true" />{creditCycles.otStartDay}–{creditCycles.otEndDay}</button></div>
+                  </article>
+                  <article className="tim-metric salary-today-stat">
+                    <div className="tim-metric-label"><span>Today&apos;s pay</span><button type="button" title="Edit today's attendance" aria-label="Edit today's attendance" onClick={() => setShowManualEditor(true)}><SalaryReceiptText size={16} aria-hidden="true" /></button></div>
+                    <strong className="ot-tabular-nums">{formatSalaryMask(activeDayPreview.totalPay)}</strong>
+                    <div className="tim-metric-footer"><span>{formatMinutesCompact(activeDayPreview.workedMins)} worked</span><span>OT {formatSalaryMask(activeDayPreview.otPay, '+₹')}</span></div>
+                  </article>
+                  <article className="tim-metric salary-expense-stat">
+                    <div className="tim-metric-label"><span>Expenses today</span><button type="button" title="Open expenses" aria-label="Open expenses" onClick={() => navigateTab('expenses')}><SalaryChevronRight size={16} aria-hidden="true" /></button></div>
+                    <strong className="ot-tabular-nums">₹{formatINR(expenseQuickStats.todaySpent)}</strong>
+                    <div className="tim-metric-footer"><span>Month ₹{formatINR(expenseQuickStats.spent)}</span><span>{expenseQuickStats.allTimeCount} transactions</span></div>
+                  </article>
                 </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: ui.textPrimary, letterSpacing: '-0.02em' }}>
-                  {formatSalaryMask(monthSummary.fullMonthNetPayable)}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  <span style={{ whiteSpace: 'nowrap' }}>Base {formatSalaryMask(rates.salary)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreditCycleEditor((v) => !v)}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: 999,
-                      border: `1px solid ${isLight ? 'rgba(37,99,235,0.35)' : 'rgba(56,189,248,0.4)'}`,
-                      background: isLight ? 'rgba(37,99,235,0.08)' : 'rgba(56,189,248,0.12)',
-                      color: isLight ? '#2563eb' : '#38bdf8',
-                      fontWeight: 800,
-                      fontSize: 9.5,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    📅 {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}
-                  </button>
-                </div>
-              </div>
-
-              {/* Bento Tile 2: Overtime Earned */}
-              <div
-                className="stitch-bento-card salary-overtime-stat"
-                style={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  padding: '15px 14px',
-                  borderRadius: 22,
-                  background: ui.cardBg,
-                  border: `1px solid ${ui.border}`,
-                  boxShadow: ui.shadow,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 3,
-                    background: 'linear-gradient(90deg, #10b981, #34d399)',
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Overtime ({formatMinutesCompact(monthSummary.totalOtMins)})
-                  </span>
-                  <span style={{
-                    padding: '2px 7px',
-                    borderRadius: 999,
-                    background: isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.16)',
-                    color: '#10b981',
-                    fontSize: 10,
-                    fontWeight: 800,
-                  }}>
-                    OT
-                  </span>
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 21, fontWeight: 900, color: isLight ? '#059669' : '#34d399', letterSpacing: '-0.02em' }}>
-                  {formatSalaryMask(monthSummary.totalOtPay + monthSummary.totalExtraAllowance, '+₹')}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  <span style={{ whiteSpace: 'nowrap' }}>{monthSummary.savedDaysCount}/{monthRows.length} Days</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreditCycleEditor((v) => !v)}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: 999,
-                      border: '1px solid rgba(245,158,11,0.45)',
-                      background: 'rgba(245,158,11,0.12)',
-                      color: '#f59e0b',
-                      fontWeight: 800,
-                      fontSize: 9.5,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    📅 {creditCycles.otStartDay}–{creditCycles.otEndDay}
-                  </button>
-                </div>
-              </div>
-
-              {/* Bento Tile 3: Today's Shift & Pay */}
-              <div
-                className="stitch-bento-card salary-today-stat"
-                onClick={() => setShowManualEditor(true)}
-                style={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  padding: '15px 14px',
-                  borderRadius: 22,
-                  background: ui.cardBg,
-                  border: `1px solid ${ui.border}`,
-                  boxShadow: ui.shadow,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  cursor: 'pointer',
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 3,
-                    background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Today&apos;s Pay
-                  </span>
-                  {false && <span>Today&apos;s Shift &amp; Pay Breakdown</span>}
-                  <span style={{ fontSize: 10.5, fontWeight: 800, color: isLight ? '#2563eb' : '#a78bfa' }}>
-                    {formatMinutesCompact(activeDayPreview.workedMins)}
-                  </span>
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 20, fontWeight: 900, color: ui.textPrimary }}>
-                  {formatSalaryMask(activeDayPreview.totalPay)}
-                </div>
-                <div style={{ fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  Base {formatSalaryMask(activeDayPreview.basePay)} · OT {formatSalaryMask(activeDayPreview.otPay, '+₹')}
-                </div>
-              </div>
-
-              {/* Bento Tile 4: Expense Memory Shortcut */}
-              <div
-                className="stitch-bento-card salary-expense-stat"
-                onClick={() => navigateTab('expenses')}
-                style={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  padding: '15px 14px',
-                  borderRadius: 22,
-                  background: ui.cardBg,
-                  border: `1px solid ${ui.border}`,
-                  boxShadow: ui.shadow,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  cursor: 'pointer',
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 3,
-                    background: 'linear-gradient(90deg, #f43f5e, #fb7185)',
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: ui.textSecondary }}>
-                    Expenses Today
-                  </span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: isLight ? '#2563eb' : '#38bdf8' }}>
-                    Open Expenses →
-                  </span>
-                </div>
-                <div className="ot-tabular-nums" style={{ fontSize: 20, fontWeight: 900, color: isLight ? '#e11d48' : '#fb7185' }}>
-                  ₹{formatINR(expenseQuickStats.todaySpent)}
-                </div>
-                <div style={{ fontSize: 10.5, color: ui.textSecondary, fontWeight: 600 }}>
-                  Month: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.allTimeCount} txns)
-                </div>
-              </div>
-            </div>
               )}
             </div>
 
@@ -7726,7 +6843,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               >
                 <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
-                    🏦 Salary &amp; OT Payment Credit Cycle Date
+                    Salary &amp; overtime payment dates
                   </div>
                   <div style={{ fontSize: 11, color: ui.textSecondary, fontWeight: 700, marginTop: 2 }}>
                     Salary: <span style={{ color: '#10b981' }}>{creditCycles.salaryStartDay}–{creditCycles.salaryEndDay}{creditCycles.salaryCreditDate ? ` (${creditCycles.salaryCreditDate})` : ''}</span>
@@ -7748,7 +6865,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {showCreditCycleEditor ? '▲ Hide' : '📅 + Add Date / Credit'}
+                  <SalaryCalendarDays size={14} aria-hidden="true" /> {showCreditCycleEditor ? 'Hide dates' : 'Add date / credit'}
                 </button>
               </div>
 
@@ -8479,8 +7596,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                         <button
                           key={cell.iso}
                           type="button"
-                          aria-label={`${cell.iso}, ${cell.isSaved ? `OT ${otClock} hours and minutes` : 'no saved attendance'}`}
-                          title={`${cell.iso} · ${cell.isSaved ? `OT ${otClock} (hours:minutes)` : 'No saved attendance'}`}
+                          aria-label={`${cell.iso}, ${cell.isSaved ? `${otClock} overtime hours and minutes` : 'no saved attendance'}`}
+                          title={`${cell.iso} · ${cell.isSaved ? `${otClock} (hours:minutes)` : 'No saved attendance'}`}
                           className="salary-calendar-day"
                           onClick={() => {
                             setSelectedDate(cell.iso);
@@ -8525,12 +7642,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                           <span>{cell.dayNum}</span>
                           {(hasOt || cell.isSaved) && (
                             <span style={{
-                              fontSize: 8.5,
+                              fontSize: 10,
                               fontWeight: 900,
                               color: isSel ? '#ffffff' : hasOt ? '#34d399' : '#60a5fa',
                               lineHeight: 1,
                             }}>
-                              {`OT ${otClock}`}
+                              {otClock}
                             </span>
                           )}
                         </button>

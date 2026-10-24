@@ -1,13 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+import { otaReleaseFor } from './ota-release.config.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig(({ mode }) => {
-  if (!['salary', 'udhaar'].includes(mode)) throw new Error('OTA builds require --mode salary or --mode udhaar.');
+  const release = otaReleaseFor(mode);
   const udhaar = mode === 'udhaar';
-  const bundleName = udhaar ? 'udhaar-bundle-1.0.11' : 'app-bundle-8.2.34';
+  const bundleName = release.bundleName;
   return {
     root,
     base: './',
@@ -19,7 +20,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'es2018',
-      outDir: `review/ota-release/${udhaar ? 'ota-udhaar' : 'ota'}`,
+      outDir: `review/ota-build/${mode}`,
       emptyOutDir: true,
       assetsInlineLimit: Number.MAX_SAFE_INTEGER,
       cssCodeSplit: false,

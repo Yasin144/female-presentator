@@ -1033,6 +1033,75 @@
   }
 }
 
+.salary-content > .tim-today-attendance { order: -1; grid-column: 1 / -1; }
+.salary-content > .tim-today-overview { order: 0; grid-column: 1 / -1; }
+.salary-pro .tim-today-attendance { padding: 24px !important; gap: 22px; }
+.tim-today-heading, .tim-today-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tim-today-heading h2 { margin: 0 0 5px; font-size: 16px; line-height: 1.35; font-weight: 800; }
+.tim-today-status { display: inline-flex; gap: 6px; align-items: center; color: var(--salary-muted); font-size: 10px; }
+.tim-today-heading-actions { flex: none; }
+.salary-pro .tim-today-edit, .salary-pro .tim-today-collapse { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 33px; padding: 7px 10px; border: 1px solid var(--salary-line); background: var(--salary-surface); color: var(--salary-ink); font-size: 11px; cursor: pointer; }
+.salary-pro .tim-today-collapse { width: 33px; padding: 0; flex: none; }
+.tim-today-collapse[aria-expanded='true'] svg { transform: rotate(180deg); }
+.tim-today-clock-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 18px; border-top: 1px solid var(--salary-line); }
+.tim-today-clock-row time { display: block; margin-top: 2px; font-size: 28px; font-weight: 800; line-height: 1.4; white-space: nowrap; }
+.salary-pro .tim-today-live-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 10px; background: var(--salary-green-soft); border: 1px solid transparent; color: var(--salary-green); font-size: 11px; cursor: pointer; }
+.tim-today-live-link > svg { flex: none; }
+.tim-today-shift-data { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); margin: 0; padding: 16px 0; border-top: 1px solid var(--salary-line); border-bottom: 1px solid var(--salary-line); gap: 15px; }
+.tim-today-shift-data dt { color: var(--salary-muted); font-size: 10px; }
+.tim-today-shift-data dd { color: var(--salary-ink); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 800; margin: 5px 0 0; white-space: nowrap; }
+.salary-pro .tim-punch-grid { gap: 14px; }
+.salary-pro .tim-punch-grid :is(.ot-biometric-pad-in,.ot-biometric-pad-out) { display: flex; align-items: center; min-height: 106px; padding: 19px !important; gap: 13px !important; }
+.tim-punch-symbol { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; }
+.tim-punch-symbol > div { box-shadow: none !important; }
+.tim-punch-copy { display: grid; gap: 4px; min-width: 0; }
+.tim-punch-copy strong { font-size: 14px; line-height: 1.3; }
+.tim-punch-copy > span { font-size: 11px; opacity: .8; line-height: 1.4; }
+.tim-punch-direction { margin-left: auto; flex: none; opacity: .7; }
+.tim-today-attendance .time-money-shortcuts { padding-top: 14px !important; }
+.tim-today-attendance .time-money-shortcuts summary { color: var(--salary-muted); }
+.tim-today-attendance .time-money-shortcuts button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.salary-pro .tim-today-overview { display: flex; gap: 17px !important; padding: 0 0 24px !important; }
+.tim-today-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.tim-today-overview-heading h2 { margin: 3px 0 0; font-size: 17px; font-weight: 800; line-height: 1.35; }
+.salary-pro .tim-today-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 0 !important; padding: 0; border-top: 1px solid var(--salary-line); border-left: 1px solid var(--salary-line); }
+.salary-pro .tim-today-metrics > .tim-metric { display: flex; flex-direction: column; gap: 13px; justify-content: space-between; padding: 19px !important; background: var(--salary-surface) !important; border: 0 !important; border-right: 1px solid var(--salary-line) !important; border-bottom: 1px solid var(--salary-line) !important; border-radius: 0 !important; }
+.tim-metric-label { display: flex; align-items: center; justify-content: space-between; min-height: 25px; gap: 8px; font-size: 11px; color: var(--salary-muted); }
+.tim-metric-label > svg { color: var(--salary-muted); flex: none; }
+.salary-pro .tim-metric-label > button { display: inline-flex; align-items: center; justify-content: center; min-width: 25px; min-height: 25px; border: 0 !important; padding: 3px 4px !important; background: transparent !important; color: var(--salary-muted) !important; cursor: pointer; }
+.salary-pro .tim-today-metrics .tim-metric > .ot-tabular-nums { font-size: 29px !important; font-weight: 800; line-height: 1.25; color: var(--salary-ink) !important; }
+.salary-pro .tim-today-metrics .salary-balance > .ot-tabular-nums { color: var(--salary-green) !important; }
+.salary-pro .tim-today-metrics .salary-expense-stat > .ot-tabular-nums { color: var(--salary-coral) !important; }
+.tim-metric-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px; color: var(--salary-muted); font-size: 10px; min-height: 24px; }
+.salary-pro .tim-metric-footer button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 3px 5px; border: 1px solid var(--salary-line); background: var(--salary-surface); color: var(--salary-muted); font-size: 10px; cursor: pointer; }
+.salary-credit-cycle > div:first-child button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+
+@media (min-width: 1320px) { .salary-pro .tim-today-metrics { grid-template-columns: repeat(4,minmax(0,1fr)) !important; } }
+@media (max-width: 599px) {
+  .salary-pro .tim-today-attendance { padding: 18px 14px !important; gap: 17px; }
+  .tim-today-heading h2 { font-size: 15px; }
+  .tim-today-heading-actions { gap: 6px; }
+  .salary-pro .tim-today-edit { padding: 7px 8px; font-size: 10px; }
+  .tim-today-clock-row { gap: 10px; }
+  .tim-today-clock-row time { font-size: 24px; }
+  .salary-pro .tim-today-live-link { padding: 8px; gap: 5px; font-size: 10px; }
+  .tim-today-live-link > span { max-width: 62px; text-align: left; }
+  .tim-today-shift-data { gap: 10px; }
+  .tim-today-shift-data dd { font-size: 12px; }
+  .salary-pro .tim-punch-grid { gap: 10px; }
+  .salary-pro .tim-punch-grid :is(.ot-biometric-pad-in,.ot-biometric-pad-out) { flex-direction: column; align-items: flex-start; min-height: 132px; padding: 14px !important; gap: 11px !important; }
+  .tim-punch-symbol { width: 34px; height: 34px; }
+  .tim-punch-copy strong { font-size: 13px; }
+  .tim-punch-copy > span { font-size: 10px; }
+  .tim-punch-direction { position: absolute; right: 14px; top: 23px; }
+  .salary-pro .tim-today-metrics > .tim-metric { padding: 15px 12px !important; gap: 10px; }
+  .salary-pro .tim-today-metrics .tim-metric > .ot-tabular-nums { font-size: 24px !important; }
+  .tim-metric-label { font-size: 10px; gap: 4px; }
+  .tim-metric-footer { font-size: 9px; }
+}
+
+@media (max-width: 380px) { .tim-today-clock-row time { font-size: 22px; } .tim-today-live-link > span { max-width: 54px; } .tim-metric-label > span { max-width: 96px; } }
+
 @media (prefers-reduced-motion: reduce) {
   .salary-pro *,
   .salary-pro *::before,

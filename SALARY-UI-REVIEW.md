@@ -8,6 +8,9 @@ Based on Yasin144/female-presentator main at `6df2d4ac23372d016b4825c83402def388
 - New clock/book identities, matching adaptive Android icons, bundled offline font, clear icons, member initials, light/dark surfaces and responsive layouts.
 - Five main destinations, compact tools, attendance shortcuts, clearer salary metrics, ledger totals and entry forms.
 - Back closes the current editor/dialog first, then returns through visited sections instead of forcing Home. Expense subview history is retained.
+- Transactions are bounded inside their own scroll panel; totals, filters and actions stay outside. Reading position is retained through incoming captures and detail/back navigation.
+- Today and the live OT screen use a clear elapsed-time display, workday timeline and masked earnings. Empty attendance shows Not checked in instead of implying a saved shift.
+- Calendar duration labels contain only HH:MM digits, with accessible overtime descriptions retained.
 - Native WorkManager update checks with a 15-minute minimum interval, network constraints and one-time checks on open. Android may delay delivery.
 - Native update notifications with a fixed public sound URI, optional spoken sound and explicit opt-in for alarm audio in silent mode. No volume forcing, DND bypass or automatic battery exemptions.
 - Native check completion/error status, permission refresh, channel diagnostics and separate OT/update notification settings.
@@ -50,6 +53,7 @@ The original signing keystores are required before producing a data-preserving i
 - Light/dark themes checked in both apps. Clean reloads reported no browser console errors.
 - After the empty-ledger repair, all five current screens were revisited at the existing 390px salary viewport without a display error or document overflow. The earlier 20 width combinations precede the last transaction styling refinements; the latest regression report records actual measured widths.
 - Screenshots and responsive reports are in ignored `review/` output.
+- Follow-up layout checks cover 120 versus 1,000 transactions without a page-height increase, plus keyboard scrolling and exact scroll restoration. OT live/saved/empty states passed at 320, 390 and 1440 pixels with no horizontal overflow or unmasked earnings. These checks use isolated synthetic fixtures; no real attendance or transaction records were changed.
 
 ## Previews and device boundary
 

@@ -24,14 +24,18 @@ export default function ExpenseTransactions({
 }) {
   const ownReadingRef = useRef(null);
   const readingRef = readingStateRef || ownReadingRef;
+  const listRef = useRef(null);
   const [snapshot, setSnapshot] = useState(() => reconcileTransactionReadingOrder(readingRef.current, transactions, JSON.stringify(filters)));
   const key = JSON.stringify(filters);
   const stable = reconcileTransactionReadingOrder(snapshot, transactions, key);
   const view = transactionReadingView(stable, transactions);
   useLayoutEffect(() => {
-    readingRef.current = stable;
+    const saved = readingRef.current;
+    const scrollTop = saved?.filterKey === key && Number.isFinite(saved.scrollTop) ? Math.max(0, saved.scrollTop) : 0;
+    readingRef.current = { ...stable, scrollTop };
+    if (listRef.current) listRef.current.scrollTop = scrollTop;
     if (stable !== snapshot) setSnapshot(stable);
-  }, [readingRef, stable, snapshot]);
+  }, [readingRef, stable, snapshot, key]);
   const summary = useMemo(() => transactions.reduce((total, tx) => {
     total[transactionIsIncoming(tx) ? 'in' : 'out'] += Number(tx.amount) || 0;
     if (!transactionMemory(tx)) total.missing++;
@@ -48,8 +52,12 @@ export default function ExpenseTransactions({
   }, [view.rows]);
   const moreFilters = expandedFilters;
   const filter = (name, value) => onFilter(name, value);
+  const rememberScroll = () => {
+    readingRef.current = { ...stable, scrollTop: listRef.current?.scrollTop || 0 };
+  };
   const showNew = () => {
-    const next = { filterKey: key, ids: [...new Set(transactions.map(tx => String(tx.id)))] };
+    const next = { filterKey: key, ids: [...new Set(transactions.map(tx => String(tx.id)))], scrollTop: 0 };
+    if (listRef.current) listRef.current.scrollTop = 0;
     readingRef.current = next;
     setSnapshot(next);
   };
@@ -92,13 +100,13 @@ export default function ExpenseTransactions({
       <div className="expense-live-slot" aria-live="polite" aria-atomic="true">
         {view.pendingCount ? <button type="button" onClick={showNew}><RefreshCw size={16} aria-hidden="true" />View {view.pendingCount} new transaction{view.pendingCount === 1 ? '' : 's'}</button> : <span><CheckCheck size={16} aria-hidden="true" /> {scanning ? 'Checking for new payments…' : 'Auto capture keeps your place'}</span>}
       </div>
-      <div className="expense-passbook-list" aria-label="Saved transaction list">
+      <div className="expense-passbook-list" ref={listRef} role="region" tabIndex={0} aria-label="Saved transaction list" onScroll={rememberScroll}>
         {!groups.length && <div className="expense-passbook-empty"><NotebookPen size={30} aria-hidden="true" /><h3>{transactions.length ? 'No payments shown yet' : 'No transactions match'}</h3><p>Try all dates or clear your search. You can also add a payment yourself.</p><button className="expense-quiet-action" type="button" onClick={onReset}>Clear filters</button></div>}
         {groups.map(([date, items]) => <section className="expense-day-group" key={date} aria-label={dateLabel(date, today)}>
           <h3>{dateLabel(date, today)}<span>{items.length} record{items.length === 1 ? '' : 's'}</span></h3>
           {items.map(tx => {
             const incoming = transactionIsIncoming(tx), note = transactionMemory(tx);
-            return <button type="button" className="expense-memory-row" key={tx.id} data-transaction-id={tx.id} onClick={() => onOpen(tx.id)} aria-label={`${incoming ? 'Received from' : 'Paid to'} ${transactionPerson(tx)}, ₹${money(tx.amount)}. ${note || 'Add a memory note'}`}>
+            return <button type="button" className="expense-memory-row" key={tx.id} data-transaction-id={tx.id} onClick={() => { rememberScroll(); onOpen(tx.id); }} aria-label={`${incoming ? 'Received from' : 'Paid to'} ${transactionPerson(tx)}, ₹${money(tx.amount)}. ${note || 'Add a memory note'}`}>
               <span className={`expense-person-avatar ${incoming ? 'is-incoming' : ''}`} aria-hidden="true">{transactionInitials(tx)}</span>
               <span className="expense-row-person"><span className="expense-row-direction">{incoming ? 'Received from' : 'Paid to'}</span><strong>{transactionPerson(tx)}</strong></span>
               <span className={`expense-row-amount ${incoming ? 'is-incoming' : ''}`}>{incoming ? '+' : '−'}₹{money(tx.amount)}</span>
