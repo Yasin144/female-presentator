@@ -71,6 +71,12 @@ electron-screen.png
 .gemini_api_key
 .env
 .env.*
+*.keystore
+*.jks
+*.p12
+*.pfx
+**/key.properties
+**/signing.properties
 frame_test.jpg
 
 # Machine-local development/runtime artifacts

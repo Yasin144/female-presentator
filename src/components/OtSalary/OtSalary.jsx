@@ -44,6 +44,9 @@ import TimeIsMoneyIdentity from './TimeIsMoneyIdentity.jsx';
 import UpdateAlertsPanel from './UpdateAlertsPanel.jsx';
 import OtVoiceStatusPanel from './OtVoiceStatusPanel.jsx';
 import { formatOtClock } from './otDisplay.js';
+import { openWhatsAppReport } from './whatsAppHandoff.js';
+import WhatsAppReportRecovery from './WhatsAppReportRecovery.jsx';
+import './WhatsAppReportRecovery.css';
 import LiveOtWorkspace, { LiveOtSummary } from './LiveOtWorkspace.jsx';
 import { previousView, shouldRearmBrowserGuard, visitView } from './navigationHistory.js';
 import { isOtaUpdateAvailable, isValidOtaBuild, isValidOtaVersion, resolveInstalledOtaStatus } from './otaUpdatePolicy.js';
@@ -1287,6 +1290,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
   const [changeMobileSyncCodeInput, setChangeMobileSyncCodeInput] = useState('');
 
   const [settings, setSettings] = useState(initialStore.settings);
+  const [preparedWhatsAppReport, setPreparedWhatsAppReport] = useState(null);
+  useEffect(() => { setPreparedWhatsAppReport(null); }, [activeAccountEmail]);
   const [daysMap, setDaysMap] = useState(initialStore.days);
   const [expensesMap, setExpensesMap] = useState(initialStore.expenses || {});
   const expensesMapRef = useRef(initialStore.expenses || {});
@@ -3537,7 +3542,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(
       settings,
       nextDays,
-      `Saved ${selectedDate} (${formatTime12h(entryInTime)} – ${entryOutTime ? formatTime12h(entryOutTime) : 'Pending OUT'}) · WhatsApp Sent`
+      `Saved ${selectedDate} (${formatTime12h(entryInTime)} – ${entryOutTime ? formatTime12h(entryOutTime) : 'Pending OUT'}) · WhatsApp report ready`
     );
     if (String(entryOutTime || '').trim()) {
       sendWhatsAppAttendanceAndPaymentAlert('out', {
@@ -4157,27 +4162,9 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       ].filter(Boolean).join('\n');
     }
 
-    if (typeof window !== 'undefined') {
-      try {
-        const waBridge = window.PattanBiometric || window.PattanBiometricBridge || window.PattanSecureWhatsApp;
-        if (waBridge && typeof waBridge.sendWhatsAppMessageToNumber === 'function') {
-          const ok = waBridge.sendWhatsAppMessageToNumber(targetPhoneE164, messageText);
-          if (ok !== false) return true;
-        }
-      } catch (_) {}
-      try {
-        const encoded = encodeURIComponent(messageText);
-        const isMobileUa = /Android|iPhone|iPad|iPod/i.test(String(navigator?.userAgent || ''));
-        if (isMobileUa) {
-          window.location.href = `whatsapp://send?phone=${targetPhoneE164}&text=${encoded}`;
-          return true;
-        }
-        const waUrl = `https://api.whatsapp.com/send?phone=${targetPhoneE164}&text=${encoded}`;
-        window.open(waUrl, '_blank', 'noopener,noreferrer');
-        return true;
-      } catch (_) {}
-    }
-    return false;
+    const result = openWhatsAppReport(typeof window === 'undefined' ? null : window, targetPhoneE164, messageText);
+    setPreparedWhatsAppReport({ direction, text: messageText, status: result.status });
+    return result.status !== 'failed';
   }, [settings.employeeName, settings.officeStartTime]);
 
   // Instant Sign-In Time updater (used from Live OT Screen & Today Screen so OT recalculates from exact Sign-In Time)
@@ -4510,8 +4497,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       settings,
       nextDays,
       isBiometric
-        ? `✓ Touch ID IN Verified at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp Sent`
-        : `🟢 Punched Enter at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp Sent`
+        ? `✓ Touch ID IN Verified at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp report ready`
+        : `🟢 Punched Enter at ${formatTime12h(nowHHMM)} (${todayIso}) · WhatsApp report ready`
     );
     sendWhatsAppAttendanceAndPaymentAlert('in', {
       date: todayIso,
@@ -4583,8 +4570,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       settings,
       nextDays,
       isBiometric
-        ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp Sent`
-        : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp Sent`
+        ? `✓ Touch ID OUT Verified at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp report ready`
+        : `🔴 Punched Exit at ${formatTime12h(nowHHMM)} (+${formatMinutesCompact(otMins)} OT saved) · WhatsApp report ready`
     );
 
     sendWhatsAppAttendanceAndPaymentAlert('out', {
@@ -4729,7 +4716,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(
       settings,
       nextDays,
-      `⚡ Saved Today (${todayIso}): ${formatTime12h(inTime)} → ${formatTime12h(outTime)} (+${otHoursValue}h OT) · WhatsApp Sent`
+      `⚡ Saved Today (${todayIso}): ${formatTime12h(inTime)} → ${formatTime12h(outTime)} (+${otHoursValue}h OT) · WhatsApp report ready`
     );
     sendWhatsAppAttendanceAndPaymentAlert('out', {
       date: todayIso,
@@ -6097,6 +6084,18 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             onPunchOut={() => {
               setShowLiveOtRunnerModal(false);
               performBiometricPunch('out');
+            }}
+          />
+        )}
+
+        {preparedWhatsAppReport && (
+          <WhatsAppReportRecovery
+            key={preparedWhatsAppReport.text}
+            report={preparedWhatsAppReport}
+            onDismiss={() => setPreparedWhatsAppReport(null)}
+            onRetry={() => {
+              const result = openWhatsAppReport(window, '917386726193', preparedWhatsAppReport.text);
+              setPreparedWhatsAppReport((report) => report && { ...report, status: result.status });
             }}
           />
         )}

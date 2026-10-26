@@ -15,7 +15,7 @@
         "ota:validate": "node scripts/stage-mobile-ota.mjs --validate-only",
         "ota:stage:salary": "node scripts/stage-mobile-ota.mjs --app salary",
         "ota:validate:salary": "node scripts/stage-mobile-ota.mjs --app salary --validate-only",
-        "test:mobile-apps": "node scripts/test-salary-ui.cjs && node scripts/test-navigation-history.cjs && node scripts/test-ota-update-policy.cjs && node scripts/test-ot-reminders.cjs && node scripts/test-transaction-presentation.cjs && node scripts/test-transaction-memory.cjs",
+        "test:mobile-apps": "node scripts/test-salary-ui.cjs && node scripts/test-navigation-history.cjs && node scripts/test-ota-update-policy.cjs && node scripts/test-ot-reminders.cjs && node scripts/test-transaction-presentation.cjs && node scripts/test-transaction-memory.cjs && node scripts/test-whatsapp-attendance.cjs",
         "android:mobile-apps": "npm run build:mobile-apps && npx cap sync android && cd android && gradlew.bat testSalaryDebugUnitTest testUdhaarDebugUnitTest assembleSalaryDebug assembleUdhaarDebug",
         "android:add": "npx cap add android",
         "android:sync": "npm run build:mobile-apps && npx cap sync android",

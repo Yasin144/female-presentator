@@ -1,10 +1,10 @@
 {
-  "version": "8.2.35",
-  "buildId": "ota_8_2_35_bounded_transactions_live_ot",
-  "releasedAt": "2026-10-24T11:59:35.359Z",
-  "jsFile": "app-bundle-8.2.35.js",
-  "cssFile": "app-bundle-8.2.35.css",
-  "notes": "v8.2.35: Transactions stay in a bounded scroll panel and preserve your reading position. Today attendance and the live OT timer have a refreshed layout, and calendar overtime values show time digits without the OT label. Existing records, calculations and biometric protection are preserved.",
-  "jsSha256": "077a868d6cd79c40a8af3d66801f7ca98b0879b3e22a5e7a1cec04e54f009a12",
-  "cssSha256": "a836f262886742181e9ab47d9361cfc160d6df8b8f2156c75678e6fd0ebbc5ac"
+  "version": "8.2.36",
+  "buildId": "ota_8_2_36_whatsapp_report_recovery",
+  "releasedAt": "2026-10-26T03:43:38.035Z",
+  "jsFile": "app-bundle-8.2.36.js",
+  "cssFile": "app-bundle-8.2.36.css",
+  "notes": "v8.2.36: Keep the full IN/OUT WhatsApp report available with Copy and Retry when WhatsApp opens empty. Punch notices now say report ready rather than sent. Existing attendance, expenses and calculations are preserved. Full-text native sharing and screen-off spoken alerts still require the compatible signed APK.",
+  "jsSha256": "2dba9f32d6fabeaefe034d11b3cb9ca2da5b46e8818c602382de9a3f284dd509",
+  "cssSha256": "cf12e1ff038309e482209c6983337b33866c1dcd8818b3c9dfcd27ca08ba5f7f"
 }

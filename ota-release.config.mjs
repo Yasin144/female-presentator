@@ -1,9 +1,9 @@
 export const OTA_RELEASES = Object.freeze([
   Object.freeze({
-    mode: 'salary', directory: 'ota', version: '8.2.35',
-    buildId: 'ota_8_2_35_bounded_transactions_live_ot',
-    bundleName: 'app-bundle-8.2.35', manifestFile: 'ota-manifest.json',
-    notes: 'v8.2.35: Transactions stay in a bounded scroll panel and preserve your reading position. Today attendance and the live OT timer have a refreshed layout, and calendar overtime values show time digits without the OT label. Existing records, calculations and biometric protection are preserved.',
+    mode: 'salary', directory: 'ota', version: '8.2.36',
+    buildId: 'ota_8_2_36_whatsapp_report_recovery',
+    bundleName: 'app-bundle-8.2.36', manifestFile: 'ota-manifest.json',
+    notes: 'v8.2.36: Keep the full IN/OUT WhatsApp report available with Copy and Retry when WhatsApp opens empty. Punch notices now say report ready rather than sent. Existing attendance, expenses and calculations are preserved. Full-text native sharing and screen-off spoken alerts still require the compatible signed APK.',
   }),
   Object.freeze({
     mode: 'udhaar', directory: 'ota-udhaar', version: '1.0.11',

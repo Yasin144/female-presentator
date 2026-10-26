@@ -1,0 +1,8 @@
+.tim-whatsapp-report { margin: 14px 0; padding: 16px; border: 1px solid var(--salary-border, #304458); border-radius: 18px; background: var(--salary-surface, #112132); color: var(--salary-text, #edf6ff); }
+.tim-whatsapp-report-heading, .tim-whatsapp-report-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tim-whatsapp-report p { font-size: 13px; line-height: 1.5; }
+.tim-whatsapp-report button { padding: 10px 12px; border-radius: 10px; border: 1px solid #48627b; background: #19394b; color: #f3fbff; cursor: pointer; }
+.tim-whatsapp-report summary { cursor: pointer; padding: 8px 0; font-size: 13px; }
+.tim-whatsapp-report textarea { box-sizing: border-box; width: 100%; min-height: 180px; max-height: 300px; padding: 12px; resize: vertical; background: #0b1724; color: #f3fbff; border: 1px solid #48627b; border-radius: 10px; font: inherit; font-size: 13px; }
+.tim-whatsapp-report-actions { margin-top: 12px; flex-wrap: wrap; justify-content: flex-start; }
+.tim-whatsapp-report button:focus-visible, .tim-whatsapp-report textarea:focus-visible, .tim-whatsapp-report summary:focus-visible { outline: 3px solid #55d9c0; outline-offset: 3px; }
