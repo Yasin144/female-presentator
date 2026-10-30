@@ -116,7 +116,7 @@ export default function ExpenseTransactions({
           })}
         </section>)}
       </div>
-      {!compact && <footer className="expense-passbook-footer"><button type="button" className="expense-quiet-action" disabled={scanning} onClick={onSync}><RefreshCw size={16} aria-hidden="true" />{scanning ? 'Checking…' : 'Fetch payments'}</button><button type="button" className="expense-quiet-action" onClick={onExport}><Download size={16} aria-hidden="true" />Export CSV</button></footer>}
+      {!compact && <footer className="expense-passbook-footer"><button type="button" className="expense-quiet-action" disabled={scanning} onClick={onSync}><RefreshCw size={16} aria-hidden="true" />{scanning ? 'Checking…' : 'Fetch payments'}</button><button type="button" className="expense-quiet-action" onClick={onExport}><Download size={16} aria-hidden="true" />Export expenses</button></footer>}
     </section>
   );
 }

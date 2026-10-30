@@ -1,9 +1,9 @@
 export const OTA_RELEASES = Object.freeze([
   Object.freeze({
-    mode: 'salary', directory: 'ota', version: '8.2.36',
-    buildId: 'ota_8_2_36_whatsapp_report_recovery',
-    bundleName: 'app-bundle-8.2.36', manifestFile: 'ota-manifest.json',
-    notes: 'v8.2.36: Keep the full IN/OUT WhatsApp report available with Copy and Retry when WhatsApp opens empty. Punch notices now say report ready rather than sent. Existing attendance, expenses and calculations are preserved. Full-text native sharing and screen-off spoken alerts still require the compatible signed APK.',
+    mode: 'salary', directory: 'ota', version: '8.2.37',
+    buildId: 'ota_8_2_37_datewise_expense_exports',
+    bundleName: 'app-bundle-8.2.37', manifestFile: 'ota-manifest.json',
+    notes: 'v8.2.37: Export completed expenses for one date, a date range or all dates. Prepare date-wise WhatsApp messages, copy a table for Excel, or download an Excel workbook in supported browsers. Direct Android .xlsx saving needs the signed APK update. Income and refunds are excluded; existing records and calculations are preserved.',
   }),
   Object.freeze({
     mode: 'udhaar', directory: 'ota-udhaar', version: '1.0.11',

@@ -106,11 +106,12 @@ for (const relative of [
   'src/components/OtSalary/LiveOtWorkspace.jsx',
   'src/components/OtSalary/ExpenseTransactions.jsx',
   'src/components/OtSalary/ExpenseTransactionDetails.jsx',
+  'src/components/OtSalary/ExpenseExportPanel.jsx',
   'src/salary-preview.jsx', 'src/udhaar-preview.jsx', 'mobile-shell/main.jsx',
 ]) {
   parse(fs.readFileSync(path.join(root, relative), 'utf8'));
 }
-for (const name of ['SalaryPro.css', 'SalaryExpenses.css', 'ExpenseTransactions.css', 'UdhaarPro.css', 'UpdateAlerts.css', 'OtVoice.css', 'LiveOtView.css', 'OtSalary.css']) {
+for (const name of ['SalaryPro.css', 'SalaryExpenses.css', 'ExpenseTransactions.css', 'ExpenseExportPanel.css', 'UdhaarPro.css', 'UpdateAlerts.css', 'OtVoice.css', 'LiveOtView.css', 'OtSalary.css']) {
   postcss.parse(fs.readFileSync(path.join(root, 'src/components/OtSalary', name), 'utf8'));
 }
 for (const label of ['Today attendance', 'Expenses', 'Attendance calendar', 'Monthly salary slip', 'Shift rules and settings']) {

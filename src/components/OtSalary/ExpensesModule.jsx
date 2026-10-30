@@ -13,6 +13,7 @@ import {
 import './SalaryExpenses.css';
 import ExpenseTransactions from './ExpenseTransactions.jsx';
 import ExpenseTransactionDetails from './ExpenseTransactionDetails.jsx';
+import ExpenseExportPanel from './ExpenseExportPanel.jsx';
 import { saveTransactionMemoryRecord } from './transactionPresentation.js';
 import { expenseViewFromKey, expenseViewKey, previousView, visitView } from './navigationHistory.js';
 import {
@@ -27,7 +28,6 @@ import {
   suggestNotesAndCategoryForMerchant,
   computeExpenseAnalytics,
   answerNaturalLanguageFinanceQuery,
-  formatTransactionsCsv,
   launchUpiPayment,
   ALLOWED_PAYMENT_PACKAGES,
   getExpenseStorageStatus,
@@ -322,6 +322,7 @@ export default function ExpensesModule({
 
   // Quick-Add / Edit Modal
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showExpenseExport, setShowExpenseExport] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
   const [formAmount, setFormAmount] = useState('');
   const [formType, setFormType] = useState('debit');
@@ -2778,17 +2779,7 @@ export default function ExpensesModule({
     }
   };
 
-  const handleExportExpensesCsv = () => {
-    const csv = formatTransactionsCsv(sourceTransactionsForList);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Expense-Memory-${selectedMonth}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setScanStatus('✅ Your CSV report is ready.');
-  };
+  const handleOpenExpenseExport = () => setShowExpenseExport(true);
 
   const handleExportExpensesJson = () => {
     const payload = JSON.stringify(
@@ -3075,6 +3066,7 @@ export default function ExpensesModule({
   };
 
   expenseBackRef.current = () => {
+    if (showExpenseExport) { setShowExpenseExport(false); return 'handled'; }
     if (showSuggestionModal) { setShowSuggestionModal(false); return 'handled'; }
     if (showAddModal) { setShowAddModal(false); return 'handled'; }
     if (showSmsPasteModal) { setShowSmsPasteModal(false); return 'handled'; }
@@ -3134,7 +3126,7 @@ export default function ExpensesModule({
             setFilterMinAmount(''); setFilterMaxAmount(''); setFilterDateFrom(''); setFilterDateTo('');
           }}
           onAdd={() => openQuickAddModal(null)} onSync={() => triggerMobileTransactionScan(3650)}
-          scanning={isScanning} onOpen={setSelectedTxId} onExport={handleExportExpensesCsv}
+          scanning={isScanning} onOpen={setSelectedTxId} onExport={handleOpenExpenseExport}
           expandedFilters={showAdvancedFilters} onToggleFilters={() => setShowAdvancedFilters(value => !value)}
         />
   );
@@ -3158,13 +3150,14 @@ export default function ExpensesModule({
 
   return (
     <div className="salary-expenses-root" data-expense-view={subTab} data-color-mode={isLight ? 'light' : 'dark'} style={{ color: palette.text }}>
+      {showExpenseExport && <ExpenseExportPanel transactions={analytics.allActiveList} defaultDate={periodFilterMode === 'date' ? filterSpecificDate : todayIso} onClose={() => setShowExpenseExport(false)} />}
       <div className="salary-expenses-tabs" role="group" aria-label="Expense views">
         {[
           { id: 'overview', label: 'Overview', icon: ExpenseLayoutDashboard },
           { id: 'transactions', label: 'Transactions', icon: ExpenseListOrdered, count: analytics.allTimeCount || analytics.totalCount || 0 },
           { id: 'insights', label: 'Insights', icon: ExpenseChartNoAxesCombined },
           { id: 'missing-notes', label: 'Notes', icon: ExpenseNotebookPen, count: analytics.missingNotesCount },
-          { id: 'settings', label: 'Sync & CSV', icon: ExpenseRefreshCw },
+          { id: 'settings', label: 'Sync & export', icon: ExpenseRefreshCw },
         ].map((tab) => {
           const TabIcon = tab.icon;
           return (
@@ -5695,7 +5688,7 @@ export default function ExpensesModule({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
             <button
               type="button"
-              onClick={handleExportExpensesCsv}
+              onClick={handleOpenExpenseExport}
               style={{
                 padding: '12px',
                 borderRadius: 14,
@@ -5707,7 +5700,7 @@ export default function ExpensesModule({
                 cursor: 'pointer',
               }}
             >
-              📥 Export Statement CSV
+              📥 Export Expenses · Excel / WhatsApp
             </button>
             <button
               type="button"
