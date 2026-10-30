@@ -57,7 +57,7 @@ public final class UpdateAlertManager {
 
     static String selectedChannel(Context context) {
         SharedPreferences p = prefs(context);
-        return UpdateAlertPolicy.channelId(p.getBoolean("spoken", false), p.getBoolean("silent_speech", false), voiceAssetAvailable(context));
+        return UpdateAlertPolicy.channelId(p.getBoolean("spoken", true), p.getBoolean("silent_speech", true), voiceAssetAvailable(context));
     }
 
     public static void ensureChannels(Context context) {
@@ -186,9 +186,9 @@ public final class UpdateAlertManager {
                 .setContentIntent(open).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_STATUS).setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             if (Build.VERSION.SDK_INT < 26) {
-                boolean spoken = state.getBoolean("spoken", false) && voiceAssetAvailable(context);
+                boolean spoken = state.getBoolean("spoken", true) && voiceAssetAvailable(context);
                 Uri sound = spoken ? voiceUri(context) : RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                builder.setSound(sound, spoken && state.getBoolean("silent_speech", false) ? AudioManager.STREAM_ALARM : AudioManager.STREAM_NOTIFICATION);
+                builder.setSound(sound, spoken && state.getBoolean("silent_speech", true) ? AudioManager.STREAM_ALARM : AudioManager.STREAM_NOTIFICATION);
             }
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build());
             announcedBuilds.add(buildId);
@@ -200,6 +200,23 @@ public final class UpdateAlertManager {
             state.edit().putString("last_error", "Could not post update notification.").apply();
         }
         return false;
+    }
+
+    public static boolean testAlert(Context context) {
+        if (!enabled(context)) return false;
+        ensureChannels(context);
+        if (!notificationsGranted(context) || !NotificationManagerCompat.from(context).areNotificationsEnabled() || !channelEnabled(context)) return false;
+        try {
+            Intent launch = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent open = PendingIntent.getActivity(context, NOTIFICATION_ID + 1, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            NotificationCompat.Builder notification = new NotificationCompat.Builder(context, selectedChannel(context))
+                .setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle(appName(context) + " — alert sound test")
+                .setContentText("This is a test of your chosen update announcement. No update was installed.")
+                .setContentIntent(open).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH);
+            if (Build.VERSION.SDK_INT < 26) notification.setSound(prefs(context).getBoolean("spoken", true) ? voiceUri(context) : RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), prefs(context).getBoolean("silent_speech", true) ? AudioManager.STREAM_ALARM : AudioManager.STREAM_NOTIFICATION);
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID + 1, notification.build());
+            return true;
+        } catch (Exception ignored) { return false; }
     }
 
     public static String status(Context context) {
@@ -218,8 +235,8 @@ public final class UpdateAlertManager {
             boolean channelSoundEnabled = Build.VERSION.SDK_INT < 26 || (channel != null && channel.getSound() != null);
             boolean channelVoiceSoundSelected = Build.VERSION.SDK_INT < 26 || (channel != null && voiceUri(context).equals(channel.getSound()));
             boolean allowed = notificationsGranted(context) && NotificationManagerCompat.from(context).areNotificationsEnabled() && channelEnabled(context);
-            boolean spoken = p.getBoolean("spoken", false);
-            boolean inSilent = p.getBoolean("silent_speech", false);
+            boolean spoken = p.getBoolean("spoken", true);
+            boolean inSilent = p.getBoolean("silent_speech", true);
             result.put("supported", true);
             result.put("enabled", enabled(context));
             result.put("spokenEnabled", spoken);

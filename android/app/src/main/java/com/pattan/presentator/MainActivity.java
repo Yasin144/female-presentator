@@ -49,7 +49,7 @@ public class MainActivity extends BridgeActivity {
     private static final String OTA_PREF_NAME = "pattan_live_ota_prefs";
     private static final String OTA_JS_FILE = "pattan_live_ota_bundle.js";
     private static final String OTA_CSS_FILE = "pattan_live_ota_bundle.css";
-    static final String BUILTIN_OTA_VERSION = "8.2.33";
+    static final String BUILTIN_OTA_VERSION = "8.2.38";
 
     private static final String UDHAAR_OTA_PREF_NAME = "udhaar_standalone_ota_prefs";
     private static final String UDHAAR_OTA_JS_FILE = "udhaar_standalone_ota_bundle.js";
@@ -58,6 +58,7 @@ public class MainActivity extends BridgeActivity {
 
     private String pendingBioActionType = "in";
     private long lastRootBackPressMs = 0L;
+    private ReportFileBridge reportFileBridge;
 
     private boolean isUdhaarStandalonePackage() {
         try {
@@ -142,6 +143,8 @@ public class MainActivity extends BridgeActivity {
             wv.addJavascriptInterface(bioBridge, "PattanBiometric");
             wv.addJavascriptInterface(bioBridge, "PattanBiometricBridge");
             wv.addJavascriptInterface(new PattanSecureWhatsAppBridge(), "PattanSecureWhatsApp");
+            reportFileBridge = new ReportFileBridge(this, wv);
+            wv.addJavascriptInterface(reportFileBridge, "PattanReportFiles");
             if (isUdhaarStandalonePackage()) {
                 try {
                     wv.evaluateJavascript("window.__UDHAAR_ONLY_APK__ = true;", null);
@@ -359,6 +362,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (reportFileBridge != null && reportFileBridge.handleResult(requestCode, resultCode, data)) return;
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_DEVICE_CREDENTIAL) {
             if (resultCode == Activity.RESULT_OK) {
@@ -672,6 +676,11 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public boolean testUpdateAlert() {
+            return UpdateAlertManager.testAlert(getApplicationContext());
+        }
+
+        @JavascriptInterface
         public boolean notifyUpdateAvailable(final String version, final String buildId, final String notes) {
             return UpdateAlertManager.notifyAvailable(getApplicationContext(), version, buildId, notes);
         }
@@ -896,6 +905,11 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public boolean sendWhatsAppMessageToNumber(final String phoneE164, final String messageText) {
             return launchDirectWhatsAppMessage(phoneE164, messageText);
+        }
+
+        @JavascriptInterface
+        public boolean shareWhatsAppMessageToNumber(final String phoneE164, final String messageText) {
+            return launchWhatsAppTextShare(phoneE164, messageText);
         }
 
         @SuppressWarnings("deprecation")
@@ -1169,6 +1183,35 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean launchWhatsAppTextShare(final String phoneE164, final String messageText) {
+        // WhatsApp sometimes opens an existing chat without consuming a deep-link
+        // query after biometric authentication. ACTION_SEND supplies the complete
+        // text as an Android payload, independent of chat/deep-link restoration.
+        if (!WhatsAppTextPolicy.validMessage(messageText)) return false;
+        final String recipient = WhatsAppTextPolicy.recipient(phoneE164);
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            for (String appPackage : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, messageText)
+                    .putExtra(Intent.EXTRA_TITLE, "Time Is Money attendance report")
+                    .setPackage(appPackage);
+                try {
+                    startActivity(share);
+                    Toast.makeText(this, recipient.isEmpty()
+                        ? "Choose a WhatsApp contact, then review and send the full report."
+                        : "Choose +" + recipient + ", then review and send the full report.", Toast.LENGTH_LONG).show();
+                    return;
+                } catch (android.content.ActivityNotFoundException unavailable) {
+                    // Try Business only if regular WhatsApp is unavailable.
+                } catch (Exception blocked) { break; }
+            }
+            Toast.makeText(this, "Could not open WhatsApp. Return to the app and copy the full report.", Toast.LENGTH_LONG).show();
+        });
+        // This acknowledges a queued draft handoff, never message delivery.
+        return true;
     }
 
     private final class RecoveringWebViewClient extends BridgeWebViewClient {
