@@ -3,6 +3,7 @@ import { Download, Share2, X } from 'lucide-react';
 import { createExpenseReport, expenseMoney, expenseReportFilename, expenseReportText, expenseWhatsAppParts, expenseTableTsv, expenseFileSavingNeedsApk } from './expenseReport.js';
 import { openWhatsAppReport } from './whatsAppHandoff.js';
 import './ExpenseExportPanel.css';
+import { saveReportFile, savedReportNotice } from './reportFiles.js';
 
 export default function ExpenseExportPanel({ transactions, defaultDate, onClose }) {
   const dialog = useRef(null), textArea = useRef(null), excelTextArea = useRef(null);
@@ -34,13 +35,10 @@ export default function ExpenseExportPanel({ transactions, defaultDate, onClose 
     try {
       const { expenseExcelBuffer } = await import('./expenseExcel.js');
       const bytes = await expenseExcelBuffer(report);
-      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = expenseReportFilename(report);
-      document.body.appendChild(link); link.click(); link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setNotice('Excel file prepared and download requested. Check your Downloads.');
-    } catch (_) { setNotice('Could not prepare the Excel file. Try a smaller date range or retry.'); }
+      setNotice('Choose where to save your Excel workbook…');
+      const result = await saveReportFile(window, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', expenseReportFilename(report));
+      setNotice(savedReportNotice(result, 'Excel workbook'));
+    } catch (error) { setNotice(error.message || 'Could not prepare the Excel file. Try a smaller date range or retry.'); }
     finally { setBusy(false); }
   };
   const share = () => {
@@ -68,7 +66,7 @@ export default function ExpenseExportPanel({ transactions, defaultDate, onClose 
       <p>Completed paid expenses only. Income and refunds are excluded.</p>
       <label>Period<select aria-label="Expense export period" value={period} disabled={busy} onChange={e => setPeriod(e.target.value)}><option value="date">One date</option><option value="range">Date range</option><option value="all">All expenses</option></select></label>
       {period !== 'all' && <div className="expense-export-dates"><label>{period === 'date' ? 'Date' : 'From'}<input aria-label="Export from date" type="date" value={from} disabled={busy} onChange={e => setFrom(e.target.value)} /></label>{period === 'range' && <label>Through<input aria-label="Export through date" type="date" value={to} disabled={busy} onChange={e => setTo(e.target.value)} /></label>}</div>}
-      {result.error ? <p role="alert">{result.error}</p> : <div className="expense-export-total" aria-label="Selected expense totals"><span>{result.report.rows.length} expenses · {result.report.days.length} dates</span><strong>₹{expenseMoney(result.report.totalPaise)}</strong></div>}
+      {result.error ? <p role="alert">{result.error}</p> : <div className="expense-export-total" aria-label="Selected expense totals"><span>{result.report.rows.length} {result.report.rows.length === 1 ? 'expense' : 'expenses'} · {result.report.days.length} {result.report.days.length === 1 ? 'date' : 'dates'}</span><strong>₹{expenseMoney(result.report.totalPaise)}</strong></div>}
       {!result.error && !result.report.rows.length && <p>No completed expenses for these dates. Choose another date or range.</p>}
       <button className="expense-export-primary" type="button" disabled={!ready || nativeSaveUnavailable} onClick={download}><Download size={18} />{busy ? 'Preparing Excel…' : 'Download Excel (.xlsx)'}</button>
       {nativeSaveUnavailable && <p>Saving .xlsx directly on this Android app needs the signed APK update. Use Copy for Excel to paste your expense table into Excel now.</p>}

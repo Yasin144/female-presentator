@@ -1,10 +1,10 @@
 {
-  "version": "8.2.37",
-  "buildId": "ota_8_2_37_datewise_expense_exports",
-  "releasedAt": "2026-10-30T06:08:24.234Z",
-  "jsFile": "app-bundle-8.2.37.js",
-  "cssFile": "app-bundle-8.2.37.css",
-  "notes": "v8.2.37: Export completed expenses for one date, a date range or all dates. Prepare date-wise WhatsApp messages, copy a table for Excel, or download an Excel workbook in supported browsers. Direct Android .xlsx saving needs the signed APK update. Income and refunds are excluded; existing records and calculations are preserved.",
-  "jsSha256": "422de2c986e53523da22bf2ec09bbcd3ada9dced5f36e72853eaa2b992676f8c",
-  "cssSha256": "e48a4044cbe008d59fb64e5aedf01db5c7b27214567d730c3e7f1b1e16dbb6f6"
+  "version": "8.2.38",
+  "buildId": "ota_8_2_38_complete_reports",
+  "releasedAt": "2026-10-30T06:53:57.665Z",
+  "jsFile": "app-bundle-8.2.38.js",
+  "cssFile": "app-bundle-8.2.38.css",
+  "notes": "v8.2.38: Complete manual daily statements, clear full earnings and net receivable, consistent CSV/PDF/WhatsApp payslips and organized date-wise expense statements. Android file saving, background alerts, voice and silent-mode alarm audio require the matching signed APK upgrade. Existing records and salary calculations are preserved.",
+  "jsSha256": "24b63e9b56cf179298823b3ba39c0a02572130db1aec3ff4331d9cc0d0787885",
+  "cssSha256": "6ec00c03c5596ab76c459c1651becbf25ccc3d4ebd0e81aa37f1b71cfc09729d"
 }

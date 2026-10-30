@@ -36,20 +36,54 @@ export function createExpenseReport(transactions, { from = '', to = '' } = {}) {
     period: from && from === to ? from : from || to ? `${from || 'First saved date'} to ${to || 'Latest saved date'}` : 'All saved dates' };
 }
 
+export function expenseDateLabel(iso) {
+  return validExpenseDate(iso) ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : iso;
+}
+
+export function expenseTimeLabel(time) {
+  const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(time);
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return time;
+  const hour = Number(match[1]);
+  return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+
 export function expenseReportText(report) {
-  return ['*EXPENSES ONLY*', report.period, `${report.rows.length} expenses · Total ₹${expenseMoney(report.totalPaise)}`,
-    ...report.days.flatMap(day => ['', `*${day.date} · ₹${expenseMoney(day.paise)}*`, ...day.rows.map((row, i) =>
-      `${i + 1}. ${row.time ? `${row.time} · ` : ''}${row.merchant} — ₹${expenseMoney(row.paise)}\n${row.category} · ${row.method}${row.note ? `\nNote: ${row.note}` : ''}`)]),
-    '', 'Completed expenses only. Income and refunds excluded.'].join('\n');
+  const period = report.from && report.from === report.to ? expenseDateLabel(report.from)
+    : report.from || report.to ? `${report.from ? expenseDateLabel(report.from) : 'First saved date'}\n          to ${report.to ? expenseDateLabel(report.to) : 'Latest saved date'}` : 'All saved dates';
+  return ['*TIME IS MONEY*', '*EXPENSE STATEMENT*', '', `*${report.from && report.from === report.to ? 'Date' : 'Period'}:* ${period}`,
+    `*Total spent: ₹${expenseMoney(report.totalPaise)}*`, `${report.rows.length} ${report.rows.length === 1 ? 'payment' : 'payments'} · ${report.days.length} ${report.days.length === 1 ? 'day' : 'days'}`,
+    ...report.days.flatMap(day => ['', '────────────────────', `*${expenseDateLabel(day.date)}*`, '', ...day.rows.flatMap((row, i) => [
+      `${i + 1}. ${row.merchant}`, `   *₹${expenseMoney(row.paise)}*${row.time ? ` · ${expenseTimeLabel(row.time)}` : ''}`,
+      `   ${row.category} · ${row.method}`,
+      ...(row.note ? [`   Purpose: ${row.note.replace(/\r?\n/g, '\n   ')}`] : []),
+      ...(row.reference ? [`   Ref: ${row.reference}`] : []), '',
+    ]), `*Day total: ₹${expenseMoney(day.paise)}*`]),
+    '', '────────────────────', `*TOTAL EXPENSES: ₹${expenseMoney(report.totalPaise)}*`, '_Completed expenses only. Income and refunds excluded._'].join('\n');
 }
 
 export function expenseWhatsAppParts(text, limit = 2800) {
   if (!Number.isInteger(limit) || limit < 64 || limit > 3000) throw new Error('Invalid WhatsApp message size.');
   // Split on code points so emoji are not cut into invalid UTF-16 halves. No rows
   // or long notes are dropped. Each part is opened only by an explicit user tap.
-  const chars = Array.from(text);
   const parts = [];
-  for (let offset = 0; offset < chars.length; offset += limit) parts.push(chars.slice(offset, offset + limit).join(''));
+  let current = [], size = 0;
+  const flush = () => { if (size) parts.push(current.join('')); current = []; size = 0; };
+  const append = value => {
+    const chars = Array.from(value);
+    if (chars.length <= limit && size + chars.length > limit) flush();
+    for (let offset = 0; offset < chars.length;) {
+      const count = Math.min(limit - size, chars.length - offset);
+      current.push(chars.slice(offset, offset + count).join('')); size += count; offset += count;
+      if (size === limit) flush();
+    }
+  };
+  // Keep complete payment paragraphs together. Only unusually long notes need
+  // further splitting, first at line boundaries, then at Unicode code points.
+  for (const block of text.match(/[\s\S]+?(?:\n\n|$)/g) || []) {
+    if (Array.from(block).length <= limit) append(block);
+    else for (const line of block.match(/[^\n]*\n|[^\n]+$/g) || []) append(line);
+  }
+  flush();
   return parts.length <= 1 ? parts : parts.map((part, i) => `Expenses · Part ${i + 1}/${parts.length}\n${part}`);
 }
 
@@ -70,6 +104,6 @@ export function expenseTableTsv(report) {
 }
 
 export function expenseFileSavingNeedsApk(host) {
-  try { return host?.Capacitor?.getPlatform?.() === 'android' || /\bwv\b/.test(host?.navigator?.userAgent || ''); }
+  try { return typeof host?.PattanReportFiles?.beginSaveReportJson !== 'function' && (host?.Capacitor?.getPlatform?.() === 'android' || /\bwv\b/.test(host?.navigator?.userAgent || '')); }
   catch (_) { return true; }
 }

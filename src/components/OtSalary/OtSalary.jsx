@@ -45,6 +45,10 @@ import UpdateAlertsPanel from './UpdateAlertsPanel.jsx';
 import OtVoiceStatusPanel from './OtVoiceStatusPanel.jsx';
 import { formatOtClock } from './otDisplay.js';
 import { openWhatsAppReport } from './whatsAppHandoff.js';
+import { buildSalaryReport, salaryReportCsv, salaryReportText, buildDailyStatement } from './salaryReport.js';
+import { saveReportFile, savedReportNotice } from './reportFiles.js';
+import salaryPdfFontUrl from '/caption-fonts/Nunito-Regular.ttf?url';
+import PayslipSummary from './PayslipSummary.jsx';
 import WhatsAppReportRecovery from './WhatsAppReportRecovery.jsx';
 import './WhatsAppReportRecovery.css';
 import LiveOtWorkspace, { LiveOtSummary } from './LiveOtWorkspace.jsx';
@@ -65,7 +69,6 @@ import {
   setWhatsAppAutoSendEnabled,
   configureNativeWhatsAppRelay,
   retryFailedDailyStatement,
-  resendDailyStatementWithConfirmation,
 } from '../../../frontend/ot-whatsapp-after-out.js';
 
 class ExpensesSectionBoundary extends React.Component {
@@ -1291,6 +1294,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
   const [settings, setSettings] = useState(initialStore.settings);
   const [preparedWhatsAppReport, setPreparedWhatsAppReport] = useState(null);
+  const [salaryExportBusy, setSalaryExportBusy] = useState(false);
+  const [salaryExportNotice, setSalaryExportNotice] = useState('');
   useEffect(() => { setPreparedWhatsAppReport(null); }, [activeAccountEmail]);
   const [daysMap, setDaysMap] = useState(initialStore.days);
   const [expensesMap, setExpensesMap] = useState(initialStore.expenses || {});
@@ -4035,65 +4040,31 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     persistStore(settings, nextDays, `Saved all ${monthRows.length} days for ${selectedMonth}`);
   };
 
-  const exportMonthCsv = () => {
-    const headers = [
-      'Date',
-      'Day',
-      'Saved',
-      'Status',
-      'Enter Time',
-      'Exit Time',
-      'Biometric IN Sensor',
-      'Biometric OUT Sensor',
-      'Total Worked Time',
-      'Extra OT Time',
-      'Extra OT Hours (Decimal)',
-      'Base Day Salary (INR)',
-      'Extra OT Pay (INR)',
-      'Extra Bonus (INR)',
-      'Total Day Salary (INR)',
-      'Notes',
-    ];
-    const lines = [headers.join(',')];
-    for (const row of monthRows) {
-      const r = row.record;
-      const e = row.earnings;
-      const cols = [
-        row.iso,
-        row.dayName,
-        row.isSaved ? 'YES' : 'NO',
-        r.status,
-        formatTime12h(r.inTime),
-        formatTime12h(r.outTime),
-        r.biometricIn ? 'VERIFIED' : 'NO',
-        r.biometricOut ? 'VERIFIED' : 'NO',
-        `"${formatMinutesReadable(e.workedMins)}"`,
-        `"${formatMinutesReadable(e.otMins)}"`,
-        e.otHours.toFixed(2),
-        e.basePay.toFixed(2),
-        e.otPay.toFixed(2),
-        e.extraAllowance.toFixed(2),
-        e.totalPay.toFixed(2),
-        `"${String(r.note || '').replace(/"/g, '""')}"`,
-      ];
-      lines.push(cols.join(','));
-    }
-    lines.push('');
-    lines.push(`"Employee Name","${normalizeEmployeeName(settings.employeeName).replace(/"/g, '""')}"`);
-    lines.push(`"Monthly Base Salary",${rates.salary.toFixed(2)}`);
-    lines.push(`"Total Extra OT Time","${formatMinutesReadable(monthSummary.totalOtMins)}"`);
-    lines.push(`"Total Extra OT Money",${monthSummary.totalOtPay.toFixed(2)}`);
-    lines.push(`"Biometric Verified Days",${monthSummary.biometricBothCount}`);
-    lines.push(`"Leave Deductions",${monthSummary.leaveDeduction.toFixed(2)}`);
-    lines.push(`"Final Total Salary Receivable",${monthSummary.fullMonthNetPayable.toFixed(2)}`);
+  const getCurrentSalaryReport = () => buildSalaryReport({
+    month: selectedMonth, employee: normalizeEmployeeName(settings.employeeName), rates,
+    summary: monthSummary, rows: monthRows, cycles: creditCycles, expenses: expenseQuickStats.spent,
+  });
 
-    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `OT-Salary-Report-${selectedMonth}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportMonthCsv = async () => {
+    if (salaryExportBusy) return;
+    setSalaryExportBusy(true); setSalaryExportNotice('Choose where to save your CSV report…');
+    try {
+      const report = getCurrentSalaryReport();
+      const result = await saveReportFile(window, salaryReportCsv(report), 'text/csv;charset=utf-8', 'Time-Is-Money-Payslip-' + report.month + '.csv');
+      setSalaryExportNotice(savedReportNotice(result, 'Payslip CSV'));
+    } catch (error) { setSalaryExportNotice(error.message || 'Could not export CSV.'); }
+    finally { setSalaryExportBusy(false); }
+  };
+
+  const resendTodayStatement = () => {
+    const today = getTodayIsoDate(), record = daysMap[today];
+    try {
+      const text = buildDailyStatement({ date: today, record, employee: normalizeEmployeeName(settings.employeeName),
+        calculation: record ? computeDayEarnings(record) : {}, transactions: expensesMapRef.current || {} });
+      const result = openWhatsAppReport(window, '917386726193', text);
+      setPreparedWhatsAppReport({ direction: 'daily statement', phone: '917386726193', text, status: result.status });
+      setSaveNotice(result.status === 'failed' ? 'WhatsApp could not open. Copy the complete statement shown above.' : 'Today’s statement is ready in WhatsApp. Review and tap Send.');
+    } catch (error) { setSaveNotice(error.message || 'Could not prepare today’s statement.'); }
   };
 
   // Send WhatsApp Attendance (IN / OUT) & Payment Details to +91 7386726193
@@ -4731,40 +4702,15 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     });
   };
 
-  const buildSalarySummaryText = () => {
-    const lines = [
-      `📊 *OT & Salary Report (${selectedMonth})*`,
-      `👤 *Employee: ${normalizeEmployeeName(settings.employeeName)} (${activeAccountEmail})*`,
-      `• Base Salary: ₹${formatINR(rates.salary)} (₹${formatINR(rates.perDaySalary)}/day)`,
-      `• Salary Credit Cycle: ${creditCycles.salaryStartDay}–${creditCycles.salaryEndDay} of every month (${creditCycles.salaryWindowLabel})`,
-      `• OT Payment Credit Cycle: ${creditCycles.otStartDay}–${creditCycles.otEndDay} of every month (${creditCycles.otWindowLabel})`,
-      `• Office Shift: ${formatTime12h(settings.officeStartTime)} – ${formatTime12h(settings.officeEndTime)} (${formatMinutesReadable(rates.shiftMins)})`,
-      `• Extra OT Worked: ${formatMinutesReadable(monthSummary.totalOtMins)} (${monthSummary.otDaysCount} days)`,
-      `• Extra OT Earned: +₹${formatINR(monthSummary.totalOtPay + monthSummary.totalExtraAllowance)}`,
-      `• Biometric Sensor Verified: ${monthSummary.biometricBothCount} days (In & Out)`,
-      monthSummary.leaveDeduction > 0 ? `• Leave Deduction: -₹${formatINR(monthSummary.leaveDeduction)}` : null,
-      `💰 *Net Salary Receivable: ₹${formatINR(monthSummary.fullMonthNetPayable)}*`,
-      '',
-      `📅 *Today / Selected (${selectedDate}):*`,
-      `• Enter: ${formatTime12h(entryInTime)} ${entryBiometricIn ? '(🫆 Bio IN ✓)' : ''} → Exit: ${formatTime12h(entryOutTime)} ${entryBiometricOut ? '(🫆 Bio OUT ✓)' : ''}`,
-      `• Worked: ${formatMinutesReadable(activeDayPreview.workedMins)} (OT: +${formatMinutesCompact(activeDayPreview.otMins)})`,
-      `• Day Total: ₹${formatINR(activeDayPreview.totalPay)}`,
-    ].filter(Boolean);
-    return lines.join('\n');
-  };
+  const buildSalarySummaryText = () => salaryReportText(getCurrentSalaryReport());
 
-  const shareSalarySummaryOnWhatsApp = async () => {
-    const text = buildSalarySummaryText();
+  const shareSalarySummaryOnWhatsApp = () => {
     try {
-      if (navigator.share) {
-        await navigator.share({ title: `OT & Salary Report (${selectedMonth})`, text });
-        return;
-      }
-    } catch {
-      // Fall back to WhatsApp URL
-    }
-    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
+      const text = buildSalarySummaryText();
+      const result = openWhatsAppReport(window, 'PICK_CONTACT', text);
+      setPreparedWhatsAppReport({ direction: 'monthly payslip', phone: 'PICK_CONTACT', text, status: result.status });
+      setSalaryExportNotice(result.status === 'failed' ? 'WhatsApp could not open. Copy the payslip from the prepared report above.' : 'Choose your recipient in WhatsApp. Review the payslip before sending.');
+    } catch (error) { setSalaryExportNotice(error.message || 'Could not prepare the payslip.'); }
   };
 
   const downloadStandaloneMobileApp = () => {
@@ -4842,7 +4788,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     }
   };
 
-  const exportBackupJson = () => {
+  const exportBackupJson = async () => {
     const payload = JSON.stringify({
       email: activeAccountEmail,
       settings,
@@ -4850,13 +4796,10 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
       expenses: expensesMap,
       exportedAt: new Date().toISOString(),
     }, null, 2);
-    const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `OT-Salary-Backup-${selectedMonth}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const result = await saveReportFile(window, payload, 'application/json', `OT-Salary-Backup-${selectedMonth}.json`);
+      setSaveNotice(savedReportNotice(result, 'Backup'));
+    } catch (error) { setSaveNotice(error.message || 'Could not save the backup.'); }
   };
 
   const importBackupJson = (event) => {
@@ -4886,13 +4829,20 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
     event.target.value = '';
   };
 
-  const printMonthSalarySlip = () => {
+  const printMonthSalarySlip = async () => {
+    if (salaryExportBusy) return;
+    setSalaryExportBusy(true); setSalaryExportNotice('Preparing your PDF payslip…');
     try {
-      if (typeof window !== 'undefined' && typeof window.print === 'function') {
-        window.print();
-        setSaveNotice(`🖨️ Opened Salary Slip Print / PDF (${selectedMonth})`);
-      }
-    } catch (_) {}
+      const report = getCurrentSalaryReport();
+      const { salaryReportPdf } = await import('./salaryReportPdf.js');
+      const response = await fetch(salaryPdfFontUrl);
+      if (!response.ok) throw new Error('Could not load the payslip font. Please retry.');
+      const bytes = await salaryReportPdf(report, await response.arrayBuffer());
+      setSalaryExportNotice('Choose where to save your PDF payslip…');
+      const result = await saveReportFile(window, bytes, 'application/pdf', 'Time-Is-Money-Payslip-' + report.month + '.pdf');
+      setSalaryExportNotice(savedReportNotice(result, 'Payslip PDF'));
+    } catch (error) { setSalaryExportNotice(error.message || 'Could not prepare PDF.'); }
+    finally { setSalaryExportBusy(false); }
   };
 
   const expenseQuickStats = useMemo(() => {
@@ -6094,7 +6044,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
             report={preparedWhatsAppReport}
             onDismiss={() => setPreparedWhatsAppReport(null)}
             onRetry={() => {
-              const result = openWhatsAppReport(window, '917386726193', preparedWhatsAppReport.text);
+              const result = openWhatsAppReport(window, preparedWhatsAppReport.phone || '917386726193', preparedWhatsAppReport.text);
               setPreparedWhatsAppReport((report) => report && { ...report, status: result.status });
             }}
           />
@@ -8326,7 +8276,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               </div>
 
               {/* 🏦 Interactive Add Date: Salary & OT Payment Credit Cycle inside Slip Tab */}
-              <div style={{
+              <details className="payslip-payment-dates" style={{
                 padding: '12px',
                 borderRadius: 16,
                 background: ui.cardBg,
@@ -8335,6 +8285,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 flexDirection: 'column',
                 gap: 10,
               }}>
+<summary>Salary and overtime payment dates</summary>
                 <div style={{ fontSize: 12.5, fontWeight: 900, color: ui.textPrimary }}>
                   🏦 Add Date: Salary &amp; OT Payment Credit Cycle
                 </div>
@@ -8503,7 +8454,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     </button>
                   </div>
                 </div>
-              </div>
+              </details>
                 </>
               )}
             </div>
@@ -8549,6 +8500,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
               {!collapsedOtSections.sec_slip_details && (
                 <>
               {/* Structured Key-Value Rows */}
+              <PayslipSummary report={getCurrentSalaryReport()} formatMoney={formatSalaryMask} />
+              <details className="payslip-details"><summary>Employee and attendance details</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
                   { label: 'Employee Name', value: displayProfileName, color: ui.textPrimary, isSalary: false },
@@ -8597,63 +8550,14 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                 ))}
               </div>
 
-              {/* Green Highlight Card: Net Salary Receivable */}
-              <div style={{
-                marginTop: 14,
-                padding: '14px 16px',
-                borderRadius: 16,
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.12))',
-                border: '1px solid rgba(52, 211, 153, 0.5)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>Net Salary Receivable</span>
-                    {renderSalaryEyeButton(true)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
-                    Salary: {creditCycles.salaryStartDay}–{creditCycles.salaryEndDay} · OT: {creditCycles.otStartDay}–{creditCycles.otEndDay} of every month
-                  </div>
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 950, color: '#10b981' }}>
-                  {formatSalaryMask(monthSummary.fullMonthNetPayable)}
-                </div>
-              </div>
-
-              {/* Blue Highlight Card: Month Expenses Tracked Separately (Never cuts spent amount from Salary!) */}
-              <div style={{
-                marginTop: 10,
-                padding: '14px 16px',
-                borderRadius: 16,
-                background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(124, 58, 237, 0.14))',
-                border: '1px solid rgba(96, 165, 250, 0.45)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>Full Salary (Not Cut by Expenses)</span>
-                    {renderSalaryEyeButton(true)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: ui.textSecondary }}>
-                    Tracked Month Spend: ₹{formatINR(expenseQuickStats.spent)} ({expenseQuickStats.count} txns)
-                  </div>
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 950, color: isLight ? '#1d4ed8' : '#93c5fd' }}>
-                  {formatSalaryMask(monthSummary.fullMonthNetPayable)}
-                </div>
-              </div>
+              </details>
 
               {/* Bottom Action Buttons: Download CSV, Print PDF Slip & Share Slip */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16 }}>
                 <button
                   type="button"
                   onClick={exportMonthCsv}
+                  disabled={salaryExportBusy}
                   style={{
                     padding: '12px 8px',
                     borderRadius: 14,
@@ -8665,11 +8569,12 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     cursor: 'pointer',
                   }}
                 >
-                  📥 CSV
+                  Download CSV
                 </button>
                 <button
                   type="button"
                   onClick={printMonthSalarySlip}
+                  disabled={salaryExportBusy}
                   style={{
                     padding: '12px 8px',
                     borderRadius: 14,
@@ -8681,7 +8586,7 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     cursor: 'pointer',
                   }}
                 >
-                  🖨️ Print / PDF
+                  Download PDF
                 </button>
                 <button
                   type="button"
@@ -8697,9 +8602,11 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
                     cursor: 'pointer',
                   }}
                 >
-                  💬 Share
+                  Share payslip
                 </button>
               </div>
+              {salaryExportNotice && <p role="status" style={{ fontSize: 13, lineHeight: 1.5, marginTop: 10 }}>{salaryExportNotice}</p>}
+              <p className="time-money-muted">Net receivable is full earnings minus leave deductions. Personal expenses and payment credits are tracked separately.</p>
                 </>
               )}
             </div>
@@ -9341,34 +9248,8 @@ export default function OtSalary({ onClose, standaloneMobile = false, initialTab
 
                 <button
                   type="button"
-                  onClick={async () => {
-                    const todayIso = getTodayIsoDate();
-                    const rec = daysMap[todayIso] || {
-                      date: todayIso,
-                      status: entryStatus,
-                      inTime: entryInTime,
-                      outTime: entryOutTime,
-                      extraAllowance: entryBonus,
-                    };
-                    const calc = computeDayEarnings(rec);
-                    const confirmed = window.confirm(
-                      `Resend daily attendance & pay statement for ${todayIso} to +91 7386726193?`
-                    );
-                    if (!confirmed) return;
-                    const res = await resendDailyStatementWithConfirmation({
-                      date: todayIso,
-                      record: rec,
-                      settings,
-                      rates,
-                      calculation: calc,
-                      userConfirmed: true,
-                    });
-                    if (res.ok) {
-                      setSaveNotice(`✓ Resent daily statement (${res.status})`);
-                    } else {
-                      setSaveNotice(`⚠️ ${res.error || 'Could not resend statement'}`);
-                    }
-                  }}
+                  onClick={resendTodayStatement}
+
                   style={{
                     padding: '8px 12px',
                     borderRadius: 10,

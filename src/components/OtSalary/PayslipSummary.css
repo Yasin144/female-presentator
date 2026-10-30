@@ -1,0 +1,14 @@
+.payslip-summary { margin: 4px 0 16px; }
+.payslip-summary-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.payslip-summary-totals > div { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid rgba(96,165,250,.4); border-radius: 16px; background: rgba(59,130,246,.08); min-width: 0; }
+.payslip-summary-totals .payslip-summary-net { border-color: rgba(16,185,129,.5); background: rgba(16,185,129,.12); }
+.payslip-summary-totals span { font-size: 13px; font-weight: 800; }
+.payslip-summary-totals strong { font-size: clamp(19px, 4.8vw, 27px); font-weight: 900; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.payslip-summary-totals small, .payslip-summary > p { font-size: 12px; opacity: .8; line-height: 1.5; }
+.payslip-summary dl { margin: 14px 0 0; }
+.payslip-summary dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,.18); font-size: 13px; }
+.payslip-summary dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.payslip-details { margin: 12px 0; }
+.payslip-details > summary, .payslip-payment-dates > summary { cursor: pointer; padding: 8px 0; font-size: 13px; font-weight: 800; }
+.payslip-details[open] > summary { margin-bottom: 10px; }
+@media (max-width: 359px) { .payslip-summary-totals { grid-template-columns: 1fr; } }

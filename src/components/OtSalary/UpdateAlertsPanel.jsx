@@ -1,14 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BellRing, Volume2, Moon, Settings2, RefreshCw, ShieldCheck } from 'lucide-react';
 import './UpdateAlerts.css';
-
-const readBridgeStatus = () => {
-  const bridge = window.PattanBiometric;
-  if (typeof bridge?.getUpdateAlertStatusJson !== 'function') return { supported: false };
-  const value = JSON.parse(bridge.getUpdateAlertStatusJson());
-  if (!value || typeof value !== 'object') throw new Error('Android returned an invalid alert status.');
-  return value;
-};
+import { readUpdateAlertStatus, updateAlertBridge } from './updateAlertBridge.js';
 
 export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
   const [status, setStatus] = useState({ supported: false });
@@ -19,7 +12,7 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
   const [permissionWatchUntil, setPermissionWatchUntil] = useState(0);
   const refresh = useCallback(() => {
     try {
-      const value = readBridgeStatus();
+      const value = readUpdateAlertStatus(window);
       setStatus(value);
       setBridgeError('');
       return value;
@@ -78,7 +71,7 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
     setBusy(true);
     setNotice('');
     try {
-      const value = window.PattanBiometric.configureUpdateAlerts(
+      const value = updateAlertBridge(window, 'configureUpdateAlerts').configureUpdateAlerts(
         Boolean(next.enabled), Boolean(next.spokenEnabled), Boolean(next.speakInSilent)
       );
       const saved = JSON.parse(value);
@@ -95,7 +88,8 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
   const invoke = (method, message) => {
     try {
       const previousCheck = Number(status.lastCheckedAt) || 0;
-      if (typeof window.PattanBiometric?.[method] !== 'function' || !window.PattanBiometric[method]()) throw new Error('Android could not open this action.');
+      const bridge = updateAlertBridge(window, method);
+      if (!bridge || !bridge[method]()) throw new Error('Android could not complete this action. Check notification permission and channel settings.');
       setNotice(message);
       refresh();
       if (method === 'checkUpdateAlertsNow') watchCheck(previousCheck);
@@ -112,7 +106,7 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
         <div><BellRing size={19} aria-hidden="true" /><h2 id="time-money-alerts-title">Updates &amp; voice alerts</h2></div>
         <span className="time-money-status">{!supported ? androidApp ? 'APK update required' : 'Android app required' : allowed ? 'Notifications allowed' : 'Needs attention'}</span>
       </div>
-      {!supported && <p className="time-money-muted">Install the updated Android APK to enable background delivery and spoken update alerts.</p>}
+      {!supported && <p className="time-money-muted">This installed APK does not contain the Android alert service. Install the signed APK update to enable these controls. A web update alone cannot add screen-off speech.</p>}
       <label className="time-money-setting-row">
         <span><BellRing size={18} aria-hidden="true" /><span>Background update alerts</span></span>
         <input type="checkbox" role="switch" checked={Boolean(status.enabled)} disabled={!supported || busy} onChange={e => configure({ ...status, enabled: e.target.checked })} />
@@ -126,6 +120,9 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
         <input type="checkbox" role="switch" checked={Boolean(status.speakInSilent)} disabled={!supported || !status.enabled || !status.spokenEnabled || busy} onChange={e => configure({ ...status, speakInSilent: e.target.checked })} />
       </label>
       <p className="time-money-muted">Do Not Disturb and system volume remain under your control. Android and battery restrictions can delay background checks.</p>
+      {supported && (!status.enabled || !status.spokenEnabled || !status.speakInSilent) && <button type="button" disabled={busy} onClick={() => configure({ enabled: true, spokenEnabled: true, speakInSilent: true })}>Enable background, voice &amp; silent-mode alerts</button>}
+      {supported && status.spokenEnabled && status.speakInSilent && Number(status.alarmVolume) === 0 && <p role="alert">Alarm volume is zero. Raise the phone’s alarm volume to hear spoken updates in silent mode.</p>}
+      {supported && status.spokenEnabled && (!status.channelSoundEnabled || !status.channelVoiceSoundSelected) && <p role="alert">The selected update channel has no announcement sound. Open Android settings below to review this channel.</p>}
       {supported && (
         <dl className="time-money-alert-status">
           <div><dt>Background check</dt><dd>{status.enabled ? `About every ${status.checkIntervalMinutes || 15} minutes` : 'Off'}</dd></div>
@@ -138,6 +135,7 @@ export default function UpdateAlertsPanel({ appName = 'Time Is Money' }) {
       <div className="time-money-alert-actions">
         <button type="button" disabled={!supported || busy} onClick={() => invoke('openUpdateNotificationSettings', 'Review the update notification channel sound in Android settings.')}><Settings2 size={16} aria-hidden="true" />Android settings</button>
         <button type="button" disabled={!supported || !status.enabled || busy || Boolean(pendingCheck)} onClick={() => invoke('checkUpdateAlertsNow', `Checking for ${appName} updates in the background.`)}><RefreshCw size={16} aria-hidden="true" />{pendingCheck ? 'Check queued' : 'Check now'}</button>
+        <button type="button" disabled={!supported || !status.enabled || !allowed || busy || !updateAlertBridge(window, 'testUpdateAlert')} onClick={() => invoke('testUpdateAlert', 'Test notification posted using your chosen update sound. Check the notification shade and listen for the announcement.')}><Volume2 size={16} aria-hidden="true" />Test update alert</button>
       </div>
       {notice && <p className="time-money-alert-notice" role="status">{notice}</p>}
       {(bridgeError || status.lastCheckError) && <p className="time-money-alert-notice" role="alert">{bridgeError || status.lastCheckError}</p>}

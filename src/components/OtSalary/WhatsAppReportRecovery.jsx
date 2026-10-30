@@ -19,7 +19,7 @@ export default function WhatsAppReportRecovery({ report, onRetry, onDismiss }) {
         <strong>WhatsApp report ready</strong>
         <button type="button" onClick={onDismiss} aria-label="Dismiss prepared WhatsApp report">×</button>
       </div>
-      <p>{report.status === 'failed' ? 'WhatsApp could not open. ' : ''}Review and send to +91 7386726193 in WhatsApp. If its message box is empty, copy the full report below.</p>
+      <p>{report.status === 'failed' ? 'WhatsApp could not open. ' : ''}{report.phone === 'PICK_CONTACT' ? 'Choose your recipient, then review and send in WhatsApp.' : 'Review and send to +91 7386726193 in WhatsApp.'} If its message box is empty, copy the full report below.</p>
       <details>
         <summary>View full {report.direction.toUpperCase()} report · {report.text.length} characters</summary>
         <textarea ref={textRef} readOnly value={report.text} aria-label="Full WhatsApp attendance report" />

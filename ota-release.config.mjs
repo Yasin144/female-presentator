@@ -1,9 +1,9 @@
 export const OTA_RELEASES = Object.freeze([
   Object.freeze({
-    mode: 'salary', directory: 'ota', version: '8.2.37',
-    buildId: 'ota_8_2_37_datewise_expense_exports',
-    bundleName: 'app-bundle-8.2.37', manifestFile: 'ota-manifest.json',
-    notes: 'v8.2.37: Export completed expenses for one date, a date range or all dates. Prepare date-wise WhatsApp messages, copy a table for Excel, or download an Excel workbook in supported browsers. Direct Android .xlsx saving needs the signed APK update. Income and refunds are excluded; existing records and calculations are preserved.',
+    mode: 'salary', directory: 'ota', version: '8.2.38',
+    buildId: 'ota_8_2_38_complete_reports',
+    bundleName: 'app-bundle-8.2.38', manifestFile: 'ota-manifest.json',
+    notes: 'v8.2.38: Complete manual daily statements, clear full earnings and net receivable, consistent CSV/PDF/WhatsApp payslips and organized date-wise expense statements. Android file saving, background alerts, voice and silent-mode alarm audio require the matching signed APK upgrade. Existing records and salary calculations are preserved.',
   }),
   Object.freeze({
     mode: 'udhaar', directory: 'ota-udhaar', version: '1.0.11',
